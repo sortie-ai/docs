@@ -2,7 +2,7 @@
 
 Source for [docs.sortie-ai.com](https://docs.sortie-ai.com).
 
-Built with [MkDocs Material](https://squidfunk.github.io/mkdocs-material/),
+Built with [mkdocs-shadcn](https://asiffer.github.io/mkdocs-shadcn/ ),
 deployed to [Cloudflare Workers](https://developers.cloudflare.com/workers/).
 
 ## Local development
