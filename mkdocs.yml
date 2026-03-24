@@ -10,63 +10,27 @@ repo_name: sortie-ai/sortie
 edit_uri: ""
 
 theme:
-  name: material
-  palette:
-    - media: "(prefers-color-scheme: light)"
-      scheme: default
-      primary: deep purple
-      accent: amber
-      toggle:
-        icon: material/brightness-7
-        name: Switch to dark mode
-    - media: "(prefers-color-scheme: dark)"
-      scheme: slate
-      primary: deep purple
-      accent: amber
-      toggle:
-        icon: material/brightness-4
-        name: Switch to light mode
-  font:
-    text: Inter
-    code: JetBrains Mono
-  features:
-    - navigation.instant
-    - navigation.tabs
-    - navigation.sections
-    - navigation.top
-    - navigation.footer
-    - search.suggest
-    - search.highlight
-    - content.code.copy
-    - content.code.annotate
-    - toc.follow
-  icon:
-    repo: fontawesome/brands/github
+  name: shadcn
+  show_title: true
+  show_stargazers: true
+  topbar_sections: true
+  show_datetime: true
+  pygments_style:
+    light: shadcn-light
+    dark: github-dark
 
 markdown_extensions:
+  - codehilite
+  - fenced_code
   - admonition
-  - pymdownx.details
-  - pymdownx.superfences:
-      custom_fences:
-        - name: mermaid
-          class: mermaid
-          format: !!python/name:pymdownx.superfences.fence_code_format
-  - pymdownx.highlight:
-      anchor_linenums: true
-  - pymdownx.inlinehilite
-  - pymdownx.tabbed:
-      alternate_style: true
-  - pymdownx.snippets
-  - pymdownx.mark
-  - pymdownx.critic
   - attr_list
-  - md_in_html
+  - footnotes
   - tables
   - toc:
       permalink: true
-  - pymdownx.emoji:
-      emoji_index: !!python/name:material.extensions.emoji.twemoji
-      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.details
 
 plugins:
   - search
@@ -86,30 +50,39 @@ nav:
   # - Contributing: contributing.md
   - Change Log: changelog.md
 
-extra:
-  social:
-    - icon: fontawesome/brands/github
-      link: https://github.com/sortie-ai/sortie
-  analytics:
-    provider: google
-    property: G-58VR448EJK
-    feedback:
-      title: Was this page helpful?
-      ratings:
-        - icon: material/emoticon-happy-outline
-          name: This page was helpful
-          data: 1
-        - icon: material/emoticon-sad-outline
-          name: This page could be improved
-          data: 0
-          note: >-
-            Thanks for your feedback! Help us improve this page by
-            <a href="https://github.com/sortie-ai/sortie/issues/new"
-               target="_blank" rel="noopener">opening an issue</a>.
-  consent:
-    title: Cookie consent
-    description: >-
-      We use cookies to recognize your repeated visits and preferences, as
-      well as to measure the effectiveness of our documentation and whether
-      users find what they're searching for. With your consent, you're
-      helping us make our documentation better.
+extra_css:
+  - https://cdn.jsdelivr.net/gh/orestbida/cookieconsent@3.1.0/dist/cookieconsent.css
+
+extra_javascript:
+  - https://www.googletagmanager.com/gtag/js?id=G-58VR448EJK
+  - https://cdn.jsdelivr.net/gh/orestbida/cookieconsent@3.1.0/dist/cookieconsent.umd.js
+  - javascripts/cookieconsent-config.js
+  - javascripts/feedback.js
+
+# extra:
+#   social:
+#     - icon: fontawesome/brands/github
+#       link: https://github.com/sortie-ai/sortie
+#   analytics:
+#     provider: google
+#     property: G-58VR448EJK
+#     feedback:
+#       title: Was this page helpful?
+#       ratings:
+#         - icon: material/emoticon-happy-outline
+#           name: This page was helpful
+#           data: 1
+#         - icon: material/emoticon-sad-outline
+#           name: This page could be improved
+#           data: 0
+#           note: >-
+#             Thanks for your feedback! Help us improve this page by
+#             <a href="https://github.com/sortie-ai/sortie/issues/new"
+#                target="_blank" rel="noopener">opening an issue</a>.
+#   consent:
+#     title: Cookie consent
+#     description: >-
+#       We use cookies to recognize your repeated visits and preferences, as
+#       well as to measure the effectiveness of our documentation and whether
+#       users find what they're searching for. With your consent, you're
+#       helping us make our documentation better.
