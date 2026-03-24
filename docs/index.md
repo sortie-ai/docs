@@ -58,3 +58,4 @@ states. Changes to the workflow are applied without restart.
 
 - [Quick Start](getting-started/quick-start.md) — dispatch your first agent session
 - [GitHub repository](https://github.com/sortie-ai/sortie) — source code
+- [Contributing](https://github.com/sortie-ai/sortie/blob/main/CONTRIBUTING.md) — how to contribute to Sortie
