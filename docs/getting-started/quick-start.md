@@ -32,7 +32,7 @@ Create a file called `issues.json` in an empty directory:
 mkdir sortie-demo && cd sortie-demo
 ```
 
-```json title="issues.json"
+```json
 [
   {
     "id": "1",
@@ -59,7 +59,7 @@ This is the same shape Sortie gets from Jira. The file adapter reads it directly
 
 Create `WORKFLOW.md` in the same directory:
 
-```markdown title="WORKFLOW.md"
+```markdown
 ---
 tracker:
   kind: file
