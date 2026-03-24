@@ -97,22 +97,25 @@ Retry attempt {{ .attempt }}. Check previous failure before proceeding.
 
 Issue tracker connection and query settings.
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `kind` | string | *(required)* | Adapter identifier. `"jira"` or `"file"`. |
-| `endpoint` | string | adapter-defined | Tracker API base URL. |
-| `api_key` | string | *(required for Jira)* | API authentication token. |
-| `project` | string | *(required for Jira)* | Project key (e.g., `PLATFORM`). |
-| `active_states` | list of strings | `[]` | Issue states eligible for dispatch. |
-| `terminal_states` | list of strings | `[]` | Issue states that trigger workspace cleanup. |
-| `query_filter` | string | `""` | Query fragment appended to tracker queries. For Jira: a JQL expression. |
-| `handoff_state` | string | *(absent)* | Target state after a successful agent run. Omit to disable handoff. |
+| Field             | Type            | Default               | Description                                                             |
+| ----------------- | --------------- | --------------------- | ----------------------------------------------------------------------- |
+| `kind`            | string          | _(required)_          | Adapter identifier. `"jira"` or `"file"`.                               |
+| `endpoint`        | string          | adapter-defined       | Tracker API base URL.                                                   |
+| `api_key`         | string          | _(required for Jira)_ | API authentication token.                                               |
+| `project`         | string          | _(required for Jira)_ | Project key (e.g., `PLATFORM`).                                         |
+| `active_states`   | list of strings | `[]`                  | Issue states eligible for dispatch.                                     |
+| `terminal_states` | list of strings | `[]`                  | Issue states that trigger workspace cleanup.                            |
+| `query_filter`    | string          | `""`                  | Query fragment appended to tracker queries. For Jira: a JQL expression. |
+| `handoff_state`   | string          | _(absent)_            | Target state after a successful agent run. Omit to disable handoff.     |
 
-> **Tip:** `endpoint`, `api_key`, `project`, and `handoff_state` support `$VAR` environment variable expansion. `api_key` expands `$VAR` references anywhere in the string. The other fields expand the entire value only when it starts with `$`.
+!!! tip
+    `endpoint`, `api_key`, `project`, and `handoff_state` support `$VAR` environment variable expansion. `api_key` expands `$VAR` references anywhere in the string. The other fields expand the entire value only when it starts with `$`.
 
-> **Warning:** At least one of `active_states` or `terminal_states` must be non-empty. If both are empty, Sortie refuses to start. An empty `active_states` with non-empty `terminal_states` is valid but means no issues will be dispatched.
+!!! warning
+    At least one of `active_states` or `terminal_states` must be non-empty. If both are empty, Sortie refuses to start. An empty `active_states` with non-empty `terminal_states` is valid but means no issues will be dispatched.
 
-> **Warning:** `handoff_state` must not appear in `active_states` (causes immediate re-dispatch) or `terminal_states` (handoff is not terminal). Jira handoff requires write permissions on the API token.
+!!! warning
+    `handoff_state` must not appear in `active_states` (causes immediate re-dispatch) or `terminal_states` (handoff is not terminal). Jira handoff requires write permissions on the API token.
 
 **Example: Jira**
 
@@ -146,15 +149,15 @@ file:
 
 Poll loop timing.
 
-| Field | Type | Default | Description |
-|---|---|---|---|
+| Field         | Type    | Default | Description                       |
+| ------------- | ------- | ------- | --------------------------------- |
 | `interval_ms` | integer | `30000` | Milliseconds between poll cycles. |
 
 Changes to `interval_ms` take effect on the next tick without restart.
 
 ```yaml
 polling:
-  interval_ms: 60000   # Poll every minute
+  interval_ms: 60000 # Poll every minute
 ```
 
 ---
@@ -163,13 +166,14 @@ polling:
 
 Base directory for per-issue workspaces.
 
-| Field | Type | Default | Description |
-|---|---|---|---|
+| Field  | Type | Default                           | Description                                                           |
+| ------ | ---- | --------------------------------- | --------------------------------------------------------------------- |
 | `root` | path | `<system-temp>/sortie_workspaces` | Base directory. Per-issue subdirectories are created under this path. |
 
 `~` expands to the home directory. `$VAR` references are expanded anywhere in the string. Issue identifiers are sanitized to `[A-Za-z0-9._-]` for subdirectory names (other characters become `_`).
 
-> **Warning:** Changing `workspace.root` and restarting leaves old workspace directories on disk. Sortie only scans the currently configured root during startup cleanup. Remove the old directory contents manually before switching.
+!!! warning
+    Changing `workspace.root` and restarting leaves old workspace directories on disk. Sortie only scans the currently configured root during startup cleanup. Remove the old directory contents manually before switching.
 
 ```yaml
 workspace:
@@ -182,37 +186,39 @@ workspace:
 
 Shell scripts that run at workspace lifecycle points. Each hook executes with `sh -c` in the per-issue workspace directory.
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `after_create` | shell script | *(none)* | Runs once when a workspace directory is first created. |
-| `before_run` | shell script | *(none)* | Runs before each agent attempt. |
-| `after_run` | shell script | *(none)* | Runs after each agent attempt. |
-| `before_remove` | shell script | *(none)* | Runs before workspace deletion. |
-| `timeout_ms` | integer | `60000` | Timeout in milliseconds for all hooks. |
+| Field           | Type         | Default  | Description                                            |
+| --------------- | ------------ | -------- | ------------------------------------------------------ |
+| `after_create`  | shell script | _(none)_ | Runs once when a workspace directory is first created. |
+| `before_run`    | shell script | _(none)_ | Runs before each agent attempt.                        |
+| `after_run`     | shell script | _(none)_ | Runs after each agent attempt.                         |
+| `before_remove` | shell script | _(none)_ | Runs before workspace deletion.                        |
+| `timeout_ms`    | integer      | `60000`  | Timeout in milliseconds for all hooks.                 |
 
 **Failure behavior:**
 
-| Hook | On failure |
-|---|---|
-| `after_create` | Aborts workspace creation. |
-| `before_run` | Aborts the current run attempt. May retry. |
-| `after_run` | Logged and ignored. |
-| `before_remove` | Logged and ignored. Cleanup proceeds. |
+| Hook            | On failure                                 |
+| --------------- | ------------------------------------------ |
+| `after_create`  | Aborts workspace creation.                 |
+| `before_run`    | Aborts the current run attempt. May retry. |
+| `after_run`     | Logged and ignored.                        |
+| `before_remove` | Logged and ignored. Cleanup proceeds.      |
 
 Timeouts count as failures.
 
 **Environment variables available in all hooks:**
 
-| Variable | Value |
-|---|---|
-| `SORTIE_ISSUE_ID` | Tracker-internal issue ID. |
+| Variable                  | Value                                         |
+| ------------------------- | --------------------------------------------- |
+| `SORTIE_ISSUE_ID`         | Tracker-internal issue ID.                    |
 | `SORTIE_ISSUE_IDENTIFIER` | Human-readable ticket key (e.g., `PROJ-123`). |
-| `SORTIE_WORKSPACE` | Absolute path to the workspace directory. |
-| `SORTIE_ATTEMPT` | Current attempt number. |
+| `SORTIE_WORKSPACE`        | Absolute path to the workspace directory.     |
+| `SORTIE_ATTEMPT`          | Current attempt number.                       |
 
-> **Warning:** Hooks receive a restricted environment: `PATH`, `HOME`, `SHELL`, `TMPDIR`, `USER`, `LOGNAME`, `TERM`, `LANG`, `LC_ALL`, `SSH_AUTH_SOCK`, plus any variable prefixed with `SORTIE_`. Other parent process variables (including secrets like `JIRA_API_TOKEN` or `AWS_ACCESS_KEY_ID`) are stripped. To pass additional values, set them with a `SORTIE_` prefix in the parent environment.
+!!! warning
+    Hooks receive a restricted environment: `PATH`, `HOME`, `SHELL`, `TMPDIR`, `USER`, `LOGNAME`, `TERM`, `LANG`, `LC_ALL`, `SSH_AUTH_SOCK`, plus any variable prefixed with `SORTIE_`. Other parent process variables (including secrets like `JIRA_API_TOKEN` or `AWS_ACCESS_KEY_ID`) are stripped. To pass additional values, set them with a `SORTIE_` prefix in the parent environment.
 
-> **Tip:** For hooks that need a login shell (e.g., `nvm`, `rbenv`), wrap the script: `bash -lc 'nvm use 20 && npm ci'`
+!!! tip
+    For hooks that need a login shell (e.g., `nvm`, `rbenv`), wrap the script: `bash -lc 'nvm use 20 && npm ci'`
 
 ```yaml
 hooks:
@@ -231,22 +237,24 @@ hooks:
 
 Coding agent adapter, concurrency, timeouts, and retry behavior. These fields control the orchestrator's scheduling decisions, not the agent itself.
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `kind` | string | `claude-code` | Agent adapter identifier. |
-| `command` | string | adapter-defined | Shell command to launch the agent. Required for local-process adapters. |
-| `max_turns` | integer | `20` | Maximum turns per worker session. The worker re-checks tracker state after each turn. |
-| `max_sessions` | integer | `0` (unlimited) | Maximum completed sessions per issue before the orchestrator stops retrying. |
-| `max_concurrent_agents` | integer | `10` | Global concurrency limit across all issues. |
-| `max_concurrent_agents_by_state` | map | `{}` | Per-state concurrency limits. Keys are state names, lowercased for matching. |
-| `turn_timeout_ms` | integer | `3600000` (1h) | Total timeout for a single agent turn. |
-| `read_timeout_ms` | integer | `5000` (5s) | Timeout for startup and synchronous operations. |
-| `stall_timeout_ms` | integer | `300000` (5m) | Inactivity timeout based on event stream gaps. |
-| `max_retry_backoff_ms` | integer | `300000` (5m) | Maximum delay cap for exponential backoff on retries. |
+| Field                            | Type    | Default         | Description                                                                           |
+| -------------------------------- | ------- | --------------- | ------------------------------------------------------------------------------------- |
+| `kind`                           | string  | `claude-code`   | Agent adapter identifier.                                                             |
+| `command`                        | string  | adapter-defined | Shell command to launch the agent. Required for local-process adapters.               |
+| `max_turns`                      | integer | `20`            | Maximum turns per worker session. The worker re-checks tracker state after each turn. |
+| `max_sessions`                   | integer | `0` (unlimited) | Maximum completed sessions per issue before the orchestrator stops retrying.          |
+| `max_concurrent_agents`          | integer | `10`            | Global concurrency limit across all issues.                                           |
+| `max_concurrent_agents_by_state` | map     | `{}`            | Per-state concurrency limits. Keys are state names, lowercased for matching.          |
+| `turn_timeout_ms`                | integer | `3600000` (1h)  | Total timeout for a single agent turn.                                                |
+| `read_timeout_ms`                | integer | `5000` (5s)     | Timeout for startup and synchronous operations.                                       |
+| `stall_timeout_ms`               | integer | `300000` (5m)   | Inactivity timeout based on event stream gaps.                                        |
+| `max_retry_backoff_ms`           | integer | `300000` (5m)   | Maximum delay cap for exponential backoff on retries.                                 |
 
-> **Tip:** `stall_timeout_ms` set to `0` or negative disables stall detection entirely.
+!!! tip
+    `stall_timeout_ms` set to `0` or negative disables stall detection entirely.
 
-> **Tip:** `max_concurrent_agents`, `max_concurrent_agents_by_state`, `max_retry_backoff_ms`, and `max_sessions` reload dynamically without restart. Other fields apply to future dispatches only.
+!!! tip
+    `max_concurrent_agents`, `max_concurrent_agents_by_state`, `max_retry_backoff_ms`, and `max_sessions` reload dynamically without restart. Other fields apply to future dispatches only.
 
 ```yaml
 agent:
@@ -267,13 +275,14 @@ agent:
 
 SQLite database file path.
 
-| Field | Type | Default | Description |
-|---|---|---|---|
+| Field     | Type | Default      | Description                                                                                         |
+| --------- | ---- | ------------ | --------------------------------------------------------------------------------------------------- |
 | `db_path` | path | `.sortie.db` | Path to the SQLite database. Relative paths resolve against the directory containing `WORKFLOW.md`. |
 
 Supports `~` and `$VAR` expansion.
 
-> **Warning:** Changing `db_path` requires a restart. The new path opens a fresh database. Retry queues and run history from the old file are not migrated. Copy the old `.sortie.db` to the new path before restarting to preserve state.
+!!! warning
+    Changing `db_path` requires a restart. The new path opens a fresh database. Retry queues and run history from the old file are not migrated. Copy the old `.sortie.db` to the new path before restarting to preserve state.
 
 ```yaml
 db_path: /var/lib/sortie/state.db
@@ -287,14 +296,15 @@ Each adapter reads additional settings from a top-level block named after its `k
 
 ### `claude-code`
 
-| Field | Type | Description |
-|---|---|---|
-| `permission_mode` | string | Claude Code permission mode (e.g., `bypassPermissions`). |
-| `model` | string | Model for agent sessions. |
-| `max_turns` | integer | CLI `--max-turns` flag. |
-| `max_budget_usd` | number | Per-session cost cap. |
+| Field             | Type    | Description                                              |
+| ----------------- | ------- | -------------------------------------------------------- |
+| `permission_mode` | string  | Claude Code permission mode (e.g., `bypassPermissions`). |
+| `model`           | string  | Model for agent sessions.                                |
+| `max_turns`       | integer | CLI `--max-turns` flag.                                  |
+| `max_budget_usd`  | number  | Per-session cost cap.                                    |
 
-> **Warning:** `agent.max_turns` (orchestrator turn-loop limit) and `claude-code.max_turns` (CLI internal turn budget) are distinct values with different purposes.
+!!! warning
+    `agent.max_turns` (orchestrator turn-loop limit) and `claude-code.max_turns` (CLI internal turn budget) are distinct values with different purposes.
 
 ```yaml
 claude-code:
@@ -306,8 +316,8 @@ claude-code:
 
 ### `file` (file-based tracker)
 
-| Field | Type | Description |
-|---|---|---|
+| Field  | Type   | Description                                                        |
+| ------ | ------ | ------------------------------------------------------------------ |
 | `path` | string | Filesystem path to a JSON file containing issue records. Required. |
 
 ```yaml
@@ -323,24 +333,24 @@ The markdown body after the closing `---` is a Go `text/template` rendered per i
 
 ### `.issue`
 
-| Field | Type | Description |
-|---|---|---|
-| `.issue.id` | string | Tracker-internal ID. |
-| `.issue.identifier` | string | Human-readable ticket key (e.g., `PROJ-123`). |
-| `.issue.title` | string | Issue summary. |
-| `.issue.description` | string | Full description body. Empty string when absent. |
-| `.issue.state` | string | Current tracker state name. |
-| `.issue.priority` | integer or nil | Numeric priority (lower = higher). `nil` when unavailable. |
-| `.issue.url` | string | Web URL to the issue. Empty string when absent. |
-| `.issue.labels` | list of strings | Labels, normalized to lowercase. Empty list when none. |
-| `.issue.assignee` | string | Assignee identity. Empty string when absent. |
-| `.issue.issue_type` | string | Tracker-defined type (Bug, Story, Task). Empty string when absent. |
-| `.issue.branch_name` | string | Tracker-provided branch metadata. Empty string when absent. |
-| `.issue.parent` | object or nil | Parent issue reference. `nil` when no parent. Has `.identifier`. |
-| `.issue.comments` | list or nil | Comment records. `nil` means not fetched; empty list means no comments. |
-| `.issue.blocked_by` | list of objects | Blocker references. Each has `.id`, `.identifier`, `.state`. |
-| `.issue.created_at` | string | ISO-8601 creation timestamp. Empty string when absent. |
-| `.issue.updated_at` | string | ISO-8601 last-update timestamp. Empty string when absent. |
+| Field                | Type            | Description                                                             |
+| -------------------- | --------------- | ----------------------------------------------------------------------- |
+| `.issue.id`          | string          | Tracker-internal ID.                                                    |
+| `.issue.identifier`  | string          | Human-readable ticket key (e.g., `PROJ-123`).                           |
+| `.issue.title`       | string          | Issue summary.                                                          |
+| `.issue.description` | string          | Full description body. Empty string when absent.                        |
+| `.issue.state`       | string          | Current tracker state name.                                             |
+| `.issue.priority`    | integer or nil  | Numeric priority (lower = higher). `nil` when unavailable.              |
+| `.issue.url`         | string          | Web URL to the issue. Empty string when absent.                         |
+| `.issue.labels`      | list of strings | Labels, normalized to lowercase. Empty list when none.                  |
+| `.issue.assignee`    | string          | Assignee identity. Empty string when absent.                            |
+| `.issue.issue_type`  | string          | Tracker-defined type (Bug, Story, Task). Empty string when absent.      |
+| `.issue.branch_name` | string          | Tracker-provided branch metadata. Empty string when absent.             |
+| `.issue.parent`      | object or nil   | Parent issue reference. `nil` when no parent. Has `.identifier`.        |
+| `.issue.comments`    | list or nil     | Comment records. `nil` means not fetched; empty list means no comments. |
+| `.issue.blocked_by`  | list of objects | Blocker references. Each has `.id`, `.identifier`, `.state`.            |
+| `.issue.created_at`  | string          | ISO-8601 creation timestamp. Empty string when absent.                  |
+| `.issue.updated_at`  | string          | ISO-8601 last-update timestamp. Empty string when absent.               |
 
 ### `.attempt`
 
@@ -348,23 +358,24 @@ Integer. `0` on the first try, `>= 1` on retries. Use `{{ if .attempt }}` to bra
 
 ### `.run`
 
-| Field | Type | Description |
-|---|---|---|
-| `.run.turn_number` | integer | Current turn number within the session. |
-| `.run.max_turns` | integer | Configured maximum turns. |
+| Field                  | Type    | Description                                                 |
+| ---------------------- | ------- | ----------------------------------------------------------- |
+| `.run.turn_number`     | integer | Current turn number within the session.                     |
+| `.run.max_turns`       | integer | Configured maximum turns.                                   |
 | `.run.is_continuation` | boolean | `true` on continuation turns (not first turn, not a retry). |
 
 ### Template functions
 
-| Function | Usage | Result |
-|---|---|---|
-| `toJSON` | `{{ .issue.labels \| toJSON }}` | `["bug","urgent"]` |
-| `join` | `{{ .issue.labels \| join ", " }}` | `bug, urgent` |
-| `lower` | `{{ .issue.state \| lower }}` | `in progress` |
+| Function | Usage                              | Result             |
+| -------- | ---------------------------------- | ------------------ |
+| `toJSON` | `{{ .issue.labels \| toJSON }}`    | `["bug","urgent"]` |
+| `join`   | `{{ .issue.labels \| join ", " }}` | `bug, urgent`      |
+| `lower`  | `{{ .issue.state \| lower }}`      | `in progress`      |
 
 All standard Go `text/template` actions are available: `if`/`else`, `range`, `with`, `eq`, `ne`, `lt`, `gt`, `len`, `index`, `and`, `or`, `not`.
 
-> **Tip:** Inside `{{ range .issue.labels }}`, the dot (`.`) refers to the current element. Use `{{ $.issue.identifier }}` to access top-level variables from within a range block.
+!!! tip
+    Inside `{{ range .issue.labels }}`, the dot (`.`) refers to the current element. Use `{{ $.issue.identifier }}` to access top-level variables from within a range block.
 
 ### Template patterns
 
@@ -405,15 +416,15 @@ Retry attempt {{ .attempt }}. Diagnose the previous failure.
 
 Sortie watches `WORKFLOW.md` for changes and re-applies configuration without restart. In-flight agent sessions are not affected.
 
-| What reloads | When it takes effect |
-|---|---|
-| `polling.interval_ms` | Next tick. |
-| `agent.max_concurrent_agents` | Next dispatch decision. |
-| `agent.max_concurrent_agents_by_state` | Next dispatch decision. |
-| `agent.max_retry_backoff_ms` | Next retry schedule. |
-| `agent.max_sessions` | Next retry evaluation. |
-| All other config fields | Future dispatches and hook executions. |
-| `db_path`, `server.port` | Requires restart. |
-| Prompt template | Future worker attempts. |
+| What reloads                           | When it takes effect                   |
+| -------------------------------------- | -------------------------------------- |
+| `polling.interval_ms`                  | Next tick.                             |
+| `agent.max_concurrent_agents`          | Next dispatch decision.                |
+| `agent.max_concurrent_agents_by_state` | Next dispatch decision.                |
+| `agent.max_retry_backoff_ms`           | Next retry schedule.                   |
+| `agent.max_sessions`                   | Next retry evaluation.                 |
+| All other config fields                | Future dispatches and hook executions. |
+| `db_path`, `server.port`               | Requires restart.                      |
+| Prompt template                        | Future worker attempts.                |
 
 Invalid config after reload does not crash Sortie. It continues with the last valid configuration and logs an error.
