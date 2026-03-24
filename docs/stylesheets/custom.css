@@ -1,0 +1,14 @@
+/* Reduce excessive vertical spacing between sections */
+article .typography h2 {
+  margin-top: calc(var(--spacing) * 8);
+}
+
+@media (min-width: 64rem) {
+  article .typography h2 {
+    margin-top: calc(var(--spacing) * 10);
+  }
+}
+
+article .typography h3 {
+  margin-top: calc(var(--spacing) * 6);
+}

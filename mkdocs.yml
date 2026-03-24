@@ -38,51 +38,18 @@ plugins:
 nav:
   - Home: index.md
   - Getting Started:
-      # - Installation: getting-started/installation.md
       - Quick Start: getting-started/quick-start.md
-      # - Jira Integration: getting-started/jira-integration.md
-      # - End-to-End: getting-started/end-to-end.md
   - Reference:
       - CLI Usage: reference/cli.md
       - Workflow File: reference/workflow-config.md
-  # - Architecture:
-  #     - Decisions: decisions/decisions.md
-  # - Contributing: contributing.md
   - Change Log: changelog.md
 
 extra_css:
   - https://cdn.jsdelivr.net/gh/orestbida/cookieconsent@3.1.0/dist/cookieconsent.css
+  - stylesheets/custom.css
 
 extra_javascript:
   - https://www.googletagmanager.com/gtag/js?id=G-58VR448EJK
   - https://cdn.jsdelivr.net/gh/orestbida/cookieconsent@3.1.0/dist/cookieconsent.umd.js
   - javascripts/cookieconsent-config.js
   - javascripts/feedback.js
-
-# extra:
-#   social:
-#     - icon: fontawesome/brands/github
-#       link: https://github.com/sortie-ai/sortie
-#   analytics:
-#     provider: google
-#     property: G-58VR448EJK
-#     feedback:
-#       title: Was this page helpful?
-#       ratings:
-#         - icon: material/emoticon-happy-outline
-#           name: This page was helpful
-#           data: 1
-#         - icon: material/emoticon-sad-outline
-#           name: This page could be improved
-#           data: 0
-#           note: >-
-#             Thanks for your feedback! Help us improve this page by
-#             <a href="https://github.com/sortie-ai/sortie/issues/new"
-#                target="_blank" rel="noopener">opening an issue</a>.
-#   consent:
-#     title: Cookie consent
-#     description: >-
-#       We use cookies to recognize your repeated visits and preferences, as
-#       well as to measure the effectiveness of our documentation and whether
-#       users find what they're searching for. With your consent, you're
-#       helping us make our documentation better.
