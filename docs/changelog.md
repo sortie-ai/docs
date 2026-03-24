@@ -4,8 +4,8 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> Versions before 1.0.0 do not follow Semantic Versioning. Any release may
-> contain breaking changes without prior notice.
+!!! warning
+    Versions before 1.0.0 do not follow Semantic Versioning. Any release may contain breaking changes without prior notice.
 
 ## [0.0.7] - 2026-03-24
 
