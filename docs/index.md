@@ -54,23 +54,6 @@ the rest: stall detection, timeout enforcement, retries with backoff, state
 reconciliation with the tracker, and workspace cleanup when issues reach terminal
 states. Changes to the workflow are applied without restart.
 
-## Prior Art
-
-Sortie's architecture is informed by [OpenAI Symphony](https://github.com/openai/symphony),
-a spec-first orchestration framework with an Elixir reference implementation. Sortie diverges
-in language (Go for deployment simplicity), persistence (SQLite instead of in-memory state),
-extensibility (pluggable adapters for any tracker or agent, not hardcoded to Linear and Codex),
-and completion signaling (orchestrator-managed handoff transitions instead of relying solely on
-agent-initiated tracker writes).
-
-## Why "Sortie"
-
-A _sortie_ is a military and aviation term for a single mission executed autonomously. The
-metaphor is precise: the orchestrator dispatches agents on missions (issues), each with an
-isolated workspace, a defined objective, and an expected return. The name is short, two
-syllables, pronounceable across languages, and does not conflict with existing projects in
-this domain.
-
 ## Quick links
 
 - [Quick Start](getting-started/quick-start.md) — dispatch your first agent session

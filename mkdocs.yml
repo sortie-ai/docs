@@ -78,7 +78,7 @@ nav:
       - Quick Start: getting-started/quick-start.md
       # - Jira Integration: getting-started/jira-integration.md
       # - End-to-End: getting-started/end-to-end.md
-  - Configuration:
+  - Reference:
       - CLI Usage: reference/cli.md
       - Workflow File: reference/workflow-config.md
   # - Architecture:
