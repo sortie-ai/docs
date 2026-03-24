@@ -1,3 +1,0 @@
-# Concepts
-
-Coming soon.

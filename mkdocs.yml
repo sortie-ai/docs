@@ -74,15 +74,17 @@ plugins:
 nav:
   - Home: index.md
   - Getting Started:
-      - Installation: getting-started/installation.md
+      # - Installation: getting-started/installation.md
       - Quick Start: getting-started/quick-start.md
-      - Jira Integration: getting-started/jira-integration.md
-      - End-to-End: getting-started/end-to-end.md
+      # - Jira Integration: getting-started/jira-integration.md
+      # - End-to-End: getting-started/end-to-end.md
   - Configuration:
+      - CLI Usage: reference/cli.md
       - Workflow File: reference/workflow-config.md
-  - Architecture:
-      - Decisions: decisions/decisions.md
-  - Contributing: contributing.md
+  # - Architecture:
+  #     - Decisions: decisions/decisions.md
+  # - Contributing: contributing.md
+  - Change Log: changelog.md
 
 extra:
   social:

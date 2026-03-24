@@ -1,3 +1,0 @@
-# Jira Integration
-
-Coming soon.
