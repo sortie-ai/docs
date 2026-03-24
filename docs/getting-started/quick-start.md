@@ -97,24 +97,24 @@ sortie ./WORKFLOW.md
 You should see output similar to:
 
 ```
-level=INFO msg="sortie starting" workflow_path=/home/you/sortie-demo/WORKFLOW.md
+level=INFO msg="sortie starting" version=0.x.x workflow_path=/home/you/sortie-demo/WORKFLOW.md
+level=INFO msg="database path resolved" db_path=/home/you/sortie-demo/.sortie.db
 level=INFO msg="sortie started"
-level=INFO msg="fetched candidate issues" count=2
-level=INFO msg="dispatching issue" issue_identifier=DEMO-1 attempt=1
-level=INFO msg="dispatching issue" issue_identifier=DEMO-2 attempt=1
-level=INFO msg="session started" issue_identifier=DEMO-1
-level=INFO msg="session started" issue_identifier=DEMO-2
-level=INFO msg="turn completed" issue_identifier=DEMO-1 turn_number=1
-level=INFO msg="turn completed" issue_identifier=DEMO-2 turn_number=1
-level=INFO msg="turn completed" issue_identifier=DEMO-1 turn_number=2
-level=INFO msg="turn completed" issue_identifier=DEMO-2 turn_number=2
-level=INFO msg="worker exited" issue_identifier=DEMO-1 status=succeeded
-level=INFO msg="worker exited" issue_identifier=DEMO-2 status=succeeded
-level=INFO msg="handoff transition" issue_identifier=DEMO-1 target_state="Done"
-level=INFO msg="handoff transition" issue_identifier=DEMO-2 target_state="Done"
+level=INFO msg="tick completed" candidates=2 dispatched=2 running=2 retrying=0
+level=INFO msg="workspace prepared" issue_id=1 issue_identifier=DEMO-1 workspace=…/DEMO-1
+level=INFO msg="agent session started" issue_id=1 issue_identifier=DEMO-1 session_id=mock-session-001
+level=INFO msg="turn started" issue_id=1 issue_identifier=DEMO-1 turn_number=1 max_turns=2
+level=INFO msg="turn completed" issue_id=1 issue_identifier=DEMO-1 turn_number=1 max_turns=2
+level=INFO msg="turn started" issue_id=1 issue_identifier=DEMO-1 turn_number=2 max_turns=2
+level=INFO msg="turn completed" issue_id=1 issue_identifier=DEMO-1 turn_number=2 max_turns=2
+level=INFO msg="worker exiting" issue_id=1 issue_identifier=DEMO-1 exit_kind=normal turns_completed=2
+level=INFO msg="worker exiting" issue_id=2 issue_identifier=DEMO-2 exit_kind=normal turns_completed=2
+level=INFO msg="handoff transition succeeded, releasing claim" issue_id=1 issue_identifier=DEMO-1 handoff_state=Done
+level=INFO msg="handoff transition succeeded, releasing claim" issue_id=2 issue_identifier=DEMO-2 handoff_state=Done
+level=INFO msg="tick completed" candidates=0 dispatched=0 running=0 retrying=0
 ```
 
-After both issues complete, Sortie keeps polling but finds no active issues. Press `Ctrl+C` to stop.
+After both issues complete, Sortie keeps polling but finds no active issues (the second `tick completed` line shows `candidates=0`). Press `Ctrl+C` to stop.
 
 ## What happened
 
