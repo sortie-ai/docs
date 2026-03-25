@@ -11,6 +11,7 @@ edit_uri: ""
 
 theme:
   name: shadcn
+  custom_dir: overrides
   show_title: true
   show_stargazers: true
   topbar_sections: true
