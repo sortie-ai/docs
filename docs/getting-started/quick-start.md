@@ -1,18 +1,15 @@
 # Quick start
 
-In this tutorial, we will run Sortie end-to-end on your machine. By the end, you will have watched Sortie poll for issues, spin up workspaces, run mock agent sessions, and record the results, all without touching Jira or any external API.
+In this tutorial, we will run Sortie end-to-end on your machine. By the end,
+you will have watched Sortie poll for issues, spin up workspaces, run mock
+agent sessions, and record the results — all without touching Jira or any
+external API.
 
 ## Prerequisites
 
-- [Go](https://go.dev/dl/) 1.26 or later installed
+- Sortie installed and on your `PATH` ([installation guide](installation.md))
 
-## Install Sortie
-
-```bash
-go install github.com/sortie-ai/sortie/cmd/sortie@latest
-```
-
-Verify the binary is on your `PATH`:
+Confirm Sortie is ready:
 
 ```bash
 sortie --version
@@ -24,13 +21,19 @@ You should see output like:
 sortie v0.x.x
 ```
 
-## Create an issues file
+## Set up a project directory
 
-Create a file called `issues.json` in an empty directory:
+Create a fresh directory for this tutorial:
 
 ```bash
 mkdir sortie-demo && cd sortie-demo
 ```
+
+We will create two files here: an issues file and a workflow file.
+
+## Create an issues file
+
+Create a file called `issues.json` with two sample issues:
 
 ```json
 [
@@ -53,7 +56,8 @@ mkdir sortie-demo && cd sortie-demo
 ]
 ```
 
-This is the same shape Sortie gets from Jira. The file adapter reads it directly so we can skip all API setup.
+This is the same shape Sortie gets from a real tracker like Jira. The file
+adapter reads it directly, so we can skip all API setup for now.
 
 ## Create a workflow file
 
@@ -86,9 +90,24 @@ Fix the following issue.
 {{ .issue.description }}
 ```
 
-The front matter configures Sortie. The body below the `---` is the prompt template sent to the agent for each issue.
+This single file drives everything Sortie does. The YAML front matter between
+the `---` fences configures the tracker, agent, and polling interval. The
+Markdown body below is a prompt template — Sortie renders it once per issue
+and sends it to the agent.
+
+Notice a few things:
+
+- `tracker.kind: file` tells Sortie to read issues from a local JSON file
+  instead of calling an API.
+- `agent.kind: mock` uses a built-in mock agent that simulates work without
+  changing any files.
+- `max_turns: 2` limits each agent session to two turns.
+- `{{ .issue.identifier }}` and friends are Go template variables that Sortie
+  fills in with data from each issue.
 
 ## Run Sortie
+
+Start Sortie and point it at the workflow file:
 
 ```bash
 sortie ./WORKFLOW.md
@@ -114,16 +133,56 @@ level=INFO msg="handoff transition succeeded, releasing claim" issue_id=2 issue_
 level=INFO msg="tick completed" candidates=0 dispatched=0 running=0 retrying=0
 ```
 
-After both issues complete, Sortie keeps polling but finds no active issues (the second `tick completed` line shows `candidates=0`). Press `Ctrl+C` to stop.
+Let's walk through what happened:
 
-## What happened
+1. Sortie loaded `WORKFLOW.md` and read `issues.json`. It found two issues in
+   the "To Do" state — `DEMO-1` and `DEMO-2`.
+2. For each issue, it created a workspace directory and started a mock agent
+   session.
+3. The mock agent ran two turns per issue (the `max_turns` we set).
+4. After both turns completed, Sortie transitioned each issue to "Done" (the
+   `handoff_state` from our config).
+5. On the next poll cycle, Sortie found zero candidates and went idle.
 
-Sortie read `issues.json` and found two issues in the "To Do" state. For each one, it created a workspace directory, started a mock agent session, and ran two turns of the prompt template. When both turns completed, Sortie transitioned each issue to "Done" (the `handoff_state`). Run results are stored in `.sortie.db` in your current directory.
+Notice the second `tick completed` line shows `candidates=0` — there is
+nothing left to process. Press **Ctrl+C** to stop Sortie.
 
-The mock agent doesn't modify any files, but the lifecycle is identical to a real agent session: poll, dispatch, workspace, agent turns, completion, state transition.
+## Check the results
+
+Sortie persists all run history in a local SQLite database. Look at your
+project directory:
+
+```bash
+ls -a
+```
+
+You should see:
+
+```
+.sortie.db  issues.json  WORKFLOW.md
+```
+
+The `.sortie.db` file contains session metadata, turn history, and metrics for
+every run. Open `issues.json` again and notice that both issues now have
+`"state": "Done"` — the file tracker updated them in place.
+
+## What we built
+
+We ran the full Sortie lifecycle without any external services:
+
+- **Poll** — Sortie watched `issues.json` for issues in the "To Do" state.
+- **Dispatch** — Each matching issue got its own workspace and agent session.
+- **Execute** — The mock agent ran two turns per issue.
+- **Handoff** — Sortie transitioned completed issues to "Done."
+- **Persist** — Run results were recorded in `.sortie.db`.
+
+The mock agent doesn't modify code, but the lifecycle is identical to a real
+agent session. In production, you would swap `mock` for `claude-code` and
+`file` for `jira` — the orchestration works the same way.
+
 
 <!-- ## Next steps
 
 - [Connect a Jira tracker](jira-integration.md) to pull real issues
 - [Run with Claude Code](end-to-end.md) as the agent for automated code changes
-- [Workflow file reference](../reference/workflow-config.md) for all configuration options -->
+- [Workflow file reference](../reference/workflow-config.md) for all configuration  options, template variables, and hook lifecycle -->
