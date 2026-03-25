@@ -3,6 +3,20 @@ article .typography h2 {
   margin-top: calc(var(--spacing) * 8);
 }
 
+/* Logo dark/light mode switching */
+.logo-dark {
+  display: none;
+}
+.logo-light {
+  display: block;
+}
+:is(.dark, .dark *) .logo-dark {
+  display: block;
+}
+:is(.dark, .dark *) .logo-light {
+  display: none;
+}
+
 @media (min-width: 64rem) {
   article .typography h2 {
     margin-top: calc(var(--spacing) * 10);
