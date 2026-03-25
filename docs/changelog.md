@@ -7,7 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 !!! warning
     Versions before 1.0.0 do not follow Semantic Versioning. Any release may contain breaking changes without prior notice.
 
-## [0.0.7] - 2026-03-24
+## [0.0.7] - 2026-03-24 { #0.0.7 }
 
 ### Added
 
@@ -50,7 +50,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   candidate, dispatched, running, and retrying counters to distinguish normal
   operation from a stall.
 
-## [0.0.6] - 2026-03-23
+## [0.0.6] - 2026-03-23 { #0.0.6 }
 
 ### Added
 
@@ -82,7 +82,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Startup: `.sortie.db` is now created adjacent to `WORKFLOW.md` instead of in
   the working directory.
 
-## [0.0.5] - 2026-03-21
+## [0.0.5] - 2026-03-21 { #0.0.5 }
 
 ### Added
 
@@ -103,7 +103,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `ListWorkspaceKeys` for enumerating workspace directory names under a
   root, skipping non-directories and symlinks.
 
-## [0.0.4] - 2026-03-20
+## [0.0.4] - 2026-03-20 { #0.0.4 }
 
 ### Added
 
@@ -125,7 +125,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Claude Code adapter: error on missing binary now includes the actual command
   name instead of a hardcoded string.
 
-## [0.0.3] - 2026-03-20
+## [0.0.3] - 2026-03-20 { #0.0.3 }
 
 ### Added
 
@@ -147,7 +147,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Infinite loop guard in Jira comment pagination when the API returns
   inconsistent offsets.
 
-## [0.0.2] - 2026-03-19
+## [0.0.2] - 2026-03-19 { #0.0.2 }
 
 ### Added
 
@@ -162,7 +162,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Deterministic ordering for session metadata queries via `session_id`
   tie-breaker.
 
-## [0.0.1] - 2026-03-18
+## [0.0.1] - 2026-03-18 { #0.0.1 }
 
 ### Added
 
@@ -182,7 +182,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Fractional float values no longer silently coerced to integers during
   config parsing.
 
-## [0.0.0] - 2026-03-18
+## [0.0.0] - 2026-03-18 { #0.0.0 }
 
 ### Added
 
