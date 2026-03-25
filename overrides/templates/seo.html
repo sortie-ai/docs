@@ -1,0 +1,95 @@
+{% block seo %} {# --- Resolve image URL (page-level or site-wide default) ---
+#} {% set og_image = page.meta.image if page.meta.image else config.site_url ~
+"img/og-image.jpg" %} {% if page.meta.title %}
+<title>{{ page.meta.title }}</title>
+{% elif page.title %}
+<title>{{ page.title }}</title>
+{% else %}
+<title>{{ config.site_name }}</title>
+{% endif %} {% if page.meta.description %}
+<meta name="description" content="{{ page.meta.description }}" />
+{% endif %} {% if page.meta.keywords %}
+<meta name="keywords" content="{{ page.meta.keywords }}" />
+{% endif %} {% if page.meta.author %}
+<meta name="author" content="{{ page.meta.author }}" />
+{% elif config.site_author %}
+<meta name="author" content="{{ config.site_author }}" />
+{% endif %} {% if page.canonical_url %}
+<link rel="canonical" href="{{ page.canonical_url }}" />
+{% endif %}
+
+<!-- Open Graph -->
+<meta property="og:type" content="website" />
+
+{% if page.meta.title %}
+<meta property="og:title" content="{{ page.meta.title }}" />
+{% else %}
+<meta property="og:title" content="{{ page.title }}" />
+{% endif %} {% if page.meta.description %}
+<meta property="og:description" content="{{ page.meta.description }}" />
+{% endif %} {% if page.canonical_url %}
+<meta property="og:url" content="{{ page.canonical_url }}" />
+{% endif %}
+
+<meta property="og:image" content="{{ og_image }}" />
+
+{% if config.site_name %}
+<meta property="og:site_name" content="{{ config.site_name }}" />
+{% endif %}
+
+<!-- Twitter Card -->
+<meta name="twitter:card" content="summary_large_image" />
+
+{% if page.meta.title %}
+<meta name="twitter:title" content="{{ page.meta.title }}" />
+{% else %}
+<meta name="twitter:title" content="{{ page.title }}" />
+{% endif %} {% if page.meta.description %}
+<meta name="twitter:description" content="{{ page.meta.description }}" />
+{% endif %}
+
+<meta name="twitter:image" content="{{ og_image }}" />
+
+<!-- JSON-LD Structured Data -->
+{% if page.meta.title and page.meta.description %}
+<script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    "headline": "{{ page.meta.title }}",
+    "url": "{{ page.canonical_url }}",
+    "description": "{{ page.meta.description }}",
+    {% if page.meta.author %}
+    "author": {
+      "@type": "Person",
+      "name": "{{ page.meta.author }}"
+    },
+    {% endif %}
+    {% if config.site_name %}
+    "publisher": {
+      "@type": "Organization",
+      "name": "{{ config.site_name }}",
+      "logo": {
+        "@type": "ImageObject",
+        "url": "{{ og_image }}"
+      }
+    },
+    {% endif %}
+    {% if page.meta.date %}
+    "datePublished": "{{ page.meta.date }}",
+    {% endif %}
+    {% if page.canonical_url %}
+    "mainEntityOfPage": {
+      "@type": "WebPage",
+      "@id": "{{ page.canonical_url }}"
+    },
+    {% endif %}
+    "image": {
+      "@type": "ImageObject",
+      "url": "{{ og_image }}",
+      "width": 1200,
+      "height": 630
+    }
+  }
+</script>
+{% endif %} {% endblock %}

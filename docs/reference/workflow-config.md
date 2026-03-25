@@ -1,3 +1,10 @@
+---
+title: Workflow Configuration | Sortie
+description: Complete reference for every WORKFLOW.md configuration field. Tracker, polling, workspace, hooks, agent, database, and prompt template.
+keywords: sortie configuration, WORKFLOW.md, YAML, tracker, agent, hooks, workspace, config reference
+author: Sortie AI
+---
+
 # WORKFLOW.md configuration reference
 
 `WORKFLOW.md` is a single file that configures Sortie. YAML front matter between `---` delimiters defines runtime settings. Everything after the closing `---` is the prompt template rendered per issue.

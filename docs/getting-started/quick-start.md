@@ -1,3 +1,10 @@
+---
+title: Quick Start | Sortie
+description: "End-to-end tutorial: poll for issues, spin up workspaces, and run mock agent sessions locally. No Jira or external APIs required."
+keywords: sortie quickstart, tutorial, getting started, mock agent, file tracker, first run
+author: Sortie AI
+---
+
 # Quick start
 
 In this tutorial, we will run Sortie end-to-end on your machine. By the end,

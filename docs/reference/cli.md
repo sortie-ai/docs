@@ -1,3 +1,10 @@
+---
+title: CLI Reference | Sortie
+description: Complete reference for the sortie command-line interface. Arguments, flags, exit codes, and usage examples.
+keywords: sortie CLI, command line, flags, arguments, exit codes, usage
+author: Sortie AI
+---
+
 # CLI reference
 
 ```

@@ -1,3 +1,10 @@
+---
+title: Changelog | Sortie
+description: Release history for Sortie. All notable changes, new features, bug fixes, and breaking changes by version.
+keywords: sortie changelog, release notes, version history, updates
+author: Sortie AI
+---
+
 # Changelog
 
 All notable changes to this project will be documented in this file.

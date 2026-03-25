@@ -1,3 +1,10 @@
+---
+title: Installation | Sortie
+description: Install Sortie on macOS, Linux, or Windows. Supports install script, Homebrew, Go install, Docker, and manual binary downloads.
+keywords: sortie install, installation, setup, homebrew, go install, docker, binary download
+author: Sortie AI
+---
+
 # Installation
 
 This guide covers every supported way to install sortie on your machine.

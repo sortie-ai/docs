@@ -1,3 +1,10 @@
+---
+title: Sortie | Autonomous Coding Agent Orchestrator
+description: Sortie turns issue tracker tickets into autonomous coding agent sessions. Single binary, zero dependencies, SQLite persistence.
+keywords: sortie, autonomous coding agent, orchestrator, issue tracker, AI coding, agent sessions, automation
+author: Sortie AI
+---
+
 # Sortie
 
 Sortie turns issue tracker tickets into autonomous coding agent sessions.
