@@ -5,3 +5,9 @@ site/
 .venv/
 __pycache__/
 *.py[cod]
+
+# Dashboard Sample for screenshots and documentation purposes
+/index.html
+
+# Documentation analysis reports
+REPORT.md
