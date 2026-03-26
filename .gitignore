@@ -1,6 +1,9 @@
 # MkDocs build output
 site/
 
+# Node.js
+node_modules/
+
 # uv / Python
 .venv/
 __pycache__/
