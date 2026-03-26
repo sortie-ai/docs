@@ -9,6 +9,9 @@ node_modules/
 __pycache__/
 *.py[cod]
 
+# Local tooling (asdf) — Cloudflare uses PYTHON_VERSION env var instead
+.tool-versions
+
 # Dashboard Sample for screenshots and documentation purposes
 /index.html
 
