@@ -144,7 +144,9 @@ Organization + TechArticle + BreadcrumbList --- #}
         },
         "inLanguage": "en",
         "isAccessibleForFree": true,
-        {% if 'getting-started' in page.url %}"proficiencyLevel": "Beginner",
+        {% if page.meta.git_creation_date_localized_raw_iso_date %}"datePublished": "{{ page.meta.git_creation_date_localized_raw_iso_date }}",
+        {% endif %}{% if page.meta.git_revision_date_localized_raw_iso_date %}"dateModified": "{{ page.meta.git_revision_date_localized_raw_iso_date }}",
+        {% endif %}{% if 'getting-started' in page.url %}"proficiencyLevel": "Beginner",
         {% elif 'reference' in page.url %}"proficiencyLevel": "Expert",
         {% endif %}"image": {
           "@type": "ImageObject",

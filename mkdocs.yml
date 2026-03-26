@@ -35,6 +35,11 @@ markdown_extensions:
 
 plugins:
   - search
+  - git-revision-date-localized:
+      enable_creation_date: true
+
+hooks:
+  - hooks/sitemap_dates.py
 
 nav:
   - Sortie: index.md
