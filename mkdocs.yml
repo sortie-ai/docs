@@ -47,9 +47,18 @@ nav:
   - Getting Started:
       - Installation: getting-started/installation.md
       - Quick Start: getting-started/quick-start.md
+  - Guides:
+      - Scale Agents with SSH: guides/scale-agents-with-ssh.md
+      - Monitor with Logs: guides/monitor-with-logs.md
+      - Monitor with Prometheus: guides/monitor-with-prometheus.md
   - Reference:
       - CLI Usage: reference/cli.md
       - Workflow File: reference/workflow-config.md
+      - Environment Variables: reference/environment.md
+      - HTTP API: reference/http-api.md
+      - Prometheus Metrics: reference/prometheus-metrics.md
+      - Agent Extensions: reference/agent-extensions.md
+      - Errors: reference/errors.md
   - Change Log: changelog.md
 
 extra_css:
