@@ -1,6 +1,7 @@
-{% block seo %} {# --- Resolve image URL (page-level or site-wide default) ---
-#} {% set og_image = page.meta.image if page.meta.image else config.site_url ~
-"img/og-image.jpg" %} {% if page.meta.title %}
+{% block seo %} {# --- Resolve image URLs --- #} {% set og_image =
+page.meta.image if page.meta.image else config.site_url ~ "img/og-image.jpg" %}
+{% set org_logo = config.site_url ~ "img/apple-touch-icon.png" %} {# ========
+Standard HTML Meta Tags ======== #} {% if page.meta.title %}
 <title>{{ page.meta.title }}</title>
 {% elif page.title %}
 <title>{{ page.title }}</title>
@@ -20,7 +21,6 @@
 
 <!-- Open Graph -->
 <meta property="og:type" content="website" />
-
 {% if page.meta.title %}
 <meta property="og:title" content="{{ page.meta.title }}" />
 {% else %}
@@ -30,16 +30,13 @@
 {% endif %} {% if page.canonical_url %}
 <meta property="og:url" content="{{ page.canonical_url }}" />
 {% endif %}
-
 <meta property="og:image" content="{{ og_image }}" />
-
 {% if config.site_name %}
 <meta property="og:site_name" content="{{ config.site_name }}" />
 {% endif %}
 
 <!-- Twitter Card -->
 <meta name="twitter:card" content="summary_large_image" />
-
 {% if page.meta.title %}
 <meta name="twitter:title" content="{{ page.meta.title }}" />
 {% else %}
@@ -47,49 +44,136 @@
 {% endif %} {% if page.meta.description %}
 <meta name="twitter:description" content="{{ page.meta.description }}" />
 {% endif %}
-
 <meta name="twitter:image" content="{{ og_image }}" />
 
-<!-- JSON-LD Structured Data -->
-{% if page.meta.title and page.meta.description %}
+{# ======== JSON-LD Structured Data (@graph pattern) ======== #} {% if
+page.is_homepage %} {# --- Homepage: Organization + WebSite +
+SoftwareApplication --- #}
 <script type="application/ld+json">
   {
     "@context": "https://schema.org",
-    "@type": "Article",
-    "headline": "{{ page.meta.title }}",
-    "url": "{{ page.canonical_url }}",
-    "description": "{{ page.meta.description }}",
-    {% if page.meta.author %}
-    "author": {
-      "@type": "Person",
-      "name": "{{ page.meta.author }}"
-    },
-    {% endif %}
-    {% if config.site_name %}
-    "publisher": {
-      "@type": "Organization",
-      "name": "{{ config.site_name }}",
-      "logo": {
-        "@type": "ImageObject",
-        "url": "{{ og_image }}"
+    "@graph": [
+      {
+        "@type": "Organization",
+        "@id": "{{ config.site_url }}#organization",
+        "name": {{ config.site_author | tojson }},
+        "url": "{{ config.site_url }}",
+        "logo": {
+          "@type": "ImageObject",
+          "url": "{{ org_logo }}",
+          "width": 180,
+          "height": 180
+        }
+      },
+      {
+        "@type": "WebSite",
+        "@id": "{{ config.site_url }}#website",
+        "url": "{{ config.site_url }}",
+        "name": {{ (config.site_name ~ " Documentation") | tojson }},
+        "description": {{ config.site_description | trim | tojson }},
+        "publisher": {
+          "@id": "{{ config.site_url }}#organization"
+        },
+        "inLanguage": "en",
+        "potentialAction": {
+          "@type": "SearchAction",
+          "target": {
+            "@type": "EntryPoint",
+            "urlTemplate": "{{ config.site_url }}?q={search_term_string}"
+          },
+          "query-input": "required name=search_term_string"
+        }
+      },
+      {
+        "@type": "SoftwareApplication",
+        "@id": "{{ config.site_url }}#software",
+        "name": {{ config.site_name | tojson }},
+        "description": {{ page.meta.description | tojson }},
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "macOS, Linux, Windows",
+        "url": "{{ config.repo_url }}",
+        "author": {
+          "@id": "{{ config.site_url }}#organization"
+        },
+        "offers": {
+          "@type": "Offer",
+          "price": 0,
+          "priceCurrency": "USD"
+        },
+        "softwareHelp": {
+          "@id": "{{ config.site_url }}#website"
+        }
       }
-    },
-    {% endif %}
-    {% if page.meta.date %}
-    "datePublished": "{{ page.meta.date }}",
-    {% endif %}
-    {% if page.canonical_url %}
-    "mainEntityOfPage": {
-      "@type": "WebPage",
-      "@id": "{{ page.canonical_url }}"
-    },
-    {% endif %}
-    "image": {
-      "@type": "ImageObject",
-      "url": "{{ og_image }}",
-      "width": 1200,
-      "height": 630
-    }
+    ]
+  }
+</script>
+{% elif page.meta.title and page.meta.description %} {# --- Documentation pages:
+Organization + TechArticle + BreadcrumbList --- #}
+<script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Organization",
+        "@id": "{{ config.site_url }}#organization",
+        "name": {{ config.site_author | tojson }},
+        "url": "{{ config.site_url }}",
+        "logo": {
+          "@type": "ImageObject",
+          "url": "{{ org_logo }}",
+          "width": 180,
+          "height": 180
+        }
+      },
+      {
+        "@type": "TechArticle",
+        "headline": {{ page.meta.title | tojson }},
+        "description": {{ page.meta.description | tojson }},
+        "url": "{{ page.canonical_url }}",
+        "author": {
+          "@id": "{{ config.site_url }}#organization"
+        },
+        "publisher": {
+          "@id": "{{ config.site_url }}#organization"
+        },
+        "isPartOf": {
+          "@id": "{{ config.site_url }}#website"
+        },
+        "about": {
+          "@id": "{{ config.site_url }}#software"
+        },
+        "inLanguage": "en",
+        "isAccessibleForFree": true,
+        {% if 'getting-started' in page.url %}"proficiencyLevel": "Beginner",
+        {% elif 'reference' in page.url %}"proficiencyLevel": "Expert",
+        {% endif %}"image": {
+          "@type": "ImageObject",
+          "url": "{{ og_image }}",
+          "width": 1200,
+          "height": 630
+        },
+        "mainEntityOfPage": {
+          "@type": "WebPage",
+          "@id": "{{ page.canonical_url }}"
+        }
+      },
+      {
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          {
+            "@type": "ListItem",
+            "position": 1,
+            "name": {{ config.site_name | tojson }},
+            "item": "{{ config.site_url }}"
+          },
+          {
+            "@type": "ListItem",
+            "position": 2,
+            "name": {{ page.title | tojson }}
+          }
+        ]
+      }
+    ]
   }
 </script>
 {% endif %} {% endblock %}
