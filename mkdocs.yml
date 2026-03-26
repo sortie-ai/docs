@@ -21,8 +21,9 @@ theme:
     dark: github-dark
 
 markdown_extensions:
-  - codehilite
-  - fenced_code
+  - pymdownx.highlight:
+      css_class: codehilite
+  - pymdownx.superfences
   - admonition
   - attr_list
   - footnotes

@@ -26,3 +26,12 @@ article .typography h2 {
 article .typography h3 {
   margin-top: calc(var(--spacing) * 6);
 }
+
+/* Let table description columns wrap instead of forcing horizontal scroll */
+article table tbody tr td {
+  white-space: normal;
+}
+
+article table tbody tr td code {
+  white-space: nowrap;
+}
