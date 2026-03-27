@@ -363,6 +363,9 @@ Embedded HTTP observability server. Exposes a JSON API, HTML dashboard, health p
 
 The CLI `--port` flag takes precedence over `server.port`. Requires a restart to change.
 
+!!! note
+    When `server.port` is absent and `--port` is not provided, the HTTP server does not start and Prometheus metrics are not collected. The orchestrator uses a no-op metrics implementation with zero overhead.
+
 ```yaml
 server:
   port: 8642

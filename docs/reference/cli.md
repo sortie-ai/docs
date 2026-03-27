@@ -53,7 +53,7 @@ Enables the embedded HTTP server on `127.0.0.1:<port>`. All observability surfac
 
 Valid range: `0`–`65535`. Port `0` requests an OS-assigned ephemeral port; the actual port appears in the startup log.
 
-Overrides `server.port` from the WORKFLOW.md [`server` extension](workflow-config.md). When neither `--port` nor `server.port` is set, the HTTP server does not start.
+Overrides `server.port` from the WORKFLOW.md [`server` extension](workflow-config.md). When neither `--port` nor `server.port` is set, the HTTP server does not start and Prometheus metrics are not collected. The orchestrator runs with a no-op metrics implementation — counters, gauges, and histograms are never recorded.
 
 Invalid values (negative, above 65535) produce an error and exit `1`.
 

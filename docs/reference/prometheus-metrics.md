@@ -9,6 +9,9 @@ author: Sortie AI
 
 Sortie exposes a `/metrics` endpoint in Prometheus text exposition format on the same port as the JSON API and HTML dashboard. Available when the HTTP server is enabled via `--port` or [`server.port`](workflow-config.md).
 
+!!! note
+    When the HTTP server is disabled (neither `--port` nor `server.port` set), the orchestrator uses a no-op metrics implementation. Metrics are not collected internally — they are discarded, not buffered.
+
 ## Gauges
 
 Point-in-time values. Sortie updates these after every state mutation — dispatch, worker exit, retry, reconciliation.
