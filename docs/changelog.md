@@ -14,6 +14,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 !!! warning
     Versions before 1.0.0 do not follow Semantic Versioning. Any release may contain breaking changes without prior notice.
 
+## [0.0.9] - 2026-03-27 { #0.0.9 }
+
+### Added
+
+- `sortie validate` subcommand for one-shot workflow file validation without
+  starting the orchestrator, opening the database, or spawning a filesystem
+  watcher. Supports `--format text` (stderr diagnostics) and `--format json`
+  (structured stdout output) for CI pipelines and pre-commit hooks.
+- `--dry-run` flag for a single read-only poll cycle that validates the full
+  startup sequence (workflow load, preflight, database, adapter wiring)
+  without dispatching work or persisting state.
+- `--log-level` flag and `logging.level` workflow extension key to set the
+  minimum log severity at startup (`debug`, `info`, `warn`, `error`).
+- Dashboard: Workflow column in Active Sessions table and a new Run History
+  table showing completed session outcomes, timing, and workflow file.
+  SQL migration 003 adds a nullable `workflow_file` column to `run_history`.
+- Workspace root write-permission check in dispatch preflight — surfaces a
+  clear diagnostic instead of failing mid-dispatch.
+- Homebrew tap distribution via GoReleaser-managed tap repository
+  (`brew install sortie-ai/tap/sortie`).
+- Jira adapter: `User-Agent` header (`sortie/<version>`) sent on every HTTP
+  request.
+- Claude Code adapter: per-request `APIDurationMS` on `token_usage` events
+  for API-call-level latency visibility, clamped to a minimum of 1 ms.
+- Claude Code adapter: tool error text now included in
+  `EventToolResult.Message`.
+
+### Fixed
+
+- CLI: adapters implementing `io.Closer` are now closed during graceful
+  shutdown, preventing resource leaks.
+- CLI: `sortie validate` routes flag-parse errors through the diagnostics
+  emitter and no longer prefixes the error kind redundantly.
+- Orchestrator: `TurnCount` increments on `session_started` instead of
+  session finalization, correctly reflecting in-progress turns.
+- Claude Code adapter: tool error messages stripped of XML markup and
+  tail-truncated to prevent oversized events.
+
+
 ## [0.0.8] - 2026-03-26 { #0.0.8 }
 
 ### Added
@@ -249,6 +288,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   execution via GitHub Actions.
 - Architecture Decision Records (ADR-0001 through ADR-0005).
 
+[0.0.9]: https://github.com/sortie-ai/sortie/compare/0.0.8...0.0.9
 [0.0.8]: https://github.com/sortie-ai/sortie/compare/0.0.7...0.0.8
 [0.0.7]: https://github.com/sortie-ai/sortie/compare/0.0.6...0.0.7
 [0.0.6]: https://github.com/sortie-ai/sortie/compare/0.0.5...0.0.6
