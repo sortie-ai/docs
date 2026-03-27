@@ -1,11 +1,11 @@
 ---
-title: "Monitor with Logs | Sortie"
+title: "How to Monitor with Logs | Sortie"
 description: "Read and filter Sortie's structured key=value logs for debugging, monitoring, and operational awareness. Grep patterns, lifecycle messages, and log persistence."
 keywords: sortie logs, structured logging, slog, grep, debugging, monitoring, log format, troubleshooting
 author: Sortie AI
 ---
 
-# Monitor with logs
+# How to monitor with logs
 
 Sortie emits structured `key=value` logs via Go's `slog` package. Logs are always on — no configuration needed. They are the first place to look when something goes wrong.
 
@@ -38,6 +38,29 @@ Context fields appear on all issue-related lines, added automatically by the log
 The one rule you need to remember: **WARN means Sortie is handling it. ERROR means you need to.**
 
 WARN lines indicate automatic recovery — a retry is scheduled, a transient failure is being worked around. ERROR lines mean Sortie gave up and needs operator attention. If you grep for nothing else, grep for `level=ERROR`.
+
+## Control log verbosity
+
+By default Sortie logs at `INFO` level. Use the `--log-level` flag to change it:
+
+```bash
+# See debug-level detail: poll decisions, state transitions, adapter calls
+sortie --log-level debug ./WORKFLOW.md
+
+# Reduce noise in production — only warnings and errors
+sortie --log-level warn ./WORKFLOW.md
+```
+
+Accepted values: `debug`, `info`, `warn`, `error`. The flag applies before the workflow file is loaded, so startup messages reflect the requested level immediately.
+
+Alternatively, set the level in the workflow file:
+
+```yaml
+logging:
+  level: debug
+```
+
+The CLI flag takes precedence when both are set. Changing `logging.level` in the workflow file requires a restart — it is not picked up by dynamic reload.
 
 ## Key log messages to watch
 

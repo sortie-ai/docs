@@ -1,6 +1,6 @@
 ---
 title: Workflow Configuration | Sortie
-description: Complete reference for every WORKFLOW.md configuration field. Tracker, polling, workspace, hooks, agent, database, prompt template, server, and SSH worker.
+description: Complete reference for every WORKFLOW.md configuration field. Tracker, polling, workspace, hooks, agent, database, prompt template, server, logging, and SSH worker.
 keywords: sortie configuration, WORKFLOW.md, YAML, tracker, agent, hooks, workspace, server, worker, SSH, config reference
 author: Sortie AI
 ---
@@ -80,6 +80,10 @@ claude-code:
 # --- Server -----------------------------------------------------------
 server:
   port: 8642                          # HTTP observability server
+
+# --- Logging ----------------------------------------------------------
+logging:
+  level: info                         # debug | info | warn | error
 
 # --- Database ---------------------------------------------------------
 db_path: .sortie.db                   # SQLite file (relative to WORKFLOW.md)
@@ -371,9 +375,26 @@ server:
   port: 8642
 ```
 
+### `logging`
+
+Process-wide log verbosity. Controls the minimum severity level emitted to stderr.
+
+| Field | Type | Default | Required | Dynamic Reload | Description |
+|---|---|---|---|---|---|
+| `logging.level` | string | `info` | No | **No** — requires restart | Log verbosity: `debug`, `info`, `warn`, `error` (case-insensitive). |
+
+The CLI `--log-level` flag takes precedence over this field when both are present. Changing `logging.level` in the workflow file takes effect only after a restart; dynamic reload does not re-initialize the log handler.
+
+Unknown values cause startup failure with exit code `1`.
+
+```yaml
+logging:
+  level: debug
+```
+
 ### `worker`
 
-SSH remote execution. When `ssh_hosts` is configured, Sortie dispatches agent runs to remote hosts over SSH. The host with the fewest active sessions is selected per dispatch. See the [scale agents with SSH](../guides/scale-agents-with-ssh.md) guide for operational setup.
+SSH remote execution. The host with the fewest active sessions is selected per dispatch. See the [scale agents with SSH](../guides/scale-agents-with-ssh.md) guide for operational setup.
 
 | Field                          | Type            | Default                        | Description                                                                 |
 | ------------------------------ | --------------- | ------------------------------ | --------------------------------------------------------------------------- |
@@ -495,5 +516,6 @@ Sortie watches `WORKFLOW.md` for filesystem changes and re-applies configuration
 | Prompt template                        | Future worker attempts.                |
 | `db_path`                              | Requires restart.                      |
 | `server.port`                          | Requires restart.                      |
+| `logging.level`                        | Requires restart.                      |
 
 In-flight agent sessions are not affected by any reload.
