@@ -29,15 +29,29 @@ or `~/.local/bin` otherwise. If the install directory is not already on your
 
 | Variable | Effect |
 |---|---|
-| `SORTIE_VERSION` | Pin a specific release (e.g. `0.0.8`). Without it, the latest release is used. |
+| `SORTIE_VERSION` | Pin a specific release (e.g. `0.0.9`). Without it, the latest release is used. |
 | `SORTIE_INSTALL_DIR` | Override the install directory. |
 | `SORTIE_NO_VERIFY=1` | Skip SHA-256 checksum verification (not recommended). |
 
 Example — install a specific version to a custom directory:
 
 ```bash
-SORTIE_VERSION=0.0.8 SORTIE_INSTALL_DIR=/opt/bin \
+SORTIE_VERSION=0.0.9 SORTIE_INSTALL_DIR=/opt/bin \
   curl -sSL https://get.sortie-ai.com/install.sh | sh
+```
+
+## Homebrew (macOS and Linux)
+
+If you use Homebrew, install Sortie from the official tap:
+
+```bash
+brew install sortie-ai/tap/sortie
+```
+
+The tap is added automatically on first install. To upgrade to a new release:
+
+```bash
+brew upgrade sortie
 ```
 
 ## Download from GitHub Releases
@@ -164,6 +178,13 @@ sortie v0.x.x
 ```
 
 ## Troubleshooting
+
+**Homebrew formula fails to install** — The local tap may be stale. Run `brew update` first, then retry:
+
+```bash
+brew update
+brew install sortie-ai/tap/sortie
+```
 
 **`command not found: sortie`** — The install directory is not on your `PATH`.
 Add it to your shell configuration file (`~/.bashrc`, `~/.zshrc`, or
