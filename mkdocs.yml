@@ -56,6 +56,7 @@ nav:
       - Workflow File: reference/workflow-config.md
       - Environment Variables: reference/environment.md
       - HTTP API: reference/http-api.md
+      - Dashboard: reference/dashboard.md
       - Prometheus Metrics: reference/prometheus-metrics.md
       - Agent Extensions: reference/agent-extensions.md
       - Errors: reference/errors.md
