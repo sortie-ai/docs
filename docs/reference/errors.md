@@ -30,6 +30,8 @@ These errors prevent Sortie from starting. They appear immediately on launch and
 
 Preflight validation reports all failures at once in a single `dispatch preflight failed: ...` line.
 
+The [`sortie validate`](cli.md#validate) subcommand runs these same checks without starting the orchestrator. Use it in CI pipelines or pre-commit hooks to catch configuration errors before deployment.
+
 ---
 
 ## Tracker errors

@@ -31,6 +31,8 @@ server:
 
 When both are present, `--port` wins. The server binds to `127.0.0.1` only — it does not listen on all interfaces. Port `0` requests an OS-assigned ephemeral port, which Sortie logs at startup. Useful for tests and local development where you don't care about a stable port number.
 
+The HTTP server is not started in [`--dry-run`](cli.md#dry-run) mode. If `--port` is provided alongside `--dry-run`, the port flag is ignored.
+
 All surfaces share the same port: the dashboard at `/`, health probes at `/livez` and `/readyz`, the JSON API at `/api/v1/*`, and Prometheus metrics at `/metrics`. Changing the port requires a restart — there is no hot-rebind.
 
 For the full `server` extension schema, see [WORKFLOW.md configuration reference](workflow-config.md). For Prometheus metric definitions, see [Prometheus metrics reference](prometheus-metrics.md).
