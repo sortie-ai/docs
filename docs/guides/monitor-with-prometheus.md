@@ -1,11 +1,11 @@
 ---
-title: "Monitor with Prometheus | Sortie"
+title: "How to Monitor with Prometheus | Sortie"
 description: "Configure Prometheus to scrape Sortie metrics, import the Grafana dashboard, and set up alerting queries for operational monitoring."
 keywords: sortie prometheus, grafana dashboard, monitoring, PromQL, alerting, scrape config, observability
 author: Sortie AI
 ---
 
-# Monitor with Prometheus
+# How to monitor with Prometheus
 
 Wire Sortie into your Prometheus and Grafana stack so you can track agent sessions, token burn, dispatch health, and retry queues from a single dashboard.
 

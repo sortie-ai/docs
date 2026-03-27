@@ -1,11 +1,11 @@
 ---
-title: Scale Agents with SSH | Sortie
+title: How to Scale Agents with SSH | Sortie
 description: "Distribute coding agent sessions across remote build machines using SSH. Configure host pools, update hooks, and monitor utilization."
 keywords: sortie ssh, remote agents, scale agents, ssh workers, host pool, distributed agents, build machines, concurrent agents
 author: Sortie AI
 ---
 
-# Scale agents with SSH
+# How to scale agents with SSH
 
 Distribute agent sessions across a pool of remote build machines so your orchestrator host stops being the bottleneck.
 
@@ -33,7 +33,7 @@ If that fails, fix your SSH setup first. Sortie delegates to the system `ssh` bi
 
 ## Add the worker extension
 
-Open your `WORKFLOW.md` and add an `extensions.worker` block to the YAML front matter. List your SSH hosts and set a per-host concurrency cap:
+Open your `WORKFLOW.md` and add an [`extensions.worker`](../reference/workflow-config.md) block to the YAML front matter. List your SSH hosts and set a per-host concurrency cap:
 
 ```yaml
 # WORKFLOW.md (front matter excerpt)
