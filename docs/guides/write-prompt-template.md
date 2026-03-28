@@ -18,7 +18,7 @@ The Markdown body below the YAML front matter in `WORKFLOW.md` is a `text/templa
 
 Every prompt needs the issue identifier and title. Place them after the closing `---` of the front matter:
 
-```markdown
+```jinja
 ---
 tracker:
   kind: jira

@@ -31,7 +31,7 @@ Each agent runtime discovers sub-agents differently. The safest approach is natu
 
 Here's a complete `WORKFLOW.md` that delegates code review to a reviewer sub-agent and planning to a planner sub-agent:
 
-```markdown
+```jinja
 ---
 tracker:
   kind: jira
@@ -122,7 +122,7 @@ All three use the same general structure: YAML frontmatter defining the agent's 
 
 `.claude/agents/reviewer.md` — the `tools` field is a comma-separated string:
 
-```markdown
+```jinja
 ---
 name: reviewer
 description: Reviews code changes for correctness and style
@@ -142,7 +142,7 @@ Do not make changes yourself — only report findings.
 
 `.claude/agents/planner.md`:
 
-```markdown
+```jinja
 ---
 name: planner
 description: Breaks down tasks into implementation steps
@@ -163,7 +163,7 @@ Output a numbered plan. Do not write code.
 
 `.github/agents/reviewer.agent.md` — note the `.agent.md` extension and the `tools` field as a JSON array:
 
-```markdown
+```jinja
 ---
 name: reviewer
 description: Reviews code changes for correctness and style
@@ -186,7 +186,7 @@ Copilot agents can also be stored in `~/.copilot/agents/` for user-level agents 
 
 `.gemini/agents/reviewer.md` — supports additional fields like `kind`, `temperature`, and `max_turns`:
 
-```markdown
+```jinja
 ---
 name: reviewer
 description: Reviews code changes for correctness and style
