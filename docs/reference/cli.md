@@ -45,7 +45,7 @@ sortie: too many arguments
 | `--version` | boolean | `false` | Print the version banner with copyright notice, then exit. |
 | `-dumpversion` | boolean | `false` | Print the bare version string (e.g., `0.0.9`), then exit. |
 
-### `--dry-run` { #dry-run }
+### `--dry-run`
 
 Runs a single poll cycle in read-only mode, then exits. Sortie connects to the tracker, fetches candidate issues, computes dispatch eligibility for each candidate, and logs the results. No agents are spawned, no SQLite database is opened, and no state is written.
 

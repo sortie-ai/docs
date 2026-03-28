@@ -64,14 +64,20 @@ nav:
       - Jira Integration: getting-started/jira-integration.md
       - End-to-End: getting-started/end-to-end.md
   - Guides:
-      - Scale Agents with SSH: guides/scale-agents-with-ssh.md
-      - Monitor with Logs: guides/monitor-with-logs.md
-      - Monitor with Prometheus: guides/monitor-with-prometheus.md
+      # Setup & Configuration
       - Connect to Jira: guides/connect-to-jira.md
       - Use File Adapter for Testing: guides/use-file-adapter-for-testing.md
       - Write a Prompt Template: guides/write-prompt-template.md
-      - Use Sub-Agents with Sortie: guides/use-subagents-with-sortie.md
       - Set Up Workspace Hooks: guides/setup-workspace-hooks.md
+      - Run Multiple Workflows: guides/run-multiple-workflows.md
+      # Operations
+      - Control Agent Costs: guides/control-costs.md
+      - Run as a Systemd Service: guides/run-as-systemd-service.md
+      - Scale Agents with SSH: guides/scale-agents-with-ssh.md
+      - Monitor with Logs: guides/monitor-with-logs.md
+      - Monitor with Prometheus: guides/monitor-with-prometheus.md
+      # Advanced
+      - Use Sub-Agents with Sortie: guides/use-subagents-with-sortie.md
       - Troubleshoot Common Failures: guides/troubleshoot-common-failures.md
   - Reference:
       - CLI Usage: reference/cli.md

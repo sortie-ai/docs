@@ -4,8 +4,11 @@
 /getting-started/jira-integration /getting-started/jira-integration/ 301
 /getting-started/quick-start /getting-started/quick-start/ 301
 /guides/connect-to-jira /guides/connect-to-jira/ 301
+/guides/control-costs /guides/control-costs/ 301
 /guides/monitor-with-logs /guides/monitor-with-logs/ 301
 /guides/monitor-with-prometheus /guides/monitor-with-prometheus/ 301
+/guides/run-as-systemd-service /guides/run-as-systemd-service/ 301
+/guides/run-multiple-workflows /guides/run-multiple-workflows/ 301
 /guides/scale-agents-with-ssh /guides/scale-agents-with-ssh/ 301
 /guides/setup-workspace-hooks /guides/setup-workspace-hooks/ 301
 /guides/troubleshoot-common-failures /guides/troubleshoot-common-failures/ 301
