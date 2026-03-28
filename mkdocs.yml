@@ -80,6 +80,10 @@ nav:
       # Advanced
       - Use Sub-Agents with Sortie: guides/use-subagents-with-sortie.md
       - Troubleshoot Common Failures: guides/troubleshoot-common-failures.md
+  - Concepts:
+      - Architecture: concepts/architecture.md
+      - Orchestration: concepts/orchestration.md
+      - Security Model: concepts/security.md
   - Reference:
       - CLI Usage: reference/cli.md
       - Workflow File: reference/workflow-config.md
