@@ -28,7 +28,7 @@ Twenty-four `SORTIE_*` environment variables override individual [WORKFLOW.md](w
 Four sources feed configuration, highest priority first:
 
 1. **`SORTIE_*` environment variables** in the real process environment
-2. **`.env` file values** (opt-in via `SORTIE_ENV_FILE` or [`--env-file`](cli.md#--env-file))
+2. **`.env` file values** (opt-in via `SORTIE_ENV_FILE` or [`--env-file`](cli.md#-env-file))
 3. **WORKFLOW.md front matter** YAML
 4. **Built-in defaults**
 
@@ -81,7 +81,7 @@ A real env var always beats a `.env` value for the same key. Both beat whatever 
 
 | Env var | Overrides | Type |
 |---|---|---|
-| `SORTIE_DB_PATH` | [`db_path`](workflow-config.md#database) | string (path — `~` expanded) |
+| `SORTIE_DB_PATH` | [`db_path`](workflow-config.md#db_path) | string (path — `~` expanded) |
 
 ### Control variables
 
@@ -91,7 +91,7 @@ These are not config field overrides. They control how overrides are loaded.
 |---|---|---|
 | `SORTIE_ENV_FILE` | Path to a `.env` file containing `SORTIE_*` overrides | string |
 
-When both `SORTIE_ENV_FILE` and [`--env-file`](cli.md#--env-file) are set, the CLI flag wins.
+When both `SORTIE_ENV_FILE` and [`--env-file`](cli.md#-env-file) are set, the CLI flag wins.
 
 ### Type coercion
 
@@ -110,7 +110,7 @@ When both `SORTIE_ENV_FILE` and [`--env-file`](cli.md#--env-file) are set, the C
 | `hooks.timeout_ms` | Grouped with hooks for consistency |
 | `agent.max_concurrent_agents_by_state` | Complex map structure (`{"in progress": 3, "to do": 1}`) |
 | Extension sections (`server`, `worker`, `claude-code`, etc.) | Plugin-owned configuration; overrides belong to the adapter |
-| `logging.level` | Controlled by the [`--log-level`](cli.md#--log-level) CLI flag |
+| `logging.level` | Controlled by the [`--log-level`](cli.md#-log-level) CLI flag |
 
 ### `.env` file support
 
@@ -338,5 +338,5 @@ SORTIE_VERSION=0.8.0 SORTIE_INSTALL_DIR=/opt/bin \
 ## See also
 
 - [WORKFLOW.md configuration reference](workflow-config.md) — all configuration fields, defaults, and types
-- [CLI reference](cli.md) — command-line flags (including [`--env-file`](cli.md#--env-file)) and exit codes
+- [CLI reference](cli.md) — command-line flags (including [`--env-file`](cli.md#-env-file)) and exit codes
 - [Prometheus metrics reference](prometheus-metrics.md) — `sortie_*` metric names (these are Prometheus metrics, not environment variables)
