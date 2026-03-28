@@ -158,4 +158,4 @@ Set this with a `for: 15m` duration in your alert rule. Brief saturation is norm
 
 ## What we configured
 
-Sortie metrics are now flowing into Prometheus, you have a Grafana dashboard for at-a-glance monitoring, and you have alerting queries for the failure modes that matter. For the complete list of every metric, label, and bucket boundary, see the [Prometheus metrics reference](../reference/prometheus-metrics.md). For per-issue debugging through the JSON API, see the [HTTP API reference](../reference/http-api.md).
+Sortie metrics are now flowing into Prometheus, you have a Grafana dashboard for at-a-glance monitoring, and you have alerting queries for the failure modes that matter. For the complete list of every metric, label, and bucket boundary, see the [Prometheus metrics reference](../reference/prometheus-metrics.md). For per-issue debugging through the JSON API, see the [HTTP API reference](../reference/http-api.md). For the built-in HTML dashboard, see the [dashboard reference](../reference/dashboard.md).

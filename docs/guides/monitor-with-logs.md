@@ -207,4 +207,4 @@ journalctl -u sortie -p err
 
 ## What we covered
 
-You now know how to read Sortie's structured logs, follow specific issues through the dispatch lifecycle, distinguish between warnings (automatic recovery) and errors (needs your attention), find tool call failures, and persist logs to a file. For the complete error catalog, see the [error reference](../reference/errors.md). For metric-based monitoring with Prometheus and Grafana, see [Monitor with Prometheus](monitor-with-prometheus.md).
+You now know how to read Sortie's structured logs, follow specific issues through the dispatch lifecycle, distinguish between warnings (automatic recovery) and errors (needs your attention), find tool call failures, and persist logs to a file. For the complete error catalog, see the [error reference](../reference/errors.md). For metric-based monitoring with Prometheus and Grafana, see [Monitor with Prometheus](monitor-with-prometheus.md). For real-time visual monitoring, see the [dashboard reference](../reference/dashboard.md).

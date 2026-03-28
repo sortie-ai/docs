@@ -200,3 +200,7 @@ Delete the file and download again. If the problem persists, open an
 
 **Permission denied during install** — Either run the install command with
 `sudo`, or choose a directory you own (e.g. `~/.local/bin`).
+
+## Next steps
+
+- [Quick start](quick-start.md) — run Sortie end-to-end with a mock agent and local issues

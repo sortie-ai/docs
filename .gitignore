@@ -12,8 +12,5 @@ __pycache__/
 # Local tooling (asdf) — Cloudflare uses PYTHON_VERSION env var instead
 .tool-versions
 
-# Dashboard Sample for screenshots and documentation purposes
-/index.html
-
 # Documentation analysis reports
 REPORT.md

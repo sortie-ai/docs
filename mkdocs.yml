@@ -61,10 +61,18 @@ nav:
   - Getting Started:
       - Installation: getting-started/installation.md
       - Quick Start: getting-started/quick-start.md
+      - Jira Integration: getting-started/jira-integration.md
+      - End-to-End: getting-started/end-to-end.md
   - Guides:
       - Scale Agents with SSH: guides/scale-agents-with-ssh.md
       - Monitor with Logs: guides/monitor-with-logs.md
       - Monitor with Prometheus: guides/monitor-with-prometheus.md
+      - Connect to Jira: guides/connect-to-jira.md
+      - Use File Adapter for Testing: guides/use-file-adapter-for-testing.md
+      - Write a Prompt Template: guides/write-prompt-template.md
+      - Use Sub-Agents with Sortie: guides/use-subagents-with-sortie.md
+      - Set Up Workspace Hooks: guides/setup-workspace-hooks.md
+      - Troubleshoot Common Failures: guides/troubleshoot-common-failures.md
   - Reference:
       - CLI Usage: reference/cli.md
       - Workflow File: reference/workflow-config.md
@@ -73,6 +81,9 @@ nav:
       - Dashboard: reference/dashboard.md
       - Prometheus Metrics: reference/prometheus-metrics.md
       - Agent Extensions: reference/agent-extensions.md
+      - Jira Adapter: reference/adapter-jira.md
+      - Claude Code Adapter: reference/adapter-claude-code.md
+      - State Machine: reference/state-machine.md
       - Errors: reference/errors.md
   - Change Log: changelog.md
 

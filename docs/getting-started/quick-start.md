@@ -188,8 +188,9 @@ agent session. In production, you would swap `mock` for `claude-code` and
 `file` for `jira` — the orchestration works the same way.
 
 
-<!-- ## Next steps
+## Next steps
 
 - [Connect a Jira tracker](jira-integration.md) to pull real issues
 - [Run with Claude Code](end-to-end.md) as the agent for automated code changes
-- [Workflow file reference](../reference/workflow-config.md) for all configuration  options, template variables, and hook lifecycle -->
+- [Workflow file reference](../reference/workflow-config.md) for all configuration options, template variables, and hook lifecycle
+- [Troubleshoot common failures](../guides/troubleshoot-common-failures.md) if something goes wrong

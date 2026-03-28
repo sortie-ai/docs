@@ -63,6 +63,10 @@ states. Changes to the workflow are applied without restart.
 
 ## Quick links
 
+- [Installation](getting-started/installation.md) — install the `sortie` binary
 - [Quick Start](getting-started/quick-start.md) — dispatch your first agent session
+- [WORKFLOW.md reference](reference/workflow-config.md) — all configuration fields
+- [CLI reference](reference/cli.md) — flags, subcommands, and exit codes
+- [Changelog](changelog.md) — release history
 - [GitHub repository](https://github.com/sortie-ai/sortie) — source code
 - [Contributing](https://github.com/sortie-ai/sortie/blob/main/CONTRIBUTING.md) — how to contribute to Sortie

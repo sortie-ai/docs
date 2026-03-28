@@ -9,7 +9,7 @@ author: Sortie AI
 
 `WORKFLOW.md` is a Markdown file with YAML front matter. Front matter between `---` delimiters defines runtime settings. The body after the closing `---` is the prompt template, rendered per issue with Go `text/template`.
 
-See also: [CLI reference](cli.md) for startup flags, [environment variables reference](environment.md) for `$VAR` behavior, [error reference](errors.md) for configuration error diagnostics.
+See also: [CLI reference](cli.md) for startup flags, [environment variables reference](environment.md) for `$VAR` behavior, [error reference](errors.md) for configuration error diagnostics, [Jira adapter reference](adapter-jira.md) for tracker-specific fields, [Claude Code adapter reference](adapter-claude-code.md) for agent-specific pass-through options.
 
 ## Complete annotated example
 

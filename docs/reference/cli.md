@@ -107,7 +107,7 @@ Applied before the workflow file is loaded, so all startup output — including 
 
 Enables the embedded HTTP server on `127.0.0.1:<port>`. All observability surfaces share this port:
 
-- `/` — HTML dashboard
+- `/` — HTML dashboard ([dashboard reference](dashboard.md))
 - `/api/v1/state` — JSON API ([HTTP API reference](http-api.md))
 - `/api/v1/<identifier>` — Per-issue detail
 - `/api/v1/refresh` — Trigger immediate poll cycle
@@ -449,4 +449,5 @@ sortie --help
 - [WORKFLOW.md configuration reference](workflow-config.md) — all config fields
 - [Environment variables reference](environment.md) — agent runtime vars, `$VAR` indirection, hook env
 - [HTTP API reference](http-api.md) — JSON API endpoints and response shapes
+- [Dashboard reference](dashboard.md) — built-in HTML monitoring dashboard
 - [Prometheus metrics reference](prometheus-metrics.md) — metric names, types, labels, and PromQL examples

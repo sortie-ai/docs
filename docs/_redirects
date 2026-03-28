@@ -1,9 +1,19 @@
 /changelog /changelog/ 301
+/getting-started/end-to-end /getting-started/end-to-end/ 301
 /getting-started/installation /getting-started/installation/ 301
+/getting-started/jira-integration /getting-started/jira-integration/ 301
 /getting-started/quick-start /getting-started/quick-start/ 301
+/guides/connect-to-jira /guides/connect-to-jira/ 301
 /guides/monitor-with-logs /guides/monitor-with-logs/ 301
 /guides/monitor-with-prometheus /guides/monitor-with-prometheus/ 301
 /guides/scale-agents-with-ssh /guides/scale-agents-with-ssh/ 301
+/guides/setup-workspace-hooks /guides/setup-workspace-hooks/ 301
+/guides/troubleshoot-common-failures /guides/troubleshoot-common-failures/ 301
+/guides/use-file-adapter-for-testing /guides/use-file-adapter-for-testing/ 301
+/guides/use-subagents-with-sortie /guides/use-subagents-with-sortie/ 301
+/guides/write-prompt-template /guides/write-prompt-template/ 301
+/reference/adapter-claude-code /reference/adapter-claude-code/ 301
+/reference/adapter-jira /reference/adapter-jira/ 301
 /reference/agent-extensions /reference/agent-extensions/ 301
 /reference/cli /reference/cli/ 301
 /reference/dashboard /reference/dashboard/ 301
@@ -11,4 +21,5 @@
 /reference/errors /reference/errors/ 301
 /reference/http-api /reference/http-api/ 301
 /reference/prometheus-metrics /reference/prometheus-metrics/ 301
+/reference/state-machine /reference/state-machine/ 301
 /reference/workflow-config /reference/workflow-config/ 301

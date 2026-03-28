@@ -9,7 +9,7 @@ author: Sortie AI
 
 Every error Sortie produces falls into one of six categories: startup failures, tracker errors, agent errors, workspace errors, worker exit outcomes, and HTTP API errors. This page documents each — what it means, whether Sortie retries it, and what you should do.
 
-Error kind strings appear in logs exactly as shown below. Search this page for the string you see in your output.
+Error kind strings appear in logs exactly as shown below. Search this page for the string you see in your output. For step-by-step diagnosis of the most common failures, see [How to troubleshoot common failures](../guides/troubleshoot-common-failures.md).
 
 ---
 

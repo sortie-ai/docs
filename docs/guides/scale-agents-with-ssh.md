@@ -160,3 +160,5 @@ The key pieces:
 - **`SORTIE_SSH_HOST`** in hooks — the bridge between local orchestration and remote preparation
 - **Least-loaded dispatch** — Sortie balances work across hosts automatically
 - **Retry affinity** — failed sessions prefer the same host on retry, avoiding redundant workspace setup
+
+For the full SSH configuration schema, see the [WORKFLOW.md reference](../reference/workflow-config.md). For environment variables injected into hooks during SSH dispatch, see the [environment variables reference](../reference/environment.md).

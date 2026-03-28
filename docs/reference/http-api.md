@@ -439,3 +439,9 @@ The response includes the header `Allow: GET` (or `Allow: POST` for the refresh 
 | GET | `/api/v1/{identifier}` | Per-issue detail | `application/json` |
 | POST | `/api/v1/refresh` | Trigger immediate poll cycle | `application/json` |
 | GET | `/metrics` | Prometheus metrics | `text/plain` |
+
+## See also
+
+- [Dashboard reference](dashboard.md) — the HTML dashboard served on the same port
+- [Prometheus metrics reference](prometheus-metrics.md) — metric names, types, labels, and PromQL examples
+- [CLI reference](cli.md) — `--port` flag and `--dry-run` behavior
