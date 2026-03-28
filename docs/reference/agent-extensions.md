@@ -63,7 +63,12 @@ Retrieve a single issue by its tracker-internal ID. Returns the full issue recor
   "branch_name": "PROJ-42-retry-logic",
   "parent": {"id": "parent-1", "identifier": "PROJ-40"},
   "comments": [
-    {"id": "c1", "author": "bob", "body": "Confirmed in prod.", "created_at": "2026-03-25T10:00:00Z"}
+    {
+      "id": "c1",
+      "author": "bob",
+      "body": "Confirmed in prod.",
+      "created_at": "2026-03-25T10:00:00Z"
+    }
   ],
   "blocked_by": [],
   "created_at": "2026-03-20T09:00:00Z",
@@ -89,8 +94,18 @@ Retrieve comments for a specific issue.
 
 ```json
 [
-  {"id": "c1", "author": "alice", "body": "Looks good overall.", "created_at": "2026-03-25T10:00:00Z"},
-  {"id": "c2", "author": "bob", "body": "Needs a test for the edge case.", "created_at": "2026-03-25T11:30:00Z"}
+  {
+    "id": "c1",
+    "author": "alice",
+    "body": "Looks good overall.",
+    "created_at": "2026-03-25T10:00:00Z"
+  },
+  {
+    "id": "c2",
+    "author": "bob",
+    "body": "Needs a test for the edge case.",
+    "created_at": "2026-03-25T11:30:00Z"
+  }
 ]
 ```
 
@@ -112,8 +127,20 @@ List active-state issues in the configured project. No parameters beyond `operat
 
 ```json
 [
-  {"id": "abc123", "identifier": "PROJ-42", "title": "Add retry logic", "state": "To Do", "...": "..."},
-  {"id": "def456", "identifier": "PROJ-43", "title": "Fix flaky test", "state": "To Do", "...": "..."}
+  {
+    "id": "abc123",
+    "identifier": "PROJ-42",
+    "title": "Add retry logic",
+    "state": "To Do",
+    "...": "..."
+  },
+  {
+    "id": "def456",
+    "identifier": "PROJ-43",
+    "title": "Fix flaky test",
+    "state": "To Do",
+    "...": "..."
+  }
 ]
 ```
 
@@ -128,7 +155,11 @@ Move an issue to a new state.
 **Request:**
 
 ```json
-{"operation": "transition_issue", "issue_id": "abc123", "target_state": "In Review"}
+{
+  "operation": "transition_issue",
+  "issue_id": "abc123",
+  "target_state": "In Review"
+}
 ```
 
 **Response data:**

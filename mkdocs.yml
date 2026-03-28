@@ -70,6 +70,7 @@ nav:
       - Write a Prompt Template: guides/write-prompt-template.md
       - Set Up Workspace Hooks: guides/setup-workspace-hooks.md
       - Run Multiple Workflows: guides/run-multiple-workflows.md
+      - Configure Retry Behavior: guides/configure-retry-behavior.md
       # Operations
       - Control Agent Costs: guides/control-costs.md
       - Run as a Systemd Service: guides/run-as-systemd-service.md
