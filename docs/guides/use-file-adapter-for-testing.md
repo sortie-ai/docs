@@ -120,6 +120,7 @@ Scenarios worth testing:
 - **Empty description.** Set `"description": ""` and verify the `{{ if }}` block skips it.
 - **Priority sorting.** Add issues with `"priority": 1`, `"priority": 3`, and `"priority": null` to confirm dispatch order.
 - **Blocker rendering.** Populate `blocked_by` with multiple entries and check the rendered prompt.
+- **Tracker comments.** Enable `tracker.comments.on_dispatch: true` and check the logs for "dispatch comment posted" messages. The file adapter stores comments in memory for the duration of the process.
 
 Each scenario targets a specific `{{ if }}` or `{{ range }}` branch in your template. If a field reference is misspelled, Sortie's strict mode (`missingkey=error`) fails immediately with a line number — no silent empty strings.
 

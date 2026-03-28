@@ -78,7 +78,7 @@ The API token is wrong, expired, or lacks required permissions. This error is no
       "https://yourcompany.atlassian.net/rest/api/3/myself" | head -5
     ```
 
-3. If you use `handoff_state`, the token needs write permissions: `write:jira-work` (classic) or `write:issue:jira` (granular).
+3. If you use `handoff_state`, `in_progress_state`, or `tracker.comments`, the token needs write permissions: `write:jira-work` (classic) or `write:issue:jira` (granular).
 
 ## Template render fails
 
@@ -159,7 +159,7 @@ Sortie is polling but finds nothing to dispatch.
 dispatch preflight failed: tracker.kind is required
 ```
 
-Sortie validates the config at startup and reports all failures at once. Run `sortie validate ./WORKFLOW.md` to see every problem. The most common missing fields:
+Sortie validates the config at startup and reports all failures at once. Run `sortie validate ./WORKFLOW.md` to see every problem — including advisory warnings for typos in YAML keys and type mismatches that would silently fall back to defaults at runtime. The most common missing fields:
 
 | Field | Required by |
 |---|---|

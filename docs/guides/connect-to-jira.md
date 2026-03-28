@@ -130,6 +130,49 @@ Two constraints:
 - `handoff_state` must not collide with any value in `terminal_states`. Sortie rejects this at startup.
 - The transition must be available from the issue's current Jira status. Check your Jira workflow diagram if transitions fail.
 
+## Configure dispatch-time transitions
+
+Sortie can also transition an issue when the agent *picks it up* — moving it to an "In Progress" column so your team sees work has started:
+
+```yaml
+tracker:
+  kind: jira
+  endpoint: $SORTIE_JIRA_ENDPOINT
+  api_key: $SORTIE_JIRA_API_KEY
+  project: PROJ
+  active_states: [To Do, In Progress]
+  in_progress_state: In Progress
+  handoff_state: Human Review
+  terminal_states: [Done]
+```
+
+`in_progress_state` must be a value in `active_states`. If the issue is already in that state at dispatch time, the transition is skipped (debug log only). If the transition fails for other reasons — for example, the Jira workflow doesn't allow it — Sortie logs a warning and continues. The agent session proceeds regardless.
+
+Three constraints:
+
+- `in_progress_state` must appear in `active_states`. Otherwise reconciliation would cancel the worker after the state change.
+- `in_progress_state` must not collide with `terminal_states` or `handoff_state`.
+- The API token needs write permissions (same as `handoff_state`).
+
+## Enable tracker comments
+
+Sortie can post comments on Jira issues at session lifecycle points — dispatch, completion, and failure. This creates a visible audit trail in the ticket without leaving Jira:
+
+```yaml
+tracker:
+  # ... existing fields ...
+  comments:
+    on_dispatch: true
+    on_completion: true
+    on_failure: true
+```
+
+Each flag is independent. Enable only the events you care about. All default to `false`.
+
+Comment failures are non-fatal — Sortie logs a warning and continues. The API token needs the same write permissions as `handoff_state` (`write:jira-work` or `write:issue:jira`).
+
+See the [workflow config reference](../reference/workflow-config.md) for comment content details.
+
 ## Verify the connection
 
 ### Validate syntax
@@ -222,6 +265,7 @@ tracker:
   active_states:
     - To Do
     - In Progress
+  in_progress_state: In Progress
   handoff_state: Human Review
   terminal_states:
     - Done

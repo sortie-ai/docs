@@ -117,6 +117,21 @@ time=2026-03-26T14:35:21.500+00:00 level=INFO msg="handoff transition succeeded,
 
 Sortie transitioned the issue to the configured `handoff_state` in the tracker and released its claim. The issue is done.
 
+### Tracker comments
+
+```
+time=2026-03-26T14:32:00.200+00:00 level=INFO msg="dispatch comment posted" issue_id=abc123 issue_identifier=MT-649
+time=2026-03-26T14:35:21.600+00:00 level=INFO msg="tracker comment posted" issue_id=abc123 issue_identifier=MT-649 lifecycle=completion
+```
+
+When [`tracker.comments`](../reference/workflow-config.md) flags are enabled, Sortie posts audit comments on the tracker issue at dispatch, completion, or failure. INFO means the comment was delivered. If the comment API call fails:
+
+```
+time=2026-03-26T14:35:21.600+00:00 level=WARN msg="tracker comment failed" issue_id=abc123 issue_identifier=MT-649 lifecycle=completion error="tracker: tracker_auth_error: POST /rest/api/3/issue/abc123/comment: 403"
+```
+
+WARN — the comment failed but the session lifecycle is unaffected. Check API token permissions if persistent.
+
 ### Errors and retries
 
 ```

@@ -146,7 +146,7 @@ Blockers are a list of objects. Iterate with `{{ range }}`:
 ```
 
 !!! warning "The dot changes inside `{{ range }}`"
-    Inside a `range` block, `.` is rebound to the current list element — not the root data. Writing `{{ .issue.identifier }}` inside `{{ range .issue.blocked_by }}` fails because `.` is now a blocker object, not the top-level map. Use the dollar-sign prefix `{{ $.issue.identifier }}` to reach the root from inside any `range` or `with` block.
+    Inside a `range` block, `.` is rebound to the current list element — not the root data. Writing `{{ .issue.identifier }}` inside `{{ range .issue.blocked_by }}` fails because `.` is now a blocker object, not the top-level map. Use the dollar-sign prefix `{{ $.issue.identifier }}` to reach the root from inside any `range` or `with` block. `sortie validate` detects this mistake statically and emits a `dot_context` warning.
 
 ### Comments
 
@@ -204,13 +204,19 @@ Useful for documenting env var requirements or leaving notes for colleagues.
 
 ## Verify the result
 
-Check for syntax errors without running a full cycle:
+Check for syntax errors, configuration typos, and template mistakes without running a full cycle:
 
 ```bash
 sortie validate WORKFLOW.md
 ```
 
-This parses the front matter and compiles the template, reporting errors with line numbers. Run it after every edit.
+This parses the front matter, compiles the template, and runs static analysis on both YAML keys and the template body. Typos in YAML keys (like `trackers:` instead of `tracker:`) appear as warnings, and so do common template mistakes: referencing `.issue.title` inside `{{ range }}` where dot has been rebound, using an unknown variable like `{{ .config }}`, or accessing a non-existent sub-field like `{{ .run.foo }}`. Run it after every edit.
+
+For JSON-structured output in CI pipelines:
+
+```bash
+sortie validate --format json WORKFLOW.md
+```
 
 For an end-to-end test with rendering, use the file tracker and a mock agent:
 
@@ -241,7 +247,7 @@ Check the logs for the rendered prompt. Render errors appear with line numbers.
 ## Avoid common mistakes
 
 **Referencing a variable that doesn't exist.**
-Sortie runs in strict mode (`missingkey=error`). A typo like `{{ .issue.titel }}` fails rendering immediately instead of producing an empty string. Check field names against the variable table above.
+Sortie runs in strict mode (`missingkey=error`). A typo like `{{ .issue.titel }}` fails rendering immediately instead of producing an empty string. `sortie validate` catches these statically — unknown fields like `.issue.titel` produce an `unknown_field` warning, and unknown top-level variables like `{{ .config }}` produce an `unknown_var` warning. Check field names against the variable table above.
 
 **Forgetting to guard nil fields.**
 `.issue.parent` is `nil` when no parent exists. Accessing `.issue.parent.identifier` without a guard panics:
