@@ -27,10 +27,14 @@ These errors prevent Sortie from starting. They appear immediately on launch and
 | `agent.kind` | `agent.kind is required` | Add `agent.kind` to your WORKFLOW.md front matter. |
 | `agent_adapter` | `unknown agent kind "<kind>"` | Use a registered adapter: `claude-code` or `mock`. |
 | `agent.command` | `agent.command is required for agent kind "<kind>"` | Set `agent.command` or install the agent binary so it's in `PATH`. |
+| `tracker.handoff_state` | `tracker.handoff_state: "<val>" collides with active/terminal state` | Use a state that doesn't appear in `active_states` or `terminal_states`. |
+| `tracker.in_progress_state` | `tracker.in_progress_state: "<val>" is not in active_states` / `collides with terminal state` / `collides with handoff_state` | `in_progress_state` must be in `active_states`, must not be in `terminal_states`, and must not equal `handoff_state`. |
+| `tracker.comments` | `tracker.comments: expected map, got <type>` | The `comments` value must be a YAML map, not a scalar or list. |
+| `tracker.comments.on_dispatch` | `tracker.comments.on_dispatch: expected bool, got <type>` | Use `true` or `false`. Quoted strings like `"true"` are not accepted. Same applies to `on_completion` and `on_failure`. |
 
 Preflight validation reports all failures at once in a single `dispatch preflight failed: ...` line.
 
-The [`sortie validate`](cli.md#validate) subcommand runs these same checks without starting the orchestrator. Use it in CI pipelines or pre-commit hooks to catch configuration errors before deployment.
+The [`sortie validate`](cli.md#validate) subcommand runs these same checks without starting the orchestrator, and additionally emits [advisory warnings](cli.md#advisory-warnings) for front matter issues (unknown keys, sub-keys, type mismatches) and template problems (dot-context misuse in `{{ range }}`/`{{ with }}`, unknown variables, unknown sub-fields). Use it in CI pipelines or pre-commit hooks to catch configuration errors, typos, and template mistakes before deployment.
 
 ---
 

@@ -29,6 +29,7 @@ The adapter reads its configuration from the `tracker` section of the [WORKFLOW.
 | `terminal_states` | list of strings | No | `[]` | Issue states that trigger workspace cleanup. |
 | `query_filter` | string | No | `""` | Raw JQL fragment appended to candidate and state-fetch queries. |
 | `handoff_state` | string | No | _(absent)_ | Target state for orchestrator-initiated transitions after a successful run. |
+| `in_progress_state` | string | No | _(absent)_ | Target state for dispatch-time transitions at the start of each worker attempt. |
 
 ### `endpoint`
 
@@ -98,6 +99,20 @@ Constraints enforced at startup:
 Handoff transitions require write permissions on the API token: `write:jira-work` (classic scopes) or `write:issue:jira` (granular scopes).
 
 See [ADR-0007](https://github.com/sortie-ai/sortie/blob/main/docs/decisions/0007-handoff-state-and-tracker-writes.md) for the design rationale behind handoff transitions.
+
+### `in_progress_state`
+
+Target Jira status for dispatch-time transitions. When configured, the worker calls `TransitionIssue` as its first step before workspace preparation. The adapter uses the same transition mechanism as `handoff_state` — it fetches available transitions and matches by target status name (case-insensitive).
+
+Transition failure is non-fatal: the worker logs a warning and continues to workspace preparation.
+
+Constraints enforced at startup:
+
+- Must appear in `active_states` (otherwise reconciliation would cancel the worker after the state change).
+- Must not appear in `terminal_states`.
+- Must not collide with `handoff_state`.
+
+Requires the same write permissions as `handoff_state`.
 
 ---
 
@@ -230,6 +245,49 @@ Moves an issue to a target state by finding and executing a Jira workflow transi
 ```
 
 Returns `nil` on success (Jira returns 204 No Content). Returns `tracker_payload_error` when no available transition leads to the target state from the issue's current status.
+
+### `CommentIssue`
+
+Posts a plain-text comment on an issue. Used by the orchestrator to record session lifecycle events (dispatch, completion, failure) as visible audit entries.
+
+**Endpoint:** `POST /rest/api/3/issue/{issueIdOrKey}/comment`
+
+**Request body:** Atlassian Document Format (ADF). The adapter splits the plain-text input by newlines and wraps each line in a separate `paragraph` node. Empty lines produce empty paragraphs for visual spacing.
+
+```json
+{
+  "body": {
+    "version": 1,
+    "type": "doc",
+    "content": [
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "Sortie session started."
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "Agent: claude-code"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Returns `nil` on success (Jira returns 201 Created). Error responses are classified by the standard [error mapping](#error-mapping) rules.
+
+The orchestrator builds the comment text; the adapter is responsible only for ADF wrapping and delivery. Comment failures are non-fatal — the orchestrator logs WARN and continues.
+
+Requires write permissions: `write:jira-work` (classic) or `write:issue:jira` (granular) — the same scopes as `TransitionIssue`.
 
 ---
 
@@ -462,7 +520,7 @@ When the HTTP server is [enabled](workflow-config.md), the adapter increments th
 
 | Label | Values |
 |---|---|
-| `operation` | `fetch_candidates`, `fetch_issue`, `fetch_by_states`, `fetch_states_by_ids`, `fetch_states_by_identifiers`, `fetch_comments`, `transition` |
+| `operation` | `fetch_candidates`, `fetch_issue`, `fetch_by_states`, `fetch_states_by_ids`, `fetch_states_by_identifiers`, `fetch_comments`, `transition`, `comment` |
 | `result` | `success`, `error` |
 
 When the HTTP server is disabled, metrics calls are no-ops. See [Prometheus metrics reference](prometheus-metrics.md) for query examples.
@@ -501,12 +559,12 @@ All fetch operations require read access to the Jira project:
 
 ### Write operations
 
-`TransitionIssue` (used by `handoff_state`) requires write access:
+`TransitionIssue` (used by `handoff_state` and `in_progress_state`) and `CommentIssue` (used by `tracker.comments.*`) require write access:
 
 - **Classic scopes:** `write:jira-work`
 - **Granular scopes:** `write:issue:jira`
 
-If the API token lacks write permissions, handoff transitions fail with `tracker_auth_error` (HTTP 403). The orchestrator treats this as non-fatal and falls back to continuation retry.
+If the API token lacks write permissions, transitions fail with `tracker_auth_error` (HTTP 403) and comments fail with `tracker_auth_error`. The orchestrator treats both as non-fatal.
 
 ---
 

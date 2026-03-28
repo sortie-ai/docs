@@ -9,7 +9,7 @@ author: Sortie AI
 
 Sortie maintains two layers of state for every issue it processes. The **orchestration state** tracks whether the orchestrator has claimed the issue and what it is doing with it. The **run attempt phase** tracks where a single agent invocation stands within its lifecycle. These are independent from tracker states (`To Do`, `In Progress`) — they are Sortie's internal bookkeeping.
 
-See also: [WORKFLOW.md configuration](workflow-config.md) for `active_states`, `terminal_states`, and `handoff_state`; [error reference](errors.md) for error kinds that trigger retries; [CLI reference](cli.md) for `--dry-run` mode that simulates dispatch without launching agents; [dashboard reference](dashboard.md) for real-time visibility into orchestration state.
+See also: [WORKFLOW.md configuration](workflow-config.md) for `active_states`, `terminal_states`, `handoff_state`, and `in_progress_state`; [error reference](errors.md) for error kinds that trigger retries; [CLI reference](cli.md) for `--dry-run` mode that simulates dispatch without launching agents; [dashboard reference](dashboard.md) for real-time visibility into orchestration state.
 
 ---
 
@@ -81,6 +81,8 @@ Each worker attempt progresses through a linear sequence of phases. Terminal pha
 
 | Phase | Description |
 |---|---|
+| `DispatchTransition` | Optional. When [`tracker.in_progress_state`](workflow-config.md) is configured, the worker calls `TransitionIssue` before workspace preparation. If the issue is already in the target state, the call is skipped (debug log only). Failure is non-fatal — the worker logs a warning and continues. |
+| `DispatchComment` | Optional. When [`tracker.comments.on_dispatch`](workflow-config.md) is `true`, the worker posts a tracker comment acknowledging that Sortie has claimed the issue. Fires after the dispatch transition and before workspace preparation. Failure is non-fatal — the worker logs a warning and continues. |
 | `PreparingWorkspace` | Workspace directory is created or reused. `after_create` and `before_run` hooks execute. |
 | `BuildingPrompt` | The `text/template` prompt body is rendered with issue data, attempt number, and turn context. |
 | `LaunchingAgentProcess` | The agent adapter starts a session (subprocess, API call, or mock). |
@@ -95,7 +97,9 @@ Each worker attempt progresses through a linear sequence of phases. Terminal pha
 
 ```mermaid
 flowchart TD
-    PW[PreparingWorkspace] --> BP[BuildingPrompt]
+    DT[DispatchTransition] --> DC[DispatchComment]
+    DC --> PW[PreparingWorkspace]
+    PW --> BP[BuildingPrompt]
     BP --> LA[LaunchingAgent]
     LA --> IS[InitializingSession]
     IS --> ST[StreamingTurn]
@@ -113,7 +117,7 @@ flowchart TD
     classDef success fill:#d1fae5,stroke:#059669,color:#064e3b,stroke-width:2px
     classDef failure fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
 
-    class PW,BP,LA,IS,FN phase
+    class DT,DC,PW,BP,LA,IS,FN phase
     class ST active
     class OK success
     class TO,SL,CR failure
@@ -137,9 +141,9 @@ Six external events drive state transitions. Each is handled by the orchestrator
 
 | Trigger | What happens |
 |---|---|
-| **Poll tick** | Reconcile running issues (stall detection + tracker state refresh). Run preflight validation. Fetch candidates. Sort by priority. Dispatch eligible issues until slots are exhausted. |
-| **Worker exit (normal)** | Remove `running` entry. Persist run history to SQLite. Update token totals. Schedule continuation retry or perform handoff transition. |
-| **Worker exit (error)** | Remove `running` entry. Persist run history. Classify error. If retryable, schedule exponential backoff retry. If not, release claim. |
+| **Poll tick** | Reconcile running issues (stall detection + tracker state refresh). Run preflight validation. Fetch candidates. Sort by priority. Dispatch eligible issues until slots are exhausted. Dispatched workers perform the optional in-progress transition (via `tracker.in_progress_state`) and optional dispatch comment (via `tracker.comments.on_dispatch`) as their first steps. |
+| **Worker exit (normal)** | Remove `running` entry. Persist run history to SQLite. Update token totals. Schedule continuation retry or perform handoff transition. Post completion comment if [`tracker.comments.on_completion`](workflow-config.md) is enabled (detached goroutine, non-blocking). |
+| **Worker exit (error)** | Remove `running` entry. Persist run history. Classify error. If retryable, schedule exponential backoff retry. If not, release claim. Post failure comment if [`tracker.comments.on_failure`](workflow-config.md) is enabled (detached goroutine, non-blocking). |
 | **Agent update event** | Update live session fields: token counters, session ID, thread ID, agent PID, rate limits, last activity timestamp. |
 | **Retry timer fired** | Re-fetch candidates. If the issue is still eligible and slots are available, dispatch. If no slots, reschedule. If the issue is gone or inactive, release claim. |
 | **Reconciliation: tracker state refresh** | For each running issue: terminal state → cancel worker, clean workspace. Still active → update snapshot. Neither active nor terminal → cancel worker, no cleanup. |

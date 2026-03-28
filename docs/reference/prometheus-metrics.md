@@ -39,8 +39,10 @@ Monotonically increasing. Apply `rate()` or `increase()` to extract per-second o
 | `sortie_retries_total` | `trigger` | Retry scheduling events. `trigger` is `error` (failed attempt), `continuation` (successful turn, more work remains), `timer` (retry timer fired), or `stall` (stall timeout detected). | Coordination |
 | `sortie_reconciliation_actions_total` | `action` | Reconciliation outcomes per issue checked. `action` is `stop` (issue state no longer active), `cleanup` (terminal state, workspace removed), or `keep` (still active, no action). | Coordination |
 | `sortie_poll_cycles_total` | `result` | Poll tick outcomes. `result` is `success` (fetched and dispatched), `error` (tracker fetch failed), or `skipped` (preflight validation failed, dispatch skipped). | Coordination |
-| `sortie_tracker_requests_total` | `operation`, `result` | Tracker adapter API calls. Each adapter method increments this independently — the orchestrator never touches it. `operation` is `fetch_candidates`, `fetch_issue`, `fetch_comments`, or `transition`. `result` is `success` or `error`. | Integration |
+| `sortie_tracker_requests_total` | `operation`, `result` | Tracker adapter API calls. Each adapter method increments this independently — the orchestrator never touches it. `operation` is `fetch_candidates`, `fetch_issue`, `fetch_comments`, `transition`, or `comment`. `result` is `success` or `error`. | Integration |
 | `sortie_handoff_transitions_total` | `result` | Handoff state transition outcomes. `result` is `success` (issue transitioned), `error` (transition API failed, retry scheduled as fallback), or `skipped` (no `handoff_state` configured). | Coordination |
+| `sortie_dispatch_transitions_total` | `result` | Dispatch-time in-progress transition outcomes. `result` is `success` (issue transitioned at dispatch), `error` (transition API failed; worker continues to workspace preparation), or `skipped` (issue was already in the target state). Only recorded when [`tracker.in_progress_state`](workflow-config.md) is configured. | Coordination |
+| `sortie_tracker_comments_total` | `lifecycle`, `result` | Tracker comment attempts. `lifecycle` is `dispatch`, `completion`, or `failure`. `result` is `success` or `error`. Only recorded when [`tracker.comments.*`](workflow-config.md) flags are enabled. Comment failures are non-fatal — they increment the `error` result but never block the orchestrator. | Coordination |
 | `sortie_tool_calls_total` | `tool`, `result` | Agent tool call completions. `tool` is the tool name (e.g., `Bash`, `tracker_api`). `result` is `success` or `error`. | Coordination |
 
 ## Histograms
@@ -174,6 +176,7 @@ The dashboard includes these panels:
 | Poll cycle health | `sortie_poll_cycles_total`, `sortie_poll_duration_seconds` | Status + duration overlay |
 | Tracker API | `sortie_tracker_requests_total` | Time series (rate) by `operation` × `result` |
 | Handoff transitions | `sortie_handoff_transitions_total` | Stat counters by `result` |
+| Dispatch transitions | `sortie_dispatch_transitions_total` | Stat counters by `result` |
 | Tool calls | `sortie_tool_calls_total` | Time series (rate) by `tool` |
 | SSH host utilization | `sortie_ssh_host_usage` | Bar gauge per `host` (hidden when no SSH hosts are configured) |
 | Build info | `sortie_build_info` | Stat showing `version` and `go_version` |

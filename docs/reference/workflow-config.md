@@ -11,6 +11,9 @@ author: Sortie AI
 
 See also: [CLI reference](cli.md) for startup flags, [environment variables reference](environment.md) for `$VAR` behavior, [error reference](errors.md) for configuration error diagnostics, [Jira adapter reference](adapter-jira.md) for tracker-specific fields, [Claude Code adapter reference](adapter-claude-code.md) for agent-specific pass-through options.
 
+!!! tip
+    Most configuration fields in this reference can be overridden by `SORTIE_*` environment variables without modifying the workflow file. See the [environment variables reference](environment.md#configuration-overrides) for the full list and precedence rules.
+
 ## Complete annotated example
 
 ```yaml
@@ -29,6 +32,11 @@ tracker:
     - Done
     - Won't Do
   handoff_state: Human Review         # State set after successful agent run
+  in_progress_state: In Progress       # State set when agent picks up the issue
+  comments:
+    on_dispatch: true                  # Post comment when agent starts
+    on_completion: true                # Post comment when agent finishes
+    on_failure: true                   # Post comment when agent fails
 
 # --- Polling ----------------------------------------------------------
 polling:
@@ -124,12 +132,16 @@ Issue tracker connection and query settings.
 | `terminal_states` | list of strings | `[]`                  | Issue states that trigger workspace cleanup.                            |
 | `query_filter`    | string          | `""`                  | Query fragment appended to tracker queries. For Jira: a JQL expression. |
 | `handoff_state`   | string          | _(absent)_            | Target state after a successful agent run. Absent disables handoff.     |
+| `in_progress_state` | string        | _(absent)_            | Target state for dispatch-time transition at the start of each worker attempt. Absent disables dispatch-time transitions. |
+| `comments.on_dispatch`   | bool   | `false`               | Post a tracker comment when a worker is dispatched.                     |
+| `comments.on_completion` | bool   | `false`               | Post a tracker comment when a worker completes normally.                |
+| `comments.on_failure`    | bool   | `false`               | Post a tracker comment when a worker exits with an error.               |
 
 ### Environment variable expansion
 
 `api_key` applies full environment expansion: `$VAR` and `${VAR}` references are resolved at any position in the string.
 
-`endpoint`, `project`, and `handoff_state` use targeted resolution: the value is expanded only when the entire trimmed string starts with `$`. Literal URIs and project keys that contain `$` characters elsewhere are returned unchanged.
+`endpoint`, `project`, `handoff_state`, and `in_progress_state` use targeted resolution: the value is expanded only when the entire trimmed string starts with `$`. Literal URIs and project keys that contain `$` characters elsewhere are returned unchanged.
 
 See the [environment variables reference](environment.md#var-indirection-in-workflowmd) for expansion mechanics.
 
@@ -138,6 +150,24 @@ See the [environment variables reference](environment.md#var-indirection-in-work
 At least one of `active_states` or `terminal_states` must be non-empty. When both are empty, Sortie refuses to start. An empty `active_states` with non-empty `terminal_states` is valid but means no issues are dispatched.
 
 `handoff_state`, when set, must not appear in `active_states` (causes immediate re-dispatch loop) or `terminal_states` (handoff is not a terminal outcome). Jira handoff requires write permissions on the API token: `write:jira-work` (classic) or `write:issue:jira` (granular).
+
+`in_progress_state`, when set, must appear in `active_states` (otherwise reconciliation would immediately cancel the worker after the transition). It must not appear in `terminal_states` or collide with `handoff_state`. If the issue is already in the target state at dispatch time, the transition call is skipped (debug log only). Other transition failures at runtime are non-fatal: the worker logs a warning and continues to workspace preparation. Requires the same write permissions as `handoff_state`.
+
+### Tracker comments
+
+The `comments` sub-object controls whether Sortie posts plain-text comments on tracker issues at session lifecycle points. Each flag is independent. All default to `false`.
+
+| Flag | Fires when | Comment content |
+|---|---|---|
+| `on_dispatch` | Worker starts (after in-progress transition, before workspace preparation) | Session started acknowledgment with agent kind and attempt number. Session ID and workspace are "pending" at this point. |
+| `on_completion` | Worker exits normally | Session ID, duration, turns completed. Includes "(re-queuing)" suffix when a continuation retry is scheduled. |
+| `on_failure` | Worker exits with an error | Session ID, duration, truncated error message (200 char limit), retry status and next attempt number. |
+
+Comment failures are non-fatal. A failed comment logs WARN and never blocks dispatch, completion, retry, or handoff. Completion and failure comments are posted from a detached goroutine — the event loop is never blocked by the tracker API.
+
+No comment is posted on worker cancellation (stall timeout, reconciliation, shutdown).
+
+The `comments` value must be a map when present. Non-boolean values for the flags produce a configuration error at startup. The flags do not support `$VAR` expansion.
 
 **Example: Jira**
 
@@ -151,6 +181,11 @@ tracker:
   active_states: [To Do, In Progress]
   terminal_states: [Done, Won't Do]
   handoff_state: Human Review
+  in_progress_state: In Progress
+  comments:
+    on_dispatch: true
+    on_completion: true
+    on_failure: true
 ```
 
 **Example: file-based tracker**
@@ -355,7 +390,7 @@ file:
 
 ## Extensions
 
-Unknown top-level keys are collected into an extensions map for forward compatibility. The orchestrator does not validate extension fields; each consumer defines its own schema.
+Unknown top-level keys are collected into an extensions map for forward compatibility. The orchestrator does not validate extension fields at runtime; each consumer defines its own schema. However, [`sortie validate`](cli.md#validate) emits advisory warnings for unknown top-level keys that are not recognized extensions or adapter pass-through blocks — catching typos before deployment.
 
 ### `server`
 
@@ -493,7 +528,7 @@ All standard Go `text/template` actions are available:
 | `print`, `printf`, `println`             | Formatted output. |
 
 !!! note
-    Inside `{{ range }}`, the dot (`.`) rebinds to the current element. Use `{{ $.issue.identifier }}` to access top-level variables from within a range block.
+    Inside `{{ range }}`, the dot (`.`) rebinds to the current element. Use `{{ $.issue.identifier }}` to access top-level variables from within a range block. `sortie validate` detects references to `.issue`, `.attempt`, or `.run` inside `{{ range }}` and `{{ with }}` blocks and emits a `dot_context` warning.
 
 ---
 
@@ -508,7 +543,7 @@ Sortie watches `WORKFLOW.md` for filesystem changes and re-applies configuration
 | `agent.max_concurrent_agents_by_state` | Next dispatch decision.                |
 | `agent.max_retry_backoff_ms`           | Next retry schedule.                   |
 | `agent.max_sessions`                   | Next retry evaluation.                 |
-| `tracker.*`                            | Future dispatches and reconciliation.  |
+| `tracker.*` (including `tracker.comments.*`) | Future dispatches and reconciliation.  |
 | `hooks.*`                              | Future hook executions.                |
 | `agent.kind`, `agent.command`, `agent.max_turns` | Future dispatches.            |
 | `agent.turn_timeout_ms`, `agent.read_timeout_ms`, `agent.stall_timeout_ms` | Future worker attempts. |
