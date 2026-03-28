@@ -92,7 +92,7 @@ nav:
       - Claude Code Adapter: reference/adapter-claude-code.md
       - State Machine: reference/state-machine.md
       - Errors: reference/errors.md
-  - Change Log: changelog.md
+  - Changelog: changelog.md
 
 extra_css:
   - stylesheets/cookieconsent.css

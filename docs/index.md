@@ -61,12 +61,53 @@ the rest: stall detection, timeout enforcement, retries with backoff, state
 reconciliation with the tracker, and workspace cleanup when issues reach terminal
 states. Changes to the workflow are applied without restart.
 
-## Quick links
+## Start here
 
-- [Installation](getting-started/installation.md) — install the `sortie` binary
-- [Quick Start](getting-started/quick-start.md) — dispatch your first agent session
-- [WORKFLOW.md reference](reference/workflow-config.md) — all configuration fields
-- [CLI reference](reference/cli.md) — flags, subcommands, and exit codes
+**New to Sortie?**
+:   [Install the binary](getting-started/installation.md), then follow the [Quick Start](getting-started/quick-start.md) to dispatch your first agent session.
+
+**Coming from Jira?**
+:   The [Jira integration guide](getting-started/jira-integration.md) connects Sortie to your existing project in under ten minutes.
+
+**Want the full picture?**
+:   The [end-to-end tutorial](getting-started/end-to-end.md) walks through workspace hooks, retry behavior, the dashboard, and real agent output.
+
+## Understand
+
+[How Sortie works](reference/state-machine.md)
+:   The dispatch → run → reconcile loop, state machines, and lifecycle hooks.
+
+[WORKFLOW.md reference](reference/workflow-config.md)
+:   Every configuration field, type, default, and constraint.
+
+[CLI reference](reference/cli.md)
+:   Flags, subcommands, exit codes, and startup sequence.
+
+[Environment variables](reference/environment.md)
+:   `SORTIE_*` config overrides, `.env` file support, `$VAR` indirection, agent passthrough, and hook environments.
+
+[Error reference](reference/errors.md)
+:   Every error message, its cause, and how to fix it.
+
+## Operate
+
+[Control costs](guides/control-costs.md)
+:   Set per-session budgets, concurrency caps, and turn limits to keep agent spend predictable.
+
+[Run as a systemd service](guides/run-as-systemd-service.md)
+:   Production deployment with automatic restarts, journal logging, and sandboxing.
+
+[Scale with SSH workers](guides/scale-agents-with-ssh.md)
+:   Distribute agent sessions across a pool of build hosts.
+
+[Monitor with Prometheus](guides/monitor-with-prometheus.md)
+:   Scrape `sortie_*` metrics and build Grafana dashboards for dispatch rate, token usage, and retry queues.
+
+[Troubleshoot failures](guides/troubleshoot-common-failures.md)
+:   Diagnose the most common startup errors, agent crashes, and tracker connectivity issues.
+
+## Links
+
 - [Changelog](changelog.md) — release history
-- [GitHub repository](https://github.com/sortie-ai/sortie) — source code
-- [Contributing](https://github.com/sortie-ai/sortie/blob/main/CONTRIBUTING.md) — how to contribute to Sortie
+- [GitHub](https://github.com/sortie-ai/sortie) — source code
+- [Contributing](https://github.com/sortie-ai/sortie/blob/main/CONTRIBUTING.md) — how to contribute
