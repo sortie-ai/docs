@@ -14,6 +14,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 !!! warning
     Versions before 1.0.0 do not follow Semantic Versioning. Any release may contain breaking changes without prior notice.
 
+## [0.0.10] - 2026-03-28 { #0.0.10 }
+
+### Added
+
+- `sortie validate` template static analysis: three advisory warning
+  classes — `WarnDotContext` (top-level key referenced inside `{{ range }}`
+  or `{{ with }}` where dot is redefined), `WarnUnknownVar` (variable not in
+  the `{issue, attempt, run}` contract), and `WarnUnknownField` (valid
+  top-level key with an unknown sub-field, including depth-4+ field chains on
+  known level-3 scalars). Warnings appear in both text and JSON output
+  without blocking dispatch or changing the exit code.
+- `sortie validate` front matter schema validation: detects unknown
+  top-level keys, unknown sub-keys within known sections, type mismatches,
+  and semantic issues (non-positive `hooks.timeout_ms`, non-numeric
+  `max_concurrent_agents_by_state` entries). Field paths are included in
+  every diagnostic so operators can locate the offending key. Warnings are
+  advisory only.
+- `SORTIE_*` environment variable config overrides: any workflow front
+  matter key can be overridden via a `SORTIE_`-prefixed environment variable
+  (e.g., `SORTIE_POLLING_INTERVAL_MS=5000`). Non-empty real env vars take
+  precedence over `.env` file values. Raw line content is removed from `.env`
+  parse errors and override values are excluded from debug logs to prevent
+  secret leakage.
+- Orchestrator: tracker comments posted at session lifecycle points —
+  session start, successful completion, and failure — with run duration and
+  attempt metadata. Comments fire from a detached goroutine to avoid blocking
+  the event loop.
+- Orchestrator: issues are transitioned to the configured `in_progress_state`
+  on dispatch, with a no-op skip when the issue is already in the
+  target state. `sortie_dispatch_transitions_total` Prometheus counter
+  tracks `success`, `error`, and `skipped` outcomes.
+
+
 ## [0.0.9] - 2026-03-27 { #0.0.9 }
 
 ### Added
@@ -288,6 +321,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   execution via GitHub Actions.
 - Architecture Decision Records (ADR-0001 through ADR-0005).
 
+[0.0.10]: https://github.com/sortie-ai/sortie/compare/0.0.9...0.0.10
 [0.0.9]: https://github.com/sortie-ai/sortie/compare/0.0.8...0.0.9
 [0.0.8]: https://github.com/sortie-ai/sortie/compare/0.0.7...0.0.8
 [0.0.7]: https://github.com/sortie-ai/sortie/compare/0.0.6...0.0.7
