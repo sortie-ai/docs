@@ -1,20 +1,177 @@
 ---
 title: "Environment Variables | Sortie"
-description: "Complete reference for every environment variable Sortie reads, injects, or filters. Agent passthrough, $VAR indirection, hook subprocess environment, and install script variables."
-keywords: sortie environment variables, ANTHROPIC_API_KEY, SORTIE_ISSUE_ID, env var, configuration, hooks, install
+description: "Complete reference for every environment variable Sortie reads, injects, or filters. SORTIE_* config overrides, .env file support, agent passthrough, $VAR indirection, hook subprocess environment, and install script variables."
+keywords: sortie environment variables, SORTIE_*, ANTHROPIC_API_KEY, SORTIE_ISSUE_ID, env var, configuration, .env, overrides, hooks, install
 author: Sortie AI
 ---
 
 # Environment variables reference
 
-Sortie does not use a `.env` file or a dedicated environment configuration block. Environment variables flow in four distinct directions — each covered in its own section below.
+Sortie supports `SORTIE_*` environment variable overrides for most configuration fields, with optional `.env` file loading. Environment variables flow in five distinct directions — each covered in its own section below.
 
 | Section | Direction | When it matters |
 |---|---|---|
+| [Configuration overrides](#configuration-overrides) | Parent shell / `.env` file → config fields | Deploying in containers, CI, cloud-native environments |
 | [Agent runtime variables](#agent-runtime-variables) | Parent shell → agent subprocess | Before starting Sortie |
 | [`$VAR` indirection in WORKFLOW.md](#var-indirection-in-workflowmd) | Parent shell → config fields at startup | Writing the workflow file |
 | [Hook subprocess environment](#hook-subprocess-environment) | Sortie → hook subprocess | Writing hook scripts |
 | [Install script variables](#install-script-variables) | Parent shell → `install.sh` | Installing the binary |
+
+---
+
+## Configuration overrides
+
+Twenty-four `SORTIE_*` environment variables override individual [WORKFLOW.md](workflow-config.md) configuration fields. Set them in the parent shell, in a `.env` file, or both.
+
+### Precedence
+
+Four sources feed configuration, highest priority first:
+
+1. **`SORTIE_*` environment variables** in the real process environment
+2. **`.env` file values** (opt-in via `SORTIE_ENV_FILE` or [`--env-file`](cli.md#--env-file))
+3. **WORKFLOW.md front matter** YAML
+4. **Built-in defaults**
+
+A real env var always beats a `.env` value for the same key. Both beat whatever the YAML says.
+
+### Tracker variables
+
+| Env var | Overrides | Type |
+|---|---|---|
+| `SORTIE_TRACKER_KIND` | [`tracker.kind`](workflow-config.md#tracker) | string |
+| `SORTIE_TRACKER_ENDPOINT` | [`tracker.endpoint`](workflow-config.md#tracker) | string |
+| `SORTIE_TRACKER_API_KEY` | [`tracker.api_key`](workflow-config.md#tracker) | string (secret — never logged) |
+| `SORTIE_TRACKER_PROJECT` | [`tracker.project`](workflow-config.md#tracker) | string |
+| `SORTIE_TRACKER_ACTIVE_STATES` | [`tracker.active_states`](workflow-config.md#tracker) | csv |
+| `SORTIE_TRACKER_TERMINAL_STATES` | [`tracker.terminal_states`](workflow-config.md#tracker) | csv |
+| `SORTIE_TRACKER_QUERY_FILTER` | [`tracker.query_filter`](workflow-config.md#tracker) | string |
+| `SORTIE_TRACKER_HANDOFF_STATE` | [`tracker.handoff_state`](workflow-config.md#tracker) | string |
+| `SORTIE_TRACKER_IN_PROGRESS_STATE` | [`tracker.in_progress_state`](workflow-config.md#tracker) | string |
+| `SORTIE_TRACKER_COMMENTS_ON_DISPATCH` | [`tracker.comments.on_dispatch`](workflow-config.md#tracker-comments) | bool (`true`/`false`/`1`/`0`) |
+| `SORTIE_TRACKER_COMMENTS_ON_COMPLETION` | [`tracker.comments.on_completion`](workflow-config.md#tracker-comments) | bool |
+| `SORTIE_TRACKER_COMMENTS_ON_FAILURE` | [`tracker.comments.on_failure`](workflow-config.md#tracker-comments) | bool |
+
+### Polling variables
+
+| Env var | Overrides | Type |
+|---|---|---|
+| `SORTIE_POLLING_INTERVAL_MS` | [`polling.interval_ms`](workflow-config.md#polling) | int |
+
+### Workspace variables
+
+| Env var | Overrides | Type |
+|---|---|---|
+| `SORTIE_WORKSPACE_ROOT` | [`workspace.root`](workflow-config.md#workspace) | string (path — `~` expanded) |
+
+### Agent variables
+
+| Env var | Overrides | Type |
+|---|---|---|
+| `SORTIE_AGENT_KIND` | [`agent.kind`](workflow-config.md#agent) | string |
+| `SORTIE_AGENT_COMMAND` | [`agent.command`](workflow-config.md#agent) | string |
+| `SORTIE_AGENT_TURN_TIMEOUT_MS` | [`agent.turn_timeout_ms`](workflow-config.md#agent) | int |
+| `SORTIE_AGENT_READ_TIMEOUT_MS` | [`agent.read_timeout_ms`](workflow-config.md#agent) | int |
+| `SORTIE_AGENT_STALL_TIMEOUT_MS` | [`agent.stall_timeout_ms`](workflow-config.md#agent) | int |
+| `SORTIE_AGENT_MAX_CONCURRENT_AGENTS` | [`agent.max_concurrent_agents`](workflow-config.md#agent) | int |
+| `SORTIE_AGENT_MAX_TURNS` | [`agent.max_turns`](workflow-config.md#agent) | int |
+| `SORTIE_AGENT_MAX_RETRY_BACKOFF_MS` | [`agent.max_retry_backoff_ms`](workflow-config.md#agent) | int |
+| `SORTIE_AGENT_MAX_SESSIONS` | [`agent.max_sessions`](workflow-config.md#agent) | int |
+
+### Top-level variables
+
+| Env var | Overrides | Type |
+|---|---|---|
+| `SORTIE_DB_PATH` | [`db_path`](workflow-config.md#database) | string (path — `~` expanded) |
+
+### Control variables
+
+These are not config field overrides. They control how overrides are loaded.
+
+| Env var | Purpose | Type |
+|---|---|---|
+| `SORTIE_ENV_FILE` | Path to a `.env` file containing `SORTIE_*` overrides | string |
+
+When both `SORTIE_ENV_FILE` and [`--env-file`](cli.md#--env-file) are set, the CLI flag wins.
+
+### Type coercion
+
+| Type | Rule | Error behavior |
+|---|---|---|
+| string | Used as-is | — |
+| int | Parsed via `strconv.Atoi`. Leading/trailing whitespace trimmed. | Startup error: `config: polling.interval_ms: invalid integer value: abc (from SORTIE_POLLING_INTERVAL_MS)` |
+| bool | Accepts `true`, `false`, `1`, `0` (case-insensitive) | Startup error naming the env var and rejected value |
+| csv | Comma-separated. Items trimmed. Empty items discarded. Empty string produces an empty list. | — |
+
+### Fields not overridable via env
+
+| Field | Reason |
+|---|---|
+| `hooks.*` (all hook scripts) | Multiline shell scripts do not fit in a single env var |
+| `hooks.timeout_ms` | Grouped with hooks for consistency |
+| `agent.max_concurrent_agents_by_state` | Complex map structure (`{"in progress": 3, "to do": 1}`) |
+| Extension sections (`server`, `worker`, `claude-code`, etc.) | Plugin-owned configuration; overrides belong to the adapter |
+| `logging.level` | Controlled by the [`--log-level`](cli.md#--log-level) CLI flag |
+
+### `.env` file support
+
+Loading a `.env` file is opt-in.
+
+!!! warning
+    Sortie does not auto-discover `.env` files in the working directory. Its working directory is the WORKFLOW.md location, and a `.env` file placed there could silently alter behavior for any operator who runs `sortie` from that directory. Always load `.env` explicitly via `SORTIE_ENV_FILE` or `--env-file`.
+
+Enable `.env` loading with either:
+
+```sh
+# Via environment variable
+export SORTIE_ENV_FILE=/etc/sortie/prod.env
+sortie WORKFLOW.md
+
+# Via CLI flag (takes precedence over the env var)
+sortie --env-file /etc/sortie/prod.env WORKFLOW.md
+```
+
+**File format:**
+
+```sh
+# /etc/sortie/prod.env
+# Comments start with #. Blank lines are ignored.
+
+SORTIE_TRACKER_KIND=jira
+SORTIE_TRACKER_ENDPOINT=https://myco.atlassian.net
+SORTIE_TRACKER_API_KEY="xpat_abc123def456"
+SORTIE_TRACKER_PROJECT=PLATFORM
+SORTIE_POLLING_INTERVAL_MS=30000
+SORTIE_WORKSPACE_ROOT=~/workspace/sortie
+```
+
+Rules:
+
+- One `KEY=VALUE` per line. No multiline values.
+- `#` lines and blank lines are ignored.
+- Optional single or double quotes around values — outer quotes are stripped, no escape processing.
+- Only keys starting with `SORTIE_` are loaded. All other keys are silently ignored.
+- No variable interpolation within values. `$HOME` in a `.env` value is the literal string `$HOME`.
+- Real environment variables always take precedence over `.env` values.
+- The `.env` file is re-read on every WORKFLOW.md reload (file change detection). Real env vars require a process restart to change.
+
+### CSV encoding for list fields
+
+`active_states` and `terminal_states` accept comma-separated values:
+
+```sh
+SORTIE_TRACKER_ACTIVE_STATES="To Do,In Progress"
+SORTIE_TRACKER_TERMINAL_STATES="Done,Won't Do"
+```
+
+Each item is trimmed of surrounding whitespace. Empty items (from trailing commas or double commas) are discarded. An empty string produces an empty list.
+
+### Interaction with `$VAR` indirection
+
+When a `SORTIE_*` override is set for a field, it replaces the YAML value entirely. The [`$VAR` expansion](#var-indirection-in-workflowmd) that would normally run on the YAML value is skipped for that field. Values from env overrides are literal — `$` characters are not expanded.
+
+Example: WORKFLOW.md has `api_key: $MY_TOKEN`. If `SORTIE_TRACKER_API_KEY=tok$5abc` is set, the `api_key` becomes the literal string `tok$5abc`. The `$MY_TOKEN` indirection never executes. The `$5` is not expanded.
+
+Path fields (`workspace.root`, `db_path`) still receive `~` expansion even when set via env overrides. Only `$VAR` expansion is skipped.
 
 ---
 
@@ -43,6 +200,8 @@ Future agent adapters (Copilot CLI, Gemini CLI, etc.) will require their own aut
 ## `$VAR` indirection in WORKFLOW.md
 
 Selected [WORKFLOW.md configuration](workflow-config.md) fields resolve environment variable references at startup. This keeps secrets and deployment-specific values out of the workflow file.
+
+When a field is overridden by a `SORTIE_*` environment variable, `$VAR` indirection is skipped for that field. See [Configuration overrides](#configuration-overrides).
 
 ### Expansion modes
 
@@ -114,7 +273,7 @@ Beyond the injected variables above, hooks inherit two categories from the paren
 
 `PATH`, `HOME`, `SHELL`, `TMPDIR`, `USER`, `LOGNAME`, `TERM`, `LANG`, `LC_ALL`, `SSH_AUTH_SOCK`
 
-**`SORTIE_*` prefix** — All parent environment variables whose names start with `SORTIE_` are inherited. This is the intended mechanism for passing additional values (API tokens, repository URLs, custom flags) into hooks without exposing the full process environment.
+**`SORTIE_*` prefix** — All parent environment variables whose names start with `SORTIE_` are inherited. This includes any `SORTIE_*` variables set via [configuration overrides](#configuration-overrides). This is the intended mechanism for passing additional values (API tokens, repository URLs, custom flags) into hooks without exposing the full process environment.
 
 ### Stripped variables
 
@@ -179,5 +338,5 @@ SORTIE_VERSION=0.8.0 SORTIE_INSTALL_DIR=/opt/bin \
 ## See also
 
 - [WORKFLOW.md configuration reference](workflow-config.md) — all configuration fields, defaults, and types
-- [CLI reference](cli.md) — command-line flags and exit codes
+- [CLI reference](cli.md) — command-line flags (including [`--env-file`](cli.md#--env-file)) and exit codes
 - [Prometheus metrics reference](prometheus-metrics.md) — `sortie_*` metric names (these are Prometheus metrics, not environment variables)
