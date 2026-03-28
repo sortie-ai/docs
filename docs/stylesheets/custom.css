@@ -30,9 +30,16 @@ article .typography h3 {
 /* Let table description columns wrap instead of forcing horizontal scroll */
 article table tbody tr td {
   white-space: normal;
+  overflow-wrap: break-word;
 }
 
 article table tbody tr td code {
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+
+/* Keep field/key names in the first column on one line */
+article table tbody tr td:first-child code {
   white-space: nowrap;
 }
 
