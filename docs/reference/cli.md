@@ -12,6 +12,7 @@ author: Sortie AI
 ```
 sortie [flags] [workflow-path]
 sortie --dry-run [--log-level level] [workflow-path]
+sortie --env-file path [flags] [workflow-path]
 sortie validate [--format text|json] [workflow-path]
 ```
 
@@ -40,6 +41,7 @@ sortie: too many arguments
 | Flag | Type | Default | Description |
 |---|---|---|---|
 | `--dry-run` | boolean | `false` | Run one poll cycle without spawning agents or writing to the database, then exit. |
+| `--env-file` | string | _(empty)_ | Path to a `.env` file containing `SORTIE_*` overrides. See [environment variables reference](environment.md#env-file-support). |
 | `--log-level` | string | `info` | Log verbosity. Accepted values: `debug`, `info`, `warn`, `error`. |
 | `--port` | integer | _(unset)_ | HTTP server listen port. Enables the embedded HTTP server when provided. |
 | `--version` | boolean | `false` | Print the version banner with copyright notice, then exit. |
@@ -102,6 +104,20 @@ sortie: unknown log level "trace": accepted values are debug, info, warn, error
 ```
 
 Applied before the workflow file is loaded, so all startup output — including workflow loading errors — respects the requested level.
+
+### `--env-file`
+
+Loads `SORTIE_*` variables from a file as [configuration overrides](environment.md#configuration-overrides).
+
+```sh
+sortie --env-file /etc/sortie/prod.env WORKFLOW.md
+```
+
+Takes a file path argument. Only keys prefixed with `SORTIE_` are read from the file; all others are ignored. The file format is `KEY=VALUE` with `#` comments, optional quotes, and no variable interpolation.
+
+Real environment variables take precedence over `.env` values. When both `--env-file` and the `SORTIE_ENV_FILE` environment variable are set, the flag wins.
+
+The file is re-read on every WORKFLOW.md reload (file change detection). If the file does not exist at load time, a warning is logged and loading continues without it.
 
 ### `--port`
 
@@ -172,6 +188,7 @@ The pipeline checks:
 - `db_path` is a string when present.
 - `agent.max_sessions` is non-negative.
 - Go `text/template` syntax in the prompt body (strict mode — unknown variables and functions are errors).
+- Template static analysis: dot-context misuse inside `{{ range }}` / `{{ with }}`, unknown top-level variables, and unknown sub-fields of known variables (advisory warnings).
 - `tracker.kind` is present and maps to a registered adapter.
 - `agent.kind` maps to a registered adapter. Defaults to `claude-code` when absent.
 - Fields required by the selected adapter: `tracker.api_key`, `tracker.project`, `agent.command`.
@@ -180,12 +197,26 @@ The pipeline checks:
 
 The pipeline does **not** check:
 
-- **Unknown keys.** Unrecognised keys at any level are silently accepted. A misspelled key (e.g., `max_concurent_agents`) is ignored and the default value applies. Top-level keys outside the core schema (`tracker`, `polling`, `workspace`, `hooks`, `agent`, `db_path`) are collected into the extensions map without warning.
-- **String field types.** A non-string value for a string-typed field (e.g., `tracker.endpoint: 123`) silently resolves to empty string.
-- **List field types.** A non-list value for `active_states` or `terminal_states` silently resolves to an empty list.
-- **Sub-section types.** A scalar or list where a map is expected (e.g., `tracker: true`) is treated as an absent section.
 - **Value ranges.** Negative values for `polling.interval_ms` or timeout fields are accepted. Zero values are replaced with built-in defaults.
 - **Format constraints.** `tracker.endpoint` is not checked for valid URL syntax. Path fields are not checked for existence (except `workspace.root`).
+
+#### Advisory warnings
+
+Beyond the error-level checks above, `validate` runs static analysis on the front matter and the prompt template, emitting **warnings** for likely-wrong patterns. Warnings do not block validity — `valid` remains `true` and the exit code is `0` when only warnings are present. Runtime behavior is unchanged; warnings surface patterns that the orchestrator would silently accept or that would produce unexpected output.
+
+Six warning classes across two analysis passes:
+
+**Front matter analysis:**
+
+- **Unknown top-level keys** (`unknown_key`). A top-level YAML key that is not a core section (`tracker`, `polling`, `workspace`, `hooks`, `agent`, `db_path`), not a recognized extension (`server`, `logging`, `worker`), and not the adapter pass-through block matching the configured `tracker.kind` or `agent.kind`. Catches typos like `trackers:` instead of `tracker:`.
+- **Unknown sub-keys** (`unknown_sub_key`). A key inside a known section that does not match any defined field. For example, `tracker.typo_endpoint` or `hooks.before_launch`. Sub-objects named after the section's adapter kind are exempt (e.g., `tracker.jira` when `tracker.kind` is `jira`).
+- **Type mismatches** (`type_mismatch`). A value whose YAML type does not match the expected type for a field. For example, `hooks.timeout_ms: "not-a-number"` or `tracker.kind: 123`. Also covers semantic issues: a non-positive `hooks.timeout_ms` that falls back to the default, and non-numeric or non-positive entries in `agent.max_concurrent_agents_by_state` that are silently ignored at runtime.
+
+**Template static analysis:**
+
+- **Dot-context misuse** (`dot_context`). A reference to a top-level data key (`.issue`, `.attempt`, `.run`) inside a `{{ range }}` or `{{ with }}` block where the dot has been redefined. Almost always a bug — use the `$` prefix (`$.issue.title`) to reach root data from inside these blocks.
+- **Unknown template variable** (`unknown_var`). A top-level variable reference not in the template data contract. For example, `{{ .config }}` or `{{ $.settings }}`. Valid top-level variables are `.issue`, `.attempt`, and `.run`.
+- **Unknown sub-field** (`unknown_field`). A sub-field of a known top-level variable that does not exist in the domain schema. For example, `{{ .run.foo }}` or `{{ .issue.nonexistent }}`. Also flags sub-field access on scalar variables like `{{ .attempt.something }}`.
 
 #### Arguments
 
@@ -205,44 +236,62 @@ Invalid `--format` values produce an error and exit `1`.
 
 #### Output formats
 
-**Text** (default) — on success, nothing is written and the process exits `0`. On failure, each diagnostic is written to stderr, one per line:
+**Text** (default) — each diagnostic is written to stderr, one per line, prefixed with its severity:
 
 ```
-tracker.kind: tracker.kind is required
-agent_adapter: unknown agent kind "nonexistent"
+error: tracker.kind: tracker.kind is required
+error: agent_adapter: unknown agent kind "nonexistent"
 ```
 
-Format: `{check}: {message}`
+Format: `{severity}: {check}: {message}`
 
-When the workflow file itself cannot be loaded, a single line is emitted:
+Warning-only output (exit `0`):
 
 ```
-workflow_load: workflow file not found: /path/to/WORKFLOW.md: ...
+warning: unknown_key: unknown top-level key "trackers"
+warning: dot_context: did you mean "$.issue.title" instead of ".issue.title"? Inside a {{ range }}/{{ with }} block (including arguments to nested range/with), dot refers to the current element, not root data
+warning: unknown_var: unknown template variable ".config"; valid top-level variables are: .issue, .attempt, .run
+warning: unknown_field: unknown field ".run.foo"; known fields: is_continuation, max_turns, turn_number
+```
+
+When no errors and no warnings are present, nothing is written.
+
+When the workflow file itself cannot be loaded, a single error line is emitted:
+
+```
+error: workflow_load: workflow file not found: /path/to/WORKFLOW.md: ...
 ```
 
 **JSON** (`--format json`) — a single JSON object is written to stdout on both success and failure:
 
 ```json
-{"valid":true,"errors":[]}
+{"valid":true,"errors":[],"warnings":[]}
 ```
 
 ```json
-{"valid":false,"errors":[{"check":"tracker.kind","message":"tracker.kind is required"}]}
+{"valid":false,"errors":[{"severity":"error","check":"tracker.kind","message":"tracker.kind is required"}],"warnings":[]}
 ```
 
-The `errors` array is always present (never `null`). Each element has two fields:
+With warnings only:
+
+```json
+{"valid":true,"errors":[],"warnings":[{"severity":"warning","check":"unknown_key","message":"unknown top-level key \"trackers\""}]}
+```
+
+The `errors` and `warnings` arrays are always present (never `null`). `valid` is `true` when `errors` is empty, regardless of warnings. Each diagnostic element has three fields:
 
 | Field | Type | Description |
 |---|---|---|
-| `check` | string | Diagnostic category. Matches the check names in [startup and configuration errors](errors.md#startup-and-configuration-errors). |
+| `severity` | string | `"error"` or `"warning"`. Redundant with array membership but useful when consumers flatten the arrays. |
+| `check` | string | Diagnostic category. Error checks match the [startup and configuration errors](errors.md#startup-and-configuration-errors) table. Warning checks are listed under [advisory warning check values](#advisory-warning-check-values). |
 | `message` | string | Human-readable description. |
 
 #### Exit codes
 
 | Code | Meaning |
 |---|---|
-| `0` | Workflow is valid, or `--help` was requested. |
-| `1` | Validation failure, invalid flag, or too many arguments. |
+| `0` | Workflow is valid (warnings may be present), or `--help` was requested. |
+| `1` | One or more errors, invalid flag, or too many arguments. |
 
 #### Diagnostic check values
 
@@ -266,16 +315,29 @@ The `check` field in JSON output and the prefix in text output use these values:
 
 Check values from preflight validation match the [startup and configuration errors](errors.md#startup-and-configuration-errors) table.
 
+#### Advisory warning check values
+
+Warning diagnostics use a separate set of check values. They appear only in the `warnings` array (JSON) or with the `warning:` prefix (text). They do not affect `valid` or the exit code.
+
+| Check | Meaning |
+|---|---|
+| `unknown_key` | Unrecognized top-level YAML key. Likely a typo (e.g., `trackers` instead of `tracker`). |
+| `unknown_sub_key` | Unrecognized key inside a known section (e.g., `tracker.typo_endpoint`). Adapter pass-through sub-objects matching the configured `kind` are exempt. |
+| `type_mismatch` | Value type does not match the expected type for the field (e.g., string where integer is expected). Also covers semantic issues: non-positive `hooks.timeout_ms`, non-numeric or non-positive values in `agent.max_concurrent_agents_by_state`. |
+| `dot_context` | Reference to a top-level data key (`.issue`, `.attempt`, `.run`) inside a `{{ range }}` or `{{ with }}` block where dot is the current element, not root data. Use `$` prefix to fix. |
+| `unknown_var` | Top-level template variable not in the data contract. Valid variables: `.issue`, `.attempt`, `.run`. |
+| `unknown_field` | Sub-field of a known top-level variable that does not exist in the domain schema (e.g., `.issue.nonexistent`, `.run.foo`). |
+
 ---
 
 ## Startup sequence
 
 When no version flag is present, Sortie executes these steps in order:
 
-1. **Parse flags.** Unknown flags exit with code `1` and print usage to stderr.
+1. **Parse flags.** Unknown flags exit with code `1` and print usage to stderr. `--env-file` path (when provided) is stored for later use.
 2. **Resolve workflow path.** Relative paths resolve to absolute against the working directory.
 3. **Initialize logging.** Structured `key=value` format to stderr. Uses the `--log-level` flag when set; otherwise defaults to `INFO` for the duration of startup.
-4. **Load and watch workflow file.** Start a filesystem watcher for dynamic config reload.
+4. **Load and watch workflow file.** Start a filesystem watcher for dynamic config reload. During config parsing, [`SORTIE_*` overrides](environment.md#configuration-overrides) are applied — including `.env` file loading when enabled.
 5. **Preflight validation.** Verify `tracker.kind` is registered, `agent.kind` is registered, required API keys are present, active/terminal state lists are non-empty, and the workspace root is writable. Failure exits with code `1` — no database file is created on disk.
 6. **Resolve log level.** When `--log-level` was not set, check `logging.level` from the workflow config. If the workflow sets a non-default level, re-initialize the logger before emitting the startup message.
 7. **Construct tracker adapter.** Instantiate the tracker adapter from the registry using the configuration map.
@@ -438,6 +500,12 @@ sortie --dry-run /opt/sortie/WORKFLOW.md
 # Dry-run with debug output for full candidate detail
 sortie --dry-run --log-level debug
 
+# Load config overrides from a .env file
+sortie --env-file /etc/sortie/prod.env
+
+# Combine .env file with explicit workflow path and port
+sortie --env-file /etc/sortie/prod.env --port 8080 /opt/sortie/WORKFLOW.md
+
 # Help text
 sortie --help
 ```
@@ -447,7 +515,7 @@ sortie --help
 ## See also
 
 - [WORKFLOW.md configuration reference](workflow-config.md) — all config fields
-- [Environment variables reference](environment.md) — agent runtime vars, `$VAR` indirection, hook env
+- [Environment variables reference](environment.md) — `SORTIE_*` config overrides, agent runtime vars, `$VAR` indirection, hook env
 - [HTTP API reference](http-api.md) — JSON API endpoints and response shapes
 - [Dashboard reference](dashboard.md) — built-in HTML monitoring dashboard
 - [Prometheus metrics reference](prometheus-metrics.md) — metric names, types, labels, and PromQL examples
