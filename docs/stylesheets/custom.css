@@ -35,3 +35,38 @@ article table tbody tr td {
 article table tbody tr td code {
   white-space: nowrap;
 }
+
+/* Mermaid diagrams: remove code-block styling after rendering */
+pre.mermaid[data-processed] {
+  background: transparent;
+  border: none;
+  padding: 0;
+  text-align: center;
+  overflow: visible;
+  max-height: none !important;
+  height: auto !important;
+}
+
+pre.mermaid[data-processed] svg {
+  max-height: none !important;
+  height: auto !important;
+}
+
+/* Strip edge label backgrounds so labels float over arrows cleanly.
+   Mermaid renders SVG inside pre.mermaid; target both possible wrappers. */
+pre.mermaid .edgeLabel {
+  background-color: transparent !important;
+}
+pre.mermaid .edgeLabel rect,
+pre.mermaid .edgeLabel .label-container {
+  fill: transparent !important;
+  stroke: none !important;
+}
+.mermaid .edgeLabel {
+  background-color: transparent !important;
+}
+.mermaid .edgeLabel rect,
+.mermaid .edgeLabel .label-container {
+  fill: transparent !important;
+  stroke: none !important;
+}

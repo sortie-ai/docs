@@ -19,17 +19,31 @@ theme:
   pygments_style:
     light: shadcn-light
     dark: github-dark
+  katex_options:
+    delimiters:
+      - left: "\\["
+        right: "\\]"
+        display: true
+      - left: "\\("
+        right: "\\)"
+        display: false
 
 markdown_extensions:
   - pymdownx.highlight:
       css_class: codehilite
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - admonition
   - attr_list
   - footnotes
   - tables
   - toc:
       permalink: true
+  - pymdownx.arithmatex:
+      generic: true
   - pymdownx.tabbed:
       alternate_style: true
   - pymdownx.details
@@ -72,3 +86,5 @@ extra_javascript:
   - https://cdn.jsdelivr.net/gh/orestbida/cookieconsent@3.1.0/dist/cookieconsent.umd.js
   - javascripts/cookieconsent-config.js
   - javascripts/feedback.js
+  - https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js
+  - javascripts/mermaid-init.js
