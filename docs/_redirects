@@ -1,16 +1,24 @@
+# Main page items
 /changelog /changelog/ 301
+
+# Concepts
 /concepts/architecture /concepts/architecture/ 301
 /concepts/orchestration /concepts/orchestration/ 301
 /concepts/security /concepts/security/ 301
+
+# Getting Started
 /getting-started/end-to-end /getting-started/end-to-end/ 301
 /getting-started/installation /getting-started/installation/ 301
 /getting-started/jira-integration /getting-started/jira-integration/ 301
 /getting-started/quick-start /getting-started/quick-start/ 301
+
+# Guides
 /guides/configure-retry-behavior /guides/configure-retry-behavior/ 301
 /guides/connect-to-jira /guides/connect-to-jira/ 301
 /guides/control-costs /guides/control-costs/ 301
 /guides/monitor-with-logs /guides/monitor-with-logs/ 301
 /guides/monitor-with-prometheus /guides/monitor-with-prometheus/ 301
+/guides/resume-sessions-across-restarts /guides/resume-sessions-across-restarts/ 301
 /guides/run-as-systemd-service /guides/run-as-systemd-service/ 301
 /guides/run-multiple-workflows /guides/run-multiple-workflows/ 301
 /guides/scale-agents-with-ssh /guides/scale-agents-with-ssh/ 301
@@ -19,6 +27,8 @@
 /guides/use-file-adapter-for-testing /guides/use-file-adapter-for-testing/ 301
 /guides/use-subagents-with-sortie /guides/use-subagents-with-sortie/ 301
 /guides/write-prompt-template /guides/write-prompt-template/ 301
+
+# Reference
 /reference/adapter-claude-code /reference/adapter-claude-code/ 301
 /reference/adapter-jira /reference/adapter-jira/ 301
 /reference/agent-extensions /reference/agent-extensions/ 301

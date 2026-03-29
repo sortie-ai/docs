@@ -72,6 +72,7 @@ nav:
       - Run Multiple Workflows: guides/run-multiple-workflows.md
       - Configure Retry Behavior: guides/configure-retry-behavior.md
       # Operations
+      - Resume Sessions Across Restarts: guides/resume-sessions-across-restarts.md
       - Control Agent Costs: guides/control-costs.md
       - Run as a Systemd Service: guides/run-as-systemd-service.md
       - Scale Agents with SSH: guides/scale-agents-with-ssh.md
