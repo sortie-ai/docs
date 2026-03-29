@@ -1,3 +1,13 @@
+# Section landing pages (breadcrumb hierarchy)
+/getting-started/ /getting-started/installation/ 301
+/getting-started /getting-started/installation/ 301
+/guides/ /guides/connect-to-jira/ 301
+/guides /guides/connect-to-jira/ 301
+/concepts/ /concepts/architecture/ 301
+/concepts /concepts/architecture/ 301
+/reference/ /reference/cli/ 301
+/reference /reference/cli/ 301
+
 # Main page items
 /changelog /changelog/ 301
 

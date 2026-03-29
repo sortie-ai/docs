@@ -107,8 +107,12 @@ SoftwareApplication --- #}
     ]
   }
 </script>
-{% elif page.meta.title and page.meta.description %} {# --- Documentation pages:
-Organization + TechArticle + BreadcrumbList --- #}
+{% else %} {# --- Content pages: Organization + WebPage + TechArticle +
+BreadcrumbList --- #} {# Walk up the parent chain to collect ancestor sections
+in order #} {% set ns = namespace(sections=[], current=page.parent) %} {% for _
+in range(10) %} {% if ns.current and ns.current.title %} {% set ns.sections =
+[ns.current] + ns.sections %} {% set ns.current = ns.current.parent %} {% endif
+%} {% endfor %} {% set url_parts = page.url.strip('/').split('/') %}
 <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -126,10 +130,23 @@ Organization + TechArticle + BreadcrumbList --- #}
         }
       },
       {
-        "@type": "TechArticle",
-        "headline": {{ page.meta.title | tojson }},
-        "description": {{ page.meta.description | tojson }},
+        "@type": "WebPage",
+        "@id": "{{ page.canonical_url }}",
         "url": "{{ page.canonical_url }}",
+        "name": {{ (page.meta.title if page.meta.title else page.title) | tojson }},
+        "isPartOf": {
+          "@id": "{{ config.site_url }}#website"
+        },
+        "breadcrumb": {
+          "@id": "{{ page.canonical_url }}#breadcrumb"
+        },
+        "inLanguage": "en"
+      },
+      {
+        "@type": "TechArticle",
+        "headline": {{ (page.meta.title if page.meta.title else page.title) | tojson }},
+        {% if page.meta.description %}"description": {{ page.meta.description | tojson }},
+        {% endif %}"url": "{{ page.canonical_url }}",
         "author": {
           "@id": "{{ config.site_url }}#organization"
         },
@@ -155,22 +172,28 @@ Organization + TechArticle + BreadcrumbList --- #}
           "height": 630
         },
         "mainEntityOfPage": {
-          "@type": "WebPage",
           "@id": "{{ page.canonical_url }}"
         }
       },
       {
         "@type": "BreadcrumbList",
+        "@id": "{{ page.canonical_url }}#breadcrumb",
         "itemListElement": [
           {
             "@type": "ListItem",
             "position": 1,
             "name": {{ config.site_name | tojson }},
             "item": "{{ config.site_url }}"
-          },
+          }{% for section in ns.sections %},
           {
             "@type": "ListItem",
-            "position": 2,
+            "position": {{ loop.index + 1 }},
+            "name": {{ section.title | tojson }},
+            "item": "{{ config.site_url }}{{ url_parts[:loop.index] | join('/') }}/"
+          }{% endfor %},
+          {
+            "@type": "ListItem",
+            "position": {{ ns.sections | length + 2 }},
             "name": {{ page.title | tojson }}
           }
         ]
