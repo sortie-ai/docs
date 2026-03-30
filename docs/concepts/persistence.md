@@ -77,8 +77,8 @@ The design philosophy: collect the data in the free core, build governance surfa
 
 ## Further reading
 
-- [Architecture overview](concepts/architecture.md) for the single-binary, zero-dependency design rationale
-- [Orchestration](concepts/orchestration.md) for retry strategies, reconciliation, and the turn model
-- [Workflow file reference](reference/workflow-config.md) for database path and retry-related config fields
-- [Resume sessions across restarts](guides/resume-sessions-across-restarts.md) for the practical how-to
-- [HTTP API reference](reference/http-api.md) for querying run history and session data
+- [Architecture overview](architecture.md) for the single-binary, zero-dependency design rationale
+- [Orchestration](orchestration.md) for retry strategies, reconciliation, and the turn model
+- [Workflow file reference](../reference/workflow-config.md) for database path and retry-related config fields
+- [Resume sessions across restarts](../guides/resume-sessions-across-restarts.md) for the practical how-to
+- [HTTP API reference](../reference/http-api.md) for querying run history and session data
