@@ -15,6 +15,10 @@ external API.
 ## Prerequisites
 
 - Sortie installed and on your `PATH` ([installation guide](installation.md))
+- This tutorial uses a mock agent, so no real coding agent is needed yet.
+  When you move to a real agent like Claude Code, first verify it handles
+  issues well in a manual terminal session — Sortie automates the scheduling,
+  not the quality of the agent's output.
 
 Confirm Sortie is ready:
 
@@ -185,7 +189,8 @@ We ran the full Sortie lifecycle without any external services:
 
 The mock agent doesn't modify code, but the lifecycle is identical to a real
 agent session. In production, you would swap `mock` for `claude-code` and
-`file` for `jira` — the orchestration works the same way.
+`file` for `jira` or `github` — the orchestration works the same way. The quality of the
+agent's output depends on your prompt and agent configuration, not on Sortie.
 
 
 ## Next steps
