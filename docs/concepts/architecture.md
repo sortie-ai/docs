@@ -83,7 +83,8 @@ These boundaries are load-bearing. Every feature request that conflicts with the
 
 - [State machine reference](../reference/state-machine.md) for the full state diagram and transition table
 - [Workflow file reference](../reference/workflow-config.md) for all configuration fields and defaults
-- [Jira adapter reference](../reference/adapter-jira.md) for tracker integration details
+- [Jira adapter reference](../reference/adapter-jira.md) for Jira tracker integration details
+- [GitHub adapter reference](../reference/adapter-github.md) for GitHub Issues integration details
 - [Claude Code adapter reference](../reference/adapter-claude-code.md) for agent integration details
 - [Security and operational safety](https://github.com/sortie-ai/sortie/blob/main/docs/architecture.md#15-security-and-operational-safety) in the architecture specification for harness hardening guidance
 - [Architecture Decision Records](https://github.com/sortie-ai/sortie/tree/main/docs/decisions) for detailed rationale behind each major design choice

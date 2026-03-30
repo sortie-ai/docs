@@ -9,7 +9,7 @@ author: Sortie AI
 
 `WORKFLOW.md` is a Markdown file with YAML front matter. Front matter between `---` delimiters defines runtime settings. The body after the closing `---` is the prompt template, rendered per issue with Go `text/template`.
 
-See also: [CLI reference](cli.md) for startup flags, [environment variables reference](environment.md) for `$VAR` behavior, [error reference](errors.md) for configuration error diagnostics, [Jira adapter reference](adapter-jira.md) for tracker-specific fields, [Claude Code adapter reference](adapter-claude-code.md) for agent-specific pass-through options.
+See also: [CLI reference](cli.md) for startup flags, [environment variables reference](environment.md) for `$VAR` behavior, [error reference](errors.md) for configuration error diagnostics, [Jira adapter reference](adapter-jira.md) for Jira-specific fields, [GitHub adapter reference](adapter-github.md) for GitHub-specific fields, [Claude Code adapter reference](adapter-claude-code.md) for agent-specific pass-through options.
 
 !!! tip
     Most configuration fields in this reference can be overridden by `SORTIE_*` environment variables without modifying the workflow file. See the [environment variables reference](environment.md#configuration-overrides) for the full list and precedence rules.
@@ -124,7 +124,7 @@ Issue tracker connection and query settings.
 
 | Field             | Type            | Default               | Description                                                             |
 | ----------------- | --------------- | --------------------- | ----------------------------------------------------------------------- |
-| `kind`            | string          | _(required)_          | Adapter identifier. `"jira"` or `"file"`.                               |
+| `kind`            | string          | _(required)_          | Adapter identifier. `"jira"`, `"github"`, or `"file"`.                  |
 | `endpoint`        | string          | adapter-defined       | Tracker API base URL.                                                   |
 | `api_key`         | string          | _(required for Jira)_ | API authentication token.                                               |
 | `project`         | string          | _(required for Jira)_ | Project key (e.g., `PLATFORM`).                                         |
@@ -199,6 +199,26 @@ tracker:
 file:
   path: /path/to/issues.json
 ```
+
+**Example: GitHub Issues tracker**
+
+```yaml
+tracker:
+  kind: github
+  api_key: $SORTIE_GITHUB_TOKEN
+  project: myorg/myrepo
+  query_filter: "label:agent-ready"
+  active_states: [backlog, in-progress, review]
+  terminal_states: [done, wontfix]
+  handoff_state: review
+  in_progress_state: in-progress
+  comments:
+    on_dispatch: true
+    on_completion: true
+    on_failure: true
+```
+
+GitHub state names are issue label names. They must exist as labels in the repository before Sortie starts. State values are compared case-insensitively and stored lowercased. See the [GitHub adapter reference](adapter-github.md) for state derivation rules.
 
 ---
 

@@ -24,6 +24,7 @@ These errors prevent Sortie from starting. They appear immediately on launch and
 | `tracker_adapter` | `unknown tracker kind "<kind>"` | Use a registered adapter: `jira`, `file`, or `github`. |
 | `tracker.api_key` | `tracker.api_key is required for tracker kind "<kind>" (value may be empty after environment variable expansion)` | Set the environment variable referenced by `tracker.api_key` (e.g., `$SORTIE_JIRA_API_KEY`). |
 | `tracker.project` | `tracker.project is required for tracker kind "<kind>"` | Add the `project` field to the `tracker` section. |
+| `tracker.project.format` | `tracker.project must be in owner/repo format (e.g. "sortie-ai/sortie")` | Use `owner/repo` format with exactly one `/` and no whitespace in either segment. GitHub adapter only. |
 | `agent.kind` | `agent.kind is required` | Add `agent.kind` to your WORKFLOW.md front matter. |
 | `agent_adapter` | `unknown agent kind "<kind>"` | Use a registered adapter: `claude-code` or `mock`. |
 | `agent.command` | `agent.command is required for agent kind "<kind>"` | Set `agent.command` or install the agent binary so it's in `PATH`. |

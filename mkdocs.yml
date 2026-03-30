@@ -62,19 +62,18 @@ nav:
       - Installation: getting-started/installation.md
       - Quick Start: getting-started/quick-start.md
       - Jira Integration: getting-started/jira-integration.md
-      # M12: GitHub Issues adapter
-      #- GitHub Integration: getting-started/github-integration.md
+      - GitHub Integration: getting-started/github-integration.md
       - End-to-End: getting-started/end-to-end.md
       # M13: Copilot CLI adapter
       #- GitHub + Copilot End-to-End: getting-started/github-copilot-end-to-end.md
   - Guides:
       # Setup & Configuration
       - Connect to Jira: guides/connect-to-jira.md
-      # M12: GitHub Issues adapter
-      #- Connect to GitHub: guides/connect-to-github.md
+      - Connect to GitHub: guides/connect-to-github.md
       - Use File Adapter for Testing: guides/use-file-adapter-for-testing.md
       - Write a Prompt Template: guides/write-prompt-template.md
       - Set Up Workspace Hooks: guides/setup-workspace-hooks.md
+      - Integrate Security Scanning: guides/integrate-security-scanning.md
       - Run Multiple Workflows: guides/run-multiple-workflows.md
       - Configure Retry Behavior: guides/configure-retry-behavior.md
       # Operations
@@ -120,8 +119,7 @@ nav:
       - Agent Extensions: reference/agent-extensions.md
       # Tracker adapters
       - Jira Adapter: reference/adapter-jira.md
-      # M12: GitHub Issues adapter
-      #- GitHub Adapter: reference/adapter-github.md
+      - GitHub Adapter: reference/adapter-github.md
       # M18: ecosystem adapters
       #- Linear Adapter: reference/adapter-linear.md
       # Agent adapters

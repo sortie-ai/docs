@@ -193,6 +193,7 @@ The pipeline checks:
 - `agent.kind` maps to a registered adapter. Defaults to `claude-code` when absent.
 - Fields required by the selected adapter: `tracker.api_key`, `tracker.project`, `agent.command`.
 - At least one of `tracker.active_states` or `tracker.terminal_states` is non-empty.
+- Adapter-specific config validation. When the registered tracker adapter declares a `ValidateTrackerConfig` callback, the pipeline invokes it with the extracted tracker config fields. Adapter validation runs after the generic preflight checks and can produce both errors (block validity) and warnings (advisory). See [GitHub adapter validation](adapter-github.md#validate-time-checks) for the checks the GitHub adapter performs.
 - Workspace root directory exists (or can be created) and is writable.
 
 The pipeline does **not** check:
@@ -204,7 +205,7 @@ The pipeline does **not** check:
 
 Beyond the error-level checks above, `validate` runs static analysis on the front matter and the prompt template, emitting **warnings** for likely-wrong patterns. Warnings do not block validity — `valid` remains `true` and the exit code is `0` when only warnings are present. Runtime behavior is unchanged; warnings surface patterns that the orchestrator would silently accept or that would produce unexpected output.
 
-Six warning classes across two analysis passes:
+Six warning classes across two analysis passes, plus adapter-specific warnings when the tracker adapter declares config validation (see [adapter-specific warning check values](#adapter-specific-warning-check-values)):
 
 **Front matter analysis:**
 
@@ -310,10 +311,11 @@ The `check` field in JSON output and the prefix in text output use these values:
 | `agent.kind` | Missing `agent.kind` field. |
 | `agent.command` | Missing `agent.command` when required by the adapter. |
 | `agent_adapter` | Unknown agent adapter kind. |
+| `tracker.project.format` | `tracker.project` is non-empty but not in `owner/repo` format (GitHub adapter). |
 | `workspace.root_writable` | Workspace root directory does not exist and cannot be created, or is not writable. |
 | `args` | Invalid command-line arguments (too many positional args). |
 
-Check values from preflight validation match the [startup and configuration errors](errors.md#startup-and-configuration-errors) table.
+Check values from preflight validation match the [startup and configuration errors](errors.md#startup-and-configuration-errors) table. Adapter-specific error checks (e.g., `tracker.project.format`) are produced by the registered adapter's validation callback.
 
 #### Advisory warning check values
 
@@ -328,6 +330,24 @@ Warning diagnostics use a separate set of check values. They appear only in the 
 | `unknown_var` | Top-level template variable not in the data contract. Valid variables: `.issue`, `.attempt`, `.run`. |
 | `unknown_field` | Sub-field of a known top-level variable that does not exist in the domain schema (e.g., `.issue.nonexistent`, `.run.foo`). |
 
+#### Adapter-specific warning check values
+
+When the tracker adapter declares a config validation callback, it can produce additional warnings. These appear alongside the advisory warnings above and follow the same rules: they do not affect `valid` or the exit code.
+
+The GitHub adapter (`tracker.kind: github`) produces these warning checks:
+
+| Check | Meaning |
+|---|---|
+| `tracker.api_key.github_token_hint` | `tracker.api_key` is empty but the `GITHUB_TOKEN` environment variable is set. Consider using `api_key: $GITHUB_TOKEN`. |
+| `tracker.api_key.github_token_missing` | `tracker.api_key` is empty and `GITHUB_TOKEN` is not set. |
+| `tracker.active_states.empty_element` | An element in `active_states` is empty or whitespace-only. |
+| `tracker.terminal_states.empty_element` | An element in `terminal_states` is empty or whitespace-only. |
+| `tracker.states.overlap` | A label appears in both `active_states` and `terminal_states` (case-insensitive). |
+| `tracker.handoff_state.collision` | `handoff_state` collides with `active_states` or `terminal_states`. |
+| `tracker.in_progress_state.collision` | `in_progress_state` collides with `terminal_states` or `handoff_state`. |
+
+For details on each check, see [GitHub adapter validate-time checks](adapter-github.md#validate-time-checks).
+
 ---
 
 ## Startup sequence
@@ -338,7 +358,7 @@ When no version flag is present, Sortie executes these steps in order:
 2. **Resolve workflow path.** Relative paths resolve to absolute against the working directory.
 3. **Initialize logging.** Structured `key=value` format to stderr. Uses the `--log-level` flag when set; otherwise defaults to `INFO` for the duration of startup.
 4. **Load and watch workflow file.** Start a filesystem watcher for dynamic config reload. During config parsing, [`SORTIE_*` overrides](environment.md#configuration-overrides) are applied — including `.env` file loading when enabled.
-5. **Preflight validation.** Verify `tracker.kind` is registered, `agent.kind` is registered, required API keys are present, active/terminal state lists are non-empty, and the workspace root is writable. Failure exits with code `1` — no database file is created on disk.
+5. **Preflight validation.** Verify `tracker.kind` is registered, `agent.kind` is registered, required API keys are present, active/terminal state lists are non-empty, adapter-specific config validation passes (when declared), and the workspace root is writable. Failure exits with code `1` — no database file is created on disk.
 6. **Resolve log level.** When `--log-level` was not set, check `logging.level` from the workflow config. If the workflow sets a non-default level, re-initialize the logger before emitting the startup message.
 7. **Construct tracker adapter.** Instantiate the tracker adapter from the registry using the configuration map.
 8. **Open SQLite database.** Path from [`db_path`](workflow-config.md) config field, or `.sortie.db` adjacent to the workflow file. Relative paths resolve against the workflow file's directory, not the working directory.

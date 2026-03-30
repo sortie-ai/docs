@@ -133,13 +133,24 @@ sortie --env-file /etc/sortie/prod.env WORKFLOW.md
 **File format:**
 
 ```sh
-# /etc/sortie/prod.env
+# /etc/sortie/jira.env
 # Comments start with #. Blank lines are ignored.
 
 SORTIE_TRACKER_KIND=jira
 SORTIE_TRACKER_ENDPOINT=https://myco.atlassian.net
-SORTIE_TRACKER_API_KEY="xpat_abc123def456"
+SORTIE_TRACKER_API_KEY="you@company.com:xpat_abc123def456"
 SORTIE_TRACKER_PROJECT=PLATFORM
+SORTIE_POLLING_INTERVAL_MS=30000
+SORTIE_WORKSPACE_ROOT=~/workspace/sortie
+```
+
+GitHub adapter equivalent:
+
+```sh
+# /etc/sortie/github.env
+SORTIE_TRACKER_KIND=github
+SORTIE_TRACKER_API_KEY="ghp_your_personal_access_token"
+SORTIE_TRACKER_PROJECT=myorg/myrepo
 SORTIE_POLLING_INTERVAL_MS=30000
 SORTIE_WORKSPACE_ROOT=~/workspace/sortie
 ```
@@ -226,6 +237,8 @@ Two expansion functions exist. The mode depends on the field.
 | `db_path` | `expandPath` | `$SORTIE_DB_DIR/sortie.db` | `/var/lib/sortie/sortie.db` |
 
 All other fields (including `agent.kind`, `agent.max_turns`, hook scripts, etc.) are treated as literal strings with no expansion.
+
+The variable names in the table are user-defined conventions, not Sortie-internal identifiers. For the GitHub adapter, common conventions are `$SORTIE_GITHUB_TOKEN` or `$GITHUB_TOKEN` for `tracker.api_key` (a plain personal access token, **not** `email:token` format) and `$SORTIE_GITHUB_PROJECT` for `tracker.project` (an `owner/repo` string). See the [GitHub adapter reference](adapter-github.md#configuration) for per-field semantics.
 
 ### Behavior when a variable is unset or empty
 

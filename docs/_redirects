@@ -18,14 +18,17 @@
 
 # Getting Started
 /getting-started/end-to-end /getting-started/end-to-end/ 301
+/getting-started/github-integration /getting-started/github-integration/ 301
 /getting-started/installation /getting-started/installation/ 301
 /getting-started/jira-integration /getting-started/jira-integration/ 301
 /getting-started/quick-start /getting-started/quick-start/ 301
 
 # Guides
 /guides/configure-retry-behavior /guides/configure-retry-behavior/ 301
+/guides/connect-to-github /guides/connect-to-github/ 301
 /guides/connect-to-jira /guides/connect-to-jira/ 301
 /guides/control-costs /guides/control-costs/ 301
+/guides/integrate-security-scanning /guides/integrate-security-scanning/ 301
 /guides/monitor-with-logs /guides/monitor-with-logs/ 301
 /guides/monitor-with-prometheus /guides/monitor-with-prometheus/ 301
 /guides/resume-sessions-across-restarts /guides/resume-sessions-across-restarts/ 301
@@ -41,6 +44,7 @@
 
 # Reference
 /reference/adapter-claude-code /reference/adapter-claude-code/ 301
+/reference/adapter-github /reference/adapter-github/ 301
 /reference/adapter-jira /reference/adapter-jira/ 301
 /reference/agent-extensions /reference/agent-extensions/ 301
 /reference/cli /reference/cli/ 301
