@@ -7,7 +7,7 @@ author: Sortie AI
 
 # How Sortie is designed and why
 
-Sortie orchestrates coding agents against issue trackers. You already know that from the README. This document explains the design decisions behind it — what trade-offs were made, what alternatives were rejected, and why the system works the way it does. If you're evaluating Sortie for your team or planning to contribute, this is where you build the mental model.
+Sortie orchestrates coding agents against issue trackers. This document explains the design decisions behind it — what trade-offs were made, what alternatives were rejected, and why the system works the way it does. If you're evaluating Sortie for your team or planning to contribute, this is where you build the mental model.
 
 ## One binary, zero dependencies
 
@@ -21,7 +21,7 @@ The zero-dependency constraint extends to persistence. Sortie uses SQLite as its
 
 The specific SQLite library matters too. Sortie uses `modernc.org/sqlite`, a pure Go transpilation of the SQLite C source. The more popular `mattn/go-sqlite3` uses CGo, which breaks cross-compilation, complicates CI pipelines, and requires a C toolchain on the build host. The trade-off is slight performance overhead from the transpilation layer. For a single-instance orchestrator with write patterns measured in dozens of transactions per minute, that overhead is invisible.
 
-The consequence of these choices is that multi-instance coordination is a non-goal. SQLite serializes all writes through a single connection. Sortie targets single-instance deployments where that serialization is not a bottleneck. If you need horizontal scaling, that's an enterprise extension, not core functionality.
+The consequence of these choices is that multi-instance coordination is a non-goal. SQLite serializes all writes through a single connection. Sortie targets single-instance deployments where that serialization is not a bottleneck.
 
 ## Adapters all the way down
 
@@ -57,7 +57,7 @@ Sortie does not sandbox the agent. This is a deliberate design choice, not an ov
 
 ## The spec is the product
 
-Sortie is developed spec-first. The architecture document — roughly 2,100 lines of normative specification — defines every entity, state machine, algorithm, and validation rule. Any code that drifts from the spec is a bug, not a creative interpretation.
+Sortie is developed spec-first. The architecture document defines every entity, state machine, algorithm, and validation rule. Any code that drifts from the spec is a bug, not a creative interpretation.
 
 This is unusual for open-source projects but essential for an orchestrator. State machine correctness in Sortie is a safety concern, not an aesthetic preference. A bug in the retry logic could mean an agent retrying the same destructive operation indefinitely. A flaw in reconciliation could mean agents running against issues that humans already resolved. When you manage autonomous agents touching production codebases, you need the kind of rigor that comes from writing the spec first and coding against it, rather than evolving behavior through ad-hoc commits.
 
@@ -73,7 +73,7 @@ The clearest way to understand a system's architecture is to understand its boun
 
 **Not a general workflow engine.** Sortie orchestrates coding agents against issue trackers. It does not run arbitrary DAGs, fan-out/fan-in pipelines, or approval chains. If you need Temporal or Airflow, use Temporal or Airflow. Sortie solves one problem well rather than solving many problems poorly.
 
-**Tracker writes are the agent's job.** Sortie reads from the tracker and dispatches agents. The agent moves tickets, posts comments, creates PRs using its own tools. The sole exception is the optional handoff transition — when configured, the orchestrator can move an issue to a handoff state (like "Human Review") to break the continuation retry loop. Beyond that, the workflow policy lives in the prompt template, not in Sortie's code. This keeps the orchestrator simple: it schedules and monitors, it doesn't make policy decisions about what happens inside a ticket.
+**The orchestrator owns lifecycle transitions.** A common alternative — used by OpenAI's Symphony — is to ask the agent to transition issues itself via a prompt instruction like "move this to In Review when done." This is fragile. The agent might misinterpret the instruction, lack API access, ignore it under token pressure, or target a status that doesn't exist in the tracker's workflow. When that fails, the issue stays in an active state and gets dispatched again indefinitely. Sortie avoids this by making lifecycle transitions the orchestrator's responsibility. The orchestrator calls the tracker API directly to move issues to in-progress on dispatch and to a handoff state (like "Human Review") on completion. It can also post brief comments at dispatch, completion, or failure. All of these are off by default and controlled through configuration. This keeps tracker transport on one side of the boundary — the orchestrator reads from and writes to the tracker; the agent works inside the workspace.
 
 **No built-in sandbox.** Sortie provides workspace isolation and path containment. It does not provide process sandboxing, network filtering, or resource limits. Those are deployment-specific concerns that the operator controls.
 
@@ -86,5 +86,5 @@ These boundaries are load-bearing. Every feature request that conflicts with the
 - [Jira adapter reference](../reference/adapter-jira.md) for Jira tracker integration details
 - [GitHub adapter reference](../reference/adapter-github.md) for GitHub Issues integration details
 - [Claude Code adapter reference](../reference/adapter-claude-code.md) for agent integration details
-- [Security and operational safety](https://github.com/sortie-ai/sortie/blob/main/docs/architecture.md#15-security-and-operational-safety) in the architecture specification for harness hardening guidance
+- [Security and operational safety](security.md) for hardening guidance
 - [Architecture Decision Records](https://github.com/sortie-ai/sortie/tree/main/docs/decisions) for detailed rationale behind each major design choice
