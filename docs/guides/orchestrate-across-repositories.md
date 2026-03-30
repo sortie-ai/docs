@@ -24,12 +24,12 @@ One Sortie process per repository. One `WORKFLOW.md` per repository. Subtasks in
 ```
 ~/workspace/
 ├── frontend/
-│   └── WORKFLOW.md          # tracker.query_filter scopes to frontend subtasks
+│   └── WORKFLOW.md   # tracker.query_filter scopes to frontend subtasks
 ├── backend-api/
-│   └── WORKFLOW.md          # tracker.query_filter scopes to backend subtasks
+│   └── WORKFLOW.md   # tracker.query_filter scopes to backend subtasks
 ├── data-service/
-│   └── WORKFLOW.md          # tracker.query_filter scopes to data-service subtasks
-└── start-all.sh             # launches all instances
+│   └── WORKFLOW.md   # tracker.query_filter scopes to data-service subtasks
+└── start-all.sh      # launches all instances
 ```
 
 Each Sortie instance is fully independent. It polls its own filtered set of issues, clones its own repo, and runs agents in isolated workspaces. No instance knows the others exist. The tracker is the coordination layer: parent issues, subtasks, labels, or epics tell Sortie which work belongs to which repo.
@@ -204,7 +204,8 @@ This is a Next.js application. Key directories:
 
 - Do not modify files outside the `src/` directory.
 - Run `npm test` before considering the task complete.
-- If you need changes in another repository (backend, data service), note them in a comment on the issue but do not attempt cross-repo changes.
+- If you need changes in another repository (backend, data service),
+  note them in a comment on the issue but do not attempt cross-repo changes.
 ```
 
 That last constraint matters. Each agent works in one repo. Cross-repo coordination happens through the tracker (comments, linked issues, blocker states), not through the agent reaching into other codebases.
@@ -253,7 +254,7 @@ Stop all: pkill -f 'sortie.*workspace'
 To stop everything:
 
 ```bash
-pkill -f 'sortie.*workspace' && echo "All instances stopped" || echo "No instances running"
+pkill -f 'sortie.*workspace' && echo "stopped" || echo "No instances running"
 ```
 
 For production, use systemd units instead of background processes. See [run as a systemd service](run-as-systemd-service.md) for the unit file template.
@@ -278,7 +279,12 @@ If you configured `server.port` on each workflow, check status across instances:
 for port in 8641 8642 8643; do
   echo "=== Port $port ==="
   curl -s "http://localhost:$port/api/v1/state" | \
-    python3 -c "import json,sys; d=json.load(sys.stdin); print(f'Running: {d[\"counts\"][\"running\"]}, Retrying: {d[\"counts\"][\"retrying\"]}')"
+    python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+c = d['counts']
+print(f'Running: {c[\"running\"]}, Retrying: {c[\"retrying\"]}')
+"
 done
 ```
 
