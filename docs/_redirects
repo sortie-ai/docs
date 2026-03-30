@@ -33,6 +33,7 @@
 /guides/integrate-security-scanning /guides/integrate-security-scanning/ 301
 /guides/monitor-with-logs /guides/monitor-with-logs/ 301
 /guides/monitor-with-prometheus /guides/monitor-with-prometheus/ 301
+/guides/orchestrate-across-repositories /guides/orchestrate-across-repositories/ 301
 /guides/resume-sessions-across-restarts /guides/resume-sessions-across-restarts/ 301
 /guides/run-as-launchctl-service /guides/run-as-launchctl-service/ 301
 /guides/run-as-systemd-service /guides/run-as-systemd-service/ 301

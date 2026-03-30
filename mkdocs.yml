@@ -75,6 +75,7 @@ nav:
       - Set Up Workspace Hooks: guides/setup-workspace-hooks.md
       - Integrate Security Scanning: guides/integrate-security-scanning.md
       - Run Multiple Workflows: guides/run-multiple-workflows.md
+      - Orchestrate Across Repositories: guides/orchestrate-across-repositories.md
       - Configure Retry Behavior: guides/configure-retry-behavior.md
       # Operations
       - Resume Sessions Across Restarts: guides/resume-sessions-across-restarts.md
