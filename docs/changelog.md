@@ -12,6 +12,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-03-30 { #1.1.0 }
+
+### Added
+
+- GitHub Issues tracker adapter: configure with `tracker.kind: github` and
+  `tracker.project: OWNER/REPO`. State management is label-based;
+  `TransitionIssue` applies and removes GitHub labels with convergent retry on
+  partial failure. (#311)
+- GitHub adapter: in-memory ETag cache for reconciliation polls —
+  `If-None-Match` conditional requests return `304 Not Modified` on unchanged
+  issues, reducing GitHub API rate limit consumption during active runs. (#316)
+- `sortie validate` GitHub adapter config validation: emits diagnostics for
+  `tracker.project` format (`OWNER/REPO`), `GITHUB_TOKEN` environment variable
+  hint, empty state labels, and active/terminal state label overlap. Errors
+  block dispatch; warnings are advisory. (#317)
+
+### Fixed
+
+- `install.sh`: checksum verification used substring matching (`grep | awk`)
+  that could accept a checksum entry for the wrong archive entry; now uses
+  exact field matching (`awk '$2 == f'`).
+
 ## [1.0.0] - 2026-03-29 { #1.0.0 }
 
 ### Added
@@ -327,6 +349,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   execution via GitHub Actions.
 - Architecture Decision Records (ADR-0001 through ADR-0005).
 
+[1.1.0]: https://github.com/sortie-ai/sortie/compare/1.0.0...1.1.0
 [1.0.0]: https://github.com/sortie-ai/sortie/compare/0.0.10...1.0.0
 [0.0.10]: https://github.com/sortie-ai/sortie/compare/0.0.9...0.0.10
 [0.0.9]: https://github.com/sortie-ai/sortie/compare/0.0.8...0.0.9
