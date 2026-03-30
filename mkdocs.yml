@@ -107,6 +107,8 @@ nav:
       #- Run Integration Tests: guides/run-integration-tests.md
   - Concepts:
       - Architecture: concepts/architecture.md
+      - Adapter Model: concepts/adapter-model.md
+      - Persistence: concepts/persistence.md
       - Orchestration: concepts/orchestration.md
       - Security Model: concepts/security.md
   - Reference:

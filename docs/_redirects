@@ -12,8 +12,10 @@
 /changelog /changelog/ 301
 
 # Concepts
+/concepts/adapter-model /concepts/adapter-model/ 301
 /concepts/architecture /concepts/architecture/ 301
 /concepts/orchestration /concepts/orchestration/ 301
+/concepts/persistence /concepts/persistence/ 301
 /concepts/security /concepts/security/ 301
 
 # Getting Started
