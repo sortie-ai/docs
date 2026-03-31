@@ -7,9 +7,7 @@ author: Sortie AI
 
 # Sortie
 
-Sortie turns issue tracker tickets into autonomous coding agent sessions.
-Engineers manage work at the ticket level. Agents handle implementation.
-Single binary, zero dependencies, SQLite persistence.
+Sortie turns issue tracker tickets into autonomous coding agent sessions. Engineers manage work at the ticket level. Agents handle implementation. Single binary, zero dependencies, SQLite persistence.
 
 Sortie assumes your coding agent already produces useful results when you run it manually. It handles scheduling, retry, isolation, and persistence around that agent — it does not improve the agent's output.
 
@@ -60,7 +58,7 @@ You are a senior engineer.
 The YAML front matter configures the tracker and agent. Everything after the closing `---` is a Go template rendered per issue.
 
 Sortie watches this file, polls Jira for matching issues, creates an isolated
-workspace for each, and launches Claude Code with the rendered prompt. It handles
+workspace for each, and launches the configured coding agent with the rendered prompt. It handles
 the rest: stall detection, timeout enforcement, retries with backoff, state
 reconciliation with the tracker, and workspace cleanup when issues reach terminal
 states. Changes to the workflow are applied without restart.

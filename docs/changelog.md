@@ -12,6 +12,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-03-31 { #1.2.0 }
+
+### Added
+
+- GitHub Copilot CLI adapter: configure with `agent.kind: copilot` for
+  fully automated issue-to-code workflows using GitHub's headless Copilot
+  CLI. Supports local execution and SSH remote dispatch via `worker.ssh_hosts`.
+  Tool scope is controlled by `allowed_tools`, `denied_tools`,
+  `available_tools`, and `excluded_tools`; `--allow-all` is the default when
+  none are set. Session continuity across turns via `--resume`. Authentication
+  uses token env vars when present, falling back to `gh auth status`.
+- `worker.ssh_strict_host_key_checking`: new optional worker config field
+  controlling OpenSSH `StrictHostKeyChecking` for remote SSH agent sessions.
+  Accepts `accept-new` (default, Trust On First Use), `yes` (strict
+  verification, requires a pre-populated `known_hosts`), or `no` (disable
+  host-key checking). Applies to both the Claude Code and Copilot CLI
+  adapters.
+
 ## [1.1.0] - 2026-03-30 { #1.1.0 }
 
 ### Added
@@ -349,6 +367,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   execution via GitHub Actions.
 - Architecture Decision Records (ADR-0001 through ADR-0005).
 
+[1.2.0]: https://github.com/sortie-ai/sortie/compare/1.1.0...1.2.0
 [1.1.0]: https://github.com/sortie-ai/sortie/compare/1.0.0...1.1.0
 [1.0.0]: https://github.com/sortie-ai/sortie/compare/0.0.10...1.0.0
 [0.0.10]: https://github.com/sortie-ai/sortie/compare/0.0.9...0.0.10
