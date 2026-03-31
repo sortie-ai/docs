@@ -90,7 +90,8 @@ Two optimizations work within the current architecture without changing the isol
 
 **`git clone --reference` creates a shared object store.** A single reference repository via git alternates lets each workspace share immutable git objects while remaining a fully independent git directory. Each workspace has its own index, its own HEAD, its own branches. No lock contention because there is no shared mutable state. Each workspace is still safe to `rm -rf`. On SSH worker hosts, you duplicate the reference repository on each host -- one copy per host instead of one per workspace.
 
-> **Warning:** Git alternates create a live dependency on the reference repository's object store. If `git gc --prune` runs on the reference repo while workspaces still reference its objects, those workspaces can break. Either disable automatic gc on the reference repo, or use `git clone --reference --dissociate` to copy objects at clone time instead of linking them. `--dissociate` trades the disk savings for independence from the reference repo's lifecycle.
+!!! warning
+    Git alternates create a live dependency on the reference repository's object store. If `git gc --prune` runs on the reference repo while workspaces still reference its objects, those workspaces can break. Either disable automatic gc on the reference repo, or use `git clone --reference --dissociate` to copy objects at clone time instead of linking them. `--dissociate` trades the disk savings for independence from the reference repo's lifecycle.
 
 **Shallow clones with `--depth 1` reduce initial setup to seconds.** Most agent workflows don't need repository history. A depth-1 clone fetches one commit and its tree -- orders of magnitude less data than a full clone. Combined with `--reference`, you get fast workspace creation with shared storage for the cases where history is needed.
 
