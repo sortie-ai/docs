@@ -33,7 +33,7 @@ Aggregate metrics — total tokens consumed, total dispatches, total worker exit
 
 After loading persisted state, Sortie reconciles against the tracker. Are any persisted issues now in terminal states? A human might have closed a ticket while the orchestrator was down. Those get cleaned up. Then normal polling begins.
 
-The only thing lost: running agent processes. Agent subprocesses are OS processes — they die when the parent dies. Sortie rediscovers these issues through normal polling and re-dispatches them. The workspace directory is still on disk, so the agent picks up where the previous session left off. Prior commits, cached dependencies, partial work — all intact.
+The only thing lost: running agent processes. Agent subprocesses are OS processes — they die when the parent dies. Sortie rediscovers these issues through normal polling and re-dispatches them. The [workspace directory](isolation.md) is still on disk, so the agent picks up where the previous session left off. Prior commits, cached dependencies, partial work — all intact.
 
 ## What Sortie persists and why
 

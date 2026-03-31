@@ -111,6 +111,7 @@ nav:
       - Persistence: concepts/persistence.md
       - Orchestration: concepts/orchestration.md
       - Security Model: concepts/security.md
+      - Workspace Isolation: concepts/isolation.md
   - Reference:
       - CLI Usage: reference/cli.md
       - Workflow File: reference/workflow-config.md

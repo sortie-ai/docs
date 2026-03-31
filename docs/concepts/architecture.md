@@ -66,7 +66,7 @@ All state mutations flow through a single goroutine — no concurrent map access
 
 The orchestrator reconciles its state against the tracker on every poll tick and handles failures with bounded retry strategies. See [Orchestration](orchestration.md) for the full model.
 
-## Workspace isolation as a safety boundary
+## [Workspace isolation](isolation.md) as a safety boundary
 
 Every issue gets its own workspace directory: `<workspace_root>/<sanitized_identifier>/`. The agent process runs with its working directory set to this path. Before launching any agent, Sortie validates that the current working directory matches the workspace path. This is not a suggestion — it's a hard invariant enforced at the code level.
 
@@ -74,7 +74,7 @@ The safety model has three invariants. First, the agent's working directory must
 
 Workspaces persist across sessions. If an agent fails and Sortie retries the issue, the retry runs in the same directory. This lets agents build on previous work — partial commits, cached dependencies, compilation artifacts — without starting from scratch. Workspace lifecycle hooks (`after_create`, `before_run`, `after_run`, `before_remove`) let operators customize the setup without modifying Sortie's code. The common pattern is `after_create` cloning a repository and `before_run` pulling the latest changes.
 
-Sortie does not sandbox the agent. This is a deliberate design choice, not an oversight. Prescribing a single sandbox model — containers, VMs, restricted users, seccomp profiles — would limit the environments where Sortie can run. A developer's laptop has different constraints than a locked-down CI server. Sortie provides workspace isolation and path validation as baseline controls. Stronger sandboxing is deployment-specific, left to the operator who understands their threat model. The architecture documentation covers hardening guidance for operators who need stronger guarantees.
+Sortie does not sandbox the agent. This is a deliberate design choice, not an oversight. Prescribing a single sandbox model — containers, VMs, restricted users, seccomp profiles — would limit the environments where Sortie can run. A developer's laptop has different constraints than a locked-down CI server. Sortie provides [workspace isolation](isolation.md) and path validation as baseline controls. Stronger sandboxing is deployment-specific, left to the operator who understands their threat model. The [security model](security.md) covers hardening guidance for operators who need stronger guarantees.
 
 ## The spec is the product
 
@@ -98,7 +98,7 @@ The clearest way to understand a system's architecture is to understand its boun
 
 **The orchestrator owns lifecycle transitions.** A common alternative — used by OpenAI's Symphony — is to ask the agent to transition issues itself via a prompt instruction like "move this to In Review when done." This is fragile. The agent might misinterpret the instruction, lack API access, ignore it under token pressure, or target a status that doesn't exist in the tracker's workflow. When that fails, the issue stays in an active state and gets dispatched again indefinitely. Sortie avoids this by making lifecycle transitions the orchestrator's responsibility. The orchestrator calls the tracker API directly to move issues to in-progress on dispatch and to a handoff state (like "Human Review") on completion. It can also post brief comments at dispatch, completion, or failure. All of these are off by default and controlled through configuration. This keeps tracker transport on one side of the boundary — the orchestrator reads from and writes to the tracker; the agent works inside the workspace.
 
-**No built-in sandbox.** Sortie provides workspace isolation and path containment. It does not provide process sandboxing, network filtering, or resource limits. Those are deployment-specific concerns that the operator controls.
+**No built-in sandbox.** Sortie provides [workspace isolation](isolation.md) and path containment. It does not provide process sandboxing, network filtering, or resource limits. Those are deployment-specific concerns that the operator controls.
 
 These boundaries are load-bearing. Every feature request that conflicts with them gets evaluated against the core design — a single binary, adapter-based, spec-first orchestrator for coding agents. If the answer is "that requires a database server" or "that puts Jira field names in the scheduler," it doesn't belong in core.
 

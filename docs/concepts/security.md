@@ -11,7 +11,7 @@ Sortie dispatches autonomous coding agents against live codebases. That sentence
 
 ## What Sortie controls vs. what you control
 
-The security model splits into two zones. Sortie owns workspace isolation and orchestration safety — making sure agents run in the right directory, issues don't retry forever, and workspace names can't be used for path traversal. Everything else — process sandboxing, network restrictions, credential scoping, filesystem permissions — belongs to the operator.
+The security model splits into two zones. Sortie owns [workspace isolation](isolation.md) and orchestration safety — making sure agents run in the right directory, issues don't retry forever, and workspace names can't be used for path traversal. Everything else — process sandboxing, network restrictions, credential scoping, filesystem permissions — belongs to the operator.
 
 This split is deliberate. A developer running Sortie on a laptop has different constraints than a team running it on a locked-down CI server. Container-based sandboxing is excellent but assumes Docker is available. Each coding agent has its own approval and sandbox mechanism: Claude Code has `--allowedTools`, Codex has `sandboxPolicy`. Sortie passes these through to the adapter — it doesn't override or second-guess them.
 
@@ -85,7 +85,8 @@ Bounded failure also limits blast radius from bugs. An agent caught in an infini
 
 ## Further reading
 
-- [Architecture overview](architecture.md) for the workspace isolation design rationale and adapter model
+- [Workspace isolation](isolation.md) for the directory-per-issue model, safety invariants, and rejected alternatives (git worktrees, containers)
+- [Architecture overview](architecture.md) for the single-binary design and adapter model
 - [Workflow file reference](../reference/workflow-config.md) for timeout, budget, and hook configuration fields
 - [Claude Code adapter reference](../reference/adapter-claude-code.md) for agent-specific approval and sandbox settings
 - [Copilot CLI adapter reference](../reference/adapter-copilot.md) for agent-specific approval and sandbox settings
