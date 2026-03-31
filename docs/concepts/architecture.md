@@ -39,6 +39,27 @@ Import dependencies flow in one direction: `domain ← config ← persistence �
 
 Trackers have their own state models — Jira has workflow transitions, GitHub has project columns, Linear has statuses. These models differ in semantics, latency, consistency guarantees, and API behavior. Relying on tracker state for dispatch decisions would create race conditions and coupling. So the orchestrator maintains its own internal state: five orchestration states (`Unclaimed`, `Claimed`, `Running`, `RetryQueued`, `Released`) that are completely independent of whatever the tracker calls its statuses.
 
+![Orchestration state machine](../img/orchestration-state-machine.svg)
+
+The diagram above shows every path an issue can take through the orchestrator. Each transition is driven by a combination of an event and a condition evaluated at that moment:
+
+| Event | Condition | Next state | Effect |
+|---|---|---|---|
+| Normal exit | Issue is active, `handoff_state` configured, transition succeeds | Released | Claim removed |
+| Normal exit | Issue is active, `handoff_state` configured, transition fails | RetryQueued | Continuation retry after 1 s |
+| Normal exit | Issue is active, no `handoff_state` configured | RetryQueued | Continuation retry after 1 s |
+| Normal exit | Issue is not active | Released | Claim removed |
+| Error exit | Error is retryable | RetryQueued | Exponential backoff |
+| Error exit | Error is non-retryable | Released | Claim removed |
+| Cancelled | No pre-scheduled retry exists | Released | Claim removed |
+| Cancelled | Stall retry exists | RetryQueued | Claim preserved |
+| Retry timer fires | Issue not found, terminal, or blocked | Released | Claim removed |
+| Retry timer fires | No slots available | RetryQueued | Rescheduled for later |
+| Retry timer fires | Effort budget exhausted (`max_sessions`) | Released | Claim removed |
+| Retry timer fires | Issue is eligible | Running | Re-dispatched to agent |
+
+The table captures a key design property: the orchestrator never silently drops work. Every exit path either explicitly releases the claim (removing the issue from orchestrator ownership) or queues a retry with a well-defined delay. There is no state where an issue is "lost" — stuck between active and released with no timer to resolve it.
+
 When the orchestrator decides whether to dispatch an issue, it checks its own claim state and slot availability — not the tracker. The tracker is a read source for candidate issues, not a state store for scheduling decisions.
 
 All state mutations flow through a single goroutine — no concurrent map access, no distributed locks. The orchestrator serializes every claim, dispatch, retry, and release through one authority. SQLite makes this state durable: retry queues, session metadata, and run history survive process restarts. When Sortie starts, it reconstructs timers from persisted timestamps and reconciles against the tracker before accepting new work. This is a key differentiator from Symphony, where all state lives in memory and a restart means a cold start from scratch.
