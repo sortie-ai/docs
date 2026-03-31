@@ -109,5 +109,6 @@ These boundaries are load-bearing. Every feature request that conflicts with the
 - [Jira adapter reference](../reference/adapter-jira.md) for Jira tracker integration details
 - [GitHub adapter reference](../reference/adapter-github.md) for GitHub Issues integration details
 - [Claude Code adapter reference](../reference/adapter-claude-code.md) for agent integration details
+- [Copilot CLI adapter reference](../reference/adapter-copilot.md) for agent integration details
 - [Security and operational safety](security.md) for hardening guidance
 - [Architecture Decision Records](https://github.com/sortie-ai/sortie/tree/main/docs/decisions) for detailed rationale behind each major design choice

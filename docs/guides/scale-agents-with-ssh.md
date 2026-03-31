@@ -16,6 +16,9 @@ Distribute agent sessions across a pool of remote build machines so your orchest
 - The agent binary (e.g., `claude`) installed and on `PATH` on every remote host
 - `~/.ssh/config` entries or DNS for your build hosts (recommended but not required)
 
+!!! note
+    Remote build hosts must run a POSIX operating system (Linux, macOS). The orchestrator can run on any platform including Windows, but the remote command execution assumes a POSIX shell on the target host.
+
 Verify connectivity before touching any Sortie config:
 
 ```bash
@@ -143,6 +146,55 @@ sortie_ssh_host_usage{host="build02.internal"} 1
 
 Use this to alert on hosts nearing capacity or to right-size your `max_concurrent_agents_per_host` setting.
 
+## Configure SSH host key checking
+
+Sortie uses `StrictHostKeyChecking=accept-new` by default: the first connection to a new host accepts its key on trust, and subsequent connections reject key changes. This works for most setups, but your environment may need a different policy.
+
+Add `ssh_strict_host_key_checking` to the `worker` block:
+
+```yaml
+extensions:
+  worker:
+    ssh_hosts:
+      - "build01.internal"
+      - "build02.internal"
+    max_concurrent_agents_per_host: 2
+    ssh_strict_host_key_checking: "yes"
+```
+
+### If you manage `known_hosts` externally
+
+Production environments where host keys are baked into VM images or distributed through configuration management (Ansible, Puppet, Chef) should use `yes`. SSH refuses connections to any host whose key is not already in `known_hosts`. If someone impersonates a host (MITM), the connection fails.
+
+```yaml
+    ssh_strict_host_key_checking: "yes"
+```
+
+Make sure `known_hosts` on the orchestrator host contains entries for every host in `ssh_hosts` before starting Sortie. Missing entries cause immediate connection failures — there is no interactive prompt to accept the key.
+
+### If your hosts are stable but you don't manage keys
+
+Keep the default. Omit the field or set it explicitly:
+
+```yaml
+    ssh_strict_host_key_checking: "accept-new"
+```
+
+The first connection to each host accepts the key automatically. Changed keys are rejected on subsequent connections. This is the current behavior and requires no action.
+
+### If your hosts are ephemeral
+
+CI runners, auto-scaled spot instances, and test VMs that get rebuilt frequently reuse IP addresses with new host keys. Use `no` to prevent `known_hosts` mismatches from breaking connections:
+
+```yaml
+    ssh_strict_host_key_checking: "no"
+```
+
+!!! warning
+    `no` disables MITM protection entirely. Use it only in isolated networks where you trust the infrastructure between the orchestrator and the build hosts.
+
+For the full list of allowed values, see the [worker configuration reference](../reference/workflow-config.md#worker).
+
 ## Handle SSH failures
 
 SSH connection problems (exit code 255) are transient infrastructure failures. Sortie retries them automatically with exponential backoff. The retry uses host affinity — it prefers dispatching back to the same host, but falls back to the least-loaded alternative if that host is at capacity or unreachable.
@@ -157,6 +209,7 @@ The key pieces:
 
 - **`extensions.worker.ssh_hosts`** — the pool of remote machines
 - **`extensions.worker.max_concurrent_agents_per_host`** — per-host concurrency cap
+- **`extensions.worker.ssh_strict_host_key_checking`** — SSH host key verification policy (`accept-new`, `yes`, or `no`)
 - **`SORTIE_SSH_HOST`** in hooks — the bridge between local orchestration and remote preparation
 - **Least-loaded dispatch** — Sortie balances work across hosts automatically
 - **Retry affinity** — failed sessions prefer the same host on retry, avoiding redundant workspace setup

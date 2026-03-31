@@ -39,7 +39,7 @@ There are roughly fourteen normalized event types — from `session_started` thr
 
 Session state is deliberately opaque. The `Session` struct has an `Internal` field typed as `any`. The orchestrator carries it between `StartSession`, `RunTurn`, and `StopSession` but never reads it. The Claude Code adapter stores its subprocess PID and stdio pipes there. A future HTTP-based adapter might store a WebSocket connection handle. The orchestrator doesn't care, and this is the point — the `Internal` field is a pressure valve that lets adapters carry arbitrary state through the orchestrator's pipeline without the pipeline needing to understand it.
 
-The practical consequence: when the Copilot CLI adapter ships, the orchestrator will launch, monitor, and retry Copilot sessions using the exact same code paths it uses for Claude Code today. No new retry logic. No new stall detection. No new reconciliation rules. The stall detector checks "time since last `AgentEvent`" — it doesn't know or care whether that event came from a Claude Code JSONL stream or a Copilot HTTP response.
+The practical consequence: when the Copilot CLI adapter shipped, the orchestrator launched, monitored, and retried Copilot sessions using the exact same code paths it uses for Claude Code. No new retry logic. No new stall detection. No new reconciliation rules. The stall detector checks "time since last `AgentEvent`" — it doesn't know or care whether that event came from a Claude Code JSONL stream or a Copilot CLI JSONL stream.
 
 ## The naming rule and why it prevents rot
 
@@ -77,7 +77,7 @@ This means adapter selection is a configuration decision, not a code decision. Y
 
 The question behind this document: if you adopt Sortie today, does that investment survive the next twelve months of agent and tracker churn?
 
-Today, Sortie ships with three tracker adapters (Jira, GitHub Issues, and a file-based adapter for testing) and two agent adapters (Claude Code and a mock for testing). The roadmap includes Copilot CLI, Linear, Codex, and Gemini — each a new package implementing an existing interface.
+Today, Sortie ships with three tracker adapters (Jira, GitHub Issues, and a file-based adapter for testing) and three agent adapters (Claude Code, Copilot CLI, and a mock for testing). The roadmap includes Linear, Codex, and Gemini — each a new package implementing an existing interface.
 
 Consider two scenarios that play out regularly in engineering organizations:
 
@@ -96,5 +96,6 @@ The design bet underlying all of this: the agent and tracker landscape will keep
 - [Jira adapter reference](../reference/adapter-jira.md) — Jira-specific configuration and setup
 - [GitHub adapter reference](../reference/adapter-github.md) — GitHub Issues configuration and label mapping
 - [Claude Code adapter reference](../reference/adapter-claude-code.md) — agent integration details
+- [Copilot CLI adapter reference](../reference/adapter-copilot.md) — agent integration details
 - [Workflow file reference](../reference/workflow-config.md) — `tracker.kind` and `agent.kind` configuration
 - [ADR-0003: Adapter-Based Integration](https://github.com/sortie-ai/sortie/blob/main/docs/decisions/0003-adapter-based-integration.md) — the full decision rationale

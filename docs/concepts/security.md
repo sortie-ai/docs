@@ -63,6 +63,16 @@ Sortie provides guardrails within this trust model. Hook timeouts (`hooks.timeou
 
 What this does not protect against: a malicious hook that runs within the timeout, produces clean output, and exits zero. Defense against malicious WORKFLOW.md content requires human code review and repository access controls, not runtime enforcement. Sortie assumes WORKFLOW.md is as trustworthy as any other code in your repository.
 
+## SSH host key verification
+
+When agents run on remote hosts via SSH, the orchestrator must decide how much to trust host keys. This is controlled by `worker.ssh_strict_host_key_checking` in the workflow config.
+
+The default (`accept-new`) uses trust-on-first-use semantics: the first connection to a new host accepts its key without verification, but subsequent connections reject changed keys. This is a pragmatic middle ground — it prevents active MITM attacks after the first connection while avoiding the operational burden of pre-distributing host keys.
+
+Operators who manage `known_hosts` through configuration management should set `yes` for strict verification. Operators with ephemeral CI hosts that rotate keys on every rebuild may need `no`, which disables host key checking entirely. The `no` setting eliminates MITM protection and should only be used in isolated networks.
+
+This is an operator decision, not a security default Sortie can make for you. The field is documented in the [worker configuration reference](../reference/workflow-config.md#worker) and the [SSH scaling guide](../guides/scale-agents-with-ssh.md#configure-ssh-host-key-checking) covers the three deployment scenarios.
+
 ## Bounded failure as a safety property
 
 Every failure path in Sortie has a bound. This is a design decision that bridges orchestration and security.
@@ -78,5 +88,6 @@ Bounded failure also limits blast radius from bugs. An agent caught in an infini
 - [Architecture overview](architecture.md) for the workspace isolation design rationale and adapter model
 - [Workflow file reference](../reference/workflow-config.md) for timeout, budget, and hook configuration fields
 - [Claude Code adapter reference](../reference/adapter-claude-code.md) for agent-specific approval and sandbox settings
+- [Copilot CLI adapter reference](../reference/adapter-copilot.md) for agent-specific approval and sandbox settings
 - [Error reference](../reference/errors.md) for non-retryable error classification
 - [Harness hardening guidance](https://github.com/sortie-ai/sortie/blob/main/docs/architecture.md#15-security-and-operational-safety) in the architecture spec for the full hardening checklist
