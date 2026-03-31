@@ -1,7 +1,7 @@
 ---
 title: "Environment Variables | Sortie"
 description: "Complete reference for every environment variable Sortie reads, injects, or filters. SORTIE_* config overrides, .env file support, agent passthrough, $VAR indirection, hook subprocess environment, and install script variables."
-keywords: sortie environment variables, SORTIE_*, ANTHROPIC_API_KEY, SORTIE_ISSUE_ID, env var, configuration, .env, overrides, hooks, install
+keywords: sortie environment variables, SORTIE_*, ANTHROPIC_API_KEY, COPILOT_GITHUB_TOKEN, GH_TOKEN, GITHUB_TOKEN, SORTIE_ISSUE_ID, env var, configuration, .env, overrides, hooks, install
 author: Sortie AI
 ---
 
@@ -201,10 +201,16 @@ Agent adapters spawn subprocesses that inherit the **full** parent process envir
 | `ANTHROPIC_VERTEX_PROJECT_ID` | `claude-code` adapter (Google Vertex AI) | GCP project ID. Required when `CLAUDE_CODE_USE_VERTEX=1`. |
 | `CLOUD_ML_REGION` | `claude-code` adapter (Google Vertex AI) | GCP region. Required when `CLAUDE_CODE_USE_VERTEX=1`. |
 | `ANTHROPIC_BASE_URL` | `claude-code` adapter (proxy) | Override the Anthropic API base URL. Use for LiteLLM, custom gateways, or corporate proxies. |
+| `COPILOT_GITHUB_TOKEN` | `copilot-cli` adapter | GitHub token dedicated to Copilot CLI. Highest priority among the three token variables the CLI checks. |
+| `GH_TOKEN` | `copilot-cli` adapter | GitHub token shared with the `gh` CLI. Second priority for Copilot CLI authentication. Also used by many GitHub tooling integrations. |
+| `GITHUB_TOKEN` | `copilot-cli` adapter | GitHub token common in CI environments. Third priority for Copilot CLI authentication. |
 
-**A missing `ANTHROPIC_API_KEY` is the most common deployment failure.** Sortie starts and polls the tracker normally, but every agent session fails at launch with an auth error. The Sortie logs show a worker exit with `exit_type=error`; the root cause is only visible in the agent's stderr output.
+**A missing `ANTHROPIC_API_KEY` is the most common `claude-code` deployment failure.** Sortie starts and polls the tracker normally, but every agent session fails at launch with an auth error. The Sortie logs show a worker exit with `exit_type=error`; the root cause is only visible in the agent's stderr output.
 
-Future agent adapters (Copilot CLI, Gemini CLI, etc.) will require their own authentication variables. This table will expand as adapters are added.
+**For `copilot-cli`, a missing GitHub token is the equivalent failure.** The adapter's preflight check validates that at least one of `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN` is set, or that `gh auth status` succeeds. If none are available, `StartSession` fails with `agent_not_found`. The Copilot CLI itself implements try-and-fallback across these three variables — precedence matters only when multiple sources hold different valid tokens.
+
+!!! warning "Classic PATs do not work with Copilot CLI"
+    Copilot CLI requires a **fine-grained personal access token** (prefix `github_pat_`) with the **Copilot Requests** permission enabled. Classic PATs (prefix `ghp_`) fail authentication silently — the CLI falls through all three token variables and reports no valid credential. OAuth tokens (`gho_` from `copilot auth login`) and GitHub App user-to-server tokens (`ghu_`) also work. If you see authentication failures despite having a token set, check the token prefix.
 
 ---
 

@@ -9,7 +9,7 @@ author: Sortie AI
 
 `WORKFLOW.md` is a Markdown file with YAML front matter. Front matter between `---` delimiters defines runtime settings. The body after the closing `---` is the prompt template, rendered per issue with Go `text/template`.
 
-See also: [CLI reference](cli.md) for startup flags, [environment variables reference](environment.md) for `$VAR` behavior, [error reference](errors.md) for configuration error diagnostics, [Jira adapter reference](adapter-jira.md) for Jira-specific fields, [GitHub adapter reference](adapter-github.md) for GitHub-specific fields, [Claude Code adapter reference](adapter-claude-code.md) for agent-specific pass-through options.
+See also: [CLI reference](cli.md) for startup flags, [environment variables reference](environment.md) for `$VAR` behavior, [error reference](errors.md) for configuration error diagnostics, [Jira adapter reference](adapter-jira.md) for Jira-specific fields, [GitHub adapter reference](adapter-github.md) for GitHub-specific fields, [Claude Code adapter reference](adapter-claude-code.md) for Claude Code pass-through options, [Copilot CLI adapter reference](adapter-copilot.md) for Copilot CLI pass-through options.
 
 !!! tip
     Most configuration fields in this reference can be overridden by `SORTIE_*` environment variables without modifying the workflow file. See the [environment variables reference](environment.md#configuration-overrides) for the full list and precedence rules.
@@ -395,6 +395,34 @@ claude-code:
   max_budget_usd: 5
 ```
 
+### `copilot-cli`
+
+| Field                     | Type    | Description                                                                 |
+| ------------------------- | ------- | --------------------------------------------------------------------------- |
+| `model`                   | string  | LLM model identifier (e.g., `claude-sonnet-4.5`, `gpt-5`).                |
+| `max_autopilot_continues` | integer | Maximum autonomous continuation steps. Default: `50`.                       |
+| `agent`                   | string  | Custom agent name for routing.                                              |
+| `allowed_tools`           | string  | Tools permitted without confirmation (glob patterns).                       |
+| `denied_tools`            | string  | Tools denied (takes precedence over `allowed_tools`).                       |
+| `available_tools`         | string  | Restrict tool palette to listed tools only.                                 |
+| `excluded_tools`          | string  | Remove specific tools from the available set.                               |
+| `mcp_config`              | string  | Inline JSON or path to an MCP server configuration file.                    |
+| `disable_builtin_mcps`    | boolean | Disable all built-in MCP servers.                                           |
+| `no_custom_instructions`  | boolean | Disable loading custom instructions from workspace files.                   |
+| `experimental`            | boolean | Enable experimental Copilot CLI features.                                   |
+
+!!! warning
+    `agent.max_turns` (orchestrator turn-loop limit) and `copilot-cli.max_autopilot_continues` (CLI autonomy budget) are distinct values with different semantics. The orchestrator limit controls how many turns the worker runs before exiting. The adapter limit controls how many autonomous continuation steps Copilot CLI takes within a single `RunTurn` invocation.
+
+When any tool-scoping flag (`allowed_tools`, `denied_tools`, `available_tools`, `excluded_tools`) is configured, the adapter omits `--allow-all` and uses the scoped flags instead. When none are set, `--allow-all` is passed for unattended operation.
+
+```yaml
+copilot-cli:
+  model: claude-sonnet-4.5
+  max_autopilot_continues: 100
+  mcp_config: ./mcp-servers.json
+```
+
 ### `file` (file-based tracker)
 
 | Field  | Type   | Description                                                        |
@@ -451,12 +479,26 @@ logging:
 
 SSH remote execution. The host with the fewest active sessions is selected per dispatch. See the [scale agents with SSH](../guides/scale-agents-with-ssh.md) guide for operational setup.
 
+!!! note
+    SSH worker mode requires POSIX remote hosts (Linux, macOS). The orchestrator itself runs on any platform, but remote command execution relies on `cd`, `--` and `&&` shell chaining via the remote host's POSIX shell.
+
 | Field                          | Type            | Default                        | Description                                                                 |
 | ------------------------------ | --------------- | ------------------------------ | --------------------------------------------------------------------------- |
 | `ssh_hosts`                    | list of strings | _(absent; runs locally)_       | SSH host targets for remote agent execution.                                |
 | `max_concurrent_agents_per_host` | integer       | _(absent; no per-host cap)_    | Per-host concurrency limit. Hosts at capacity are skipped during dispatch.  |
+| `ssh_strict_host_key_checking` | string          | `accept-new`                   | OpenSSH `StrictHostKeyChecking` value for remote sessions. Allowed values: `accept-new`, `yes`, `no`. |
 
-When `ssh_hosts` is absent or empty, all agents run locally. Both fields reload dynamically.
+When `ssh_hosts` is absent or empty, all agents run locally. The `ssh_strict_host_key_checking` field is ignored in local mode. All three fields reload dynamically.
+
+### `ssh_strict_host_key_checking` values
+
+| Value | Behavior |
+|---|---|
+| `accept-new` | Trust on first use — accept unknown host keys, reject changed keys. Default. |
+| `yes` | Refuse connections unless the host key is already in `known_hosts`. Requires pre-populated `known_hosts`. |
+| `no` | Accept any host key. Intended for isolated test or CI environments with ephemeral hosts. |
+
+Invalid values produce a warning log at parse time and fall back to `accept-new`.
 
 ```yaml
 worker:
@@ -464,6 +506,7 @@ worker:
     - build01.internal
     - build02.internal
   max_concurrent_agents_per_host: 2
+  ssh_strict_host_key_checking: "yes"
 ```
 
 ---
@@ -567,7 +610,7 @@ Sortie watches `WORKFLOW.md` for filesystem changes and re-applies configuration
 | `hooks.*`                              | Future hook executions.                |
 | `agent.kind`, `agent.command`, `agent.max_turns` | Future dispatches.            |
 | `agent.turn_timeout_ms`, `agent.read_timeout_ms`, `agent.stall_timeout_ms` | Future worker attempts. |
-| `worker.ssh_hosts`, `worker.max_concurrent_agents_per_host` | Dynamic.          |
+| `worker.ssh_hosts`, `worker.max_concurrent_agents_per_host`, `worker.ssh_strict_host_key_checking` | Dynamic. Future dispatches use the reloaded value; in-flight sessions are unaffected. |
 | Prompt template                        | Future worker attempts.                |
 | `db_path`                              | Requires restart.                      |
 | `server.port`                          | Requires restart.                      |
