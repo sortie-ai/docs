@@ -64,8 +64,7 @@ nav:
       - Jira Integration: getting-started/jira-integration.md
       - GitHub Integration: getting-started/github-integration.md
       - End-to-End: getting-started/end-to-end.md
-      # M13: Copilot CLI adapter
-      #- GitHub + Copilot End-to-End: getting-started/github-copilot-end-to-end.md
+      - GitHub + Copilot End-to-End: getting-started/github-copilot-end-to-end.md
   - Guides:
       # Setup & Configuration
       - Connect to Jira: guides/connect-to-jira.md
@@ -127,8 +126,7 @@ nav:
       #- Linear Adapter: reference/adapter-linear.md
       # Agent adapters
       - Claude Code Adapter: reference/adapter-claude-code.md
-      # M13: Copilot CLI adapter
-      #- Copilot CLI Adapter: reference/adapter-copilot.md
+      - Copilot CLI Adapter: reference/adapter-copilot.md
       # M18: ecosystem adapters
       #- Codex CLI Adapter: reference/adapter-codex.md
       #- Gemini CLI Adapter: reference/adapter-gemini.md
