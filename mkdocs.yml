@@ -63,7 +63,7 @@ nav:
       - Quick Start: getting-started/quick-start.md
       - Jira Integration: getting-started/jira-integration.md
       - GitHub Integration: getting-started/github-integration.md
-      - End-to-End: getting-started/end-to-end.md
+      - Jira + Claude End-to-End: getting-started/jira-claude-end-to-end.md
       - GitHub + Copilot End-to-End: getting-started/github-copilot-end-to-end.md
   - Guides:
       # Setup & Configuration

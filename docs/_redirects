@@ -20,10 +20,11 @@
 /concepts/security /concepts/security/ 301
 
 # Getting Started
-/getting-started/end-to-end /getting-started/end-to-end/ 301
+/getting-started/end-to-end /getting-started/jira-claude-end-to-end/ 301
 /getting-started/github-copilot-end-to-end /getting-started/github-copilot-end-to-end/ 301
 /getting-started/github-integration /getting-started/github-integration/ 301
 /getting-started/installation /getting-started/installation/ 301
+/getting-started/jira-claude-end-to-end /getting-started/jira-claude-end-to-end/ 301
 /getting-started/jira-integration /getting-started/jira-integration/ 301
 /getting-started/quick-start /getting-started/quick-start/ 301
 
