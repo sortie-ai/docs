@@ -107,7 +107,8 @@ Lists recently completed session attempts — both successful and failed. Shows 
 | Column | Description |
 |---|---|
 | **Identifier** | Issue identifier. |
-| **Attempt** | Which attempt number completed. |
+| **Attempt** | Which attempt number completed (1-based). The first dispatch is `1`, the first retry is `2`, and so on. |
+| **Turns** | Number of agent turns completed in this session. A turn is one prompt–response cycle. |
 | **Status** | Outcome of the attempt (e.g., `completed`, `error`, `cancelled`). |
 | **Workflow** | WORKFLOW.md file used for this run. Shows an em dash when unavailable. |
 | **Started** | RFC 3339 timestamp when the session started. |
