@@ -13,7 +13,7 @@ The dashboard is designed for local, at-a-glance monitoring. Open it in a browse
 
 The dashboard supports light and dark modes automatically via `prefers-color-scheme`. No toggle is needed.
 
-![Sortie dashboard in dark mode showing summary cards, running sessions, retry queue, and run history](../img/dashboard.png)
+![Sortie dashboard in dark mode showing summary cards, running sessions, retry queue, and run history](../img/dashboard.webp)
 
 ## Enabling the dashboard
 
