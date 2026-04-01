@@ -18,7 +18,7 @@ Run independent Sortie instances — each with its own tracker, agent config, an
 
 Different projects need different configurations. Your billing team tracks issues in one Jira project with a $2 per-session budget. Your platform team pulls from a different project, runs a different prompt, and allows 6 concurrent agents. A single `WORKFLOW.md` can't express both.
 
-Sortie accepts exactly one workflow file per process. To run multiple workflows, run multiple Sortie processes. Each process operates a completely independent poll-dispatch-reconcile loop with its own state.
+Sortie accepts exactly one workflow file per process. To run multiple workflows, run multiple Sortie processes. Each process operates a completely independent poll-dispatch-reconcile loop with its own state. If you're wondering why Sortie works this way rather than accepting multiple workflow flags, the [orchestration concepts](../concepts/orchestration.md#why-one-process-per-workflow-file) document explains the design reasoning.
 
 ## Name your workflow files
 

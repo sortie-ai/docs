@@ -95,6 +95,18 @@ Why two levels? The orchestrator needs a control point for "how many times do I 
 
 **First turns vs. continuation turns.** The first turn in a session sends the full rendered prompt: issue description, context, instructions, tool advertisements. Continuation turns within the same session send only a short continuation signal — the agent already has the full context in its conversation thread. This avoids wasting tokens by re-sending the entire task description every turn. The prompt template has access to `run.is_continuation` and `run.turn_number`, so workflow authors can customize what continuation prompts say.
 
+## Why one process per workflow file
+
+Sortie dispatches exactly one workflow per process. Running multiple workflows means running multiple processes — this is intentional, not a limitation waiting to be lifted.
+
+The root cause is state keying. Every running issue is tracked by its internal tracker ID: the claimed set, the retry queue, and the SQLite persistence layer all key on this identifier. A Jira issue has an internal ID like `10042`. If two workflows target different tracker projects — or different trackers — their internal issue IDs can collide. When they do, dispatch for one issue silently suppresses dispatch for another, retry accounting crosses between unrelated tickets, and workspace cleanup can target the wrong directory. Preventing this correctly would require a composite key at every point where issue IDs appear: orchestration state, persistence, workspace names, prompt rendering, snapshot API. That is a full data model rewrite, not an incremental extension.
+
+Concurrency limits compound the problem. `max_concurrent_agents: 5` has clear meaning within one process — one slot pool, one scheduler, one resource budget. In a shared process hosting multiple workflows it becomes ambiguous: does each workflow get 5 slots, or is 5 the total? Per-workflow limits let one workflow starve another. A shared total can't be expressed by each workflow's own configuration file. Neither answer is right without introducing a new global configuration surface — a cap separate from any workflow's own settings — that does not exist today.
+
+Configuration divergence closes the argument. Each workflow defines its own `active_states`, `terminal_states`, and `poll_interval_ms`. Reconciliation works by evaluating each running issue against these definitions to decide whether to keep the agent alive, stop it, or release the claim. In a shared process, reconciliation must associate every running issue with the workflow that claimed it and apply that workflow's definitions — not any other. The failure mode when this goes wrong is silent: an issue evaluated against the wrong terminal states either keeps an agent running when it should have been stopped, or stops one that should be running. This class of bug does not surface in testing. It surfaces at 3 AM.
+
+The multiple-process model sidesteps all of this. Process boundaries provide state, configuration, and concurrency isolation for free. Adding a workflow means starting a process — not reconfiguring a shared scheduler. For the practical setup, see [run multiple workflows](../guides/run-multiple-workflows.md).
+
 ## Further reading
 
 - [State machine reference](../reference/state-machine.md) for the full state diagram and transition rules

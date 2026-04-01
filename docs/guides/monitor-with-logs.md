@@ -7,7 +7,10 @@ author: Sortie AI
 
 # How to monitor with logs
 
-Sortie emits structured `key=value` logs via Go's `slog` package. Logs are always on — no configuration needed. They are the first place to look when something goes wrong.
+Sortie emits structured `key=value` logs. Logs are always on — no configuration needed. They are the first place to look when something goes wrong.
+
+!!! note
+    Sortie has no built-in log file or rotation option. Logs go to stderr only — file retention and rotation are the responsibility of your runtime environment. Use journald on systemd hosts, a Docker logging driver in containers, or a process supervisor such as supervisord elsewhere.
 
 ## Prerequisites
 
@@ -196,7 +199,7 @@ grep 'session_id=session-abc-001' sortie.log
 
 ## Redirect logs to a file
 
-Sortie logs to stderr by default. Redirect to a file:
+Sortie logs to stderr by default. Redirect to a file with shell redirection:
 
 ```bash
 sortie ./WORKFLOW.md 2>sortie.log
