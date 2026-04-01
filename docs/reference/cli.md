@@ -45,7 +45,7 @@ sortie: too many arguments
 | `--log-level` | string | `info` | Log verbosity. Accepted values: `debug`, `info`, `warn`, `error`. |
 | `--port` | integer | _(unset)_ | HTTP server listen port. Enables the embedded HTTP server when provided. |
 | `--version` | boolean | `false` | Print the version banner with copyright notice, then exit. |
-| `-dumpversion` | boolean | `false` | Print the bare version string (e.g., `0.0.9`), then exit. |
+| `-dumpversion` | boolean | `false` | Print the bare version string (e.g., `1.3.0`), then exit. |
 
 ### `--dry-run`
 
@@ -142,7 +142,7 @@ Invalid values (negative, above 65535) produce an error and exit `1`.
 Prints the full version banner to stdout and exits with code `0`:
 
 ```
-sortie 0.0.9
+sortie 1.3.0
 Copyright (C) 2026 Serghei Iakovlev <oss@serghei.pl>
 
 This is free software; see the source for copying conditions.  There is NO
@@ -156,7 +156,7 @@ Skips workflow loading, configuration validation, and database initialization. I
 Prints the version string alone to stdout and exits with code `0`:
 
 ```
-0.0.9
+1.3.0
 ```
 
 Uses single-dash prefix (GCC convention). Designed for scripts and programmatic version checks.
@@ -415,7 +415,7 @@ A second signal during drain is not intercepted — the OS terminates the proces
 All log output goes to **stderr** in structured `key=value` format:
 
 ```
-time=2026-03-26T14:30:01.271+00:00 level=INFO msg="sortie starting" version=0.0.9 workflow_path=/opt/sortie/WORKFLOW.md port=8080
+time=2026-03-26T14:30:01.271+00:00 level=INFO msg="sortie starting" version=1.3.0 workflow_path=/opt/sortie/WORKFLOW.md port=8080
 time=2026-03-26T14:30:01.298+00:00 level=INFO msg="database path resolved" db_path=/opt/sortie/.sortie.db
 time=2026-03-26T14:30:01.304+00:00 level=INFO msg="sortie started"
 time=2026-03-26T14:30:01.305+00:00 level=INFO msg="http server listening" addr=127.0.0.1:8080
@@ -449,7 +449,7 @@ Stdout is used for version output (`--version`, `-dumpversion`) and `validate --
 The `Version` variable defaults to `dev` when running from source. Release builds inject the version at compile time via linker flags:
 
 ```sh
-go build -ldflags "-s -w -X main.Version=0.0.9" -o sortie ./cmd/sortie
+go build -ldflags "-s -w -X main.Version=1.3.0" -o sortie ./cmd/sortie
 ```
 
 The Makefile sets this automatically from `git describe --tags`:

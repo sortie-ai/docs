@@ -348,7 +348,7 @@ The [`install.sh`](https://get.sortie-ai.com/install.sh) script accepts three en
 Example:
 
 ```sh
-SORTIE_VERSION=0.8.0 SORTIE_INSTALL_DIR=/opt/bin \
+SORTIE_VERSION=1.3.0 SORTIE_INSTALL_DIR=/opt/bin \
   curl -sSL https://get.sortie-ai.com/install.sh | sh
 ```
 
