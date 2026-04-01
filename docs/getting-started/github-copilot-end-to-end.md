@@ -36,7 +36,7 @@ The GitHub integration tutorial proved that Sortie can talk to your issue tracke
 
     You should see a commit hash. If you get a permission error, fix your SSH or token setup before continuing.
 
-No `ANTHROPIC_API_KEY` needed. That is the key difference from the [Claude Code end-to-end tutorial](end-to-end.md): Copilot CLI authenticates through GitHub tokens, and a single token can serve both the tracker and the agent.
+No `ANTHROPIC_API_KEY` needed. That is the key difference from the [Claude Code end-to-end tutorial](jira-claude-end-to-end.md): Copilot CLI authenticates through GitHub tokens, and a single token can serve both the tracker and the agent.
 
 ## Create a GitHub issue
 
@@ -158,7 +158,7 @@ making changes. Do not repeat the same approach that failed.
 {{ end }}
 ```
 
-If you followed the [Claude Code end-to-end tutorial](end-to-end.md), this file will look familiar. The hooks and prompt template are nearly identical. The differences are in the tracker and agent configuration.
+If you followed the [Claude Code end-to-end tutorial](jira-claude-end-to-end.md), this file will look familiar. The hooks and prompt template are nearly identical. The differences are in the tracker and agent configuration.
 
 ### Tracker: GitHub instead of Jira
 
@@ -176,7 +176,7 @@ The `copilot-cli` section is a pass-through to the Copilot CLI binary. `max_auto
 
 ### Workspace and hooks
 
-The hooks work the same way as in the Claude Code tutorial: `after_create` clones the repo, `before_run` creates a branch from `origin/main`, and `after_run` commits and pushes. For a detailed walkthrough of the hook lifecycle and environment variables, see the [hooks section in the Claude Code tutorial](end-to-end.md#workspace-and-hooks).
+The hooks work the same way as in the Claude Code tutorial: `after_create` clones the repo, `before_run` creates a branch from `origin/main`, and `after_run` commits and pushes. For a detailed walkthrough of the hook lifecycle and environment variables, see the [hooks section in the Claude Code tutorial](jira-claude-end-to-end.md#workspace-and-hooks).
 
 ### Prompt template
 
@@ -310,7 +310,7 @@ Open `http://127.0.0.1:8888/` in a browser while Sortie is running. You will see
 
 We ran the complete Sortie lifecycle with Copilot CLI on GitHub Issues — entirely GitHub-native. One token authenticates both the tracker and the agent. Sortie polled GitHub, cloned the repository, launched the Copilot CLI, let it write and test code, pushed the result to a branch, and closed the issue.
 
-The same orchestration loop powers the [Claude Code end-to-end tutorial](end-to-end.md) with a different agent and tracker. Sortie's adapter-agnostic design means swapping `copilot-cli` for `claude-code` (or vice versa) is a config change — the prompt template, hooks, and overall flow carry over.
+The same orchestration loop powers the [Claude Code end-to-end tutorial](jira-claude-end-to-end.md) with a different agent and tracker. Sortie's adapter-agnostic design means swapping `copilot-cli` for `claude-code` (or vice versa) is a config change — the prompt template, hooks, and overall flow carry over.
 
 Where to go next:
 

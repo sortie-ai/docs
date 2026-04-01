@@ -233,7 +233,7 @@ The production workflow file you wrote here is nearly complete. To move from tes
 
 What happens next:
 
-- [Run the full cycle with Claude Code](end-to-end.md) to swap in a real agent, set up workspace hooks, and push code to a branch automatically.
+- [Run the full cycle with Claude Code](jira-claude-end-to-end.md) to swap in a real agent, set up workspace hooks, and push code to a branch automatically.
 - [Write a prompt template](../guides/write-prompt-template.md) to give the agent detailed instructions using issue fields, conditionals, and template functions.
 - Consult the [Jira connection guide](../guides/connect-to-jira.md) for advanced query filters, handoff patterns, and authentication troubleshooting.
 - Browse the [WORKFLOW.md configuration reference](../reference/workflow-config.md) for every available field and its default value.

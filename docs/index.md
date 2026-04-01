@@ -72,7 +72,7 @@ states. Changes to the workflow are applied without restart.
 :   The [Jira integration guide](getting-started/jira-integration.md) connects Sortie to your existing project in under ten minutes.
 
 **Want the full picture?**
-:   The [end-to-end tutorial](getting-started/end-to-end.md) walks through workspace hooks, retry behavior, the dashboard, and real agent output.
+:   The [end-to-end tutorial](getting-started/jira-claude-end-to-end.md) walks through workspace hooks, retry behavior, the dashboard, and real agent output.
 
 ## Understand
 

@@ -196,6 +196,6 @@ agent's output depends on your prompt and agent configuration, not on Sortie.
 ## Next steps
 
 - [Connect a Jira tracker](jira-integration.md) to pull real issues
-- [Run with Claude Code](end-to-end.md) as the agent for automated code changes
+- [Run with Claude Code](jira-claude-end-to-end.md) as the agent for automated code changes
 - [Workflow file reference](../reference/workflow-config.md) for all configuration options, template variables, and hook lifecycle
 - [Troubleshoot common failures](../guides/troubleshoot-common-failures.md) if something goes wrong

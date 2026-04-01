@@ -259,7 +259,7 @@ The workflow file you wrote here is nearly complete for production. To move from
 
 What happens next:
 
-- [Run the full cycle with Claude Code](end-to-end.md) to swap in a real agent, set up workspace hooks, and push code to a branch.
+- [Run the full cycle with Claude Code](jira-claude-end-to-end.md) to swap in a real agent, set up workspace hooks, and push code to a branch.
 - [Write a prompt template](../guides/write-prompt-template.md) to give the agent detailed instructions using issue fields, conditionals, and template functions.
 - Consult the [GitHub connection guide](../guides/connect-to-github.md) for query filters, Enterprise Server setup, and advanced state configuration.
 - Browse the [WORKFLOW.md configuration reference](../reference/workflow-config.md) for every available field and its default value.
