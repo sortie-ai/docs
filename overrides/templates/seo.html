@@ -178,6 +178,7 @@ in range(10) %} {% if ns.current and ns.current.title %} {% set ns.sections =
       {
         "@type": "BreadcrumbList",
         "@id": "{{ page.canonical_url }}#breadcrumb",
+        "name": "Breadcrumb",
         "itemListElement": [
           {
             "@type": "ListItem",
