@@ -13,6 +13,7 @@
 
 # Concepts
 /concepts/adapter-model /concepts/adapter-model/ 301
+/concepts/agent-communication /concepts/agent-communication/ 301
 /concepts/architecture /concepts/architecture/ 301
 /concepts/isolation /concepts/isolation/ 301
 /concepts/orchestration /concepts/orchestration/ 301
@@ -45,8 +46,10 @@
 /guides/scale-agents-with-ssh /guides/scale-agents-with-ssh/ 301
 /guides/setup-workspace-hooks /guides/setup-workspace-hooks/ 301
 /guides/troubleshoot-common-failures /guides/troubleshoot-common-failures/ 301
+/guides/use-agent-tools-in-prompts /guides/use-agent-tools-in-prompts/ 301
 /guides/use-file-adapter-for-testing /guides/use-file-adapter-for-testing/ 301
 /guides/use-subagents-with-sortie /guides/use-subagents-with-sortie/ 301
+/guides/write-custom-agent-tool /guides/write-custom-agent-tool/ 301
 /guides/write-prompt-template /guides/write-prompt-template/ 301
 
 # Reference
