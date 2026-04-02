@@ -12,6 +12,61 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-04-03 { #1.3.0 }
+
+### Added
+
+- MCP tool execution channel: agents can now call registered tools at
+  runtime via the Model Context Protocol. The worker generates
+  `.sortie/mcp.json` per session and passes it to the agent runtime via
+  `--mcp-config` (Claude Code) or `--additional-mcp-config` (Copilot CLI).
+  The agent runtime spawns `sortie mcp-server` as a stdio sidecar; the
+  orchestrator does not manage the sidecar lifecycle.
+- `sortie mcp-server` subcommand: MCP stdio JSON-RPC server that exposes
+  registered `AgentTool` implementations via `tools/list` and `tools/call`.
+  Constructs its own `TrackerAdapter` and `ToolRegistry` by re-reading
+  WORKFLOW.md from an absolute path passed via `--workflow`.
+- `sortie_status` MCP tool (Tier 1): returns live session runtime
+  metadata -- current turn number, remaining turns, attempt number,
+  session duration, and cumulative token usage. Reads from
+  `.sortie/state.json`, a worker-written file updated at session start,
+  each turn start, and on token usage events.
+- `workspace_history` MCP tool (Tier 1): returns up to 10 most recent
+  completed run attempts for the current issue from the `run_history`
+  SQLite table. Opens the database in read-only mode (`?mode=ro`).
+  Non-fatal on database open failure -- the MCP server continues with
+  other tools available.
+- Agent-to-orchestrator file protocol: agents can write `blocked` or
+  `needs-human-review` to `.sortie/status` to suppress continuation
+  retries. The orchestrator reads the file after each turn and before
+  the tracker state refresh. Absent, unrecognized, or unreadable files
+  degrade to normal behavior. Symlinks on either path component are
+  rejected via `Lstat`.
+- `RuntimeStatusSuffix` auto-injection: the orchestrator appends A2O
+  protocol instructions to the first-turn prompt so agents know how to
+  signal blocked status without workflow author intervention.
+  Continuation turns omit the suffix.
+- Soft-stop exit path in `HandleWorkerExit`: when the worker exits with
+  a recognized status file signal, the orchestrator releases the claim
+  and suppresses continuation retry. The issue re-dispatches only on
+  tracker state change.
+- Operator MCP config merging: if `mcp_config` is set in WORKFLOW.md,
+  the worker merges the operator's config with the `sortie-tools` entry.
+  Name collision on `sortie-tools` is a validation error.
+
+### Documentation
+
+- Agent-to-orchestrator file protocol specification
+  (`docs/agent-to-orchestrator-protocol.md`): 9-section normative
+  document covering file format, recognized values, read timing,
+  cleanup lifecycle, symlink rejection, and conformance checklist.
+- ADR-0009: MCP stdio sidecar for tool execution -- documents the
+  chosen transport mechanism, process model, credential handling,
+  adapter integration, and alternatives analysis.
+- Architecture Section 10.4 rewrite: `AgentTool` interface contract,
+  `ToolRegistry` invariants, tier classification framework, and
+  `tracker_api` tool specification aligned with implementation.
+
 ## [1.2.1] - 2026-04-01 { #1.2.1 }
 
 ### Fixed
@@ -397,6 +452,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   execution via GitHub Actions.
 - Architecture Decision Records (ADR-0001 through ADR-0005).
 
+[1.3.0]: https://github.com/sortie-ai/sortie/compare/1.2.1...1.3.0
 [1.2.1]: https://github.com/sortie-ai/sortie/compare/1.2.0...1.2.1
 [1.2.0]: https://github.com/sortie-ai/sortie/compare/1.1.0...1.2.0
 [1.1.0]: https://github.com/sortie-ai/sortie/compare/1.0.0...1.1.0
