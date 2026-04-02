@@ -1,7 +1,7 @@
 ---
 title: CLI Reference | Sortie
-description: Complete reference for the sortie command-line interface. Synopsis, subcommands, flags, dry-run mode, arguments, exit codes, signals, startup sequence, logging format, and version injection.
-keywords: sortie CLI, command line, subcommands, validate, dry-run, flags, arguments, exit codes, signals, graceful shutdown, logging, version
+description: Complete reference for the sortie command-line interface. Synopsis, subcommands, flags, dry-run mode, MCP server, arguments, exit codes, signals, startup sequence, logging format, and version injection.
+keywords: sortie CLI, command line, subcommands, validate, mcp-server, dry-run, flags, arguments, exit codes, signals, graceful shutdown, logging, version, MCP
 author: Sortie AI
 ---
 
@@ -14,11 +14,12 @@ sortie [flags] [workflow-path]
 sortie --dry-run [--log-level level] [workflow-path]
 sortie --env-file path [flags] [workflow-path]
 sortie validate [--format text|json] [workflow-path]
+sortie mcp-server --workflow <path>
 ```
 
 Without a subcommand, Sortie runs as a long-lived process. It loads the [workflow file](workflow-config.md), opens the SQLite database, validates configuration, and enters the poll-dispatch-reconcile event loop. The process blocks until terminated by a signal.
 
-The `validate` subcommand checks the workflow file without starting the orchestrator. See [Subcommands](#subcommands).
+The `validate` subcommand checks the workflow file without starting the orchestrator. The `mcp-server` subcommand starts an MCP stdio server for agent tool execution. See [Subcommands](#subcommands).
 
 ---
 
@@ -116,6 +117,8 @@ sortie --env-file /etc/sortie/prod.env WORKFLOW.md
 Takes a file path argument. Only keys prefixed with `SORTIE_` are read from the file; all others are ignored. The file format is `KEY=VALUE` with `#` comments, optional quotes, and no variable interpolation.
 
 Real environment variables take precedence over `.env` values. When both `--env-file` and the `SORTIE_ENV_FILE` environment variable are set, the flag wins.
+
+When `--env-file` is provided, the CLI resolves the path to absolute and exports it as `SORTIE_ENV_FILE` in the process environment. This allows `CollectSortieEnv` to propagate the path to the MCP server via the [config env block](environment.md#mcp-server-environment), so the MCP server can locate and load the `.env` file to resolve credential `$VAR` indirection. The absolute resolution is necessary because the MCP server's working directory (the per-issue workspace) differs from the orchestrator's.
 
 The file is re-read on every WORKFLOW.md reload (file change detection). If the file does not exist at load time, a warning is logged and loading continues without it.
 
@@ -348,6 +351,71 @@ The GitHub adapter (`tracker.kind: github`) produces these warning checks:
 
 For details on each check, see [GitHub adapter validate-time checks](adapter-github.md#validate-time-checks).
 
+### `mcp-server`
+
+Starts an MCP stdio server that exposes registered agent tools over JSON-RPC on stdin/stdout. Intended to be launched by an MCP-compatible agent runtime via `.sortie/mcp.json`, *not run manually*.
+
+```
+sortie mcp-server --workflow <path>
+```
+
+The subcommand loads the workflow file, constructs the tracker adapter from its configuration, builds a tool registry, and serves MCP requests until stdin closes or the process receives a signal. No SQLite database is opened, no agents are spawned, and no HTTP server starts.
+
+#### Flags
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `--workflow` | string | _(none)_ | Absolute path to the WORKFLOW.md file. Required. |
+
+No other flags. All behavior derives from the workflow file and environment variables.
+
+#### Startup sequence
+
+1. Parse `--workflow` flag. Exit `1` if missing.
+2. Load and parse the workflow file.
+3. Construct `ServiceConfig` from the raw config.
+4. Set up `slog` logger to stderr at `info` level.
+5. Resolve tracker adapter from the registry (when the tracker section is present). Build the tracker config map, merge extensions, and construct the adapter.
+6. Build the tool registry. When the tracker section is present and `tracker.project` is non-empty, register the `tracker_api` tool. Otherwise the registry is empty.
+7. Construct the MCP server with the registry and stdin/stdout.
+8. Serve requests until stdin closes or the context is cancelled.
+
+Errors at steps 1–6 log to stderr and return exit code `1`.
+
+#### Environment variables
+
+The MCP server receives its environment exclusively from the `env` field in `.sortie/mcp.json`. The worker writes all `SORTIE_*`-prefixed variables from the orchestrator's process environment into this block, plus five per-session variables that override any same-named process variable. See [MCP server environment](environment.md#mcp-server-environment) for the full composition model.
+
+Per-session variables written by the worker:
+
+| Variable | Purpose |
+|---|---|
+| `SORTIE_ISSUE_ID` | Scopes tool calls to the current issue. |
+| `SORTIE_ISSUE_IDENTIFIER` | Human-readable issue key. |
+| `SORTIE_WORKSPACE` | Workspace root path. |
+| `SORTIE_DB_PATH` | SQLite database path. |
+| `SORTIE_SESSION_ID` | Session identifier. |
+
+Tracker credentials (e.g., `SORTIE_TRACKER_API_KEY`) reach the server through the same `env` block via the `SORTIE_*` prefix scan. The MCP server's config parser resolves `$VAR` indirection in the workflow file against these variables.
+
+The MCP server does not validate environment variable presence at startup. Validation failures surface at tool execution time when a tool requires a variable that is absent.
+
+#### Graceful shutdown
+
+The MCP server exits cleanly when either:
+
+- **stdin closes** — the agent runtime terminates the stdio pipe. The JSON-RPC reader detects EOF and returns.
+- **Context cancellation** — the signal handler cancels the context.
+
+No explicit shutdown handshake. The server's lifetime is bound to the agent runtime's stdio pipe.
+
+#### Exit codes
+
+| Code | Meaning |
+|---|---|
+| `0` | Clean shutdown (stdin closed or signal received), or `--help` requested. |
+| `1` | Startup failure: missing `--workflow`, unreadable workflow file, invalid config, tracker adapter construction failure, or a server error during operation. |
+
 ---
 
 ## Startup sequence
@@ -380,8 +448,8 @@ Any step that fails prints a diagnostic to stderr and exits with code `1`.
 
 | Code | Meaning |
 |---|---|
-| `0` | Clean shutdown (signal received), version output (`--version`, `-dumpversion`), successful `validate`, or successful `--dry-run`. |
-| `1` | Startup failure: unknown flag, too many arguments, missing or unreadable workflow file, invalid configuration, preflight validation failure, or database open/migration error. Also used by `validate` for any validation failure and by `--dry-run` when the tracker fetch fails. |
+| `0` | Clean shutdown (signal received), version output (`--version`, `-dumpversion`), successful `validate`, successful `--dry-run`, or clean `mcp-server` shutdown. |
+| `1` | Startup failure: unknown flag, too many arguments, missing or unreadable workflow file, invalid configuration, preflight validation failure, or database open/migration error. Also used by `validate` for any validation failure, by `--dry-run` when the tracker fetch fails, and by `mcp-server` for startup or runtime errors. |
 
 Sortie does not define exit codes above `1`. Agent subprocess failures, tracker errors, and runtime exceptions are handled internally through the retry and reconciliation mechanisms — they do not affect the process exit code.
 
@@ -440,7 +508,7 @@ Different log lines carry different context fields depending on scope:
 | `tool`, `duration_ms`, `result` | Tool call completions |
 | `addr` | HTTP server start |
 
-Stdout is used for version output (`--version`, `-dumpversion`) and `validate --format json` diagnostics. All other output goes to stderr.
+Stdout is used for version output (`--version`, `-dumpversion`), `validate --format json` diagnostics, and `mcp-server` JSON-RPC responses. All other output goes to stderr.
 
 ---
 
@@ -528,6 +596,9 @@ sortie --env-file /etc/sortie/prod.env --port 8080 /opt/sortie/WORKFLOW.md
 
 # Help text
 sortie --help
+
+# Start MCP stdio server (launched by agent runtime, not run manually)
+sortie mcp-server --workflow /opt/sortie/WORKFLOW.md
 ```
 
 ---

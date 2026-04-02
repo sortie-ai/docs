@@ -1,13 +1,13 @@
 ---
 title: "Environment Variables | Sortie"
 description: "Complete reference for every environment variable Sortie reads, injects, or filters. SORTIE_* config overrides, .env file support, agent passthrough, $VAR indirection, hook subprocess environment, and install script variables."
-keywords: sortie environment variables, SORTIE_*, ANTHROPIC_API_KEY, COPILOT_GITHUB_TOKEN, GH_TOKEN, GITHUB_TOKEN, SORTIE_ISSUE_ID, env var, configuration, .env, overrides, hooks, install
+keywords: sortie environment variables, SORTIE_*, ANTHROPIC_API_KEY, COPILOT_GITHUB_TOKEN, GH_TOKEN, GITHUB_TOKEN, SORTIE_ISSUE_ID, env var, configuration, .env, overrides, hooks, install, MCP server
 author: Sortie AI
 ---
 
 # Environment variables reference
 
-Sortie supports `SORTIE_*` environment variable overrides for most configuration fields, with optional `.env` file loading. Environment variables flow in five distinct directions — each covered in its own section below.
+Sortie supports `SORTIE_*` environment variable overrides for most configuration fields, with optional `.env` file loading. Environment variables flow in six distinct directions — each covered in its own section below.
 
 | Section | Direction | When it matters |
 |---|---|---|
@@ -15,6 +15,7 @@ Sortie supports `SORTIE_*` environment variable overrides for most configuration
 | [Agent runtime variables](#agent-runtime-variables) | Parent shell → agent subprocess | Before starting Sortie |
 | [`$VAR` indirection in WORKFLOW.md](#var-indirection-in-workflowmd) | Parent shell → config fields at startup | Writing the workflow file |
 | [Hook subprocess environment](#hook-subprocess-environment) | Sortie → hook subprocess | Writing hook scripts |
+| [MCP server environment](#mcp-server-environment) | Worker → `.sortie/mcp.json` → agent runtime → MCP server | Writing custom tools, debugging tool execution |
 | [Install script variables](#install-script-variables) | Parent shell → `install.sh` | Installing the binary |
 
 ---
@@ -91,7 +92,7 @@ These are not config field overrides. They control how overrides are loaded.
 |---|---|---|
 | `SORTIE_ENV_FILE` | Path to a `.env` file containing `SORTIE_*` overrides | string |
 
-When both `SORTIE_ENV_FILE` and [`--env-file`](cli.md#-env-file) are set, the CLI flag wins.
+When [`--env-file`](cli.md#-env-file) is provided, the CLI resolves the path to absolute and exports it as `SORTIE_ENV_FILE` in the process environment. This ensures the value is captured by `CollectSortieEnv` and propagated to the MCP server, which runs in a different working directory and needs the absolute path to locate the `.env` file. When both `SORTIE_ENV_FILE` and `--env-file` are set, the CLI flag wins.
 
 ### Type coercion
 
@@ -335,6 +336,46 @@ When the same variable name exists in both the parent environment (via `SORTIE_*
 
 ---
 
+## MCP server environment
+
+The MCP tool server (`sortie mcp-server`) runs as a child process of the agent runtime, not of the Sortie orchestrator. The agent runtime constructs the MCP server's environment exclusively from the `env` field in `.sortie/mcp.json` — variables not listed in that block do not reach the server. The worker writes per-session context variables and all `SORTIE_*`-prefixed process environment variables into this block before launching the agent.
+
+### Environment composition
+
+The `env` block is built in two layers:
+
+1. **`SORTIE_*` process variables** (lower precedence). The worker scans the orchestrator's process environment and collects every variable whose name starts with `SORTIE_`. This captures credential variables (e.g., `SORTIE_TRACKER_API_KEY`), configuration overrides (e.g., `SORTIE_POLLING_INTERVAL_MS`), and any operator-defined `SORTIE_*` values.
+
+2. **Per-session variables** (higher precedence). The worker writes these five variables, overriding any same-named key from layer 1:
+
+| Variable | Type | Description |
+|---|---|---|
+| `SORTIE_ISSUE_ID` | string | Tracker-internal issue ID. Scopes tool operations to the current issue. |
+| `SORTIE_ISSUE_IDENTIFIER` | string | Human-readable ticket key (e.g., `PROJ-123`). Used by `tracker_api` for project-level scoping. |
+| `SORTIE_WORKSPACE` | string | Absolute path to the per-issue workspace directory. |
+| `SORTIE_DB_PATH` | string | Absolute path to the Sortie SQLite database. The MCP server opens this in read-only mode for Tier 1 tools that query run history (e.g., `workspace_history`). This is the same resolved path that the orchestrator uses — if you set `SORTIE_DB_PATH` as a [configuration override](#configuration-overrides), the MCP server receives that same value. |
+| `SORTIE_SESSION_ID` | string | Opaque session identifier for the current worker run. Used by tools that query session-specific data. |
+
+Per-session variables always win. A stale `SORTIE_ISSUE_ID` in the process environment is overwritten by the orchestrator's value for the active issue.
+
+### Credential delivery
+
+Tier 2 tools (like `tracker_api`) need tracker API credentials. These reach the MCP server through the `env` block: the worker's process environment contains credential variables (e.g., `SORTIE_TRACKER_API_KEY`), the `SORTIE_*` prefix scan collects them, and the worker writes them into `.sortie/mcp.json`. The MCP server's config parser (`applyEnvOverrides`) resolves `$VAR` indirection in the workflow file against these variables.
+
+When the operator uses [`--env-file`](cli.md#-env-file), the CLI exports the resolved absolute path as `SORTIE_ENV_FILE` in the process environment. The prefix scan captures this variable, so the MCP server receives the `.env` file path and can load it through its own `applyEnvOverrides` mechanism.
+
+The `.sortie/mcp.json` file is written with `0o600` permissions (owner read/write only) and resides within the per-issue workspace directory. The credential is already available to the agent subprocess via `os.Environ()` — writing it to the config file does not expand the agent's access.
+
+### Controlled environment
+
+Unlike the [hook subprocess environment](#hook-subprocess-environment), which uses a POSIX allowlist plus `SORTIE_*` prefix filter on the parent process, the MCP server receives its environment entirely from the config file's `env` block. Non-`SORTIE_*` variables from the orchestrator's process (e.g., `PATH`, `HOME`, `ANTHROPIC_API_KEY`) are not passed to the MCP server. The `SORTIE_*` prefix acts as a bounded namespace — no non-Sortie secrets leak into the config file.
+
+### Relationship to hook variables
+
+Three per-session variables (`SORTIE_ISSUE_ID`, `SORTIE_ISSUE_IDENTIFIER`, `SORTIE_WORKSPACE`) are shared with the [hook subprocess environment](#hook-subprocess-environment). `SORTIE_DB_PATH` and `SORTIE_SESSION_ID` are specific to the MCP execution channel (ADR-0009) — hooks don't receive them. Hooks receive `SORTIE_ATTEMPT`, which the MCP server does not set as a per-session variable (though it would pass through if present in the process environment as a `SORTIE_*` variable).
+
+---
+
 ## Install script variables
 
 The [`install.sh`](https://get.sortie-ai.com/install.sh) script accepts three environment variables that control installation behavior.
@@ -358,4 +399,5 @@ SORTIE_VERSION=1.3.0 SORTIE_INSTALL_DIR=/opt/bin \
 
 - [WORKFLOW.md configuration reference](workflow-config.md) — all configuration fields, defaults, and types
 - [CLI reference](cli.md) — command-line flags (including [`--env-file`](cli.md#-env-file)) and exit codes
+- [Agent extensions reference](agent-extensions.md) — tool schemas, MCP execution channel, and response formats
 - [Prometheus metrics reference](prometheus-metrics.md) — `sortie_*` metric names (these are Prometheus metrics, not environment variables)
