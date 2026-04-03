@@ -1,13 +1,13 @@
 ---
 title: "Adapter Model | Sortie"
 description: "How Sortie's adapter architecture makes agent and tracker integrations disposable while keeping the orchestration core stable."
-keywords: sortie adapters, agent agnostic, tracker agnostic, adapter pattern, extensibility, coding agent orchestration, Go interfaces
+keywords: sortie adapters, agent agnostic, tracker agnostic, adapter pattern, extensibility, autonomous coding agent orchestration, Go interfaces
 author: Sortie AI
 ---
 
 # How adapters make Sortie future-proof
 
-The agent and tracker landscapes are churning. New coding agents ship monthly. Tracker APIs introduce breaking changes across versions. Teams switch tools — from Jira to Linear, from Claude Code to Codex — as the market evolves. An orchestrator that hardcodes integration logic into its scheduling core has a shelf life measured in months. The moment your preferred agent changes its CLI protocol or your team migrates trackers, you're refactoring orchestration internals.
+The agent and tracker landscapes are churning. New autonomous coding agents ship monthly. Tracker APIs introduce breaking changes across versions. Teams switch tools — from Jira to Linear, from Claude Code to Codex — as the market evolves. An orchestrator that hardcodes integration logic into its scheduling core has a shelf life measured in months. The moment your preferred agent changes its CLI protocol or your team migrates trackers, you're refactoring orchestration internals.
 
 Sortie's answer is two Go interfaces — `TrackerAdapter` and `AgentAdapter` — that form a hard boundary between the orchestration core and the outside world. The orchestrator works exclusively with domain types: `Issue`, `Session`, `Turn`, `AgentEvent`. It never touches a Jira field name, a GitHub REST endpoint, or a Claude Code JSONL message. Every integration-specific concept lives inside its adapter package and cannot leak out.
 

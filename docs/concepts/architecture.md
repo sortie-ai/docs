@@ -1,13 +1,13 @@
 ---
 title: "Architecture | Sortie"
-description: "Why Sortie is designed as a single Go binary with adapter-based extensibility, SQLite persistence, and spec-first development."
-keywords: sortie architecture, design decisions, agent orchestration, Go single binary, SQLite, adapter pattern, workspace isolation
+description: "Why Sortie is designed as an autonomous coding agent orchestrator: single Go binary, adapter-based extensibility, SQLite persistence, and spec-first development."
+keywords: sortie architecture, design decisions, autonomous coding agent, agent orchestration, Go single binary, SQLite, adapter pattern, workspace isolation
 author: Sortie AI
 ---
 
 # How Sortie is designed and why
 
-Sortie orchestrates coding agents against issue trackers. This document explains the design decisions behind it — what trade-offs were made, what alternatives were rejected, and why the system works the way it does. If you're evaluating Sortie for your team or planning to contribute, this is where you build the mental model.
+Sortie orchestrates autonomous coding agents against issue trackers. This document explains the design decisions behind it — what trade-offs were made, what alternatives were rejected, and why the system works the way it does. If you're evaluating Sortie for your team or planning to contribute, this is where you build the mental model.
 
 ## One binary, zero dependencies
 

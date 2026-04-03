@@ -13,7 +13,7 @@ Sortie assumes your coding agent already produces useful results when you run it
 
 ## The Problem
 
-Coding agents can handle routine engineering tasks — bug fixes, dependency updates, test
+Autonomous coding agents can handle routine engineering tasks — bug fixes, dependency updates, test
 coverage, feature work — when they have good system prompts, appropriate tool permissions,
 and have been tested on representative issues. But running validated agents at scale
 requires infrastructure that doesn't exist yet: isolated workspaces, retry logic, state

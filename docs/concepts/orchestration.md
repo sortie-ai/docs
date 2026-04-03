@@ -1,13 +1,13 @@
 ---
 title: "Orchestration | Sortie"
-description: "How Sortie's poll-dispatch-reconcile loop works: candidate selection, retry strategies, state reconciliation, persistence, and the turn model."
-keywords: sortie orchestration, dispatch loop, retry backoff, reconciliation, state machine, polling, agent sessions
+description: "How Sortie's poll-dispatch-reconcile loop manages autonomous coding agent sessions: candidate selection, retry strategies, state reconciliation, persistence, and the turn model."
+keywords: sortie orchestration, autonomous coding agent, dispatch loop, retry backoff, reconciliation, state machine, polling, agent sessions
 author: Sortie AI
 ---
 
 # How Sortie dispatches, retries, and recovers
 
-Between "issue appears in your tracker" and "agent finishes work," a lot happens inside Sortie. This document explains the orchestration model — the design choices that determine when agents run, what happens when they fail, and how state stays consistent across restarts. You don't need this to use Sortie, but you need it to reason about Sortie under failure, tune its behavior with confidence, or contribute to its internals.
+Between "issue appears in your tracker" and "autonomous coding agent finishes work," a lot happens inside Sortie. This document explains the orchestration model — the design choices that determine when agents run, what happens when they fail, and how state stays consistent across restarts. You don't need this to use Sortie, but you need it to reason about Sortie under failure, tune its behavior with confidence, or contribute to its internals.
 
 ## The poll-dispatch-reconcile loop
 

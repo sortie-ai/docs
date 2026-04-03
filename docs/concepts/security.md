@@ -1,7 +1,7 @@
 ---
 title: "Security Model | Sortie"
 description: "Sortie's trust model: workspace isolation invariants, prompt injection surface, secret handling, hook safety, and bounded failure as a security property."
-keywords: sortie security, trust model, workspace isolation, prompt injection, agent safety, operational security, coding agent orchestration
+keywords: sortie security, trust model, workspace isolation, prompt injection, agent safety, operational security, autonomous coding agent, coding agent orchestration
 author: Sortie AI
 ---
 

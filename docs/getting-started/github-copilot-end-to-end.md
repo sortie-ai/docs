@@ -1,7 +1,7 @@
 ---
 title: "Run the Full Cycle with Copilot CLI | Sortie"
 description: "Tutorial: connect Sortie to GitHub Issues and Copilot CLI, clone a repo, let the agent write code, push to a branch, and watch the issue transition to Done."
-keywords: sortie tutorial, copilot cli, end to end, github issues, workspace hooks, git push, automated coding, agent session, github native
+keywords: sortie tutorial, copilot cli, end to end, github issues, workspace hooks, git push, autonomous coding agent, agent session, github native
 author: Sortie AI
 ---
 
