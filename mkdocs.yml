@@ -66,39 +66,38 @@ nav:
       - Jira + Claude End-to-End: getting-started/jira-claude-end-to-end.md
       - GitHub + Copilot End-to-End: getting-started/github-copilot-end-to-end.md
   - Guides:
-      # Setup & Configuration
-      - Connect to Jira: guides/connect-to-jira.md
-      - Connect to GitHub: guides/connect-to-github.md
-      - Use File Adapter for Testing: guides/use-file-adapter-for-testing.md
-      - Write a Prompt Template: guides/write-prompt-template.md
-      - Set Up Workspace Hooks: guides/setup-workspace-hooks.md
-      - Integrate Security Scanning: guides/integrate-security-scanning.md
-      - Run Multiple Workflows: guides/run-multiple-workflows.md
-      - Multi-Repo Orchestration: guides/orchestrate-across-repositories.md
-      - Configure Retry Behavior: guides/configure-retry-behavior.md
-      # Operations
-      - Resume Sessions Across Restarts: guides/resume-sessions-across-restarts.md
-      - Control Agent Costs: guides/control-costs.md
-      - Run as a Systemd Service: guides/run-as-systemd-service.md
-      - Run as a Launchctl Service: guides/run-as-launchctl-service.md
-      # M16: CI feedback loop
-      #- Set Up CI Feedback Loop: guides/setup-ci-feedback-loop.md
-      - Scale Agents with SSH: guides/scale-agents-with-ssh.md
-      - Monitor with Logs: guides/monitor-with-logs.md
-      - Monitor with Prometheus: guides/monitor-with-prometheus.md
-      # Advanced
+      - Setup & Configuration:
+        - Connect to Jira: guides/connect-to-jira.md
+        - Connect to GitHub: guides/connect-to-github.md
+        - Use File Adapter for Testing: guides/use-file-adapter-for-testing.md
+        - Write a Prompt Template: guides/write-prompt-template.md
+        - Set Up Workspace Hooks: guides/setup-workspace-hooks.md
+        - Integrate Security Scanning: guides/integrate-security-scanning.md
+        - Run Multiple Workflows: guides/run-multiple-workflows.md
+        - Multi-Repo Orchestration: guides/orchestrate-across-repositories.md
+        - Configure Retry Behavior: guides/configure-retry-behavior.md
+      - Operations:
+        - Resume Sessions Across Restarts: guides/resume-sessions-across-restarts.md
+        - Control Agent Costs: guides/control-costs.md
+        - Run as a Systemd Service: guides/run-as-systemd-service.md
+        - Run as a Launchctl Service: guides/run-as-launchctl-service.md
+        -  Configure CI Feedback: guides/configure-ci-feedback.md
+        - Scale Agents with SSH: guides/scale-agents-with-ssh.md
+        - Monitor with Logs: guides/monitor-with-logs.md
+        - Monitor with Prometheus: guides/monitor-with-prometheus.md
       # Deployment
-      # M17: Docker, Helm, GitHub Action
+      # M16: Docker, Helm, GitHub Action
       #- Deploy with Docker: guides/deploy-with-docker.md
       #- Deploy to Kubernetes: guides/deploy-to-kubernetes.md
       #- Run with GitHub Actions: guides/run-with-github-actions.md
-      # Advanced
-      - Use Agent Tools in Prompts: guides/use-agent-tools-in-prompts.md
-      - Write a Custom Agent Tool: guides/write-custom-agent-tool.md
-      - Use Sub-Agents with Sortie: guides/use-subagents-with-sortie.md
-      # M19: GitHub deep integration
+      - Advanced:
+        - Use Agent Tools in Prompts: guides/use-agent-tools-in-prompts.md
+        - Write a Custom Agent Tool: guides/write-custom-agent-tool.md
+        - Use Sub-Agents with Sortie: guides/use-subagents-with-sortie.md
+      # M17: GitHub deep integration
       #- Set Up PR Reactions: guides/setup-pr-reactions.md
-      - Troubleshoot Common Failures: guides/troubleshoot-common-failures.md
+      - Troubleshooting:
+        - Troubleshoot Common Failures: guides/troubleshoot-common-failures.md
       # Post-milestone: extensibility
       #- Write a Custom Tracker Adapter: guides/write-custom-tracker-adapter.md
       #- Write a Custom Agent Adapter: guides/write-custom-agent-adapter.md
@@ -120,20 +119,20 @@ nav:
       - Dashboard: reference/dashboard.md
       - Prometheus Metrics: reference/prometheus-metrics.md
       - Agent Extensions: reference/agent-extensions.md
-      # Tracker adapters
-      - Jira Adapter: reference/adapter-jira.md
-      - GitHub Adapter: reference/adapter-github.md
-      # M18: ecosystem adapters
+      - Tracker adapters:
+        - Jira Adapter: reference/adapter-jira.md
+        - GitHub Adapter: reference/adapter-github.md
+      # M?? (TBD): ecosystem adapters
       #- Linear Adapter: reference/adapter-linear.md
-      # Agent adapters
-      - Claude Code Adapter: reference/adapter-claude-code.md
-      - Copilot CLI Adapter: reference/adapter-copilot.md
-      # M18: ecosystem adapters
+      - Agent adapters:
+        - Claude Code Adapter: reference/adapter-claude-code.md
+        - Copilot CLI Adapter: reference/adapter-copilot.md
+      # M?? (TBD): ecosystem adapters
       #- Codex CLI Adapter: reference/adapter-codex.md
       #- Gemini CLI Adapter: reference/adapter-gemini.md
-      # Core
-      - State Machine: reference/state-machine.md
-      - Errors: reference/errors.md
+      - Core:
+        - State Machine: reference/state-machine.md
+        - Errors: reference/errors.md
   - Changelog: changelog.md
 
 extra_css:

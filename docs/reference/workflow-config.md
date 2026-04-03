@@ -1,7 +1,7 @@
 ---
 title: Workflow Configuration | Sortie
 description: Complete reference for every WORKFLOW.md configuration field. Tracker, polling, workspace, hooks, agent, database, prompt template, server, logging, and SSH worker.
-keywords: sortie configuration, WORKFLOW.md, YAML, tracker, agent, hooks, workspace, server, worker, SSH, config reference
+keywords: sortie configuration, WORKFLOW.md, YAML, tracker, agent, ci_feedback, hooks, workspace, server, worker, SSH, config reference
 author: Sortie AI
 ---
 
@@ -9,7 +9,7 @@ author: Sortie AI
 
 `WORKFLOW.md` is a Markdown file with YAML front matter. Front matter between `---` delimiters defines runtime settings. The body after the closing `---` is the prompt template, rendered per issue with Go `text/template`.
 
-See also: [CLI reference](cli.md) for startup flags, [environment variables reference](environment.md) for `$VAR` behavior, [error reference](errors.md) for configuration error diagnostics, [Jira adapter reference](adapter-jira.md) for Jira-specific fields, [GitHub adapter reference](adapter-github.md) for GitHub-specific fields, [Claude Code adapter reference](adapter-claude-code.md) for Claude Code pass-through options, [Copilot CLI adapter reference](adapter-copilot.md) for Copilot CLI pass-through options.
+See also: [CLI reference](cli.md) for startup flags, [environment variables reference](environment.md) for `$VAR` behavior, [error reference](errors.md) for configuration error diagnostics, [Jira adapter reference](adapter-jira.md) for Jira-specific fields, [GitHub adapter reference](adapter-github.md) for GitHub-specific fields, [Claude Code adapter reference](adapter-claude-code.md) for Claude Code pass-through options, [Copilot CLI adapter reference](adapter-copilot.md) for Copilot CLI pass-through options, [Configure CI feedback](../guides/configure-ci-feedback.md) for operational guidance.
 
 !!! tip
     Most configuration fields in this reference can be overridden by `SORTIE_*` environment variables without modifying the workflow file. See the [environment variables reference](environment.md#configuration-overrides) for the full list and precedence rules.
@@ -77,6 +77,14 @@ agent:
   max_concurrent_agents_by_state:
     in progress: 3                    # Per-state concurrency cap
     to do: 1
+
+# --- CI Feedback --------------------------------------------------
+ci_feedback:
+  kind: github                        # CI provider; absent = disabled
+  max_retries: 2                      # CI-fix attempts before escalation
+  max_log_lines: 50                   # Log lines from failing check; 0 = off
+  escalation: label                   # "label" or "comment"
+  escalation_label: needs-human       # Label for escalation
 
 # --- Claude Code adapter (pass-through) ------------------------------
 claude-code:
@@ -352,6 +360,62 @@ agent:
 
 ---
 
+## `ci_feedback`
+
+CI feedback configuration. When activated, Sortie detects CI failures on agent-created branches and dispatches continuation runs with failure context injected into the agent prompt. When retries are exhausted, Sortie escalates to a human via label or comment.
+
+| Field              | Type    | Default                          | Description                                                                                                          |
+| ------------------ | ------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `kind`             | string  | _(absent; CI feedback disabled)_ | CI status provider adapter identifier (e.g., `"github"`). Absent or empty disables CI feedback entirely.            |
+| `max_retries`      | integer | `2`                              | Maximum CI-fix continuation dispatches per issue before escalation. Zero means escalate immediately on first CI failure. Must be non-negative. |
+| `max_log_lines`    | integer | `50`                             | Lines to fetch from the first failing check run's log. Positive: fetch up to N lines. Zero: disable log fetching. Must be non-negative. |
+| `escalation`       | string  | `"label"`                        | Action when `max_retries` is exceeded. Valid values: `"label"`, `"comment"`.                                         |
+| `escalation_label` | string  | `"needs-human"`                  | Label applied to the issue when `escalation` is `"label"`. The label must exist in the repository. Ignored when `escalation` is `"comment"`. |
+
+CI feedback follows the same activation pattern as other optional Sortie features. Presence of `kind` activates the feature; absence disables it. This is consistent with `server.port` (absent = server disabled) and `worker.ssh_hosts` (absent = local mode). There is no `ci_feedback.enabled` boolean.
+
+Repository coordinates (owner, repo name, API token, endpoint) are not part of the `ci_feedback` section. They live in the adapter pass-through block that matches the CI provider kind. When `ci_feedback.kind: github`, the CI adapter reads credentials from the `github:` top-level section in [Extensions](#extensions). When `tracker.kind` and `ci_feedback.kind` match (the common single-platform case), both adapters share the same credentials from the tracker config. See [adapter pass-through configuration](#adapter-pass-through-configuration) for the extension block pattern.
+
+`sortie validate` checks `ci_feedback` sub-keys against the known schema. Unknown sub-keys produce an advisory warning. Adapter-specific keys nested inside `ci_feedback:` (e.g., `ci_feedback.github.owner`) are flagged as unknown because `ci_feedback` does not use adapter pass-through. Place adapter-specific config in a top-level extension block instead.
+
+!!! note
+    Environment variable overrides for `ci_feedback` fields are not currently supported. All `ci_feedback` values must be set in WORKFLOW.md. This differs from `tracker` and `agent` sections, which support `SORTIE_TRACKER_*` and `SORTIE_AGENT_*` overrides respectively.
+
+### Escalation behavior
+
+| Escalation          | Behavior                                                                                                                                                |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `label` (default)   | Adds `escalation_label` (default `needs-human`) to the issue via the tracker adapter's `AddLabel` API. The label must already exist in the repository.  |
+| `comment`           | Posts a plain-text comment on the issue listing the number of CI-fix attempts, which checks failed, their conclusions, and details URLs.                 |
+
+Both escalation actions release the claim on the issue and cancel any pending retry. The issue will not be re-dispatched until its tracker state changes.
+
+### Dynamic reload
+
+`max_retries`, `escalation`, and `escalation_label` reload dynamically. Changes take effect on the next reconcile tick. `kind` and `max_log_lines` are read at startup and do not change at runtime because the CI provider is constructed once. Changing `kind` or `max_log_lines` requires a restart.
+
+**Minimal:**
+
+```yaml
+ci_feedback:
+  kind: github
+```
+
+**Full:**
+
+```yaml
+ci_feedback:
+  kind: github            # activates CI feedback; absent = disabled
+  max_retries: 2           # default 2; 0 = escalate immediately
+  max_log_lines: 50        # default 50; 0 = disable log fetching
+  escalation: label        # "label" or "comment"; default "label"
+  escalation_label: needs-human  # default "needs-human"
+```
+
+For operational guidance on CI feedback setup, hook scripts that produce `.sortie/scm.json`, and prompt template examples with `{{ .ci_failure }}`, see [how to configure CI feedback](../guides/configure-ci-feedback.md).
+
+---
+
 ## `db_path`
 
 SQLite database file path.
@@ -515,7 +579,7 @@ worker:
 
 The markdown body after the closing `---` is a Go `text/template` rendered per issue. The template engine runs in strict mode (`missingkey=error`): referencing an undefined variable or function fails rendering immediately.
 
-The template receives three top-level variables: `.issue`, `.attempt`, and `.run`.
+The template receives four top-level variables: `.issue`, `.attempt`, `.run`, and `.ci_failure`.
 
 ### `.issue`
 
@@ -554,15 +618,28 @@ In template conditionals, `0` evaluates to false: `{{ if .attempt }}` is true on
 | `.run.max_turns`       | integer | Configured maximum turns (`agent.max_turns`).                                                                    |
 | `.run.is_continuation` | boolean | `true` when this is a continuation turn (not the first turn, not a retry after error).                           |
 
+### `.ci_failure`
+
+Available only on the first turn of a CI-fix continuation dispatch. `nil` on normal dispatches and non-CI retries.
+
+| Field                    | Type            | Description                                                                                       |
+| ------------------------ | --------------- | ------------------------------------------------------------------------------------------------- |
+| `.ci_failure.status`     | string          | Always `"failing"` when present.                                                                  |
+| `.ci_failure.check_runs` | list of objects | Individual check runs. Each has `.name` (string), `.status` (string), `.conclusion` (string), `.details_url` (string). |
+| `.ci_failure.log_excerpt` | string         | Truncated log from the first failing check. Empty when log fetching is disabled or logs are unavailable. |
+| `.ci_failure.failing_count` | integer      | Number of checks with a failure conclusion.                                                       |
+| `.ci_failure.ref`        | string          | The git ref (branch or SHA) that was checked.                                                     |
+
 ### Turn semantics
 
-The full template is rendered on every turn. The runtime passes the complete rendered result to the agent regardless of turn number. Template authors branch on `.attempt` and `.run.is_continuation` to vary content.
+The full template is rendered on every turn. The runtime passes the complete rendered result to the agent regardless of turn number. Template authors branch on `.attempt`, `.run.is_continuation`, and `.ci_failure` to vary content.
 
-| Scenario       | `.attempt` | `.run.is_continuation` |
-| -------------- | ---------- | ---------------------- |
-| First run      | `0`        | `false`                |
-| Continuation   | same as turn 1 | `true`             |
-| Retry after error | `>= 1`  | `false`                |
+| Scenario          | `.attempt`     | `.run.is_continuation` | `.ci_failure`           |
+| ----------------- | -------------- | ---------------------- | ----------------------- |
+| First run         | `0`            | `false`                | `nil`                   |
+| Continuation      | same as turn 1 | `true`                 | `nil`                   |
+| Retry after error | `>= 1`         | `false`                | `nil`                   |
+| CI-fix dispatch   | same as previous | `false`              | map with failure data   |
 
 On continuation turns, if the rendered prompt is empty, Sortie substitutes a built-in default continuation prompt. On the first turn, an empty rendered prompt is passed through as-is.
 
@@ -612,6 +689,9 @@ Sortie watches `WORKFLOW.md` for filesystem changes and re-applies configuration
 | `agent.turn_timeout_ms`, `agent.read_timeout_ms`, `agent.stall_timeout_ms` | Future worker attempts. |
 | `worker.ssh_hosts`, `worker.max_concurrent_agents_per_host`, `worker.ssh_strict_host_key_checking` | Dynamic. Future dispatches use the reloaded value; in-flight sessions are unaffected. |
 | Prompt template                        | Future worker attempts.                |
+| `ci_feedback.max_retries`              | Next reconcile tick.                   |
+| `ci_feedback.escalation`, `ci_feedback.escalation_label` | Next reconcile tick.   |
+| `ci_feedback.kind`, `ci_feedback.max_log_lines` | Requires restart.              |
 | `db_path`                              | Requires restart.                      |
 | `server.port`                          | Requires restart.                      |
 | `logging.level`                        | Requires restart.                      |
