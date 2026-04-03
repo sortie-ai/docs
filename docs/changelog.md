@@ -12,6 +12,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-04-04 { #1.4.0 }
+
+### Added
+
+- CI feedback loop: when a CI pipeline fails on an agent-created branch,
+  the orchestrator detects the failure, injects the CI failure logs into
+  the next agent turn, and dispatches a continuation session so the agent
+  can diagnose and fix the issue automatically. Controlled by a new
+  `ci_feedback` config section in `WORKFLOW.md` (`kind`, `max_retries`,
+  `max_log_lines`, `escalation`). Feature activation follows kind-based
+  convention: present `ci_feedback.kind` enables, absent disables.
+- `CIStatusProvider` domain interface: adapter contract for fetching CI
+  check status from an SCM platform. Returns structured `CIResult` with
+  overall status (pending/passing/failing), individual check runs, and
+  an optional log excerpt from the first failing check.
+- GitHub `CIStatusProvider` implementation via the Checks API: fetches
+  check runs for a git ref, computes aggregate status, and retrieves
+  truncated log output from the first failing GitHub Actions job. Log
+  fetching is controlled by `max_log_lines` (0 disables). ANSI escape
+  sequences are stripped from log output.
+- CI failure escalation: when `ci_feedback.max_retries` is exceeded, the
+  orchestrator applies a configurable escalation action -- add a label
+  (default `needs-human`) or post a comment on the issue.
+- Exponential backoff for CI pending re-enqueue: `reconcileCIStatus`
+  now applies `base * 2^attempts` backoff (capped at 5 minutes) when CI
+  checks remain pending or on transient API errors, reducing GitHub
+  Checks API request volume from ~120 to ~15 per 20-minute CI run per
+  issue. Stale pending entries expire after a 30-minute TTL.
+- `TrackerOpsWg` shutdown drain: fire-and-forget tracker API goroutines
+  (comment posting, label adding) are now tracked by a dedicated
+  `sync.WaitGroup` and drained during graceful shutdown with a 35-second
+  timeout, preventing orphaned goroutines on process exit.
+- Automatic credential merging: when `ci_feedback.kind` matches
+  `tracker.kind`, the orchestrator merges tracker credentials (`api_key`,
+  `project`, `endpoint`) into the CI provider adapter config at startup,
+  eliminating the need to duplicate credentials in a pass-through block.
+
 ## [1.3.0] - 2026-04-03 { #1.3.0 }
 
 ### Added
@@ -25,7 +62,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `sortie mcp-server` subcommand: MCP stdio JSON-RPC server that exposes
   registered `AgentTool` implementations via `tools/list` and `tools/call`.
   Constructs its own `TrackerAdapter` and `ToolRegistry` by re-reading
-  WORKFLOW.md from an absolute path passed via `--workflow`.
+  `WORKFLOW.md` from an absolute path passed via `--workflow`.
 - `sortie_status` MCP tool (Tier 1): returns live session runtime
   metadata -- current turn number, remaining turns, attempt number,
   session duration, and cumulative token usage. Reads from
@@ -452,6 +489,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   execution via GitHub Actions.
 - Architecture Decision Records (ADR-0001 through ADR-0005).
 
+[1.4.0]: https://github.com/sortie-ai/sortie/compare/1.3.0...1.4.0
 [1.3.0]: https://github.com/sortie-ai/sortie/compare/1.2.1...1.3.0
 [1.2.1]: https://github.com/sortie-ai/sortie/compare/1.2.0...1.2.1
 [1.2.0]: https://github.com/sortie-ai/sortie/compare/1.1.0...1.2.0
