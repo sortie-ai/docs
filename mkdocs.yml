@@ -140,9 +140,8 @@ extra_css:
   - stylesheets/custom.css
 
 extra_javascript:
-  - path: https://www.googletagmanager.com/gtag/js?id=G-58VR448EJK
-    async: true
   - https://cdn.jsdelivr.net/gh/orestbida/cookieconsent@3.1.0/dist/cookieconsent.umd.js
+  - javascripts/analytics.js
   - javascripts/cookieconsent-config.js
   - javascripts/feedback.js
   - https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js
