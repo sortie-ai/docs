@@ -4,6 +4,10 @@
   const MEASUREMENT_ID = "G-58VR448EJK";
   const GTAG_URL = "https://www.googletagmanager.com/gtag/js";
 
+  // ---------------------------------------------------------------------------
+  // GA4 initialization
+  // ---------------------------------------------------------------------------
+
   // Initialize the command queue before anything else.
   // gtag() pushes commands onto the queue; when gtag.js loads it drains it.
   window.dataLayer = window.dataLayer || [];
@@ -41,11 +45,14 @@
   script.async = true;
   document.head.appendChild(script);
 
-  // Track clicks on outbound links.
+  // ---------------------------------------------------------------------------
+  // Outbound link tracking
   // Uses navigator.sendBeacon() via transport_type:"beacon" so the hit is
   // delivered even when the click navigates away from the page immediately.
   // Uses closest("a") to handle clicks on child elements inside a link tag.
   // GA4 Consent Mode will suppress the event if analytics_storage is denied.
+  // ---------------------------------------------------------------------------
+
   function trackOutboundLink(url, opensInNewTab) {
     gtag("event", "click", {
       event_label: url,
@@ -68,4 +75,101 @@
     },
     false,
   );
+
+  // ---------------------------------------------------------------------------
+  // Code copy tracking
+  // copy-button.js (loaded after this script) injects <button> elements into
+  // every div.codehilite. Event delegation on document captures those clicks
+  // regardless of when the buttons are added to the DOM.
+  // ---------------------------------------------------------------------------
+
+  document.addEventListener(
+    "click",
+    (event) => {
+      if (!event.target.closest("div.codehilite button")) return;
+      gtag("event", "code_copy", {
+        page_location: window.location.pathname,
+      });
+    },
+    false,
+  );
+
+  // ---------------------------------------------------------------------------
+  // Site search tracking
+  // The shadcn theme renders <input data-slot="command-input"> inside
+  // <dialog id="search-dialog">. We attach a debounced listener alongside the
+  // theme's own oninput handler — both coexist without interference.
+  // Fires only after 500 ms of inactivity and at least 3 characters to avoid
+  // sending every intermediate keystroke.
+  // ---------------------------------------------------------------------------
+
+  const searchInput = document.querySelector(
+    'input[data-slot="command-input"]',
+  );
+  if (searchInput) {
+    let searchDebounceTimer;
+    searchInput.addEventListener("input", (event) => {
+      clearTimeout(searchDebounceTimer);
+      const query = event.target.value.trim();
+      if (query.length < 3) return;
+      searchDebounceTimer = setTimeout(() => {
+        gtag("event", "search", { search_term: query });
+      }, 500);
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // 404 page tracking
+  // PerformanceNavigationTiming.responseStatus reflects the actual HTTP status
+  // code without an additional network request. Supported in all modern browsers.
+  // Sends the page URL and referrer so broken links can be traced to their source.
+  // ---------------------------------------------------------------------------
+
+  const navEntry = performance.getEntriesByType("navigation")[0];
+  if (navEntry?.responseStatus === 404) {
+    gtag("event", "page_not_found", {
+      page_location: window.location.href,
+      page_referrer: document.referrer,
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Scroll depth tracking — 25 / 50 / 75 / 90 %
+  // Throttled with requestAnimationFrame so the handler runs at most once per
+  // browser repaint (~60 fps) instead of hundreds of times per second.
+  // passive:true signals that preventDefault() is never called, enabling
+  // browser scroll-performance optimizations.
+  // Each milestone fires only once per page load (firedMilestones guards this).
+  //
+  // If GA4 Enhanced Measurement is enabled in your property, it independently
+  // fires a "scroll" event at ~90 %. Disable it under:
+  // Admin → Data Streams → Enhanced Measurement → Scrolls
+  // to avoid double-counting the 90% milestone.
+  // ---------------------------------------------------------------------------
+
+  const SCROLL_MILESTONES = [25, 50, 75, 90];
+  const firedMilestones = new Set();
+  let scrollRaf = null;
+
+  function handleScroll() {
+    if (scrollRaf) return;
+    scrollRaf = requestAnimationFrame(() => {
+      scrollRaf = null;
+
+      const scrolled = window.scrollY;
+      const total = document.documentElement.scrollHeight - window.innerHeight;
+      if (total <= 0) return;
+
+      const percent = Math.round((scrolled / total) * 100);
+
+      for (const milestone of SCROLL_MILESTONES) {
+        if (!firedMilestones.has(milestone) && percent >= milestone) {
+          firedMilestones.add(milestone);
+          gtag("event", "scroll_depth", { percent_scrolled: milestone });
+        }
+      }
+    });
+  }
+
+  window.addEventListener("scroll", handleScroll, { passive: true });
 })();
