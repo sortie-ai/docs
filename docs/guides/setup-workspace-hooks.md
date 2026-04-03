@@ -126,14 +126,15 @@ The `2>/dev/null || true` suppresses errors when the branch doesn't exist remote
 
 ## Use hook environment variables
 
-Every hook receives four variables from the orchestrator:
+Every hook receives these variables from the orchestrator:
 
 | Variable | Example | Description |
 |---|---|---|
 | `SORTIE_ISSUE_ID` | `10042` | Tracker-internal issue ID |
 | `SORTIE_ISSUE_IDENTIFIER` | `PROJ-42` | Human-readable ticket key |
 | `SORTIE_WORKSPACE` | `/tmp/sortie_workspaces/PROJ-42` | Absolute workspace path |
-| `SORTIE_ATTEMPT` | `0` | Current attempt number (0 = first try) |
+| `SORTIE_ATTEMPT` | `0` | Current attempt number (`0` on first dispatch, `1` on first retry, increments after that) |
+| `SORTIE_SSH_HOST` | `build-07` | SSH host allocated for this issue. **Present only when SSH mode is active** ([scale agents with SSH](scale-agents-with-ssh.md)). Absent in local mode. |
 
 Hooks run in a restricted environment. Only `PATH`, `HOME`, `SHELL`, `TMPDIR`, and variables prefixed with `SORTIE_` are available. Secrets like `JIRA_API_TOKEN` are stripped. If a hook needs additional credentials, expose them under a `SORTIE_` prefix in the Sortie process environment (for example, `SORTIE_DEPLOY_KEY`) or load them from a file inside the script.
 

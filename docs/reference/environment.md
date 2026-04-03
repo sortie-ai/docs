@@ -346,7 +346,7 @@ The `env` block is built in two layers:
 
 1. **`SORTIE_*` process variables** (lower precedence). The worker scans the orchestrator's process environment and collects every variable whose name starts with `SORTIE_`. This captures credential variables (e.g., `SORTIE_TRACKER_API_KEY`), configuration overrides (e.g., `SORTIE_POLLING_INTERVAL_MS`), and any operator-defined `SORTIE_*` values.
 
-2. **Per-session variables** (higher precedence). The worker writes these five variables, overriding any same-named key from layer 1:
+2. **Per-session variables** (higher precedence). The worker writes these six variables, overriding any same-named key from layer 1:
 
 | Variable | Type | Description |
 |---|---|---|
@@ -355,6 +355,7 @@ The `env` block is built in two layers:
 | `SORTIE_WORKSPACE` | string | Absolute path to the per-issue workspace directory. |
 | `SORTIE_DB_PATH` | string | Absolute path to the Sortie SQLite database. The MCP server opens this in read-only mode for Tier 1 tools that query run history (e.g., `workspace_history`). This is the same resolved path that the orchestrator uses — if you set `SORTIE_DB_PATH` as a [configuration override](#configuration-overrides), the MCP server receives that same value. |
 | `SORTIE_SESSION_ID` | string | Opaque session identifier for the current worker run. Used by tools that query session-specific data. |
+| `SORTIE_ATTEMPT` | string | Current retry attempt number as a decimal integer. Written when the orchestrator has attempt information (retries and continuations). Absent on the very first dispatch. Starts at `1` for the first retry and increments on subsequent retries. |
 
 Per-session variables always win. A stale `SORTIE_ISSUE_ID` in the process environment is overwritten by the orchestrator's value for the active issue.
 
@@ -372,7 +373,7 @@ Unlike the [hook subprocess environment](#hook-subprocess-environment), which us
 
 ### Relationship to hook variables
 
-Three per-session variables (`SORTIE_ISSUE_ID`, `SORTIE_ISSUE_IDENTIFIER`, `SORTIE_WORKSPACE`) are shared with the [hook subprocess environment](#hook-subprocess-environment). `SORTIE_DB_PATH` and `SORTIE_SESSION_ID` are specific to the MCP execution channel (ADR-0009) — hooks don't receive them. Hooks receive `SORTIE_ATTEMPT`, which the MCP server does not set as a per-session variable (though it would pass through if present in the process environment as a `SORTIE_*` variable).
+Four per-session variables (`SORTIE_ISSUE_ID`, `SORTIE_ISSUE_IDENTIFIER`, `SORTIE_WORKSPACE`, `SORTIE_ATTEMPT`) are shared with the [hook subprocess environment](#hook-subprocess-environment). `SORTIE_DB_PATH` and `SORTIE_SESSION_ID` are specific to the MCP execution channel — hooks don't receive them. In hooks, `SORTIE_ATTEMPT` is always present (defaulting to `0` on the first dispatch). In the MCP env block, `SORTIE_ATTEMPT` is written only when the orchestrator has attempt information (retries and continuations); on the very first dispatch it is absent from the per-session set, though it may still appear if the operator's process environment contains a `SORTIE_ATTEMPT` variable captured by the `SORTIE_*` prefix scan.
 
 ---
 

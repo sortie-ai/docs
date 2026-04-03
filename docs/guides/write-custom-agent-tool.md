@@ -279,8 +279,9 @@ Key variables:
 |---|---|
 | `SORTIE_WORKSPACE` | Absolute path to the session workspace directory |
 | `SORTIE_ISSUE_ID` | Tracker issue ID for the current session |
+| `SORTIE_ISSUE_IDENTIFIER` | Human-readable ticket key (e.g., `PROJ-123`) |
 | `SORTIE_SESSION_ID` | Unique session identifier |
-| `SORTIE_ATTEMPT` | Current retry attempt number (1-based) |
+| `SORTIE_ATTEMPT` | Current retry attempt number (1-based). Absent on first dispatch. |
 | `SORTIE_DB_PATH` | Path to the SQLite database (read-only access) |
 
 Read them with `os.Getenv` from inside your constructor or `Execute` method, depending on when you need the value. For the full table and details, see the [environment variables reference](../reference/environment.md#mcp-server-environment).
