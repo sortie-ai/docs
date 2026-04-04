@@ -81,7 +81,7 @@ nav:
         - Control Agent Costs: guides/control-costs.md
         - Run as a Systemd Service: guides/run-as-systemd-service.md
         - Run as a Launchctl Service: guides/run-as-launchctl-service.md
-        -  Configure CI Feedback: guides/configure-ci-feedback.md
+        - Configure CI Feedback: guides/configure-ci-feedback.md
         - Scale Agents with SSH: guides/scale-agents-with-ssh.md
         - Monitor with Logs: guides/monitor-with-logs.md
         - Monitor with Prometheus: guides/monitor-with-prometheus.md
