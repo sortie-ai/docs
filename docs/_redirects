@@ -50,7 +50,7 @@
 /guides/troubleshoot-common-failures /guides/troubleshoot-common-failures/ 301
 /guides/use-agent-tools-in-prompts /guides/use-agent-tools-in-prompts/ 301
 /guides/use-file-adapter-for-testing /guides/use-file-adapter-for-testing/ 301
-/guides/use-sortie-in-docker/ /guides/use-sortie-in-docker/ 301
+/guides/use-sortie-in-docker /guides/use-sortie-in-docker/ 301
 /guides/use-subagents-with-sortie /guides/use-subagents-with-sortie/ 301
 /guides/write-custom-agent-tool /guides/write-custom-agent-tool/ 301
 /guides/write-prompt-template /guides/write-prompt-template/ 301
