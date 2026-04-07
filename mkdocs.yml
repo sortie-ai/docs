@@ -82,27 +82,24 @@ nav:
         - Run as a Systemd Service: guides/run-as-systemd-service.md
         - Run as a Launchctl Service: guides/run-as-launchctl-service.md
         - Configure CI Feedback: guides/configure-ci-feedback.md
+        #- Configure PR Reactions: guides/configure-pr-reactions.md
         - Scale Agents with SSH: guides/scale-agents-with-ssh.md
+      - Observability:
         - Monitor with Logs: guides/monitor-with-logs.md
         - Monitor with Prometheus: guides/monitor-with-prometheus.md
-      # Deployment
-      # M16: Docker, Helm, GitHub Action
-      #- Deploy with Docker: guides/deploy-with-docker.md
-      #- Deploy to Kubernetes: guides/deploy-to-kubernetes.md
-      #- Run with GitHub Actions: guides/run-with-github-actions.md
+      - Deployment:
+        - Use Sortie in Docker: guides/use-sortie-in-docker.md
+        - Deploy to Kubernetes: guides/deploy-sortie-to-kubernetes.md
+        #- Run with GitHub Actions: guides/run-with-github-actions.md
       - Advanced:
         - Use Agent Tools in Prompts: guides/use-agent-tools-in-prompts.md
-        - Write a Custom Agent Tool: guides/write-custom-agent-tool.md
         - Use Sub-Agents with Sortie: guides/use-subagents-with-sortie.md
-      # M17: GitHub deep integration
-      #- Set Up PR Reactions: guides/setup-pr-reactions.md
+        - Write a Custom Agent Tool: guides/write-custom-agent-tool.md
+        #- Write a Custom Tracker Adapter: guides/write-custom-tracker-adapter.md
+        #- Write a Custom Agent Adapter: guides/write-custom-agent-adapter.md
+        #- Run Integration Tests: guides/run-integration-tests.md
       - Troubleshooting:
         - Troubleshoot Common Failures: guides/troubleshoot-common-failures.md
-      # Post-milestone: extensibility
-      #- Write a Custom Tracker Adapter: guides/write-custom-tracker-adapter.md
-      #- Write a Custom Agent Adapter: guides/write-custom-agent-adapter.md
-      # Post-milestone: testing
-      #- Run Integration Tests: guides/run-integration-tests.md
   - Concepts:
       - Architecture: concepts/architecture.md
       - Adapter Model: concepts/adapter-model.md
@@ -122,14 +119,12 @@ nav:
       - Tracker adapters:
         - Jira Adapter: reference/adapter-jira.md
         - GitHub Adapter: reference/adapter-github.md
-      # M?? (TBD): ecosystem adapters
-      #- Linear Adapter: reference/adapter-linear.md
+       #- Linear Adapter: reference/adapter-linear.md
       - Agent adapters:
         - Claude Code Adapter: reference/adapter-claude-code.md
         - Copilot CLI Adapter: reference/adapter-copilot.md
-      # M?? (TBD): ecosystem adapters
-      #- Codex CLI Adapter: reference/adapter-codex.md
-      #- Gemini CLI Adapter: reference/adapter-gemini.md
+       #- Codex CLI Adapter: reference/adapter-codex.md
+       #- Gemini CLI Adapter: reference/adapter-gemini.md
       - Core:
         - State Machine: reference/state-machine.md
         - Errors: reference/errors.md
