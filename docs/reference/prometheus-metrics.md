@@ -7,10 +7,10 @@ author: Sortie AI
 
 # Prometheus metrics reference
 
-Sortie exposes a `/metrics` endpoint in Prometheus text exposition format on the same port as the JSON API and HTML dashboard. Available when the HTTP server is enabled via `--port` or [`server.port`](workflow-config.md).
+Sortie exposes a `/metrics` endpoint in Prometheus text exposition format on the same port as the JSON API and HTML dashboard. The HTTP server starts by default on port `7678`. See [CLI reference](cli.md#-port) for port and host configuration.
 
 !!! note
-    When the HTTP server is disabled (neither `--port` nor `server.port` set), the orchestrator uses a no-op metrics implementation. Metrics are not collected internally — they are discarded, not buffered.
+    When the HTTP server is disabled (`--port 0`), the orchestrator uses a no-op metrics implementation. Metrics are not collected internally — they are discarded, not buffered.
 
 ## Gauges
 
@@ -44,6 +44,8 @@ Monotonically increasing. Apply `rate()` or `increase()` to extract per-second o
 | `sortie_dispatch_transitions_total` | `result` | Dispatch-time in-progress transition outcomes. `result` is `success` (issue transitioned at dispatch), `error` (transition API failed; worker continues to workspace preparation), or `skipped` (issue was already in the target state). Only recorded when [`tracker.in_progress_state`](workflow-config.md) is configured. | Coordination |
 | `sortie_tracker_comments_total` | `lifecycle`, `result` | Tracker comment attempts. `lifecycle` is `dispatch`, `completion`, or `failure`. `result` is `success` or `error`. Only recorded when [`tracker.comments.*`](workflow-config.md) flags are enabled. Comment failures are non-fatal — they increment the `error` result but never block the orchestrator. | Coordination |
 | `sortie_tool_calls_total` | `tool`, `result` | Agent tool call completions. `tool` is the tool name (e.g., `Bash`, `tracker_api`). `result` is `success` or `error`. | Coordination |
+| `sortie_ci_status_checks_total` | `result` | CI status check outcomes. `result` is `passing`, `pending`, `failing`, or `error`. Only recorded when the CI reconciliation loop runs. | Coordination |
+| `sortie_ci_escalations_total` | `action` | CI escalation actions taken when checks remain non-passing beyond the configured threshold. `action` is `label`, `comment`, or `error`. | Coordination |
 
 ## Histograms
 
@@ -163,23 +165,29 @@ Error percentage per tool. A high error rate on `tracker_api` suggests credentia
 
 A reference Grafana dashboard JSON is available for import at [`grafana-dashboard.json`](../downloads/grafana-dashboard.json). It is tested against Grafana 10+ and uses the `sortie_` metrics documented on this page.
 
-The dashboard includes these panels:
+The dashboard organizes panels into seven collapsible rows. Each panel maps to one or more metrics from the tables above.
 
-| Panel | Metric(s) | Visualization |
-|---|---|---|
-| Active sessions | `sortie_sessions_running`, `sortie_sessions_retrying`, `sortie_slots_available` | Stat + time series |
-| Token consumption | `sortie_tokens_total` | Time series (rate), broken down by `type` |
-| Dispatch outcomes | `sortie_dispatches_total` | Stacked bar (rate), `success` vs `error` |
-| Worker exits | `sortie_worker_exits_total` | Stacked bar (rate) by `exit_type` |
-| Worker duration | `sortie_worker_duration_seconds` | Heatmap + p50/p95/p99 lines |
-| Retry activity | `sortie_retries_total` | Time series (rate) by `trigger` |
-| Poll cycle health | `sortie_poll_cycles_total`, `sortie_poll_duration_seconds` | Status + duration overlay |
-| Tracker API | `sortie_tracker_requests_total` | Time series (rate) by `operation` × `result` |
-| Handoff transitions | `sortie_handoff_transitions_total` | Stat counters by `result` |
-| Dispatch transitions | `sortie_dispatch_transitions_total` | Stat counters by `result` |
-| Tool calls | `sortie_tool_calls_total` | Time series (rate) by `tool` |
-| SSH host utilization | `sortie_ssh_host_usage` | Bar gauge per `host` (hidden when no SSH hosts are configured) |
-| Build info | `sortie_build_info` | Stat showing `version` and `go_version` |
+| Row | Panel | Metric(s) | Visualization |
+|---|---|---|---|
+| Overview | Build info | `sortie_build_info` | Stat (`version`, `go_version`) |
+| Overview | Active sessions | `sortie_sessions_running`, `sortie_sessions_retrying`, `sortie_slots_available` | Stat + time series |
+| Overview | Active sessions elapsed | `sortie_active_sessions_elapsed_seconds` | Stat |
+| Throughput | Token consumption | `sortie_tokens_total` | Time series (rate) by `type` |
+| Throughput | Dispatch outcomes | `sortie_dispatches_total` | Time series (rate), `success` vs `error` |
+| Throughput | Agent runtime | `sortie_agent_runtime_seconds_total` | Time series (rate) |
+| Workers | Worker exits | `sortie_worker_exits_total` | Time series (rate) by `exit_type` |
+| Workers | Worker duration | `sortie_worker_duration_seconds` | Heatmap + p50/p95/p99 percentile lines |
+| Reliability | Retry activity | `sortie_retries_total` | Time series (rate) by `trigger` |
+| Reliability | Poll cycle health | `sortie_poll_cycles_total`, `sortie_poll_duration_seconds` | Count + duration overlay |
+| Reliability | Reconciliation actions | `sortie_reconciliation_actions_total` | Time series (rate) by `action` |
+| Integration | Tracker API | `sortie_tracker_requests_total` | Time series (rate) by `operation` × `result` |
+| Integration | Handoff transitions | `sortie_handoff_transitions_total` | Stat counters by `result` |
+| Integration | Dispatch transitions | `sortie_dispatch_transitions_total` | Stat counters by `result` |
+| Integration | Tracker comments | `sortie_tracker_comments_total` | Time series (rate) by `lifecycle` × `result` |
+| CI Feedback | CI status checks | `sortie_ci_status_checks_total` | Time series (rate) by `result` |
+| CI Feedback | CI escalations | `sortie_ci_escalations_total` | Time series (rate) by `action` |
+| Agent | Tool calls | `sortie_tool_calls_total` | Time series (rate) by `tool` |
+| Agent | SSH host utilization | `sortie_ssh_host_usage` | Bar gauge per `host` (hidden when no SSH hosts configured) |
 
 Import the JSON file in Grafana via **Dashboards → Import → Upload JSON file**. Set your Prometheus data source when prompted.
 
@@ -191,10 +199,10 @@ Add Sortie as a scrape target in `prometheus.yml`:
 scrape_configs:
   - job_name: sortie
     static_configs:
-      - targets: ["localhost:8080"]
+      - targets: ["localhost:7678"]
 ```
 
-Replace `localhost:8080` with the host and port where Sortie's HTTP server is running. Sortie binds to loopback by default — if Prometheus runs on a different machine, you will need to configure Sortie's bind address accordingly.
+Replace `localhost:7678` with the host and port where Sortie's HTTP server is running. Sortie binds to `127.0.0.1` by default — if Prometheus runs on a different machine, pass `--host 0.0.0.0` to Sortie or configure a reverse proxy to make the port reachable.
 
 The endpoint also serves `promhttp_metric_handler_requests_total` and `promhttp_metric_handler_errors_total` for scrape self-instrumentation, plus Go runtime metrics (`go_goroutines`, `go_memstats_*`, `process_*`) from the standard process and Go collectors.
 

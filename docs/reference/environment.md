@@ -112,6 +112,7 @@ When [`--env-file`](cli.md#-env-file) is provided, the CLI resolves the path to 
 | `agent.max_concurrent_agents_by_state` | Complex map structure (`{"in progress": 3, "to do": 1}`) |
 | Extension sections (`server`, `worker`, `claude-code`, etc.) | Plugin-owned configuration; overrides belong to the adapter |
 | `logging.level` | Controlled by the [`--log-level`](cli.md#-log-level) CLI flag |
+| `logging.format` | Controlled by the [`--log-format`](cli.md#-log-format) CLI flag |
 
 ### `.env` file support
 

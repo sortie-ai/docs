@@ -15,12 +15,14 @@ The dashboard supports light and dark modes automatically via `prefers-color-sch
 
 ![Sortie dashboard in dark mode showing summary cards, running sessions, retry queue, and run history](../img/dashboard.webp)
 
-## Enabling the dashboard
+## Accessing the dashboard
 
-The dashboard is available when the HTTP server is enabled. Pass `--port` at launch:
+The dashboard is available when the HTTP server is running. By default, Sortie starts the server on `127.0.0.1:7678` — open `http://127.0.0.1:7678/` in a browser.
+
+Override the port or bind address with CLI flags:
 
 ```sh
-sortie --port 8080 WORKFLOW.md
+sortie --port 9090 WORKFLOW.md
 ```
 
 Or set `server.port` in the WORKFLOW.md front matter:
@@ -28,19 +30,17 @@ Or set `server.port` in the WORKFLOW.md front matter:
 ```yaml
 ---
 server:
-  port: 8080
+  port: 9090
 ---
 ```
 
-Then open `http://127.0.0.1:8080/` in a browser.
-
-For the full `server` extension schema, see [WORKFLOW.md configuration reference](workflow-config.md).
+To disable the server entirely, pass `--port 0`. For the full `server` extension schema, see [WORKFLOW.md configuration reference](workflow-config.md).
 
 ## Network access
 
-Sortie binds to `127.0.0.1` only. The dashboard is accessible on the machine where Sortie is running — not from other hosts on the network. This is intentional: Sortie is a local orchestration tool, and the dashboard is a local monitoring surface.
+Sortie binds to `127.0.0.1` by default. The dashboard is accessible on the machine where Sortie is running — not from other hosts on the network. This is intentional: Sortie is a local orchestration tool, and the dashboard is a local monitoring surface.
 
-If you need remote access to the dashboard — for example, when running Sortie on a cloud VM — place a reverse proxy such as Nginx in front of it and forward traffic to the local port. This is a standard deployment pattern but falls outside Sortie's scope. Secure the proxy with authentication; Sortie's HTTP server has no built-in auth.
+For container deployments or when Sortie runs on a remote host, pass `--host 0.0.0.0` to listen on all interfaces. Alternatively, place a reverse proxy such as Nginx in front of it and forward traffic to the local port. Secure the proxy with authentication; Sortie's HTTP server has no built-in auth.
 
 For production monitoring across multiple hosts, use the [Prometheus `/metrics` endpoint](prometheus-metrics.md) with a Prometheus server and [Grafana](https://prometheus.io/docs/visualization/grafana/) dashboards. Prometheus is built for aggregated, historical, alertable monitoring — the dashboard is not.
 

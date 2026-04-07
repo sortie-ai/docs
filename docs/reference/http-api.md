@@ -9,31 +9,38 @@ author: Sortie AI
 
 Sortie embeds an HTTP server that exposes a JSON API, an HTML dashboard, health probes, and Prometheus metrics — all on a single port.
 
-## Enabling the server
+## Server configuration
 
-The HTTP server is opt-in. Two ways to turn it on:
+The HTTP server starts by default on `127.0.0.1:7678` with no flags required.
 
-**CLI flag** — pass `--port <N>` when launching Sortie:
+**Override the port** — pass `--port <N>` when launching Sortie:
 
 ```sh
-sortie --port 8080 WORKFLOW.md
+sortie --port 9090 WORKFLOW.md
 ```
 
-**Workflow config** — set `server.port` in the WORKFLOW.md front matter extensions:
+**Override the bind address** — pass `--host <ADDR>` for container deployments:
+
+```sh
+sortie --host 0.0.0.0 WORKFLOW.md
+```
+
+**Workflow config** — set `server.port` and `server.host` in the WORKFLOW.md front matter extensions:
 
 ```yaml
 ---
 server:
-  port: 8080
+  port: 9090
+  host: "0.0.0.0"
 # ... rest of config
 ---
 ```
 
-When both are present, `--port` wins. The server binds to `127.0.0.1` only — it does not listen on all interfaces. Port `0` requests an OS-assigned ephemeral port, which Sortie logs at startup. Useful for tests and local development where you don't care about a stable port number.
+CLI flags take precedence over extension keys. Port `0` disables the server entirely (no TCP listener, no Prometheus metrics). `--host` must be a parseable IP address; DNS hostnames are not accepted.
 
-The HTTP server is not started in [`--dry-run`](cli.md#-dry-run) mode. If `--port` is provided alongside `--dry-run`, the port flag is ignored.
+When the default port (7678) is already occupied and no port was explicitly requested, Sortie logs a warning and starts without the HTTP server. When an explicit port is in use, Sortie exits with code `1`.
 
-All surfaces share the same port: the dashboard at `/`, health probes at `/livez` and `/readyz`, the JSON API at `/api/v1/*`, and Prometheus metrics at `/metrics`. Changing the port requires a restart — there is no hot-rebind.
+The HTTP server is not started in [`--dry-run`](cli.md#-dry-run) mode. Changing the port or host requires a restart — there is no hot-rebind.
 
 For the full `server` extension schema, see [WORKFLOW.md configuration reference](workflow-config.md). For Prometheus metric definitions, see [Prometheus metrics reference](prometheus-metrics.md).
 

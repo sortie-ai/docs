@@ -1,7 +1,7 @@
 ---
 title: CLI Reference | Sortie
 description: Complete reference for the sortie command-line interface. Synopsis, subcommands, flags, dry-run mode, MCP server, arguments, exit codes, signals, startup sequence, logging format, and version injection.
-keywords: sortie CLI, command line, subcommands, validate, mcp-server, dry-run, flags, arguments, exit codes, signals, graceful shutdown, logging, version, MCP
+keywords: sortie CLI, command line, subcommands, validate, mcp-server, dry-run, flags, arguments, exit codes, signals, graceful shutdown, logging, log-format, json logs, version, MCP
 author: Sortie AI
 ---
 
@@ -12,6 +12,7 @@ author: Sortie AI
 ```
 sortie [flags] [workflow-path]
 sortie --dry-run [--log-level level] [workflow-path]
+sortie --log-format json [flags] [workflow-path]
 sortie --env-file path [flags] [workflow-path]
 sortie validate [--format text|json] [workflow-path]
 sortie mcp-server --workflow <path>
@@ -43,8 +44,10 @@ sortie: too many arguments
 |---|---|---|---|
 | `--dry-run` | boolean | `false` | Run one poll cycle without spawning agents or writing to the database, then exit. |
 | `--env-file` | string | _(empty)_ | Path to a `.env` file containing `SORTIE_*` overrides. See [environment variables reference](environment.md#env-file-support). |
+| `--log-format` | string | `text` | Log output format. Accepted values: `text`, `json`. |
 | `--log-level` | string | `info` | Log verbosity. Accepted values: `debug`, `info`, `warn`, `error`. |
-| `--port` | integer | _(unset)_ | HTTP server listen port. Enables the embedded HTTP server when provided. |
+| `--port` | integer | `7678` | HTTP server listen port. `0` disables the server. |
+| `--host` | string | `127.0.0.1` | HTTP server bind address. Must be a parseable IP address. |
 | `--version` | boolean | `false` | Print the version banner with copyright notice, then exit. |
 | `-dumpversion` | boolean | `false` | Print the bare version string (e.g., `1.3.0`), then exit. |
 
@@ -54,7 +57,7 @@ Runs a single poll cycle in read-only mode, then exits. Sortie connects to the t
 
 This fills the gap between `sortie validate` (offline config checks) and a full `sortie` run (live operation). Use it to verify tracker connectivity, query results, and concurrency slot math before going live.
 
-When `--port` is also provided, the port flag is ignored and the HTTP server does not start. A debug-level log line notes the flag was ignored.
+The `--dry-run` flag suppresses server startup regardless of port or host settings.
 
 `--version` and `-dumpversion` take precedence over `--dry-run` when both are provided.
 
@@ -106,6 +109,34 @@ sortie: unknown log level "trace": accepted values are debug, info, warn, error
 
 Applied before the workflow file is loaded, so all startup output — including workflow loading errors — respects the requested level.
 
+### `--log-format`
+
+Sets the log output format. Accepted values (case-insensitive): `text`, `json`. Default: `text`.
+
+When `text` is active (the default), Sortie emits structured `key=value` lines via `slog.TextHandler`:
+
+```
+time=2026-04-07T14:30:00.000+00:00 level=INFO msg="sortie starting" version=1.3.0
+```
+
+When `json` is active, each log line is a single JSON object via `slog.JSONHandler`:
+
+```json
+{"time":"2026-04-07T14:30:00.000Z","level":"INFO","msg":"sortie starting","version":"1.3.0"}
+```
+
+JSON format is intended for containerized and cloud-native deployments where log aggregation systems (Loki, Datadog, CloudWatch, ELK) expect newline-delimited JSON on stdout/stderr.
+
+Takes precedence over `logging.format` from the [workflow file](workflow-config.md#logging). When neither the flag nor the workflow field is set, the process uses `text`.
+
+An unknown value (e.g., `--log-format yaml`) prints an error to stderr and exits with code `1`:
+
+```
+sortie: unknown log format "yaml": accepted values are text, json
+```
+
+Applied before the workflow file is loaded, so all startup output uses the requested format immediately. Both `--log-format` and `--log-level` can be combined freely — any combination works.
+
 ### `--env-file`
 
 Loads `SORTIE_*` variables from a file as [configuration overrides](environment.md#configuration-overrides).
@@ -124,7 +155,7 @@ The file is re-read on every WORKFLOW.md reload (file change detection). If the 
 
 ### `--port`
 
-Enables the embedded HTTP server on `127.0.0.1:<port>`. All observability surfaces share this port:
+Sets the listening port for the embedded HTTP server. The server starts by default on port `7678`. All observability surfaces share this port:
 
 - `/` — HTML dashboard ([dashboard reference](dashboard.md))
 - `/api/v1/state` — JSON API ([HTTP API reference](http-api.md))
@@ -134,11 +165,19 @@ Enables the embedded HTTP server on `127.0.0.1:<port>`. All observability surfac
 - `/readyz` — Readiness probe
 - `/metrics` — Prometheus metrics ([Prometheus metrics reference](prometheus-metrics.md))
 
-Valid range: `0`–`65535`. Port `0` requests an OS-assigned ephemeral port; the actual port appears in the startup log.
+Valid range: `1`–`65535`, or `0` to disable. Port `0` disables the server entirely — no TCP listener, no Prometheus metrics. The orchestrator runs with a no-op metrics implementation.
 
-Overrides `server.port` from the WORKFLOW.md [`server` extension](workflow-config.md). When neither `--port` nor `server.port` is set, the HTTP server does not start and Prometheus metrics are not collected. The orchestrator runs with a no-op metrics implementation — counters, gauges, and histograms are never recorded.
+Overrides `server.port` from the WORKFLOW.md [`server` extension](workflow-config.md). When the default port (`7678`) is already occupied and the operator did not explicitly request a port, Sortie logs a warning and starts without the HTTP server. When the operator explicitly requested a port (via `--port` or `server.port`) and it is already in use, Sortie exits with code `1`.
 
 Invalid values (negative, above 65535) produce an error and exit `1`.
+
+### `--host`
+
+Sets the bind address for the embedded HTTP server. Default: `127.0.0.1` (loopback only).
+
+Must be a parseable IP address. DNS hostnames are not accepted. Container deployments that need inbound connections from the container network use `0.0.0.0`.
+
+Overrides `server.host` from the WORKFLOW.md [`server` extension](workflow-config.md). Requires a restart to take effect.
 
 ### `--version`
 
@@ -424,10 +463,10 @@ When no version flag is present, Sortie executes these steps in order:
 
 1. **Parse flags.** Unknown flags exit with code `1` and print usage to stderr. `--env-file` path (when provided) is stored for later use.
 2. **Resolve workflow path.** Relative paths resolve to absolute against the working directory.
-3. **Initialize logging.** Structured `key=value` format to stderr. Uses the `--log-level` flag when set; otherwise defaults to `INFO` for the duration of startup.
+3. **Initialize logging.** Structured output to stderr. Uses `--log-level` and `--log-format` flags when set; otherwise defaults to `INFO` level with `text` format for the duration of startup.
 4. **Load and watch workflow file.** Start a filesystem watcher for dynamic config reload. During config parsing, [`SORTIE_*` overrides](environment.md#configuration-overrides) are applied — including `.env` file loading when enabled.
 5. **Preflight validation.** Verify `tracker.kind` is registered, `agent.kind` is registered, required API keys are present, active/terminal state lists are non-empty, adapter-specific config validation passes (when declared), and the workspace root is writable. Failure exits with code `1` — no database file is created on disk.
-6. **Resolve log level.** When `--log-level` was not set, check `logging.level` from the workflow config. If the workflow sets a non-default level, re-initialize the logger before emitting the startup message.
+6. **Resolve log level and format.** When `--log-level` was not set, check `logging.level` from the workflow config. When `--log-format` was not set, check `logging.format` from the workflow config. If either differs from the startup default, re-initialize the logger before emitting the startup message.
 7. **Construct tracker adapter.** Instantiate the tracker adapter from the registry using the configuration map.
 8. **Open SQLite database.** Path from [`db_path`](workflow-config.md) config field, or `.sortie.db` adjacent to the workflow file. Relative paths resolve against the workflow file's directory, not the working directory.
 9. **Run schema migrations.** Applied automatically on every startup.
@@ -480,7 +519,7 @@ A second signal during drain is not intercepted — the OS terminates the proces
 
 ## Logging
 
-All log output goes to **stderr** in structured `key=value` format:
+All log output goes to **stderr**. The default format is structured `key=value` text:
 
 ```
 time=2026-03-26T14:30:01.271+00:00 level=INFO msg="sortie starting" version=1.3.0 workflow_path=/opt/sortie/WORKFLOW.md port=8080
@@ -488,6 +527,17 @@ time=2026-03-26T14:30:01.298+00:00 level=INFO msg="database path resolved" db_pa
 time=2026-03-26T14:30:01.304+00:00 level=INFO msg="sortie started"
 time=2026-03-26T14:30:01.305+00:00 level=INFO msg="http server listening" addr=127.0.0.1:8080
 ```
+
+When `--log-format json` is active (or `logging.format: json` in the workflow file), each line is a JSON object:
+
+```json
+{"time":"2026-03-26T14:30:01.271+00:00","level":"INFO","msg":"sortie starting","version":"1.3.0","workflow_path":"/opt/sortie/WORKFLOW.md","port":8080}
+{"time":"2026-03-26T14:30:01.298+00:00","level":"INFO","msg":"database path resolved","db_path":"/opt/sortie/.sortie.db"}
+{"time":"2026-03-26T14:30:01.304+00:00","level":"INFO","msg":"sortie started"}
+{"time":"2026-03-26T14:30:01.305+00:00","level":"INFO","msg":"http server listening","addr":"127.0.0.1:8080"}
+```
+
+JSON output uses RFC 3339 timestamps, uppercase level strings, and emits all structured attributes as top-level keys. Each record is a single line terminated by `\n`.
 
 ### Context fields
 
@@ -499,6 +549,7 @@ Different log lines carry different context fields depending on scope:
 | `workflow_path` | Startup |
 | `port` | Startup (only when `--port` is provided) |
 | `log_level` | Startup (only when the effective level is not `INFO`) |
+| `log_format` | Startup (only when the effective format is not `text`) |
 | `db_path` | Database initialization |
 | `issue_id` | Dispatch, worker lifecycle, retry, reconciliation |
 | `issue_identifier` | Dispatch, worker lifecycle, retry, reconciliation |
@@ -561,8 +612,11 @@ sortie --port 8080
 # Run with verbose debug output
 sortie --log-level debug
 
-# Combine path, port, and log level
-sortie --log-level debug --port 8080 /opt/sortie/WORKFLOW.md
+# Emit JSON-formatted logs (for log aggregation systems)
+sortie --log-format json
+
+# Combine path, port, log level, and log format
+sortie --log-level debug --log-format json --port 8080 /opt/sortie/WORKFLOW.md
 
 # Print full version banner
 sortie --version

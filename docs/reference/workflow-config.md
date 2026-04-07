@@ -95,11 +95,13 @@ claude-code:
 
 # --- Server -----------------------------------------------------------
 server:
-  port: 8642                          # HTTP observability server
+  port: 9090                          # HTTP observability server (default: 7678, 0 to disable)
+  host: "0.0.0.0"                     # Bind address (default: 127.0.0.1)
 
 # --- Logging ----------------------------------------------------------
 logging:
   level: info                         # debug | info | warn | error
+  format: json                        # text | json (default: text)
 
 # --- Database ---------------------------------------------------------
 db_path: .sortie.db                   # SQLite file (relative to WORKFLOW.md)
@@ -372,7 +374,7 @@ CI feedback configuration. When activated, Sortie detects CI failures on agent-c
 | `escalation`       | string  | `"label"`                        | Action when `max_retries` is exceeded. Valid values: `"label"`, `"comment"`.                                         |
 | `escalation_label` | string  | `"needs-human"`                  | Label applied to the issue when `escalation` is `"label"`. The label must exist in the repository. Ignored when `escalation` is `"comment"`. |
 
-CI feedback follows the same activation pattern as other optional Sortie features. Presence of `kind` activates the feature; absence disables it. This is consistent with `server.port` (absent = server disabled) and `worker.ssh_hosts` (absent = local mode). There is no `ci_feedback.enabled` boolean.
+CI feedback follows the same activation pattern as other optional Sortie features. Presence of `kind` activates the feature; absence disables it. This is consistent with `worker.ssh_hosts` (absent = local mode). There is no `ci_feedback.enabled` boolean.
 
 Repository coordinates (owner, repo name, API token, endpoint) are not part of the `ci_feedback` section. They live in the adapter pass-through block that matches the CI provider kind. When `ci_feedback.kind: github`, the CI adapter reads credentials from the `github:` top-level section in [Extensions](#extensions). When `tracker.kind` and `ci_feedback.kind` match (the common single-platform case), both adapters share the same credentials from the tracker config. See [adapter pass-through configuration](#adapter-pass-through-configuration) for the extension block pattern.
 
@@ -508,35 +510,39 @@ Unknown top-level keys are collected into an extensions map for forward compatib
 
 Embedded HTTP observability server. Exposes a JSON API, HTML dashboard, health probes, and Prometheus metrics on a single port. See the [HTTP API reference](http-api.md) for endpoint details and the [Prometheus metrics reference](prometheus-metrics.md) for metric definitions.
 
-| Field  | Type    | Default                      | Description                                           |
-| ------ | ------- | ---------------------------- | ----------------------------------------------------- |
-| `port` | integer | _(absent; server disabled)_  | TCP port on `127.0.0.1`. Port `0` requests an OS-assigned ephemeral port. |
+| Field  | Type        | Default     | Description                                                                      |
+| ------ | ----------- | ----------- | -------------------------------------------------------------------------------- |
+| `port` | integer     | `7678`      | TCP port for the HTTP server. `0` disables the server.                           |
+| `host` | string (IP) | `127.0.0.1` | Bind address. Must be a parseable IP address. DNS hostnames are not accepted.    |
 
-The CLI `--port` flag takes precedence over `server.port`. Requires a restart to change.
+The CLI `--port` flag takes precedence over `server.port`, and `--host` takes precedence over `server.host`. Both require a restart to change.
 
 !!! note
-    When `server.port` is absent and `--port` is not provided, the HTTP server does not start and Prometheus metrics are not collected. The orchestrator uses a no-op metrics implementation with zero overhead.
+    The HTTP server starts by default on `127.0.0.1:7678` with no configuration required. Pass `--port 0` to disable it. When disabled, the orchestrator uses a no-op metrics implementation with zero overhead.
 
 ```yaml
 server:
-  port: 8642
+  port: 9090
+  host: "0.0.0.0"
 ```
 
 ### `logging`
 
-Process-wide log verbosity. Controls the minimum severity level emitted to stderr.
+Process-wide log verbosity and output format. Controls the minimum severity level and the serialization format for log lines emitted to stderr.
 
 | Field | Type | Default | Required | Dynamic Reload | Description |
 |---|---|---|---|---|---|
 | `logging.level` | string | `info` | No | **No** — requires restart | Log verbosity: `debug`, `info`, `warn`, `error` (case-insensitive). |
+| `logging.format` | string | `text` | No | **No** — requires restart | Log output format: `text` or `json` (case-insensitive). `text` emits structured `key=value` lines. `json` emits newline-delimited JSON objects. |
 
-The CLI `--log-level` flag takes precedence over this field when both are present. Changing `logging.level` in the workflow file takes effect only after a restart; dynamic reload does not re-initialize the log handler.
+The CLI [`--log-level`](cli.md#-log-level) flag takes precedence over `logging.level`, and [`--log-format`](cli.md#-log-format) takes precedence over `logging.format`. Changing either field in the workflow file takes effect only after a restart; dynamic reload does not re-initialize the log handler.
 
-Unknown values cause startup failure with exit code `1`.
+Unknown values for either field cause startup failure with exit code `1`.
 
 ```yaml
 logging:
   level: debug
+  format: json
 ```
 
 ### `worker`
@@ -694,6 +700,8 @@ Sortie watches `WORKFLOW.md` for filesystem changes and re-applies configuration
 | `ci_feedback.kind`, `ci_feedback.max_log_lines` | Requires restart.              |
 | `db_path`                              | Requires restart.                      |
 | `server.port`                          | Requires restart.                      |
+| `server.host`                          | Requires restart.                      |
 | `logging.level`                        | Requires restart.                      |
+| `logging.format`                       | Requires restart.                      |
 
 In-flight agent sessions are not affected by any reload.
