@@ -36,6 +36,7 @@
 /guides/connect-to-github /guides/connect-to-github/ 301
 /guides/connect-to-jira /guides/connect-to-jira/ 301
 /guides/control-costs /guides/control-costs/ 301
+/guides/deploy-sortie-to-kubernetes /guides/deploy-sortie-to-kubernetes/ 301
 /guides/integrate-security-scanning /guides/integrate-security-scanning/ 301
 /guides/monitor-with-logs /guides/monitor-with-logs/ 301
 /guides/monitor-with-prometheus /guides/monitor-with-prometheus/ 301
@@ -49,6 +50,7 @@
 /guides/troubleshoot-common-failures /guides/troubleshoot-common-failures/ 301
 /guides/use-agent-tools-in-prompts /guides/use-agent-tools-in-prompts/ 301
 /guides/use-file-adapter-for-testing /guides/use-file-adapter-for-testing/ 301
+/guides/use-sortie-in-docker/ /guides/use-sortie-in-docker/ 301
 /guides/use-subagents-with-sortie /guides/use-subagents-with-sortie/ 301
 /guides/write-custom-agent-tool /guides/write-custom-agent-tool/ 301
 /guides/write-prompt-template /guides/write-prompt-template/ 301

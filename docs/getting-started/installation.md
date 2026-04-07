@@ -54,6 +54,12 @@ The tap is added automatically on first install. To upgrade to a new release:
 brew upgrade sortie
 ```
 
+## Docker
+
+Sortie provides a Docker image at `ghcr.io/sortie-ai/sortie`.
+
+See our guide on using [Sortie in Docker](../guides/use-sortie-in-docker.md) for more details.
+
 ## Download from GitHub Releases
 
 If you prefer to download manually, or you're on a platform the install script
