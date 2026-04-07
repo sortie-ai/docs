@@ -94,7 +94,7 @@ Type=simple
 User=sortie
 Group=sortie
 EnvironmentFile=/etc/sortie/env
-ExecStart=/usr/local/bin/sortie --port 8080 /etc/sortie/WORKFLOW.md
+ExecStart=/usr/local/bin/sortie /etc/sortie/WORKFLOW.md
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal
@@ -118,7 +118,7 @@ A few things worth noting about this configuration:
 
 **`Restart=on-failure` with `RestartSec=10`** — If Sortie crashes, systemd waits 10 seconds and restarts it. A clean shutdown via `systemctl stop` sends SIGTERM, which Sortie handles gracefully — that does not trigger a restart.
 
-**`StandardOutput=journal` and `StandardError=journal`** — Sortie logs structured `key=value` output to stderr. journald captures both streams and makes them searchable via `journalctl`.
+**`StandardOutput=journal` and `StandardError=journal`** — Sortie logs structured `key=value` output to stderr by default. journald captures both streams and makes them searchable via `journalctl`. For JSON-formatted logs (useful with Loki or other aggregation), add `--log-format json` to the `ExecStart` line.
 
 **`ProtectSystem=strict`** — Makes the entire filesystem read-only from Sortie's perspective. `ReadWritePaths=/var/lib/sortie` punches a hole for the database and workspace directory. If your workspace root lives elsewhere (say `/opt/sortie/workspaces`), add that path to `ReadWritePaths` instead.
 
@@ -142,7 +142,7 @@ Check that it's running:
 sudo systemctl status sortie
 ```
 
-You should see `Active: active (running)` and the first few log lines. If Sortie started with `--port 8080`, the dashboard is live at `http://localhost:8080`.
+You should see `Active: active (running)` and the first few log lines. The dashboard is live at `http://localhost:7678` by default.
 
 ## View logs
 
@@ -169,7 +169,13 @@ journalctl -u sortie | grep 'level=ERROR'
 journalctl -u sortie | grep 'issue_identifier=PROJ-42'
 ```
 
-For deeper troubleshooting, add `--log-level debug` to `ExecStart` in the unit file, then restart the service. See [How to monitor with logs](monitor-with-logs.md) for grep patterns and lifecycle messages.
+When running with `--log-format json`, use `jq` for field-level filtering:
+
+```bash
+journalctl -u sortie -o cat | jq 'select(.level == "ERROR")'
+```
+
+For deeper troubleshooting, add `--log-level debug` to `ExecStart` in the unit file, then restart the service. See [How to monitor with logs](monitor-with-logs.md) for grep patterns, jq examples, and lifecycle messages.
 
 ## Run multiple workflows
 

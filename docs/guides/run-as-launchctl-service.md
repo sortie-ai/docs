@@ -93,8 +93,6 @@ Create `~/Library/LaunchAgents/com.sortie-ai.sortie.plist`:
   <key>ProgramArguments</key>
   <array>
     <string>/usr/local/bin/sortie</string>
-    <string>--port</string>
-    <string>8080</string>
     <string>--env-file</string>
     <string>/Users/deploy/.config/sortie/.env</string>
     <string>/Users/deploy/.config/sortie/WORKFLOW.md</string>
@@ -139,7 +137,7 @@ A few things worth noting about this configuration:
 
 **`ProcessType` Background** — Tells macOS this is a background service, not a user-facing app. The system applies appropriate CPU and I/O scheduling.
 
-**`StandardOutPath` and `StandardErrorPath`** — Sortie logs structured `key=value` output to stderr. launchd writes both streams to log files under your data directory. Unlike journald on Linux, macOS doesn't manage rotation for you — see the log rotation section below.
+**`StandardOutPath` and `StandardErrorPath`** — Sortie logs structured `key=value` output to stderr by default. launchd writes both streams to log files under your data directory. Unlike journald on Linux, macOS doesn't manage rotation for you — see the log rotation section below. For JSON-formatted logs, add `--log-format json` to the `ProgramArguments` array.
 
 If you prefer to inline secrets directly, replace the `--env-file` argument with an `EnvironmentVariables` dictionary in the plist and protect the plist with `chmod 600`.
 
@@ -157,7 +155,7 @@ Verify it's running:
 launchctl print gui/$(id -u)/com.sortie-ai.sortie
 ```
 
-Look for a `pid =` line with a nonzero value and confirm the process is live. The exact output format is not a stable API and may change across macOS releases, but a running service is obvious from context. If Sortie started with `--port 8080`, the dashboard is live at `http://localhost:8080`.
+Look for a `pid =` line with a nonzero value and confirm the process is live. The exact output format is not a stable API and may change across macOS releases, but a running service is obvious from context. The dashboard is live at `http://localhost:7678` by default.
 
 To stop the service:
 

@@ -15,28 +15,12 @@ Wire Sortie into your Prometheus and Grafana stack so you can track agent sessio
 - Prometheus installed and scraping targets
 - Grafana installed (optional — needed for the dashboard step)
 
-## Enable the HTTP server
+## Verify the HTTP server is running
 
-Sortie exposes `/metrics` on the same port as the JSON API and HTML dashboard. Pass `--port` at launch:
-
-```bash
-sortie --port 8080 ./WORKFLOW.md
-```
-
-Or set `server.port` in your WORKFLOW.md front matter:
-
-```yaml
----
-server:
-  port: 8080
-# ... rest of config
----
-```
-
-Either way, confirm the metrics endpoint is live:
+Sortie starts the HTTP server by default on `127.0.0.1:7678`. The `/metrics` endpoint shares the same port as the JSON API and HTML dashboard. Confirm it is live:
 
 ```bash
-curl -s http://localhost:8080/metrics | head -20
+curl -s http://localhost:7678/metrics | head -20
 ```
 
 You should see Prometheus text exposition format:
@@ -54,7 +38,7 @@ sortie_dispatches_total{outcome="error"} 1
 sortie_tokens_total{type="input"} 284500
 ```
 
-If you get `connection refused`, Sortie isn't running or the port is wrong. Check the startup logs — Sortie prints the listen address at boot.
+If you get `connection refused`, Sortie isn't running or the server was disabled with `--port 0`. Check the startup logs — Sortie prints the listen address at boot. To use a different port, pass `--port <N>` or set `server.port` in your WORKFLOW.md front matter.
 
 ## Add Sortie as a Prometheus scrape target
 
@@ -64,17 +48,17 @@ Open your `prometheus.yml` and add Sortie under `scrape_configs`:
 scrape_configs:
   - job_name: "sortie"
     static_configs:
-      - targets: ["localhost:8080"]
+      - targets: ["localhost:7678"]
     scrape_interval: 15s
 ```
 
 If Sortie runs on a different machine from Prometheus, replace the target:
 
 ```yaml
-      - targets: ["build01.internal:8080"]
+      - targets: ["build01.internal:7678"]
 ```
 
-Sortie binds to `127.0.0.1` by default. When Prometheus runs on a separate host, you'll need a reverse proxy, SSH tunnel, or network configuration to make the port reachable — the specifics depend on your infrastructure.
+Sortie binds to `127.0.0.1` by default. When Prometheus runs on a separate host, pass `--host 0.0.0.0` to Sortie to listen on all interfaces, or configure a reverse proxy or SSH tunnel to make the port reachable.
 
 Reload Prometheus to pick up the new config:
 
@@ -109,16 +93,26 @@ Sortie ships a reference Grafana dashboard that visualizes the full metric set.
 3. Select your Prometheus data source when prompted.
 4. Click **Import**.
 
-The dashboard includes these panels:
+The dashboard includes these panels, grouped into collapsible rows:
 
 | Panel | What it shows |
 |---|---|
-| Active sessions | Running, retrying, and available slots as stat panels and a time series |
+| Active sessions | Running, retrying, and available slots as stat panels, elapsed time, and a time series |
 | Token consumption | Input and output token rates over time |
-| Dispatch outcomes | Success vs. error dispatch rate as stacked bars |
+| Dispatch outcomes | Success vs. error dispatch rate |
+| Agent runtime | Cumulative agent runtime rate |
+| Worker exits | Worker completion rate by exit type |
 | Worker duration | Heatmap of session durations with p50, p95, p99 overlay lines |
 | Retry activity | Retry rate broken down by trigger (error, continuation, stall) |
 | Poll cycle health | Poll success/error/skip counts with duration overlay |
+| Reconciliation actions | Reconciliation outcome rate by action |
+| Tracker API | Tracker adapter call rate by operation and result |
+| Handoff transitions | Handoff transition outcome counters |
+| Dispatch transitions | Dispatch-time transition outcome counters |
+| Tracker comments | Tracker comment rate by lifecycle and result |
+| CI status checks | CI check outcome rate |
+| CI escalations | CI escalation action rate |
+| Tool calls | Agent tool call rate by tool |
 | SSH host utilization | Per-host session gauge (hidden when no SSH hosts are configured) |
 | Build info | Version and Go version |
 

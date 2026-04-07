@@ -11,7 +11,7 @@ Sortie registers tools via MCP and advertises them in the first-turn prompt — 
 
 ## Prerequisites
 
-- Sortie running with `--port` and an MCP-compatible agent (Claude Code, Copilot CLI)
+- Sortie running with an MCP-compatible agent (Claude Code, Copilot CLI)
 - A `WORKFLOW.md` with valid front matter ([write a prompt template](write-prompt-template.md))
 - Familiarity with available tool schemas ([agent extensions reference](../reference/agent-extensions.md))
 

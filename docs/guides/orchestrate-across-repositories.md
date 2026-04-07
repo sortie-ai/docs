@@ -273,7 +273,7 @@ The blocker approach is the most automated: link `PLATFORM-103` (frontend) as bl
 
 ## Monitor all instances
 
-If you configured `server.port` on each workflow, check status across instances:
+Each Sortie instance starts the HTTP server by default on port 7678. When running multiple instances, assign different `server.port` values. Check status across instances:
 
 ```bash
 for port in 8641 8642 8643; do

@@ -330,7 +330,7 @@ If the status did not change and you see a handoff warning in the logs, the Jira
 
 ### Check the dashboard
 
-Open [http://127.0.0.1:8080/](http://127.0.0.1:8080/) in a browser. If Sortie is still running (or was running with `--port 8080`), you will see:
+Open [http://127.0.0.1:8080/](http://127.0.0.1:8080/) in a browser. The workflow sets `server.port: 8080`, so the dashboard is available at that port. You will see:
 
 - **Summary cards** at the top: running sessions, retry queue size, free slots, total tokens consumed.
 - **Run history** table showing the completed session — its issue identifier, turn count, duration, exit status, and token usage.

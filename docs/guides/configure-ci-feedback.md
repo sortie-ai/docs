@@ -25,7 +25,7 @@ ci_feedback:
   kind: github
 ```
 
-There is no `enabled` flag. Presence of `kind` activates the feature; absence disables it. This follows the same pattern as other Sortie features (e.g., `server.port` absent means the HTTP server is disabled).
+There is no `enabled` flag. Presence of `kind` activates the feature; absence disables it.
 
 Once activated, Sortie hooks into the worker exit path. After each normal worker exit where the agent pushed code, the orchestrator reads `.sortie/scm.json` from the workspace to discover the branch and commit SHA. On the next reconcile tick, it polls CI status on that ref. Three outcomes are possible:
 
@@ -300,11 +300,11 @@ grep "CI fix retries exhausted" sortie.log
 
 ### Dashboard
 
-When the HTTP server is enabled (`server.port` in your config), the web dashboard shows entries in `Retrying` state with a `ci_fix` trigger label. Run history entries with status `ci_failed` indicate CI failures that were detected. See the [dashboard reference](../reference/dashboard.md).
+When the HTTP server is running (default on port 7678), the web dashboard shows entries in `Retrying` state with a `ci_fix` trigger label. Run history entries with status `ci_failed` indicate CI failures that were detected. See the [dashboard reference](../reference/dashboard.md).
 
 ### Prometheus metrics
 
-Three CI-related metrics are available when the HTTP server is enabled:
+Three CI-related metrics are available when the HTTP server is running (default on port 7678):
 
 | Metric | Labels | Description |
 |---|---|---|

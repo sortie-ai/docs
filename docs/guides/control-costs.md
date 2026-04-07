@@ -173,7 +173,7 @@ These are true worst cases — the maximum the system can spend before it stops 
 
 Three tools give you cost visibility without any extra infrastructure.
 
-**Dashboard.** The run history table shows `total_cost_usd` for each completed session. Enable the HTTP server with `--port 8080` and open `http://localhost:8080` in a browser. See the [dashboard reference](../reference/dashboard.md) for details.
+**Dashboard.** The run history table shows `total_cost_usd` for each completed session. The HTTP server runs by default on `http://localhost:7678`. See the [dashboard reference](../reference/dashboard.md) for details.
 
 **Prometheus.** The `sortie_tokens_total` counter tracks cumulative token consumption with a `type` label (`input`, `output`, `cache_read`). Pair it with model pricing to estimate dollar cost. A PromQL query for hourly input token rate:
 

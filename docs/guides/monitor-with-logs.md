@@ -1,13 +1,13 @@
 ---
 title: "How to Monitor with Logs | Sortie"
-description: "Read and filter Sortie's structured key=value logs for debugging, monitoring, and operational awareness. Grep patterns, lifecycle messages, and log persistence."
-keywords: sortie logs, structured logging, slog, grep, debugging, monitoring, log format, troubleshooting
+description: "Read, filter, and aggregate Sortie's structured logs in text or JSON format. Grep and jq patterns, lifecycle messages, log verbosity, and log persistence."
+keywords: sortie logs, structured logging, slog, grep, jq, json logs, debugging, monitoring, log format, troubleshooting
 author: Sortie AI
 ---
 
 # How to monitor with logs
 
-Sortie emits structured `key=value` logs. Logs are always on — no configuration needed. They are the first place to look when something goes wrong.
+Sortie emits structured logs to stderr. The default format is `key=value` text; an optional `json` mode produces newline-delimited JSON for log aggregation systems. Logs are always on — no configuration needed. They are the first place to look when something goes wrong.
 
 !!! note
     Sortie has no built-in log file or rotation option. Logs go to stderr only — file retention and rotation are the responsibility of your runtime environment. Use journald on systemd hosts, a Docker logging driver in containers, or a process supervisor such as supervisord elsewhere.
@@ -20,13 +20,29 @@ That's it. Logs work with zero configuration.
 
 ## Understand the log format
 
+Sortie supports two log formats: **text** (default) and **JSON**.
+
+### Text format (default)
+
 Sortie uses `slog.TextHandler`. Every line is a flat `key=value` record:
 
 ```
 time=2026-03-26T14:30:01.305+00:00 level=INFO msg="tick completed" candidates=2 dispatched=2 running=2 retrying=0
 ```
 
-Three structural fields appear on every line:
+### JSON format
+
+When `--log-format json` is active (or `logging.format: json` in the workflow file), each line is a self-contained JSON object:
+
+```json
+{"time":"2026-03-26T14:30:01.305+00:00","level":"INFO","msg":"tick completed","candidates":2,"dispatched":2,"running":2,"retrying":0}
+```
+
+JSON format is designed for log aggregation systems (Loki, Datadog, CloudWatch, ELK) that ingest newline-delimited JSON. See [switch to JSON format](#switch-to-json-format) below.
+
+### Common fields
+
+Three structural fields appear on every line in both formats:
 
 - `time` — UTC timestamp
 - `level` — `INFO`, `WARN`, `ERROR`, or `DEBUG`
@@ -159,7 +175,7 @@ This fires before any work is dispatched. It means your workflow configuration i
 
 ## Common grep patterns
 
-These commands work against the log format shown above.
+These commands work against the text log format. For JSON logs, see [JSON log filtering with jq](#json-log-filtering-with-jq) below.
 
 Follow a specific issue across its entire lifecycle:
 
@@ -197,6 +213,63 @@ Follow a specific agent session across turns and tool calls:
 grep 'session_id=session-abc-001' sortie.log
 ```
 
+## Switch to JSON format
+
+For deployments that route logs to an aggregation system, switch to JSON output:
+
+```bash
+sortie --log-format json ./WORKFLOW.md
+```
+
+Or set it in the workflow file and leave the CLI unchanged:
+
+```yaml
+logging:
+  format: json
+```
+
+The CLI flag takes precedence when both are set. Both formats carry the same structured fields — only the serialization differs.
+
+## JSON log filtering with jq
+
+When running with `--log-format json`, use `jq` instead of `grep` for precise field-level filtering.
+
+Follow a specific issue:
+
+```bash
+jq 'select(.issue_identifier == "MT-649")' sortie.log
+```
+
+Find all errors:
+
+```bash
+jq 'select(.level == "ERROR")' sortie.log
+```
+
+Find retries with their delay:
+
+```bash
+jq 'select(.msg | contains("scheduling retry")) | {issue: .issue_identifier, next_attempt, delay_ms}' sortie.log
+```
+
+Watch dispatches in real time:
+
+```bash
+tail -f sortie.log | jq 'select(.msg == "tick completed")'
+```
+
+Find tool call failures with duration:
+
+```bash
+jq 'select(.msg == "tool call completed" and .result == "error") | {tool, error, duration_ms}' sortie.log
+```
+
+Extract a timeline for a specific session:
+
+```bash
+jq 'select(.session_id == "session-abc-001") | {time, msg, level}' sortie.log
+```
+
 ## Redirect logs to a file
 
 Sortie logs to stderr by default. Redirect to a file with shell redirection:
@@ -225,4 +298,4 @@ journalctl -u sortie -p err
 
 ## What we covered
 
-You now know how to read Sortie's structured logs, follow specific issues through the dispatch lifecycle, distinguish between warnings (automatic recovery) and errors (needs your attention), find tool call failures, and persist logs to a file. For the complete error catalog, see the [error reference](../reference/errors.md). For metric-based monitoring with Prometheus and Grafana, see [Monitor with Prometheus](monitor-with-prometheus.md). For real-time visual monitoring, see the [dashboard reference](../reference/dashboard.md).
+You now know how to read Sortie's structured logs in both text and JSON formats, follow specific issues through the dispatch lifecycle, distinguish between warnings (automatic recovery) and errors (needs your attention), switch to JSON for log aggregation, filter JSON logs with `jq`, find tool call failures, and persist logs to a file. For the complete error catalog, see the [error reference](../reference/errors.md). For metric-based monitoring with Prometheus and Grafana, see [Monitor with Prometheus](monitor-with-prometheus.md). For real-time visual monitoring, see the [dashboard reference](../reference/dashboard.md).
