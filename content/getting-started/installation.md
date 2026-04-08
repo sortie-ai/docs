@@ -28,14 +28,14 @@ or `~/.local/bin` otherwise. If the install directory is not already on your
 
 | Variable | Effect |
 |---|---|
-| `SORTIE_VERSION` | Pin a specific release (e.g. `1.3.0`). Without it, the latest release is used. |
+| `SORTIE_VERSION` | Pin a specific release (e.g. `1.5.0`). Without it, the latest release is used. |
 | `SORTIE_INSTALL_DIR` | Override the install directory. |
 | `SORTIE_NO_VERIFY=1` | Skip SHA-256 checksum verification (not recommended). |
 
 Example — install a specific version to a custom directory:
 
 ```bash
-SORTIE_VERSION=1.3.0 SORTIE_INSTALL_DIR=/opt/bin \
+SORTIE_VERSION=1.5.0 SORTIE_INSTALL_DIR=/opt/bin \
   curl -sSL https://get.sortie-ai.com/install.sh | sh
 ```
 
