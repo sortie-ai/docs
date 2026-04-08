@@ -65,7 +65,7 @@ All state mutations flow through a single goroutine — no concurrent map access
 
 The orchestrator reconciles its state against the tracker on every poll tick and handles failures with bounded retry strategies. See [Orchestration](/concepts/orchestration/) for the full model.
 
-## [Workspace isolation](/concepts/isolation/) as a safety boundary
+## Workspace isolation as a safety boundary
 
 Every issue gets its own workspace directory: `<workspace_root>/<sanitized_identifier>/`. The agent process runs with its working directory set to this path. Before launching any agent, Sortie validates that the current working directory matches the workspace path. This is not a suggestion — it's a hard invariant enforced at the code level.
 
