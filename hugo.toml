@@ -95,3 +95,46 @@ type = "search"
 [module]
 # Hextra is installed as a git submodule at themes/hextra/.
 # No Hugo module imports needed when using the submodule approach.
+
+# --------------------------------------------------------------------------
+# llms.txt support — https://llmstxt.org/
+# Generates /llms.txt (navigation index) and /llms-full.txt (full content)
+# at build time, plus /path/to/page/index.md for every regular page.
+# --------------------------------------------------------------------------
+
+[mediaTypes."text/markdown"]
+suffixes = ["md"]
+
+# llms.txt — navigation index with links to .md versions of each page.
+[outputFormats.LLMsTxt]
+mediaType = "text/plain"
+baseName = "llms"
+isPlainText = true
+notAlternative = true
+rel = "alternate"
+
+# llms-full.txt — entire documentation concatenated as Markdown.
+# NOTE: "LLMsFull" lowercases to "llmsfull" which matches the template
+# filename layouts/index.llmsfull.txt so that isPlainText=true applies.
+[outputFormats.LLMsFull]
+mediaType = "text/plain"
+baseName = "llms-full"
+isPlainText = true
+notAlternative = true
+rel = "alternate"
+
+# Markdown — serves the raw Markdown source of each page at index.md.
+[outputFormats.Markdown]
+mediaType = "text/markdown"
+baseName = "index"
+isPlainText = true
+notAlternative = true
+rel = "alternate"
+
+[outputs]
+# Home page generates HTML + both LLM text files.
+home = ["HTML", "RSS", "LLMsTxt", "LLMsFull"]
+# Regular pages generate HTML + a raw Markdown mirror at index.md.
+page = ["HTML", "Markdown"]
+# Sections generate HTML only (index pages mostly contain shortcodes).
+section = ["HTML"]
