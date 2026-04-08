@@ -1,15 +1,9 @@
-# Section landing pages (breadcrumb hierarchy)
-/getting-started/ /getting-started/installation/ 301
-/getting-started /getting-started/installation/ 301
-/guides/ /guides/connect-to-jira/ 301
-/guides /guides/connect-to-jira/ 301
-/concepts/ /concepts/architecture/ 301
-/concepts /concepts/architecture/ 301
-/reference/ /reference/cli/ 301
-/reference /reference/cli/ 301
-
-# Main page items
+# Trailing-slash normalization for individual pages
 /changelog /changelog/ 301
+/concepts /concepts/ 301
+/getting-started /getting-started/ 301
+/guides /guides/ 301
+/reference /reference/ 301
 
 # Concepts
 /concepts/adapter-model /concepts/adapter-model/ 301
