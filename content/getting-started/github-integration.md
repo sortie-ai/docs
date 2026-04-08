@@ -1,14 +1,12 @@
 ---
 title: "Connect Sortie to GitHub Issues"
+linkTitle: "GitHub Integration"
 description: "Tutorial: connect Sortie to GitHub Issues, poll for labeled issues, process them with a mock agent, and watch Sortie swap labels and close issues automatically."
 keywords: sortie github tutorial, github issues, github integration, label states, mock agent, getting started
 author: Sortie AI
 date: 2026-03-30
 weight: 40
 ---
-
-# Connect Sortie to GitHub Issues
-
 In this tutorial, we will connect Sortie to a GitHub repository, watch it discover issues by state labels, process them through a mock agent, and verify that GitHub reflects the state changes — a label swap and an automatic close. By the end, you will have a working GitHub integration that polls for issues, dispatches an agent, and transitions states without any manual intervention.
 
 We use the mock agent on purpose. The quick start taught you how Sortie works with local files. This tutorial isolates the next variable: a real issue tracker. Once GitHub works, swapping in a real agent is a one-line change.

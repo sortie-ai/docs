@@ -6,9 +6,6 @@ author: Sortie AI
 date: 2026-03-30
 weight: 30
 ---
-
-# Why persistence changes everything for agent orchestration
-
 An orchestrator managing autonomous coding agents will restart. Process crashes, OS updates, host reboots, deploys — the only question is how often. When it does, there are two versions of what happens next: one where the system picks up where it left off, and one where it doesn't. The gap between those two versions is the gap between a production tool and a prototype.
 
 ## The restart problem

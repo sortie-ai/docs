@@ -6,9 +6,6 @@ author: Sortie AI
 date: 2026-04-03
 weight: 50
 ---
-
-# How agents communicate with the orchestrator
-
 Sortie gives agents two ways to talk back to the orchestrator during a session. Not one. Two. They look redundant until you understand what each one does and why neither can do the other's job.
 
 The first channel is **MCP tool calls** — a request-response protocol where the agent asks for data and gets a structured answer back. "What comments are on this issue?" is a tool call. "What's my remaining turn budget?" is a tool call. The agent needs the response to continue working. This is the data plane.

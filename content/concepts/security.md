@@ -6,9 +6,6 @@ author: Sortie AI
 date: 2026-03-29
 weight: 60
 ---
-
-# Security model and operational safety
-
 Sortie dispatches autonomous coding agents against live codebases. That sentence alone should make you think carefully about trust boundaries. This document explains what Sortie protects against, what it deliberately does not protect against, and where your responsibility as the operator begins. If you're evaluating whether Sortie is safe enough for your environment, this is the document that answers that question.
 
 ## What Sortie controls vs. what you control

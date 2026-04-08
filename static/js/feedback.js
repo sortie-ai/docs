@@ -1,20 +1,25 @@
 document.addEventListener("DOMContentLoaded", function () {
-  var article =
+  var main =
+    document.querySelector("main#content") ||
     document.querySelector("article") ||
     document.querySelector('[role="main"]') ||
     document.querySelector(".md-content");
-  if (!article) return;
+  if (!main) return;
 
   var container = document.createElement("div");
   container.className = "page-feedback";
+  container.style.cssText =
+    "clear: both; width: 100%; margin-top: 3rem; text-align: center;";
   container.innerHTML =
-    '<hr style="margin: 2rem 0 1rem;">' +
+    '<hr style="margin: 0 0 1rem;">' +
     '<p style="margin-bottom: 0.5rem; opacity: 0.7;">Was this page helpful?</p>' +
-    '<button class="feedback-btn" data-value="1" title="This page was helpful" aria-label="This page was helpful">👍</button> ' +
+    '<div style="display: inline-flex; gap: 0.5rem; justify-content: center;">' +
+    '<button class="feedback-btn" data-value="1" title="This page was helpful" aria-label="This page was helpful">👍</button>' +
     '<button class="feedback-btn" data-value="0" title="This page could be improved" aria-label="This page could be improved">👎</button>' +
+    "</div>" +
     '<p class="feedback-thanks" style="display:none; margin-top: 0.5rem; opacity: 0.7;"></p>';
 
-  article.appendChild(container);
+  main.appendChild(container);
 
   var buttons = container.querySelectorAll(".feedback-btn");
   var thanks = container.querySelector(".feedback-thanks");

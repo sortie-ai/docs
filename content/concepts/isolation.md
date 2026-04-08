@@ -6,9 +6,6 @@ author: Sortie AI
 date: 2026-03-31
 weight: 70
 ---
-
-# Why every issue gets its own directory
-
 Sortie runs multiple coding agents in parallel, each working on a different issue. Each agent gets its own filesystem directory -- its working directory, its git clone (if hooks set one up), its build cache, its scratch space. One directory per issue, nothing shared.
 
 This sounds like the obvious approach, but the design space has real alternatives. Some orchestrators give agents a shared checkout with branch switching. Some use containers. Some use git worktrees off a shared bare repository. Sortie chose the simplest model and makes the operator responsible for what goes inside it. The reasoning behind that choice shapes everything from hook scripts to SSH worker support.

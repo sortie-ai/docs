@@ -6,9 +6,6 @@ author: Sortie AI
 date: 2026-03-23
 weight: 10
 ---
-
-# Installation
-
 This guide covers every supported way to install sortie on your machine.
 Pick the method that fits your setup, verify the installation, and you're
 ready to go.
