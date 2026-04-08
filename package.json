@@ -7,9 +7,8 @@
   },
   "private": true,
   "scripts": {
-    "submodules": "git submodule update --init",
     "unshallow": "git fetch --unshallow || true",
-    "prebuild": "npm run submodules && npm run unshallow",
+    "prebuild": "npm run unshallow",
     "build": "hugo --environment production --gc --logLevel info --minify --cleanDestinationDir --printPathWarnings --printMemoryUsage",
     "server": "hugo server --environment development --logLevel info --buildDrafts --buildFuture --ignoreCache --disableFastRender"
   },
