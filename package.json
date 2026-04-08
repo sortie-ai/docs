@@ -1,5 +1,11 @@
 {
   "private": true,
+  "scripts": {
+    "submodules": "git submodule update --init",
+    "unshallow": "git fetch --unshallow || true",
+    "build": "npm run submodules && npm run unshallow && hugo --minify",
+    "dev": "hugo server --disableFastRender"
+  },
   "devDependencies": {
     "wrangler": "^4.77.0"
   }
