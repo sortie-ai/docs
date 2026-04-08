@@ -163,7 +163,7 @@ Error percentage per tool. A high error rate on `tracker_api` suggests credentia
 
 ## Grafana dashboard
 
-A reference Grafana dashboard JSON is available for import at [`grafana-dashboard.json`](../downloads/grafana-dashboard.json). It is tested against Grafana 10+ and uses the `sortie_` metrics documented on this page.
+A reference Grafana dashboard JSON is available for import at [`grafana-dashboard.json`](/downloads/grafana-dashboard.json). It is tested against Grafana 10+ and uses the `sortie_` metrics documented on this page.
 
 The dashboard organizes panels into seven collapsible rows. Each panel maps to one or more metrics from the tables above.
 

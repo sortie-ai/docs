@@ -89,7 +89,7 @@ If all three queries return data, your scrape pipeline is working.
 Sortie ships a reference Grafana dashboard that visualizes the full metric set.
 
 1. Open Grafana and navigate to **Dashboards > Import**.
-2. Upload [`grafana-dashboard.json`](../downloads/grafana-dashboard.json) or paste its contents.
+2. Upload [`grafana-dashboard.json`](/downloads/grafana-dashboard.json) or paste its contents.
 3. Select your Prometheus data source when prompted.
 4. Click **Import**.
 
