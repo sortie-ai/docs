@@ -39,6 +39,11 @@ publishDate = ['date', ':default']
 [params]
 description = "Autonomous coding agent orchestrator. Turns issue tracker tickets into agent sessions."
 
+# Version announcement banner. Set to false to disable entirely.
+# message: custom text; leave empty to use the default "Sortie vX.Y.Z is here!" message.
+[params.banner]
+message = ""
+
 # Global KaTeX support (replaces pymdownx.arithmatex).
 # params.math must be a table, not a bool — Hextra accesses params.math.engine.
 [params.math]

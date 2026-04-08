@@ -1,0 +1,78 @@
+{{- /*
+  Version-aware announcement banner.
+
+  Configuration (hugo.toml):
+    # Disable entirely:
+    [params]
+    banner = false
+
+    # Enable with a custom message:
+    [params.banner]
+    message = "Custom announcement text here."
+
+    # Enable with default message (no config needed — omitting params.banner
+    # also enables the banner with the default text):
+    # (nothing required)
+
+  Behaviour:
+  - At build time, Hugo extracts the latest release version from the changelog
+    page (first `[x.y.z]` heading in the raw Markdown) and embeds it as the
+    `data-version` attribute.  The element starts as [hidden].
+  - version-banner.js (deferred) compares `data-version` against the
+    `sortie_version_seen` cookie and reveals the banner only when a newer
+    release has shipped.  The cookie is written when the user closes the banner
+    or clicks the "what's new" link, suppressing the banner on subsequent visits
+    for the same version.
+  - GA4 events are fired on impression, link click, and dismissal.
+
+  Hextra integration:
+  - We override assets/js/head/banner.js and assets/js/core/banner.js so that
+    Hextra's localStorage-based close mechanism does not interfere with our
+    per-version cookie logic.
+  - The class `hextra-banner` is retained so that Hextra's prose CSS rules
+    (link underline, paragraph line-height) apply inside the banner.
+*/ -}}
+
+{{- /* Respect params.banner = false as an explicit opt-out. */ -}}
+{{- $bannerCfg := site.Params.banner -}}
+{{- $bannerDisabled := eq $bannerCfg false -}}
+
+{{- if not $bannerDisabled -}}
+
+{{- /* Extract the latest version from the changelog at build time. */ -}}
+{{- $changelog := .Site.GetPage "/changelog" -}}
+{{- $latestVersion := "" -}}
+{{- if $changelog -}}
+  {{- $match := index (findRE `\[\d+\.\d+\.\d+\]` $changelog.RawContent 1) 0 -}}
+  {{- if $match -}}
+    {{- $latestVersion = replaceRE `[\[\]]` "" $match -}}
+  {{- end -}}
+{{- end -}}
+
+{{- /* Optional custom message from params.banner.message. */ -}}
+{{- $customMsg := "" -}}
+{{- if reflect.IsMap $bannerCfg -}}
+  {{- $customMsg = $bannerCfg.message | default "" -}}
+{{- end -}}
+
+{{- if $latestVersion -}}
+<div
+  id="sortie-version-banner"
+  class="hextra-banner sortie-banner hx:max-md:sticky hx:top-0 hx:z-20 hx:px-6 hx:text-center hx:text-slate-50 hx:dark:text-white hx:bg-neutral-900 hx:dark:bg-neutral-800 hx:print:hidden"
+  data-version="{{ $latestVersion }}"
+  hidden
+>
+  <div class="hx:relative hx:flex hx:items-center hx:justify-center hx:font-medium hx:text-sm hx:py-2.5">
+    <div style="white-space: pre-wrap" class="hx:px-8">{{- if $customMsg -}}{{ $customMsg | safeHTML }}{{- else -}}Sortie <strong>v{{- $latestVersion -}}</strong> is here! 🎉 Discover <a href="/changelog#{{- $latestVersion -}}" id="sortie-banner-link">what&rsquo;s new</a>{{- end -}}</div>
+    <button
+      id="sortie-banner-close"
+      class="hx:cursor-pointer hx:absolute hx:right-0 hx:text-white hx:font-bold hx:leading-none hx:hover:opacity-75 hx:transition hx:w-10 hx:h-10 hx:-mr-2 hx:md:mr-0 hx:flex hx:items-center hx:justify-center"
+      aria-label="{{ (T "closeBanner") | default "Close banner" }}"
+    >
+      {{- partial "utils/icon.html" (dict "name" "x" "attributes" "height=16") -}}
+    </button>
+  </div>
+</div>
+{{- end -}}
+
+{{- end -}}

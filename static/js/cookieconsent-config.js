@@ -64,6 +64,28 @@ CookieConsent.run({
               description:
                 "These cookies are essential for the proper functioning of the website. They cannot be disabled.",
               linkedCategory: "necessary",
+              cookieTable: {
+                headers: {
+                  name: "Name",
+                  domain: "Service",
+                  description: "Description",
+                  expiration: "Expiration",
+                },
+                body: [
+                  {
+                    name: "sortie_version_seen",
+                    domain: "Sortie Docs",
+                    description: `Remembers which release version you last saw so the "what's new" banner is not shown again for the same or older versions.`,
+                    expiration: "1 year",
+                  },
+                  {
+                    name: "cc_cookie",
+                    domain: "Sortie Docs",
+                    description: "Stores your cookie consent preferences.",
+                    expiration: "6 months",
+                  },
+                ],
+              },
             },
             {
               title: "Analytics",
