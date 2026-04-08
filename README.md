@@ -44,7 +44,16 @@ Clone the repository and start the dev server. Hugo automatically downloads the 
 git clone https://github.com/sortie-ai/sortie-docs.git
 cd sortie-docs
 
-hugo server   # dev server at http://localhost:1313
+hugo server \
+  --environment development \
+  --logLevel info \
+  --buildDrafts \
+  --buildFuture \
+  --ignoreCache \
+  --disableFastRender
+
+# Or use the npm script
+npm run server
 ```
 
 Open [http://localhost:1313](http://localhost:1313) in your browser. Hugo watches for file changes and reloads automatically.
@@ -52,7 +61,17 @@ Open [http://localhost:1313](http://localhost:1313) in your browser. Hugo watche
 ### Build for Production
 
 ```bash
-hugo   # outputs to public/
+hugo \
+  --environment production \
+  --gc \
+  --logLevel info \
+  --minify \
+  --cleanDestinationDir \
+  --printPathWarnings \
+  --printMemoryUsage
+
+# Or use the npm script
+npm run build
 ```
 
 The generated static site in `public/` is deployed to Cloudflare Workers via Wrangler:
