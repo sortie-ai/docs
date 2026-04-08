@@ -1,0 +1,31 @@
+{{- with .Params.keywords -}}
+<meta name="keywords" content="{{ if reflect.IsSlice . }}{{ range $i, $k := . }}{{ if $i }}, {{ end }}{{ $k | strings.TrimRight "," }}{{ end }}{{ else }}{{ . }}{{ end }}" />
+{{- end -}}
+{{- with .Params.author -}}
+<meta name="author" content="{{ . }}" />
+{{- else -}}
+<meta name="author" content="Sortie AI" />
+{{- end -}}
+
+{{- /* cookieconsent library from CDN */ -}}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orestbida/cookieconsent@3.1.0/dist/cookieconsent.css" />
+<script defer src="https://cdn.jsdelivr.net/gh/orestbida/cookieconsent@3.1.0/dist/cookieconsent.umd.js"></script>
+
+{{- /* cookieconsent local override styles */ -}}
+<link rel="stylesheet" href="/css/cookieconsent.css" />
+
+{{- /* custom site styles (typography, mermaid, logo switching) */ -}}
+<link rel="stylesheet" href="/css/custom.css" />
+
+{{- /* GA4 analytics with Consent Mode v2 — loads gtag.js dynamically */ -}}
+<script src="/js/analytics.js"></script>
+
+{{- /* cookie consent configuration — must run after cookieconsent.umd.js */ -}}
+<script defer src="/js/cookieconsent-config.js"></script>
+
+{{- /* page feedback widget */ -}}
+<script defer src="/js/feedback.js"></script>
+
+{{- /* mermaid CDN + theme-aware initialization */ -}}
+<script defer src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script defer src="/js/mermaid-init.js"></script>

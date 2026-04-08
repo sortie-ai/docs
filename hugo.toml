@@ -1,0 +1,107 @@
+baseURL = "https://docs.sortie-ai.com/"
+title = "Sortie"
+languageCode = "en-us"
+defaultContentLanguage = "en"
+theme = "hextra"
+
+# Hugo outputs public/ which becomes the Cloudflare Pages deploy directory.
+publishDir = "public"
+
+# enableGitInfo replaces git-revision-date-localized MkDocs plugin.
+# Requires the build environment to have full Git history (not a shallow clone).
+enableGitInfo = true
+
+# Enable inline HTML in Markdown (needed for existing content with raw HTML).
+[markup]
+[markup.goldmark]
+[markup.goldmark.renderer]
+unsafe = true
+[markup.goldmark.extensions]
+[markup.goldmark.extensions.passthrough]
+enable = true
+[markup.goldmark.extensions.passthrough.delimiters]
+block = [['\[', '\]'], ['$$', '$$']]
+inline = [['\(', '\)']]
+[markup.highlight]
+noClasses = false
+lineNos = false
+style = "github"
+
+# Summaries for section index pages.
+summaryLength = 70
+
+# Front matter date resolution order.
+# .Date / .PublishDate → from 'date' front matter (git creation date, populated during migration).
+# .Lastmod → from git author date of last commit, fallback to 'lastmod' front matter.
+[frontmatter]
+date = ['date', ':default']
+lastmod = [':git', 'lastmod', ':default']
+publishDate = ['date', ':default']
+
+[params]
+description = "Autonomous coding agent orchestrator. Turns issue tracker tickets into agent sessions."
+
+# Global KaTeX support (replaces pymdownx.arithmatex).
+# params.math must be a table, not a bool — Hextra accesses params.math.engine.
+[params.math]
+engine = "katex"
+
+# Hextra display settings.
+[params.theme]
+default = "system"
+displayToggle = true
+
+# Repository link for "Edit this page" functionality.
+[params.editURL]
+enable = false
+
+# Navbar logo configuration.
+[params.navbar]
+displayTitle = true
+displayLogo = true
+[params.navbar.logo]
+path = "img/logo-light.png"
+dark = "img/logo-dark.png"
+width = 120
+height = 32
+link = "/"
+
+# Sidebar configuration.
+[params.sidebar]
+hide = false
+
+# Footer.
+[params.footer]
+enable = true
+displayCopyright = false
+displayPoweredBy = false
+
+# Search (Hextra's built-in FlexSearch).
+[params.search]
+enable = true
+type = "flexsearch"
+
+# Page width.
+[params.page]
+width = "normal"
+
+[menu]
+[[menu.main]]
+name = "Docs"
+pageRef = "/getting-started/installation"
+weight = 1
+[[menu.main]]
+name = "GitHub"
+url = "https://github.com/sortie-ai/sortie"
+weight = 5
+[menu.main.params]
+icon = "github"
+[[menu.main]]
+name = "Search"
+weight = 10
+[menu.main.params]
+type = "search"
+
+[module]
+# Hextra is installed as a git submodule at themes/hextra/.
+# No Hugo module imports needed when using the submodule approach.
