@@ -24,7 +24,7 @@ For a full overview, see the [product documentation](https://docs.sortie-ai.com)
 | Component | Details |
 |---|---|
 | **Static site generator** | [Hugo](https://gohugo.io/) ≥ 0.146.0 (extended) |
-| **Theme** | [Hextra](https://imfing.github.io/hextra/) (Tailwind CSS, FlexSearch) |
+| **Theme** | [Hextra](https://imfing.github.io/hextra/) v0.12.1 (Tailwind CSS, FlexSearch) |
 | **Markdown renderer** | Goldmark with KaTeX math support |
 | **Deployment** | [Cloudflare Workers](https://developers.cloudflare.com/workers/) (static assets via Wrangler) |
 | **Analytics** | Google Analytics GA4 with GDPR-compliant cookie consent |
@@ -32,15 +32,16 @@ For a full overview, see the [product documentation](https://docs.sortie-ai.com)
 ## Prerequisites
 
 - [Hugo](https://gohugo.io/installation/) ≥ 0.146.0 **extended** version
+- [Go](https://go.dev/dl/) ≥ 1.20 — required by Hugo Modules (theme dependency management)
 - [Git](https://git-scm.com/) — required for `enableGitInfo` (last-modified dates)
 - [Node.js](https://nodejs.org/) — required for Wrangler deployment
 
 ## Local Development
 
-Clone the repository (including the Hextra theme submodule) and start the dev server:
+Clone the repository and start the dev server. Hugo automatically downloads the Hextra theme on first run:
 
 ```bash
-git clone --recurse-submodules https://github.com/sortie-ai/sortie-docs.git
+git clone https://github.com/sortie-ai/sortie-docs.git
 cd sortie-docs
 
 hugo server   # dev server at http://localhost:1313
@@ -78,7 +79,8 @@ sortie-docs/
 │   ├── js/                      # Custom JS (feedback widget, cookie consent)
 │   ├── _headers                 # Cloudflare response headers
 │   └── _redirects               # URL redirects
-├── themes/hextra/               # Hextra theme (git submodule)
+├── go.mod                       # Hugo module — pins Hextra theme version
+├── go.sum                       # Module checksums
 ├── hugo.toml                    # Hugo configuration
 ├── wrangler.toml                # Cloudflare Workers deployment config
 └── package.json                 # Node.js deps (Wrangler)
