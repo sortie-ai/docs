@@ -1,8 +1,8 @@
 ---
 title: CLI Reference
 linkTitle: "CLI Usage"
-description: Complete reference for the sortie command-line interface. Synopsis, subcommands, flags, dry-run mode, MCP server, arguments, exit codes, signals, startup sequence, logging format, and version injection.
-keywords: sortie CLI, command line, subcommands, validate, mcp-server, dry-run, flags, arguments, exit codes, signals, graceful shutdown, logging, log-format, json logs, version, MCP
+description: Complete reference for the sortie command-line interface. Synopsis, subcommands, flags, short aliases (-h, -V), dry-run mode, MCP server, arguments, exit codes, signals, startup sequence, logging format, and version injection.
+keywords: sortie CLI, command line, subcommands, validate, mcp-server, dry-run, flags, short aliases, -h, -V, arguments, exit codes, signals, graceful shutdown, logging, log-format, json logs, version, MCP
 author: Sortie AI
 date: 2026-03-24
 weight: 10
@@ -12,11 +12,14 @@ url: /reference/cli/
 
 ```
 sortie [flags] [workflow-path]
+sortie <command> [flags]
 sortie --dry-run [--log-level level] [workflow-path]
 sortie --log-format json [flags] [workflow-path]
 sortie --env-file path [flags] [workflow-path]
 sortie validate [--format text|json] [workflow-path]
 sortie mcp-server --workflow <path>
+sortie -h | --help
+sortie -V | --version
 ```
 
 Without a subcommand, Sortie runs as a long-lived process. It loads the [workflow file](/reference/workflow-config/), opens the SQLite database, validates configuration, and enters the poll-dispatch-reconcile event loop. The process blocks until terminated by a signal.
@@ -43,14 +46,15 @@ sortie: too many arguments
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
+| `-h`, `--help` | boolean | `false` | Print the help message and exit. |
+| `-V`, `--version` | boolean | `false` | Print the version banner with copyright notice, then exit. |
+| `-dumpversion` | boolean | `false` | Print the bare version string (e.g., `1.5.0`), then exit. |
 | `--dry-run` | boolean | `false` | Run one poll cycle without spawning agents or writing to the database, then exit. |
 | `--env-file` | string | _(empty)_ | Path to a `.env` file containing `SORTIE_*` overrides. See [environment variables reference](/reference/environment/#env-file-support). |
 | `--log-format` | string | `text` | Log output format. Accepted values: `text`, `json`. |
 | `--log-level` | string | `info` | Log verbosity. Accepted values: `debug`, `info`, `warn`, `error`. |
 | `--port` | integer | `7678` | HTTP server listen port. `0` disables the server. |
 | `--host` | string | `127.0.0.1` | HTTP server bind address. Must be a parseable IP address. |
-| `--version` | boolean | `false` | Print the version banner with copyright notice, then exit. |
-| `-dumpversion` | boolean | `false` | Print the bare version string (e.g., `1.3.0`), then exit. |
 
 ### `--dry-run`
 
@@ -60,7 +64,7 @@ This fills the gap between `sortie validate` (offline config checks) and a full 
 
 The `--dry-run` flag suppresses server startup regardless of port or host settings.
 
-`--version` and `-dumpversion` take precedence over `--dry-run` when both are provided.
+`--version` (or `-V`) and `-dumpversion` take precedence over `--dry-run` when both are provided.
 
 The startup sequence through preflight validation is identical to a normal run. The dry-run branch diverges after tracker adapter construction — see [startup sequence](#startup-sequence) step 7.
 
@@ -117,13 +121,13 @@ Sets the log output format. Accepted values (case-insensitive): `text`, `json`. 
 When `text` is active (the default), Sortie emits structured `key=value` lines via `slog.TextHandler`:
 
 ```
-time=2026-04-07T14:30:00.000+00:00 level=INFO msg="sortie starting" version=1.3.0
+time=2026-04-07T14:30:00.000+00:00 level=INFO msg="sortie starting" version=1.5.0
 ```
 
 When `json` is active, each log line is a single JSON object via `slog.JSONHandler`:
 
 ```json
-{"time":"2026-04-07T14:30:00.000Z","level":"INFO","msg":"sortie starting","version":"1.3.0"}
+{"time":"2026-04-07T14:30:00.000Z","level":"INFO","msg":"sortie starting","version":"1.5.0"}
 ```
 
 JSON format is intended for containerized and cloud-native deployments where log aggregation systems (Loki, Datadog, CloudWatch, ELK) expect newline-delimited JSON on stdout/stderr.
@@ -180,12 +184,22 @@ Must be a parseable IP address. DNS hostnames are not accepted. Container deploy
 
 Overrides `server.host` from the WORKFLOW.md [`server` extension](/reference/workflow-config/). Requires a restart to take effect.
 
-### `--version`
+### `-h`, `--help`
 
-Prints the full version banner to stdout and exits with code `0`:
+Prints the help message to stdout and exits with code `0`. The short form `-h` is an alias for `--help`.
+
+Help output is organized into sections: commands, informational flags, run options, examples, and a "Learn more" link. Subcommands have their own help text: `sortie validate -h` and `sortie mcp-server -h` print subcommand-specific help.
+
+Help is printed to **stdout**, not stderr. This follows GNU convention — help is useful content, not error diagnostics. Piping works as expected: `sortie -h | less`.
+
+The Go `flag` package also recognizes `-help` (single-dash long form) and treats it identically to `--help`.
+
+### `-V`, `--version`
+
+Prints the full version banner to stdout and exits with code `0`. The short form `-V` is an alias for `--version`.
 
 ```
-sortie 1.3.0
+sortie 1.5.0
 Copyright (C) 2026 Serghei Iakovlev <oss@serghei.pl>
 
 This is free software; see the source for copying conditions.  There is NO
@@ -199,12 +213,12 @@ Skips workflow loading, configuration validation, and database initialization. I
 Prints the version string alone to stdout and exits with code `0`:
 
 ```
-1.3.0
+1.5.0
 ```
 
 Uses single-dash prefix (GCC convention). Designed for scripts and programmatic version checks.
 
-Takes precedence over `--version` when both are provided.
+Takes precedence over `--version` when both are provided. `-V` is intercepted before flag parsing, so if both `-V` and `-dumpversion` appear, `-V` wins.
 
 ---
 
@@ -275,6 +289,7 @@ One positional argument is accepted. Two or more produce an error.
 | Flag | Type | Default | Description |
 |---|---|---|---|
 | `--format` | string | `text` | Output format: `text` or `json`. |
+| `-h`, `--help` | boolean | `false` | Print the validate help message and exit. |
 
 Invalid `--format` values produce an error and exit `1`.
 
@@ -334,7 +349,7 @@ The `errors` and `warnings` arrays are always present (never `null`). `valid` is
 
 | Code | Meaning |
 |---|---|
-| `0` | Workflow is valid (warnings may be present), or `--help` was requested. |
+| `0` | Workflow is valid (warnings may be present), or `-h`/`--help` was requested. |
 | `1` | One or more errors, invalid flag, or too many arguments. |
 
 #### Diagnostic check values
@@ -406,8 +421,9 @@ The subcommand loads the workflow file, constructs the tracker adapter from its 
 | Flag | Type | Default | Description |
 |---|---|---|---|
 | `--workflow` | string | _(none)_ | Absolute path to the WORKFLOW.md file. Required. |
+| `-h`, `--help` | boolean | `false` | Print the mcp-server help message and exit. |
 
-No other flags. All behavior derives from the workflow file and environment variables.
+No other flags beyond `--workflow` and `-h`/`--help`. All behavior derives from the workflow file and environment variables.
 
 #### Startup sequence
 
@@ -453,16 +469,16 @@ No explicit shutdown handshake. The server's lifetime is bound to the agent runt
 
 | Code | Meaning |
 |---|---|
-| `0` | Clean shutdown (stdin closed or signal received), or `--help` requested. |
+| `0` | Clean shutdown (stdin closed or signal received), or `-h`/`--help` requested. |
 | `1` | Startup failure: missing `--workflow`, unreadable workflow file, invalid config, tracker adapter construction failure, or a server error during operation. |
 
 ---
 
 ## Startup sequence
 
-When no version flag is present, Sortie executes these steps in order:
+When no version or help flag is present, Sortie executes these steps in order:
 
-1. **Parse flags.** Unknown flags exit with code `1` and print usage to stderr. `--env-file` path (when provided) is stored for later use.
+1. **Intercept short flags and parse.** Short aliases (`-h`, `-V`) are intercepted before subcommand dispatch or flag parsing, because the Go `flag` package does not recognize single-dash aliases for long flags. If `-h` is found, help is printed to stdout and the process exits `0`. If `-V` is found, the version banner is printed to stdout and the process exits `0`. Subcommand tokens (`validate`, `mcp-server`) and the POSIX `--` terminator stop the scan — `-h` after a subcommand is handled by the subcommand itself. After interception, remaining flags are parsed normally. Unknown flags exit with code `1` and print a one-line error to stderr (the full help text is not printed on errors). `--env-file` path (when provided) is stored for later use.
 2. **Resolve workflow path.** Relative paths resolve to absolute against the working directory.
 3. **Initialize logging.** Structured output to stderr. Uses `--log-level` and `--log-format` flags when set; otherwise defaults to `INFO` level with `text` format for the duration of startup.
 4. **Load and watch workflow file.** Start a filesystem watcher for dynamic config reload. During config parsing, [`SORTIE_*` overrides](/reference/environment/#configuration-overrides) are applied — including `.env` file loading when enabled.
@@ -488,7 +504,7 @@ Any step that fails prints a diagnostic to stderr and exits with code `1`.
 
 | Code | Meaning |
 |---|---|
-| `0` | Clean shutdown (signal received), version output (`--version`, `-dumpversion`), successful `validate`, successful `--dry-run`, or clean `mcp-server` shutdown. |
+| `0` | Clean shutdown (signal received), help output (`-h`, `--help`), version output (`-V`, `--version`, `-dumpversion`), successful `validate`, successful `--dry-run`, or clean `mcp-server` shutdown. |
 | `1` | Startup failure: unknown flag, too many arguments, missing or unreadable workflow file, invalid configuration, preflight validation failure, or database open/migration error. Also used by `validate` for any validation failure, by `--dry-run` when the tracker fetch fails, and by `mcp-server` for startup or runtime errors. |
 
 Sortie does not define exit codes above `1`. Agent subprocess failures, tracker errors, and runtime exceptions are handled internally through the retry and reconciliation mechanisms — they do not affect the process exit code.
@@ -523,7 +539,7 @@ A second signal during drain is not intercepted — the OS terminates the proces
 All log output goes to **stderr**. The default format is structured `key=value` text:
 
 ```
-time=2026-03-26T14:30:01.271+00:00 level=INFO msg="sortie starting" version=1.3.0 workflow_path=/opt/sortie/WORKFLOW.md port=8080
+time=2026-03-26T14:30:01.271+00:00 level=INFO msg="sortie starting" version=1.5.0 workflow_path=/opt/sortie/WORKFLOW.md port=8080
 time=2026-03-26T14:30:01.298+00:00 level=INFO msg="database path resolved" db_path=/opt/sortie/.sortie.db
 time=2026-03-26T14:30:01.304+00:00 level=INFO msg="sortie started"
 time=2026-03-26T14:30:01.305+00:00 level=INFO msg="http server listening" addr=127.0.0.1:8080
@@ -532,7 +548,7 @@ time=2026-03-26T14:30:01.305+00:00 level=INFO msg="http server listening" addr=1
 When `--log-format json` is active (or `logging.format: json` in the workflow file), each line is a JSON object:
 
 ```json
-{"time":"2026-03-26T14:30:01.271+00:00","level":"INFO","msg":"sortie starting","version":"1.3.0","workflow_path":"/opt/sortie/WORKFLOW.md","port":8080}
+{"time":"2026-03-26T14:30:01.271+00:00","level":"INFO","msg":"sortie starting","version":"1.5.0","workflow_path":"/opt/sortie/WORKFLOW.md","port":8080}
 {"time":"2026-03-26T14:30:01.298+00:00","level":"INFO","msg":"database path resolved","db_path":"/opt/sortie/.sortie.db"}
 {"time":"2026-03-26T14:30:01.304+00:00","level":"INFO","msg":"sortie started"}
 {"time":"2026-03-26T14:30:01.305+00:00","level":"INFO","msg":"http server listening","addr":"127.0.0.1:8080"}
@@ -560,7 +576,7 @@ Different log lines carry different context fields depending on scope:
 | `tool`, `duration_ms`, `result` | Tool call completions |
 | `addr` | HTTP server start |
 
-Stdout is used for version output (`--version`, `-dumpversion`), `validate --format json` diagnostics, and `mcp-server` JSON-RPC responses. All other output goes to stderr.
+Stdout is used for help output (`-h`, `--help`), version output (`-V`, `--version`, `-dumpversion`), `validate --format json` diagnostics, and `mcp-server` JSON-RPC responses. All other output goes to stderr.
 
 ---
 
@@ -569,7 +585,7 @@ Stdout is used for version output (`--version`, `-dumpversion`), `validate --for
 The `Version` variable defaults to `dev` when running from source. Release builds inject the version at compile time via linker flags:
 
 ```sh
-go build -ldflags "-s -w -X main.Version=1.3.0" -o sortie ./cmd/sortie
+go build -ldflags "-s -w -X main.Version=1.5.0" -o sortie ./cmd/sortie
 ```
 
 The Makefile sets this automatically from `git describe --tags`:
@@ -651,6 +667,14 @@ sortie --env-file /etc/sortie/prod.env --port 8080 /opt/sortie/WORKFLOW.md
 
 # Help text
 sortie --help
+sortie -h
+
+# Short version alias
+sortie -V
+
+# Subcommand help
+sortie validate -h
+sortie mcp-server --help
 
 # Start MCP stdio server (launched by agent runtime, not run manually)
 sortie mcp-server --workflow /opt/sortie/WORKFLOW.md
