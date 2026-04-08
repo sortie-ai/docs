@@ -6,9 +6,6 @@ author: Sortie AI
 date: 2026-03-29
 weight: 10
 ---
-
-# How Sortie is designed and why
-
 Sortie orchestrates autonomous coding agents against issue trackers. This document explains the design decisions behind it — what trade-offs were made, what alternatives were rejected, and why the system works the way it does. If you're evaluating Sortie for your team or planning to contribute, this is where you build the mental model.
 
 ## One binary, zero dependencies

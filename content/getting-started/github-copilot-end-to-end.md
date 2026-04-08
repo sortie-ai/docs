@@ -1,14 +1,12 @@
 ---
 title: "Run the Full Cycle with Copilot CLI"
+linkTitle: "GitHub + Copilot End-to-End"
 description: "Tutorial: connect Sortie to GitHub Issues and Copilot CLI, clone a repo, let the agent write code, push to a branch, and watch the issue transition to Done."
 keywords: sortie tutorial, copilot cli, end to end, github issues, workspace hooks, git push, autonomous coding agent, agent session, github native
 author: Sortie AI
 date: 2026-03-31
 weight: 60
 ---
-
-# Run the full cycle with Copilot CLI
-
 In this tutorial, we will wire Sortie to GitHub Issues and the Copilot CLI, clone a repository, let the agent write and commit code, push the result to a branch, and transition the issue to Done. The entire stack is GitHub-native. No Jira, no Claude Code, no Anthropic API key.
 
 The GitHub integration tutorial proved that Sortie can talk to your issue tracker. This tutorial adds three new pieces: a real agent (Copilot CLI), workspace hooks for git operations, and a prompt template that guides the agent through the task.

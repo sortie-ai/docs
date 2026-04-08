@@ -60,10 +60,10 @@ enable = false
 displayTitle = true
 displayLogo = true
 [params.navbar.logo]
-path = "img/logo-light.png"
-dark = "img/logo-dark.png"
-width = 120
-height = 32
+path = "img/logo-dark.png"
+dark = "img/logo-light.png"
+width = 20
+height = 20
 link = "/"
 
 # Sidebar configuration.
@@ -86,16 +86,6 @@ type = "flexsearch"
 width = "normal"
 
 [menu]
-[[menu.main]]
-name = "Docs"
-pageRef = "/getting-started/installation"
-weight = 1
-[[menu.main]]
-name = "GitHub"
-url = "https://github.com/sortie-ai/sortie"
-weight = 5
-[menu.main.params]
-icon = "github"
 [[menu.main]]
 name = "Search"
 weight = 10

@@ -1,14 +1,12 @@
 ---
 title: Run the Full Cycle with Claude Code
+linkTitle: "Jira + Claude End-to-End"
 description: "Tutorial: connect Sortie to Jira and Claude Code, clone a repo, let the agent write code, push to a branch, and watch the issue move to Done."
 keywords: sortie tutorial, claude code, end to end, jira, workspace hooks, git push, autonomous coding agent, agent session
 author: Sortie AI
 date: 2026-03-23
 weight: 50
 ---
-
-# Run the full cycle with Claude Code
-
 In this tutorial, we will wire Sortie to a real coding agent. By the end, you will have watched Sortie pick up a Jira issue, clone your repository, launch Claude Code, let it write and commit code, push the result to a branch, and transition the issue to Done — hands off.
 
 The Jira integration tutorial proved that Sortie can talk to your tracker. This tutorial completes the Claude Code automation setup with three new pieces: a real agent, workspace hooks for git operations, and a prompt template that guides the agent through the task.

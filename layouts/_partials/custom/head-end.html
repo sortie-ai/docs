@@ -29,3 +29,11 @@
 {{- /* mermaid CDN + theme-aware initialization */ -}}
 <script defer src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
 <script defer src="/js/mermaid-init.js"></script>
+
+{{- /* GitHub star count — lightweight fetch from public API */ -}}
+<script>
+fetch("https://api.github.com/repos/sortie-ai/sortie",{headers:{Accept:"application/vnd.github.v3+json"}})
+.then(function(r){return r.json()})
+.then(function(d){var e=document.getElementById("gh-stars");if(e&&d.stargazers_count!=null){e.textContent=d.stargazers_count>=1000?(d.stargazers_count/1000).toFixed(1)+"k":d.stargazers_count;}})
+.catch(function(){});
+</script>

@@ -3,12 +3,11 @@ title: Sortie
 description: Sortie turns issue tracker tickets into autonomous coding agent sessions.
 keywords: sortie, autonomous coding agent, orchestrator, issue tracker, AI coding, agent sessions, automation
 author: Sortie AI
+breadcrumbs: false
 type: docs
 cascade:
   type: docs
 ---
-
-# Sortie
 
 Sortie turns issue tracker tickets into autonomous coding agent sessions. Engineers manage work at the ticket level. Agents handle implementation. Single binary, zero dependencies, SQLite persistence.
 

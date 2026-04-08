@@ -6,9 +6,6 @@ author: Sortie AI
 date: 2026-03-29
 weight: 40
 ---
-
-# How Sortie dispatches, retries, and recovers
-
 Between "issue appears in your tracker" and "autonomous coding agent finishes work," a lot happens inside Sortie. This document explains the orchestration model — the design choices that determine when agents run, what happens when they fail, and how state stays consistent across restarts. You don't need this to use Sortie, but you need it to reason about Sortie under failure, tune its behavior with confidence, or contribute to its internals.
 
 ## The poll-dispatch-reconcile loop

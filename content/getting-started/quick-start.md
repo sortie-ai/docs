@@ -6,9 +6,6 @@ author: Sortie AI
 date: 2026-03-23
 weight: 20
 ---
-
-# Quick start
-
 In this tutorial, we will run Sortie — an autonomous coding agent orchestrator — end-to-end on your machine. By the end,
 you will have watched Sortie poll for issues, spin up workspaces, run mock
 agent sessions, and record the results — all without touching Jira or any
