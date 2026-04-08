@@ -55,7 +55,8 @@
   {{- $customMsg = $bannerCfg.message | default "" -}}
 {{- end -}}
 
-{{- if $latestVersion -}}
+{{- $isChangelog := eq . (.Site.GetPage "/changelog") -}}
+{{- if and $latestVersion (not $isChangelog) -}}
 <div
   id="sortie-version-banner"
   class="hextra-banner sortie-banner hx:max-md:sticky hx:top-0 hx:z-20 hx:px-6 hx:text-center hx:text-slate-50 hx:dark:text-white hx:bg-neutral-900 hx:dark:bg-neutral-800 hx:print:hidden"
