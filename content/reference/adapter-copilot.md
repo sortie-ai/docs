@@ -243,7 +243,8 @@ The adapter observes tool execution by correlating `tool.execution_start` and `t
 
 | Exit code | Condition | Error kind | Description |
 |---|---|---|---|
-| `0` | No result event | _(none)_ | Treated as success. |
+| `0` | No result event, output tokens > 0 | _(none)_ | Treated as success. Agent produced output but no result event (partial output). |
+| `0` | No result event, output tokens = 0 | `turn_failed` | Agent exited without producing output. Retryable with exponential backoff. Check WARN-level logs for stderr content. |
 | `0` | Result event with `exitCode: 0` | _(none)_ | Normal completion. |
 | `0` | Result event with `exitCode != 0` | `turn_failed` | Non-zero exit in result event despite clean process exit. |
 | `127` | — | `agent_not_found` | Binary not found on local or remote host. |

@@ -256,7 +256,8 @@ When a `tool_result` carries `is_error: true`, the adapter extracts the error te
 
 | Exit code | Error kind | Description |
 |---|---|---|
-| `0` (no result event) | _(none)_ | Treated as success. |
+| `0` (no result event, output tokens > 0) | _(none)_ | Treated as success. Agent produced output but no result event (partial output). |
+| `0` (no result event, output tokens = 0) | `turn_failed` | Agent exited without producing output. Retryable with exponential backoff. Check WARN-level logs for stderr content. |
 | `0` (result: `success`) | _(none)_ | Normal completion. |
 | `0` (result: `is_error` or subtype ≠ `success`) | `turn_failed` | Agent-reported failure despite clean exit. |
 | `127` | `agent_not_found` | Binary not found on local or remote host. |

@@ -78,7 +78,7 @@ Errors from agent adapter sessions. They appear in logs with the format `agent: 
 | `turn_timeout` | A turn exceeded the configured [`agent.turn_timeout_ms`](/reference/workflow-config/). | Yes | Exponential | Increase the timeout, or simplify the task so the agent finishes faster. |
 | `port_exit` | Agent subprocess exited unexpectedly (non-zero exit code, pipe failure, or crash). | Yes | Exponential | Check agent logs for crash details. For SSH workers, exit code `255` indicates an SSH connection failure — check connectivity and verify the host is in `worker.ssh_hosts`. |
 | `response_error` | Agent returned a protocol-level error response. | Yes | Exponential | Check agent version compatibility with Sortie. |
-| `turn_failed` | Agent turn completed with a failure status (the agent reported its own failure). | Yes | Exponential | Review the agent output in Sortie's logs for failure details. |
+| `turn_failed` | Agent turn completed with a failure status (the agent reported its own failure), or the agent exited with zero output tokens and no result event (no-output safety heuristic). | Yes | Exponential | Review the agent output in Sortie's logs for failure details. For no-output failures, check WARN-level logs for the agent's stderr content — common causes include MCP config parse errors and missing model configuration. |
 | `turn_cancelled` | Turn was cancelled (reconciliation kill, stall detection, or shutdown). | No | — | Expected during reconciliation. No action needed unless frequent outside of shutdown. |
 | `turn_input_required` | Agent requested interactive user input. | No | — | Reconfigure the agent for non-interactive mode. For Claude Code, use `--allowedTools` to pre-authorize tools. |
 

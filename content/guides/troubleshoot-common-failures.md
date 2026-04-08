@@ -58,6 +58,23 @@ Workers start and immediately crash. The actual cause — a missing `ANTHROPIC_A
 
 3. Run with `--log-level debug` to see the agent's stderr, which contains the actual auth error.
 
+## Agent exits without producing output
+
+```
+level=WARN msg="agent exited without producing output, treating as failure"
+level=ERROR msg="worker run failed, scheduling retry" error="agent: turn_failed: agent exited without producing output"
+```
+
+The agent subprocess exited with code 0 but produced zero output tokens — no LLM response was generated. Sortie treats this as `turn_failed` and retries with exponential backoff. Common causes:
+
+1. **MCP config parsing failure.** The agent failed to parse `--additional-mcp-config` or `--mcp-config` and exited silently. Check the WARN-level log lines immediately above the error — Sortie emits the agent's stderr content, which contains the parse error.
+
+2. **Missing or invalid model configuration.** The agent started but the configured model was unavailable, causing an immediate exit before any LLM work.
+
+3. **Rate limiting during initialization.** The agent hit an API rate limit before producing any output.
+
+Run with `--log-level debug` to see the full subprocess stderr. Fix the root cause (correct the config path, set the right API key, wait for rate limits to clear) and Sortie's exponential backoff retries will succeed automatically.
+
 ## Tracker returns 401 or 403
 
 ```
