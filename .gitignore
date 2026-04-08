@@ -1,6 +1,3 @@
-# MkDocs build output
-site/
-
 # Hugo build output
 public/
 resources/
@@ -9,13 +6,5 @@ resources/
 # Node.js
 node_modules/
 
-# uv / Python
-.venv/
-__pycache__/
-*.py[cod]
-
 # Local tooling (asdf) — Cloudflare uses PYTHON_VERSION env var instead
 .tool-versions
-
-# Documentation analysis reports
-REPORT.md

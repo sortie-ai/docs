@@ -1,6 +1,6 @@
 baseURL = "https://docs.sortie-ai.com/"
 title = "Sortie"
-languageCode = "en-us"
+locale = "en-US"
 defaultContentLanguage = "en"
 theme = "hextra"
 
