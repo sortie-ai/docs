@@ -15,3 +15,18 @@
 
 /img/*
   Cache-Control: public, max-age=604800
+
+# LLM-facing files — explicit Content-Type required because X-Content-Type-Options: nosniff
+# prevents Cloudflare from inferring types. These coexist with Cloudflare Markdown for Agents:
+# that feature converts HTML pages on-the-fly via Accept: text/markdown; these are static files
+# at dedicated URLs for AI agents and llms.txt consumers.
+/llms.txt
+  Content-Type: text/plain; charset=utf-8
+
+/llms-full.txt
+  Content-Type: text/plain; charset=utf-8
+
+# Per-page raw Markdown mirrors linked from /llms.txt.
+# Served as text/markdown so AI agents can distinguish them from HTML pages.
+/**/*.md
+  Content-Type: text/markdown; charset=utf-8

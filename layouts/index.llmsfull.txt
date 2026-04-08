@@ -1,0 +1,39 @@
+{{- $site := .Site -}}
+# {{ $site.Title }} — Full Documentation
+
+> {{ $site.Params.description }}
+
+Source: {{ $site.BaseURL }}llms.txt
+Generated: {{ now.Format "2006-01-02" }}
+
+This file contains the complete Sortie documentation as a single Markdown document,
+intended for use as context in AI assistants.
+
+---
+
+{{ .RawContent }}
+
+---
+{{ range $site.Sections }}{{ range .RegularPages }}
+---
+
+# {{ .Title }}
+
+*{{ .Permalink }}*
+{{ with .Params.description }}
+> {{ . }}
+{{ end }}
+{{ .RawContent }}
+{{- end }}
+{{ end -}}
+{{ range where $site.RegularPages "Section" "" }}
+---
+
+# {{ .Title }}
+
+*{{ .Permalink }}*
+{{ with .Params.description }}
+> {{ . }}
+{{ end }}
+{{ .RawContent }}
+{{- end }}
