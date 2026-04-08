@@ -2,8 +2,6 @@ baseURL = "https://docs.sortie-ai.com/"
 title = "Sortie"
 locale = "en-US"
 defaultContentLanguage = "en"
-theme = "hextra"
-
 # Hugo outputs public/ which becomes the Cloudflare Pages deploy directory.
 publishDir = "public"
 
@@ -93,8 +91,8 @@ weight = 10
 type = "search"
 
 [module]
-# Hextra is installed as a git submodule at themes/hextra/.
-# No Hugo module imports needed when using the submodule approach.
+[[module.imports]]
+path = "github.com/imfing/hextra"
 
 # --------------------------------------------------------------------------
 # llms.txt support — https://llmstxt.org/
