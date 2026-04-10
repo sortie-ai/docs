@@ -147,9 +147,9 @@ Every invocation includes `--output-format stream-json` and `--verbose`.
 
 Terminates a running subprocess. Safe to call when no subprocess is active.
 
-1. Sends `SIGTERM` to the subprocess.
+1. Sends a graceful shutdown signal to the process group (POSIX: `SIGTERM`; Windows: `CTRL_BREAK_EVENT`).
 2. Waits up to 5 seconds for the process to exit.
-3. Sends `SIGKILL` if the process has not exited.
+3. Force-terminates the process tree if still running (POSIX: `SIGKILL` to process group; Windows: `TerminateJobObject`).
 
 ### `EventStream`
 
@@ -161,7 +161,9 @@ Returns `nil`. The adapter delivers all events synchronously through the `OnEven
 
 The adapter uses `exec.Command` instead of `exec.CommandContext`. This is intentional.
 
-`exec.CommandContext` sends `SIGKILL` on context cancellation by default. `SIGKILL` is immediate and untrappable — the agent process cannot flush output buffers, close network connections, or emit final token-usage events. The adapter sends `SIGTERM` first and escalates to `SIGKILL` after 5 seconds, preserving the agent's opportunity for a clean exit.
+`exec.CommandContext` sends an immediate kill signal on context cancellation by default. The agent process cannot flush output buffers, close network connections, or emit final token-usage events. Instead, the adapter sends a graceful shutdown signal first (POSIX: `SIGTERM`; Windows: `CTRL_BREAK_EVENT` via the process group) and escalates to a force kill after 5 seconds (POSIX: `SIGKILL`; Windows: `TerminateJobObject`), preserving the agent's opportunity for a clean exit.
+
+On all platforms, the subprocess is placed in its own process group at launch. On Windows, the subprocess is additionally assigned to a Job Object with `KILL_ON_JOB_CLOSE`, so the entire process tree (including MCP servers and other children) is terminated on shutdown or if Sortie crashes.
 
 A dedicated goroutine monitors `ctx.Done()` and calls the graceful-kill sequence when the context is cancelled. This covers both orchestrator-initiated cancellation (reconciliation kill, stall detection) and shutdown signals.
 
@@ -262,14 +264,14 @@ When a `tool_result` carries `is_error: true`, the adapter extracts the error te
 | `0` (result: `is_error` or subtype ≠ `success`) | `turn_failed` | Agent-reported failure despite clean exit. |
 | `127` | `agent_not_found` | Binary not found on local or remote host. |
 | Non-zero (non-127) | `port_exit` | Unexpected subprocess exit. |
-| Signal termination | `turn_cancelled` | Process killed by signal (SIGTERM/SIGKILL). |
+| Signal termination | `turn_cancelled` | Process killed by signal (graceful or forced). |
 | Context cancelled | `turn_cancelled` | Orchestrator cancelled the turn. |
 
 ### Stdout scanner failure
 
 If the stdout scanner encounters an error (buffer overflow, broken pipe), the adapter:
 
-1. Sends a graceful-kill signal to the subprocess.
+1. Sends a graceful shutdown signal to the process group.
 2. Waits for exit.
 3. Returns a `turn_failed` result with error kind `port_exit`.
 

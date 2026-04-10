@@ -112,7 +112,7 @@ Occur when lifecycle hook scripts (`after_create`, `before_run`, `after_run`, `b
 | Operation | Meaning | Operator action |
 |---|---|---|
 | `validate` | Empty script body or invalid timeout (non-positive `hooks.timeout_ms`). | Fix your hook script or set a valid `hooks.timeout_ms`. |
-| `start` | Failed to spawn the subprocess (missing shell, permission denied). | Check that `/bin/sh` exists and is executable on the host. |
+| `start` | Failed to spawn the hook subprocess (missing shell, permission denied). | On POSIX, check that `/bin/sh` exists and is executable. On Windows, check that `cmd.exe` is available. |
 | `run` | Script exited with non-zero exit code. Hook output is captured in the log. | Read the captured output to diagnose the script failure. |
 | `timeout` | Script exceeded [`hooks.timeout_ms`](/reference/workflow-config/) or the parent context was cancelled. | Increase `hooks.timeout_ms`, or make the hook script faster. |
 

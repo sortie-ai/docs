@@ -30,7 +30,7 @@ The key insight: Sortie never holds state that only exists in memory. Retry atte
 
 ## What happens to in-flight sessions
 
-When Sortie stops — whether from `Ctrl+C`, SIGTERM, or a crash — any running agent processes receive SIGTERM, then SIGKILL after a 30-second grace period. The issues those agents were working on are left in a recoverable state:
+When Sortie stops — whether from `Ctrl+C`, a termination signal, or a crash — any running agent processes receive a graceful shutdown signal, then are force-terminated after a 30-second grace period. The issues those agents were working on are left in a recoverable state:
 
 - Their tracker status hasn't changed (still "In Progress" or whatever your active state is)
 - Their workspace directories remain on disk, untouched

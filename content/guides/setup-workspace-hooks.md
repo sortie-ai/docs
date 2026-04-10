@@ -137,7 +137,12 @@ Every hook receives these variables from the orchestrator:
 | `SORTIE_ATTEMPT` | `0` | Current attempt number (`0` on first dispatch, `1` on first retry, increments after that) |
 | `SORTIE_SSH_HOST` | `build-07` | SSH host allocated for this issue. **Present only when SSH mode is active** ([scale agents with SSH](/guides/scale-agents-with-ssh/)). Absent in local mode. |
 
-Hooks run in a restricted environment. Only `PATH`, `HOME`, `SHELL`, `TMPDIR`, and variables prefixed with `SORTIE_` are available. Secrets like `JIRA_API_TOKEN` are stripped. If a hook needs additional credentials, expose them under a `SORTIE_` prefix in the Sortie process environment (for example, `SORTIE_DEPLOY_KEY`) or load them from a file inside the script.
+Hooks run in a restricted environment. Only a small set of system variables and variables prefixed with `SORTIE_` are available. Secrets like `JIRA_API_TOKEN` are stripped. The allowed system variables differ by platform:
+
+- **POSIX (Linux, macOS):** `PATH`, `HOME`, `SHELL`, `TMPDIR`, `USER`, `LOGNAME`, `TERM`, `LANG`, `LC_ALL`, `SSH_AUTH_SOCK`
+- **Windows:** `PATH`, `SYSTEMROOT`, `COMSPEC`, `PATHEXT`, `USERPROFILE`, `TEMP`, `TMP`, `APPDATA`, `LOCALAPPDATA`, `HOMEDRIVE`, `HOMEPATH`, `USERNAME`
+
+On POSIX systems, hooks execute via `sh -c`. On Windows, hooks execute via `cmd.exe /C`. If a hook needs additional credentials, expose them under a `SORTIE_` prefix in the Sortie process environment (for example, `SORTIE_DEPLOY_KEY`) or load them from a file inside the script.
 
 ## Set a timeout
 
