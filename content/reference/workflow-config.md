@@ -2,7 +2,7 @@
 title: Workflow Configuration
 linkTitle: "Workflow File"
 description: Complete reference for every WORKFLOW.md configuration field. Tracker, polling, workspace, hooks, agent, database, prompt template, server, logging, and SSH worker.
-keywords: sortie configuration, WORKFLOW.md, YAML, tracker, agent, ci_feedback, hooks, workspace, server, worker, SSH, config reference
+keywords: sortie configuration, WORKFLOW.md, YAML, tracker, agent, ci_feedback, self_review, reactions, review_comments, hooks, workspace, server, worker, SSH, config reference
 author: Sortie AI
 date: 2026-03-23
 weight: 20
@@ -86,6 +86,28 @@ ci_feedback:
   max_log_lines: 50                   # Log lines from failing check; 0 = off
   escalation: label                   # "label" or "comment"
   escalation_label: needs-human       # Label for escalation
+
+# --- Reactions (post-PR feedback loops) ---------------------------
+reactions:
+  review_comments:
+    provider: github                      # SCM adapter for review polling
+    max_retries: 2                        # review-fix turns before escalation
+    escalation: label                     # "label" or "comment"
+    escalation_label: needs-human         # label on escalation
+    poll_interval_ms: 120000              # 2 min poll interval
+    debounce_ms: 60000                    # 60s debounce window
+    max_continuation_turns: 3             # hard cap per PR
+
+# --- Self-Review --------------------------------------------------
+self_review:
+  enabled: true                           # default false; opt-in
+  max_iterations: 3                        # review iteration cap
+  verification_commands:                   # required when enabled
+    - "go test ./..."
+    - "go vet ./..."
+  verification_timeout_ms: 120000          # per-command timeout
+  max_diff_bytes: 102400                   # diff truncation limit
+  reviewer: "same"                         # only "same" in v1
 
 # --- Claude Code adapter (pass-through) ------------------------------
 claude-code:
@@ -272,7 +294,7 @@ workspace:
 
 ## `hooks`
 
-Shell scripts that run at workspace lifecycle points. Each hook executes via `sh -c` in the per-issue workspace directory. The shell is POSIX `sh`, not `bash`.
+Shell scripts that run at workspace lifecycle points. On POSIX systems, each hook executes via `sh -c` (not `bash`). On Windows, hooks execute via `cmd.exe /C`. The working directory is always the per-issue workspace directory.
 
 | Field           | Type         | Default  | Description                                            |
 | --------------- | ------------ | -------- | ------------------------------------------------------ |
@@ -302,6 +324,8 @@ Timeouts count as failures and follow the same semantics.
 | `SORTIE_WORKSPACE`        | Absolute path to the workspace directory.     |
 | `SORTIE_ATTEMPT`          | Current attempt number (integer).             |
 | `SORTIE_SSH_HOST`         | Target SSH host for the current session. Present only when [SSH worker mode](#worker) is active. |
+| `SORTIE_SELF_REVIEW_STATUS` | Self-review outcome: `"disabled"`, `"passed"`, `"cap_reached"`, `"error"`. Set on `after_run`. |
+| `SORTIE_SELF_REVIEW_SUMMARY_PATH` | Absolute path to `.sortie/review_summary.md`. Absent when self-review did not run. |
 
 ### Restricted environment
 
@@ -416,6 +440,115 @@ ci_feedback:
 ```
 
 For operational guidance on CI feedback setup, hook scripts that produce `.sortie/scm.json`, and prompt template examples with `{{ .ci_failure }}`, see [how to configure CI feedback](/guides/configure-ci-feedback/).
+
+---
+
+## `self_review`
+
+Self-review configuration. When enabled, Sortie runs an orchestrator-controlled review loop between the coding turn loop and worker exit. The orchestrator generates a workspace diff, runs verification commands, and feeds structured results to the agent for bounded iteration. Self-review is opt-in and adds zero overhead when disabled.
+
+| Field                      | Type            | Default    | Description                                                                                                |
+| -------------------------- | --------------- | ---------- | ---------------------------------------------------------------------------------------------------------- |
+| `enabled`                  | boolean         | `false`    | Activates the self-review loop. When false or absent, no review phase runs.                                |
+| `max_iterations`           | integer         | `3`        | Hard cap on review iterations. Range: 1–10. Each iteration includes a review turn and (if verdict is “iterate”) a fix turn. |
+| `verification_commands`    | list of strings | _(none)_   | Shell commands to run during each review iteration. Required and non-empty when `enabled: true`.           |
+| `verification_timeout_ms`  | integer         | `120000`   | Per-command timeout in milliseconds. Timed-out commands are killed via process group signal.                |
+| `max_diff_bytes`           | integer         | `102400`   | Maximum bytes of diff included in the review prompt. Larger diffs are truncated with a note.                |
+| `reviewer`                 | string          | `"same"`   | Which agent runs the review turns. Only `"same"` (reuse existing session) is supported in v1.               |
+
+`enabled: true` with empty or absent `verification_commands` produces a `ConfigError`. `max_iterations` outside [1, 10] produces a `ConfigError`. `reviewer` values other than `"same"` produce a `ConfigError`. All integer fields accept quoted string integers (e.g., `"3"`) following the same coercion rules as other integer config fields.
+
+> [!NOTE]
+> Environment variable overrides for `self_review` fields are not supported. Verification commands are security-sensitive privileged configuration that must come from the version-controlled WORKFLOW.md. All `self_review` values must be set in WORKFLOW.md.
+
+### Turn accounting
+
+Each iteration runs one review turn. Non-final iterations that produce an “iterate” verdict also run a fix turn. `max_iterations: N` means up to `2N − 1` additional agent turns in the worst case (N review turns + N−1 fix turns). For the default `max_iterations: 3`, this is up to **5 additional agent turns**. Factor this into token budget and wall-clock time expectations.
+
+### Dynamic reload
+
+`self_review` fields take effect on future dispatches. A running worker uses the config snapshot captured at the start of the review phase. Changing `enabled` to `false` via dynamic reload stops future workers from entering review but does not interrupt a currently-running review loop.
+
+**Minimal:**
+
+```yaml
+self_review:
+  enabled: true
+  verification_commands:
+    - "go test ./..."
+```
+
+**Full:**
+
+```yaml
+self_review:
+  enabled: true                     # default false; opt-in
+  max_iterations: 3                  # default 3; range [1, 10]
+  verification_commands:             # required when enabled
+    - "go test ./..."
+    - "go vet ./..."
+    - "golangci-lint run"
+  verification_timeout_ms: 120000    # default 2 min per command
+  max_diff_bytes: 102400             # default 100 KB
+  reviewer: "same"                   # only "same" in v1
+```
+
+For operational guidance on setting up self-review, choosing verification commands, and verifying the loop, see [how to configure self-review](/guides/configure-self-review/).
+
+---
+
+## `reactions`
+
+The `reactions` block configures post-PR feedback loops. Each key is a reaction kind (e.g. `review_comments`) with its own provider, retry budget, and escalation policy. Reactions are opt-in: omit the block entirely to disable all reaction types.
+
+### `reactions.review_comments`
+
+Polls `CHANGES_REQUESTED` review comments on Sortie-created PRs and dispatches continuation turns so the agent can address reviewer feedback. Requires `provider` to be set. Only human reviewer comments are processed; bot and automated comments are filtered by author type.
+
+| Field                    | Type    | Default        | Description                                                                                          |
+| ------------------------ | ------- | -------------- | ---------------------------------------------------------------------------------------------------- |
+| `provider`               | string  | _(required)_   | SCM adapter kind (e.g. `"github"`). Must match a registered SCM adapter.                           |
+| `max_retries`            | integer | `2`            | Maximum review-fix continuation turns before escalation. Non-negative.                               |
+| `escalation`             | string  | `"label"`     | Action on retry exhaustion: `"label"` or `"comment"`.                                            |
+| `escalation_label`       | string  | `"needs-human"` | Label applied when `escalation` is `"label"`.                                                    |
+| `poll_interval_ms`       | integer | `120000`       | Minimum interval between review API polls per issue. Minimum: `30000`.                               |
+| `debounce_ms`            | integer | `60000`        | Wait time after last detected comment before dispatch. Non-negative.                                 |
+| `max_continuation_turns` | integer | `3`            | Hard cap on review-triggered continuations per PR. Positive integer.                                 |
+
+`provider` is required when `reactions.review_comments` is present; omitting it does not produce an error, but review polling is inactive without a provider. `max_retries` must be non-negative. `escalation` must be `"label"` or `"comment"`; other values produce a configuration error. `poll_interval_ms` has a minimum of `30000`; values below are rejected. `max_continuation_turns` must be positive.
+
+Review feedback requires `.sortie/scm.json` in the workspace to contain `pr_number` (integer > 0), `owner`, and `repo` fields. The agent or `after_run` hook writes these. When any field is missing or zero, review polling is skipped for that workspace. No error is logged; the feature degrades silently.
+
+> [!NOTE]
+> Environment variable overrides for `reactions` fields are not supported. Reaction configuration must come from WORKFLOW.md.
+
+`reactions.review_comments` fields take effect on future dispatches. A currently polling reaction uses the config snapshot from the most recent reconcile tick. Adding or removing the `reactions.review_comments` block via dynamic reload activates or deactivates review polling on the next tick.
+
+**Minimal:**
+
+```yaml
+reactions:
+  review_comments:
+    provider: github
+```
+
+**Full:**
+
+```yaml
+reactions:
+  review_comments:
+    provider: github                    # required; registered SCM adapter
+    max_retries: 2                      # continuation turns before escalation
+    escalation: label                   # "label" or "comment"
+    escalation_label: needs-human       # label applied on escalation
+    poll_interval_ms: 120000            # 2 min between API polls
+    debounce_ms: 60000                  # 60s debounce after last comment
+    max_continuation_turns: 3           # hard cap per PR
+```
+
+When a review-fix continuation dispatches, the prompt receives a `review_comments` template variable: a list of maps with keys `id`, `file`, `start_line`, `end_line`, `reviewer`, `body`. Templates should guard with `{{ if .review_comments }}`. See the [`.review_comments`](#review_comments) template variable reference below for the full schema, and [how to write a prompt template](/guides/write-prompt-template/) for syntax.
+
+For operational guidance on setting up review feedback, see [how to configure PR review feedback](/guides/configure-review-feedback/).
 
 ---
 
@@ -586,7 +719,7 @@ worker:
 
 The markdown body after the closing `---` is a Go `text/template` rendered per issue. The template engine runs in strict mode (`missingkey=error`): referencing an undefined variable or function fails rendering immediately.
 
-The template receives four top-level variables: `.issue`, `.attempt`, `.run`, and `.ci_failure`.
+The template receives five top-level variables: `.issue`, `.attempt`, `.run`, `.ci_failure`, and `.review_comments`.
 
 ### `.issue`
 
@@ -637,16 +770,45 @@ Available only on the first turn of a CI-fix continuation dispatch. `nil` on nor
 | `.ci_failure.failing_count` | integer      | Number of checks with a failure conclusion.                                                       |
 | `.ci_failure.ref`        | string          | The git ref (branch or SHA) that was checked.                                                     |
 
+### `.review_comments`
+
+Available only on the first turn of a review-fix continuation dispatch. `nil` on normal dispatches and non-review retries.
+
+A list of maps, one per actionable review comment. Outdated comments (referring to code modified by a subsequent push) are excluded.
+
+| Field              | Type    | Description                                                                                     |
+| ------------------ | ------- | ----------------------------------------------------------------------------------------------- |
+| `.id`              | string  | SCM-platform comment identifier.                                                                |
+| `.file`            | string  | File path the comment is attached to. Empty for PR-level (non-inline) review comments.          |
+| `.start_line`      | integer | First line of the commented range. `0` when the comment is not attached to a specific line.     |
+| `.end_line`        | integer | Last line of the commented range. `0` for single-line or non-inline comments.                   |
+| `.reviewer`        | string  | Username of the comment author.                                                                 |
+| `.body`            | string  | Comment text.                                                                                   |
+
+```
+{{ if .review_comments }}
+## Review Comments to Address
+
+{{ range .review_comments }}
+### {{ .reviewer }} on {{ .file }}{{ if .start_line }} (line {{ .start_line }}{{ if .end_line }}-{{ .end_line }}{{ end }}){{ end }}
+
+{{ .body }}
+
+{{ end }}
+{{ end }}
+```
+
 ### Turn semantics
 
-The full template is rendered on every turn. The runtime passes the complete rendered result to the agent regardless of turn number. Template authors branch on `.attempt`, `.run.is_continuation`, and `.ci_failure` to vary content.
+The full template is rendered on every turn. The runtime passes the complete rendered result to the agent regardless of turn number. Template authors branch on `.attempt`, `.run.is_continuation`, `.ci_failure`, and `.review_comments` to vary content.
 
-| Scenario          | `.attempt`     | `.run.is_continuation` | `.ci_failure`           |
-| ----------------- | -------------- | ---------------------- | ----------------------- |
-| First run         | `0`            | `false`                | `nil`                   |
-| Continuation      | same as turn 1 | `true`                 | `nil`                   |
-| Retry after error | `>= 1`         | `false`                | `nil`                   |
-| CI-fix dispatch   | same as previous | `false`              | map with failure data   |
+| Scenario             | `.attempt`       | `.run.is_continuation` | `.ci_failure`         | `.review_comments`      |
+| -------------------- | ---------------- | ---------------------- | --------------------- | ----------------------- |
+| First run            | `0`              | `false`                | `nil`                 | `nil`                   |
+| Continuation         | same as turn 1   | `true`                 | `nil`                 | `nil`                   |
+| Retry after error    | `>= 1`           | `false`                | `nil`                 | `nil`                   |
+| CI-fix dispatch      | same as previous  | `false`               | map with failure data | `nil`                   |
+| Review-fix dispatch  | same as previous  | `false`               | `nil`                 | list of comment maps    |
 
 On continuation turns, if the rendered prompt is empty, Sortie substitutes a built-in default continuation prompt. On the first turn, an empty rendered prompt is passed through as-is.
 
@@ -699,6 +861,13 @@ Sortie watches `WORKFLOW.md` for filesystem changes and re-applies configuration
 | `ci_feedback.max_retries`              | Next reconcile tick.                   |
 | `ci_feedback.escalation`, `ci_feedback.escalation_label` | Next reconcile tick.   |
 | `ci_feedback.kind`, `ci_feedback.max_log_lines` | Requires restart.              |
+| `self_review.*`                        | Next dispatch. Running workers use the snapshot captured at review-phase entry. |
+| `reactions.review_comments.provider`   | Next reconcile tick. Adding/removing the block activates/deactivates polling. |
+| `reactions.review_comments.max_retries` | Future dispatches.                    |
+| `reactions.review_comments.escalation`, `reactions.review_comments.escalation_label` | Future dispatches. |
+| `reactions.review_comments.poll_interval_ms` | Next reconcile tick.             |
+| `reactions.review_comments.debounce_ms` | Next reconcile tick.                 |
+| `reactions.review_comments.max_continuation_turns` | Future dispatches.          |
 | `db_path`                              | Requires restart.                      |
 | `server.port`                          | Requires restart.                      |
 | `server.host`                          | Requires restart.                      |

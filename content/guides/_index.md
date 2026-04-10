@@ -15,6 +15,7 @@ Step-by-step instructions for configuring, operating, and extending Sortie.
   {{< card link="write-prompt-template" title="Write a Prompt Template" subtitle="Go text/template with issue fields and helpers." >}}
   {{< card link="setup-workspace-hooks" title="Workspace Hooks" subtitle="Run scripts before and after agent sessions." >}}
   {{< card link="configure-retry-behavior" title="Configure Retry" subtitle="Session budgets, backoff, and skip rules." >}}
+  {{< card link="configure-self-review" title="Self-Review" subtitle="Run tests and let the agent review its own diff before opening a PR." >}}
   {{< card link="integrate-security-scanning" title="Security Scanning" subtitle="Run gitleaks, semgrep, and govulncheck." >}}
   {{< card link="run-multiple-workflows" title="Multiple Workflows" subtitle="Separate processes for different projects." >}}
   {{< card link="orchestrate-across-repositories" title="Multi-Repo Orchestration" subtitle="One Sortie instance per repository." >}}
@@ -29,6 +30,7 @@ Step-by-step instructions for configuring, operating, and extending Sortie.
   {{< card link="run-as-launchctl-service" title="Launchctl Service" subtitle="Run as a persistent service on macOS." >}}
   {{< card link="scale-agents-with-ssh" title="Scale with SSH" subtitle="Distribute sessions across remote machines." >}}
   {{< card link="configure-ci-feedback" title="CI Feedback" subtitle="Detect CI failures and retry automatically." >}}
+  {{< card link="configure-review-feedback" title="Review Feedback" subtitle="Route PR review comments back to the agent as continuation context." >}}
 {{< /cards >}}
 
 ## Observability

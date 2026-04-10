@@ -46,6 +46,9 @@ Monotonically increasing. Apply `rate()` or `increase()` to extract per-second o
 | `sortie_tool_calls_total` | `tool`, `result` | Agent tool call completions. `tool` is the tool name (e.g., `Bash`, `tracker_api`). `result` is `success` or `error`. | Coordination |
 | `sortie_ci_status_checks_total` | `result` | CI status check outcomes. `result` is `passing`, `pending`, `failing`, or `error`. Only recorded when the CI reconciliation loop runs. | Coordination |
 | `sortie_ci_escalations_total` | `action` | CI escalation actions taken when checks remain non-passing beyond the configured threshold. `action` is `label`, `comment`, or `error`. | Coordination |
+| `sortie_self_review_iterations_total` | `verdict` | Self-review iterations by outcome. `verdict` is `pass` (verification succeeded), `iterate` (agent re-prompted for another attempt), or `none` (no verdict produced). Only recorded when [`self_review.enabled: true`](/reference/workflow-config/) is set. When self-review is disabled, this counter remains at zero. | Coordination |
+| `sortie_self_review_sessions_total` | `final_verdict` | Self-review sessions by final outcome. `final_verdict` is `pass`, `iterate`, or `none`. One increment per completed self-review session. Only recorded when self-review is enabled. | Coordination |
+| `sortie_self_review_cap_reached_total` | — | Self-review sessions that hit the iteration cap without passing. A sustained non-zero rate means verification commands are consistently failing — check your `self_review.verify_commands` configuration. Only recorded when self-review is enabled. | Coordination |
 
 ## Histograms
 
@@ -55,12 +58,17 @@ Distribution summaries with pre-defined buckets. Query percentiles with `histogr
 |---|---|---|---|---|
 | `sortie_poll_duration_seconds` | — | Wall-clock time per complete poll cycle (tracker fetch through dispatch). | Exponential from 0.1s, factor 2, 10 buckets (0.1s → 51.2s) | Coordination |
 | `sortie_worker_duration_seconds` | `exit_type` | Wall-clock time per worker session, from spawn to exit. `exit_type` is `normal`, `error`, or `cancelled`. | Exponential from 10s, factor 2, 12 buckets (10s → ~5.7h) | Coordination |
+| `sortie_self_review_verification_duration_seconds` | `command` | Wall-clock time per verification command execution during self-review. `command` is the first 64 characters of the shell command. Only recorded when self-review is enabled. | Exponential from 10s, factor 2, 12 buckets (10s → ~5.7h) | Coordination |
 
 The poll duration histogram is tuned for O(seconds) cycles — tracker API latency plus dispatch overhead. The worker duration histogram covers the full range from quick failures (tens of seconds) to long-running agent sessions (hours).
 
 Bucket boundaries for `sortie_poll_duration_seconds`: 0.1, 0.2, 0.4, 0.8, 1.6, 3.2, 6.4, 12.8, 25.6, 51.2 seconds.
 
 Bucket boundaries for `sortie_worker_duration_seconds`: 10, 20, 40, 80, 160, 320, 640, 1280, 2560, 5120, 10240, 20480 seconds (~10s to ~5.7h).
+
+The verification duration histogram shares the worker duration bucket boundaries. Verification commands range from fast linters (seconds) to full test suites (minutes).
+
+Bucket boundaries for `sortie_self_review_verification_duration_seconds`: 10, 20, 40, 80, 160, 320, 640, 1280, 2560, 5120, 10240, 20480 seconds (~10s to ~5.7h).
 
 ## Info
 
@@ -161,11 +169,29 @@ sum(rate(sortie_tool_calls_total{result="error"}[5m])) by (tool)
 
 Error percentage per tool. A high error rate on `tracker_api` suggests credential or connectivity issues with your tracker. High error rates on other tools (e.g., `Bash`) are usually agent-side problems, not Sortie infrastructure issues.
 
+### Self-review pass rate
+
+```promql
+rate(sortie_self_review_sessions_total{final_verdict="pass"}[30m])
+/ on() sum(rate(sortie_self_review_sessions_total[30m]))
+* 100
+```
+
+Percentage of self-review sessions that ended with a passing verdict over the last 30 minutes. A declining pass rate means agents are producing code that fails verification commands more often — review your prompt templates and verify commands. Use a wider window (30m+) because self-review sessions complete infrequently.
+
+For cap-hit monitoring:
+
+```promql
+rate(sortie_self_review_cap_reached_total[1h])
+```
+
+Sessions per second that exhausted all iterations without passing. Any sustained non-zero value warrants investigation. See [Configure self-review](/guides/configure-self-review/) for tuning iteration caps and verify commands.
+
 ## Grafana dashboard
 
 A reference Grafana dashboard JSON is available for import at [`grafana-dashboard.json`](/downloads/grafana-dashboard.json). It is tested against Grafana 10+ and uses the `sortie_` metrics documented on this page.
 
-The dashboard organizes panels into seven collapsible rows. Each panel maps to one or more metrics from the tables above.
+The dashboard organizes panels into eight collapsible rows. Each panel maps to one or more metrics from the tables above.
 
 | Row | Panel | Metric(s) | Visualization |
 |---|---|---|---|
@@ -188,6 +214,10 @@ The dashboard organizes panels into seven collapsible rows. Each panel maps to o
 | CI Feedback | CI escalations | `sortie_ci_escalations_total` | Time series (rate) by `action` |
 | Agent | Tool calls | `sortie_tool_calls_total` | Time series (rate) by `tool` |
 | Agent | SSH host utilization | `sortie_ssh_host_usage` | Bar gauge per `host` (hidden when no SSH hosts configured) |
+| Self-Review | Review pass rate | `sortie_self_review_sessions_total` | Stat (pass % gauge) |
+| Self-Review | Iteration verdicts | `sortie_self_review_iterations_total` | Time series (rate) by `verdict` |
+| Self-Review | Verification duration | `sortie_self_review_verification_duration_seconds` | Heatmap + p50/p95 percentile lines |
+| Self-Review | Cap reached | `sortie_self_review_cap_reached_total` | Stat counter (hidden when self-review is disabled) |
 
 Import the JSON file in Grafana via **Dashboards → Import → Upload JSON file**. Set your Prometheus data source when prompted.
 

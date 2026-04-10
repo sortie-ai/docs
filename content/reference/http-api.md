@@ -54,9 +54,106 @@ Server-rendered HTML page showing real-time system state. Auto-refreshes in the 
 curl http://localhost:8080/
 ```
 
-The dashboard displays running sessions (identifier, state, turn count, duration, last event, tokens), the retry queue (identifier, attempt, due-in, error), summary cards (running count, retrying count, available slots, total tokens), uptime, version, and aggregate runtime and token totals.
+The dashboard displays running sessions (identifier, state, turn count, duration, last event, tokens), the retry queue (identifier, attempt, due-in, error), summary cards (running count, retrying count, available slots, total tokens), uptime, version, aggregate runtime and token totals, and a run history table of completed sessions.
 
 Returns `text/html`. This is not a JSON endpoint.
+
+### Run history entries
+
+The run history table lists recently completed sessions. Each entry contains:
+
+| Field | Type | Description |
+|---|---|---|
+| `identifier` | string | Tracker-assigned issue identifier (e.g., `"PROJ-123"`). |
+| `attempt` | integer | One-based retry attempt number. |
+| `status` | string | Terminal outcome: `"success"` or `"failure"`. |
+| `workflow_file` | string | Path to the workflow definition used for this run. |
+| `started_at` | string | Formatted start timestamp. |
+| `completed_at` | string | Formatted completion timestamp. |
+| `error` | string or null | Error message when `status` is `"failure"`. `null` on success. |
+| `turns_completed` | integer | Number of agent turns completed before exit. |
+| `review_metadata` | object or null | Self-review outcome. `null` when self-review was not configured or did not run. |
+
+#### `review_metadata` structure
+
+When [self-review](/guides/configure-self-review/) is enabled and runs, `review_metadata` captures the full audit trail:
+
+| Field | Type | Description |
+|---|---|---|
+| `enabled` | boolean | `true` when self-review was configured and ran. |
+| `total_iterations` | integer | Number of review iterations completed. |
+| `final_verdict` | string | Last verdict: `"pass"`, `"iterate"`, or `"none"`. |
+| `cap_reached` | boolean | `true` when the iteration cap was reached without a `"pass"` verdict. |
+| `iterations` | array | Per-iteration records (see below). |
+
+Each element in `iterations`:
+
+| Field | Type | Description |
+|---|---|---|
+| `iteration` | integer | 1-based iteration number. |
+| `diff_size_bytes` | integer | Size of the diff in bytes before truncation. |
+| `diff_truncated` | boolean | `true` when the diff was truncated to `max_diff_bytes`. |
+| `verification_results` | array | Outcome of each verification command: `command`, `exit_code`, `duration_ms`, `timed_out`. |
+| `verdict` | string | Parsed verdict from the agent: `"pass"`, `"iterate"`, or empty when unparseable. |
+
+Example `review_metadata` for a session that passed on the second iteration:
+
+```json
+{
+  "enabled": true,
+  "iterations": [
+    {
+      "iteration": 1,
+      "diff_size_bytes": 4520,
+      "diff_truncated": false,
+      "verification_results": [
+        {
+          "command": "go test ./...",
+          "exit_code": 1,
+          "duration_ms": 3400,
+          "timed_out": false
+        },
+        {
+          "command": "go vet ./...",
+          "exit_code": 0,
+          "duration_ms": 820,
+          "timed_out": false
+        }
+      ],
+      "verdict": "iterate"
+    },
+    {
+      "iteration": 2,
+      "diff_size_bytes": 4800,
+      "diff_truncated": false,
+      "verification_results": [
+        {
+          "command": "go test ./...",
+          "exit_code": 0,
+          "duration_ms": 3100,
+          "timed_out": false
+        },
+        {
+          "command": "go vet ./...",
+          "exit_code": 0,
+          "duration_ms": 790,
+          "timed_out": false
+        }
+      ],
+      "verdict": "pass"
+    }
+  ],
+  "total_iterations": 2,
+  "final_verdict": "pass",
+  "cap_reached": false
+}
+```
+
+`review_metadata` is persisted as JSON in the `review_metadata` column of the `run_history` SQLite table. Query it directly when the dashboard view is insufficient:
+
+```sh
+sqlite3 .sortie.db "SELECT review_metadata FROM run_history WHERE review_metadata IS NOT NULL ORDER BY started_at DESC LIMIT 1" | python3 -m json.tool
+```
 
 ---
 
@@ -101,7 +198,9 @@ curl http://localhost:8080/api/v1/state
         "claude-sonnet-4-20250514": 12
       },
       "tool_time_percent": 34.7,
-      "api_time_percent": 51.2
+      "api_time_percent": 51.2,
+      "self_review_active": true,
+      "self_review_iteration": 2
     }
   ],
   "retrying": [
@@ -137,6 +236,8 @@ curl http://localhost:8080/api/v1/state
 | `requests_by_model` | Breakdown of API requests per model. Omitted when empty. |
 | `tool_time_percent` | Percentage of elapsed wall-clock time spent in tool execution. `null` when not yet computed. |
 | `api_time_percent` | Percentage of elapsed wall-clock time spent waiting on API calls. `null` when not yet computed. |
+| `self_review_active` | `true` when the worker is in the self-review phase. Omitted when `false`. |
+| `self_review_iteration` | Current review iteration (1-based). Omitted when `0`. See [self-review configuration](/guides/configure-self-review/). |
 
 **`agent_totals`:** Cumulative across all sessions since Sortie started. `seconds_running` includes elapsed time from currently active sessions, not only completed ones.
 
@@ -196,7 +297,9 @@ curl http://localhost:8080/api/v1/MT-649
       "claude-sonnet-4-20250514": 12
     },
     "tool_time_percent": 34.7,
-    "api_time_percent": 51.2
+    "api_time_percent": 51.2,
+    "self_review_active": true,
+    "self_review_iteration": 2
   },
   "retry": null,
   "recent_events": [],

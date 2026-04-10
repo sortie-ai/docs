@@ -173,6 +173,8 @@ Both `ci_feedback.max_retries` and `agent.max_sessions` are evaluated independen
 
 If the agent signals `blocked` via `.sortie/status` during a CI-fix run, the orchestrator respects that signal and releases the claim without further CI checks. For details on the agent-to-orchestrator protocol, see the [agent extensions reference](/reference/agent-extensions/).
 
+Self-review and CI feedback address different failure classes at different points in the pipeline. Self-review runs inside the worker before exit, catching local issues (test failures, lint errors) with verification commands you configure. CI feedback runs after the worker exits and the code is pushed, catching integration failures reported through the CI provider's Checks API. Both features can be active simultaneously with independent counters. Self-review runs first; CI feedback runs later. If self-review passes but CI later fails, the CI feedback loop triggers normally. For self-review configuration, see [how to configure self-review](/guides/configure-self-review/).
+
 ## Complete example
 
 A full WORKFLOW.md with CI feedback, GitHub Issues, branch-per-issue hooks, and a prompt template that renders CI failure context:

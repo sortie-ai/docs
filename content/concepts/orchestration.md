@@ -1,6 +1,6 @@
 ---
 title: "Orchestration"
-description: "How Sortie's poll-dispatch-reconcile loop manages autonomous coding agent sessions: candidate selection, retry strategies, state reconciliation, persistence, and the turn model."
+description: "How Sortie's poll-dispatch-reconcile loop manages autonomous coding agent sessions: candidate selection, retry strategies, state reconciliation, persistence, the turn model, and self-review."
 keywords: sortie orchestration, autonomous coding agent, dispatch loop, retry backoff, reconciliation, state machine, polling, agent sessions
 author: Sortie AI
 date: 2026-03-29
@@ -94,6 +94,16 @@ Why two levels? The orchestrator needs a control point for "how many times do I 
 
 **First turns vs. continuation turns.** The first turn in a session sends the full rendered prompt: issue description, context, instructions, tool advertisements. Continuation turns within the same session send only a short continuation signal — the agent already has the full context in its conversation thread. This avoids wasting tokens by re-sending the entire task description every turn. The prompt template has access to `run.is_continuation` and `run.turn_number`, so workflow authors can customize what continuation prompts say.
 
+## Self-review: verification before exit
+
+After the turn loop completes and before the worker tears down the session, the orchestrator can enter an optional self-review phase. This phase runs inside the same worker goroutine, reusing the existing agent session — the agent retains its full conversation context from the coding turns. The sequence is coding turns, then review loop, then session teardown, then worker exit. No new process. No new session. The agent that wrote the code is the same agent that reviews it, with everything it learned during coding still in working memory.
+
+Why does the orchestrator drive this loop instead of letting the agent decide to review its own work? Research on LLM self-correction (Huang et al., ICLR 2024) demonstrates a counterintuitive finding: asking a model to self-correct without external feedback actually degrades output quality. The model either confirms its original answer or introduces new errors while "fixing" non-problems. Pure intrinsic self-correction does not work. But code is one of the few domains where high-quality external feedback is cheaply available. Compilers produce structured error messages. Test suites produce pass/fail signals with stack traces. Linters produce line-level diagnostics. These are objective, machine-readable signals — exactly the kind of external grounding that makes self-correction productive. So the orchestrator generates a workspace diff, executes the configured verification commands (tests, linters, type checkers), and feeds the structured results back to the agent as a review prompt. This is tool-interactive critiquing (Gou et al., ICLR 2024), not intrinsic self-correction. The distinction matters: one works, the other doesn't.
+
+The review loop is bounded by a configurable iteration cap — three iterations by default. This is not an arbitrary number. Research on self-debugging in code (Chen et al., ICLR 2024) shows that productive corrections concentrate in the first two to three iterations. Beyond that, models enter a regime of diminishing returns: they start "fixing" things that aren't broken, reverting earlier correct changes, or oscillating between two states. The cap is a safety valve against this degradation, not just a cost control. If all verification commands pass on any iteration, the loop exits early with a "pass" verdict. If the cap is reached with failures still present, the worker exits normally and the orchestrator reports the review outcome — the code goes forward, but the metadata tells downstream consumers (CI, human reviewers, the tracker comment) that verification did not fully pass.
+
+Self-review and CI feedback are complementary, not redundant. Self-review catches issues locally, inside the workspace, before the code leaves the agent's session. It addresses the class of problems the agent itself introduced: test regressions, lint violations, type errors. CI feedback catches a different class — integration failures, environment-specific issues, conflicts with other branches — after push. They operate with independent counters and independent retry budgets, addressing different failure modes at different points in the pipeline. For practical setup, see [configure self-review](/guides/configure-self-review/).
+
 ## Why one process per workflow file
 
 Sortie dispatches exactly one workflow per process. Running multiple workflows means running multiple processes — this is intentional, not a limitation waiting to be lifted.
@@ -112,5 +122,6 @@ The multiple-process model sidesteps all of this. Process boundaries provide sta
 - [Workflow file reference](/reference/workflow-config/) for all orchestration-related config fields
 - [Configure retry behavior](/guides/configure-retry-behavior/) for practical retry tuning
 - [Control agent costs](/guides/control-costs/) for budget-related settings
+- [Configure self-review](/guides/configure-self-review/) for verification loop setup and tuning
 - [Architecture overview](/concepts/architecture/) for why Sortie is a single binary with adapters and SQLite
 - [Errors reference](/reference/errors/) for retryable vs. non-retryable error classification

@@ -275,7 +275,7 @@ Only the Go standard library `os.ExpandEnv` function is used. See the [Go docume
 
 ## Hook subprocess environment
 
-Hook scripts (`after_create`, `before_run`, `after_run`, `before_remove`) run as `sh -c` subprocesses with a **restricted** environment. The full parent process environment is not inherited.
+Hook scripts (`after_create`, `before_run`, `after_run`, `before_remove`) run as subprocesses with a **restricted** environment. On POSIX systems, hooks execute via `sh -c`; on Windows, via `cmd.exe /C`. The full parent process environment is not inherited.
 
 ### Injected variables
 
@@ -289,13 +289,25 @@ Sortie injects these variables into every hook invocation. They override any sam
 | `SORTIE_ATTEMPT` | string | Current attempt number as a decimal integer. Starts at `1`. Increments on retries. `0` if the attempt count is unavailable. |
 | `SORTIE_SSH_HOST` | string | SSH host allocated for this issue. **Present only when SSH mode is active** ([`extensions.worker.ssh_hosts`](/reference/workflow-config/) is configured and a host was assigned). Absent in local mode. |
 
+### `after_run` hook variables
+
+These variables are injected only during `after_run` hook invocations.
+
+| Variable | Type | Description |
+|---|---|---|
+| `SORTIE_SELF_REVIEW_STATUS` | string | Self-review outcome for the current run. Values: `"disabled"` (self-review not configured), `"passed"` (review passed), `"cap_reached"` (iteration cap reached without passing), `"error"` (review loop encountered a fatal error). Set on all `after_run` invocations. |
+| `SORTIE_SELF_REVIEW_SUMMARY_PATH` | string | Absolute path to `.sortie/review_summary.md` in the workspace. Contains a human-readable Markdown summary of the review outcome. **Absent when self-review did not run or the summary file was not written.** |
+
+See [Configure self-review](/guides/configure-self-review/) for usage examples.
+
 ### Inherited variables
 
 Beyond the injected variables above, hooks inherit two categories from the parent Sortie process:
 
-**POSIX allowlist** — A fixed set of standard infrastructure variables:
+**Platform allowlist** — A fixed set of standard infrastructure variables, varying by OS:
 
-`PATH`, `HOME`, `SHELL`, `TMPDIR`, `USER`, `LOGNAME`, `TERM`, `LANG`, `LC_ALL`, `SSH_AUTH_SOCK`
+- *POSIX (Linux, macOS):* `PATH`, `HOME`, `SHELL`, `TMPDIR`, `USER`, `LOGNAME`, `TERM`, `LANG`, `LC_ALL`, `SSH_AUTH_SOCK`
+- *Windows:* `PATH`, `SYSTEMROOT`, `COMSPEC`, `PATHEXT`, `USERPROFILE`, `TEMP`, `TMP`, `APPDATA`, `LOCALAPPDATA`, `HOMEDRIVE`, `HOMEPATH`, `USERNAME`
 
 **`SORTIE_*` prefix** — All parent environment variables whose names start with `SORTIE_` are inherited. This includes any `SORTIE_*` variables set via [configuration overrides](#configuration-overrides). This is the intended mechanism for passing additional values (API tokens, repository URLs, custom flags) into hooks without exposing the full process environment.
 
