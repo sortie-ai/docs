@@ -76,7 +76,7 @@ hide = false
 # Footer.
 [params.footer]
 enable = true
-displayCopyright = false
+displayCopyright = true
 displayPoweredBy = false
 
 # Search (Hextra's built-in FlexSearch).
