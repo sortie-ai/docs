@@ -18,7 +18,9 @@ Run separate Sortie instances per repository so that cross-service features -- f
 - A connected tracker: [GitHub Issues](/guides/connect-to-github/) or [Jira Cloud](/guides/connect-to-jira/)
 - A cross-service feature decomposed into per-repo subtasks in your tracker
 
-## The pattern
+{{% steps %}}
+
+### The pattern
 
 One Sortie process per repository. One `WORKFLOW.md` per repository. Subtasks in the tracker link each piece of work to the right instance.
 
@@ -37,7 +39,7 @@ Each Sortie instance is fully independent. It polls its own filtered set of issu
 
 For isolation rules and concurrency accounting across multiple processes, see [run multiple workflows](/guides/run-multiple-workflows/).
 
-## Set up the tracker
+### Set up the tracker
 
 You need each Sortie instance to pick up only the subtasks that belong to its repository. Two patterns work well.
 
@@ -97,7 +99,7 @@ tracker:
 
 Centralized tracking is easier to oversee: one backlog, one board. Distributed tracking is simpler per-instance but requires switching between repos to see the full picture. Pick the model your team already uses. See [connect to GitHub](/guides/connect-to-github/) for label and search syntax details.
 
-## Configure per-repo hooks
+### Configure per-repo hooks
 
 Each repository needs its own clone and branch setup. This is where the multi-repo pattern diverges from [single-workflow hooks](/guides/setup-workspace-hooks/).
 
@@ -152,7 +154,7 @@ hooks:
     git clone --depth 1 git@github.com:acme-corp/data-service.git .
 ```
 
-## Wire the prompt to the subtask
+### Wire the prompt to the subtask
 
 Each workflow's prompt template should tell the agent which repository it's in and what constraints apply. Here's a complete frontend example:
 
@@ -210,6 +212,8 @@ This is a Next.js application. Key directories:
 ```
 
 That last constraint matters. Each agent works in one repo. Cross-repo coordination happens through the tracker (comments, linked issues, blocker states), not through the agent reaching into other codebases.
+
+{{% /steps %}}
 
 ## Launch all instances
 

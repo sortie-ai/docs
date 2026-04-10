@@ -38,7 +38,9 @@ The GitHub integration tutorial proved that Sortie can talk to your issue tracke
 
 No `ANTHROPIC_API_KEY` needed. That is the key difference from the [Claude Code end-to-end tutorial](/getting-started/jira-claude-end-to-end/): Copilot CLI authenticates through GitHub tokens, and a single token can serve both the tracker and the agent.
 
-## Create a GitHub issue
+{{% steps %}}
+
+### Create a GitHub issue
 
 Create an issue with the `backlog` label. Pick a task that is concrete and verifiable — the agent reads the description as its primary instruction.
 
@@ -53,7 +55,7 @@ Note the issue number in the output (e.g., `#5`). We will see it in the logs lat
 
 Vague descriptions like "improve the API" produce vague results. Concrete tasks — add a file, fix a specific bug, write a test — work best with any coding agent.
 
-## Set up the project directory
+### Set up the project directory
 
 Create a directory for this tutorial, separate from the GitHub integration work:
 
@@ -61,7 +63,7 @@ Create a directory for this tutorial, separate from the GitHub integration work:
 mkdir sortie-github-e2e && cd sortie-github-e2e
 ```
 
-## Write the workflow file
+### Write the workflow file
 
 Create `WORKFLOW.md` with the full configuration. Replace `yourorg/yourrepo` with your actual repository:
 
@@ -182,7 +184,7 @@ The hooks work the same way as in the Claude Code tutorial: `after_create` clone
 
 The template body is a Go `text/template` rendered per issue. It branches on three conditions: first run, continuation, and retry. The `#{{ .issue.identifier }}` prefix uses the `#` convention because GitHub Issues are referenced as `#5`, not `PROJ-55`.
 
-## Validate the configuration
+### Validate the configuration
 
 Check for syntax errors before running:
 
@@ -198,7 +200,7 @@ echo $?
 
 This should print `0`.
 
-## Run Sortie
+### Run Sortie
 
 Start Sortie:
 
@@ -252,7 +254,7 @@ Here is the full lifecycle, step by step:
 
 Press **Ctrl+C** to stop Sortie.
 
-## Verify the results
+### Verify the results
 
 Three things should be visible now: the code in the workspace, the branch on the remote, and the issue state in GitHub.
 
@@ -305,6 +307,8 @@ If the label did not change: check that the labels exist on the repository (Sort
 ### Check the dashboard
 
 Open `http://127.0.0.1:8888/` in a browser while Sortie is running. You will see summary cards (running sessions, retry queue, free slots, total tokens) and a run history table showing the completed session with its issue identifier, turn count, duration, and exit status.
+
+{{% /steps %}}
 
 ## What we built
 

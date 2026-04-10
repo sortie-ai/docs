@@ -17,7 +17,9 @@ Set up Sortie as a managed launchd service on macOS so it starts on login (or bo
 - macOS 13 (Ventura) or later
 - Administrator access for system-wide daemons, or your own user account for user agents
 
-## Choose: user agent or system daemon
+{{% steps %}}
+
+### Choose: user agent or system daemon
 
 macOS draws a hard line between two kinds of launchd jobs:
 
@@ -30,7 +32,7 @@ For most setups — a developer machine, a CI Mac mini you SSH into — a **user
 
 Use a **system daemon** only when Sortie must run before anyone logs in (headless build servers, always-on Mac infrastructure). This guide covers both, starting with the user agent path.
 
-## Set up the directory structure
+### Set up the directory structure
 
 Create directories for Sortie's config, database, and workspaces:
 
@@ -59,7 +61,7 @@ db_path: /Users/deploy/.local/share/sortie/sortie.db
 
 Replace `deploy` with your macOS username. The database file is created on first run.
 
-## Configure environment variables
+### Configure environment variables
 
 Sortie and its agent subprocesses inherit the process environment. API keys and tracker credentials belong in a dedicated env file that the plist loads at startup.
 
@@ -78,7 +80,7 @@ SORTIE_JIRA_API_KEY=deploy-bot@mycompany.com:xyztoken123
 chmod 600 ~/.config/sortie/.env
 ```
 
-## Write the plist (user agent)
+### Write the plist (user agent)
 
 Create `~/Library/LaunchAgents/com.sortie-ai.sortie.plist`:
 
@@ -142,7 +144,7 @@ A few things worth noting about this configuration:
 
 If you prefer to inline secrets directly, replace the `--env-file` argument with an `EnvironmentVariables` dictionary in the plist and protect the plist with `chmod 600`.
 
-## Load and start the service
+### Load and start the service
 
 Load the plist into launchd and start Sortie:
 
@@ -171,7 +173,7 @@ launchctl bootout gui/$(id -u)/com.sortie-ai.sortie 2>/dev/null; \
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.sortie-ai.sortie.plist
 ```
 
-## View logs
+### View logs
 
 All output goes to the log files specified in the plist:
 
@@ -201,6 +203,8 @@ EOF
 This keeps 5 rotated copies, each up to 10 MB, compressed with bzip2. macOS runs `newsyslog` roughly every 30 minutes via its own launchd job (`com.apple.newsyslog`).
 
 For debugging, add `--log-level debug` to the `ProgramArguments` in the plist, then reload the service.
+
+{{% /steps %}}
 
 ## System daemon variant
 

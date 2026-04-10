@@ -16,7 +16,9 @@ Wire Sortie into your Prometheus and Grafana stack so you can track agent sessio
 - Prometheus installed and scraping targets
 - Grafana installed (optional — needed for the dashboard step)
 
-## Verify the HTTP server is running
+{{% steps %}}
+
+### Verify the HTTP server is running
 
 Sortie starts the HTTP server by default on `127.0.0.1:7678`. The `/metrics` endpoint shares the same port as the JSON API and HTML dashboard. Confirm it is live:
 
@@ -41,7 +43,7 @@ sortie_tokens_total{type="input"} 284500
 
 If you get `connection refused`, Sortie isn't running or the server was disabled with `--port 0`. Check the startup logs — Sortie prints the listen address at boot. To use a different port, pass `--port <N>` or set `server.port` in your WORKFLOW.md front matter.
 
-## Add Sortie as a Prometheus scrape target
+### Add Sortie as a Prometheus scrape target
 
 Open your `prometheus.yml` and add Sortie under `scrape_configs`:
 
@@ -69,7 +71,7 @@ curl -X POST http://localhost:9090/-/reload
 
 Open the Prometheus UI at `http://localhost:9090/targets` (or Status > Targets). The `sortie` job should appear with state **UP**. If it shows **DOWN**, Prometheus can't reach the Sortie host — check network connectivity and firewall rules.
 
-## Verify metrics are flowing
+### Verify metrics are flowing
 
 Paste these queries into the Prometheus expression browser to confirm data is arriving.
 
@@ -85,7 +87,7 @@ sortie_build_info{version="0.5.0", go_version="go1.24.1"} 1
 
 If all three queries return data, your scrape pipeline is working.
 
-## Import the Grafana dashboard
+### Import the Grafana dashboard
 
 Sortie ships a reference Grafana dashboard that visualizes the full metric set.
 
@@ -119,7 +121,7 @@ The dashboard includes these panels, grouped into collapsible rows:
 
 The dashboard is tested against Grafana 10+. Panels auto-adapt to your scrape interval.
 
-## Alerting queries
+### Alerting queries
 
 These PromQL expressions catch the operational problems you care about most. Each one is ready to drop into an Alertmanager rule or Grafana alert — you know how to wire that part up, so here are the expressions.
 
@@ -150,6 +152,8 @@ sortie_slots_available == 0
 ```
 
 Set this with a `for: 15m` duration in your alert rule. Brief saturation is normal during batch dispatches — sustained saturation is a problem.
+
+{{% /steps %}}
 
 ## What we configured
 

@@ -16,7 +16,9 @@ This guide walks you through creating a new tool that agents can call during Sor
 - Familiarity with Sortie's codebase layout
 - The [agent extensions reference](/reference/agent-extensions/) for the full tool contract and response format spec
 
-## Understand the tool interface
+{{% steps %}}
+
+### Understand the tool interface
 
 Every agent tool implements the `AgentTool` interface defined in `internal/domain/tool.go`:
 
@@ -36,7 +38,7 @@ type AgentTool interface {
 | `InputSchema()` | JSON Schema describing the tool's input format. The MCP server sends this to agents so they know what arguments to pass. Return a defensive copy of the schema bytes. |
 | `Execute()` | Runs the tool. Receives raw JSON input from the agent, returns raw JSON output. The Go `error` return is for internal failures only (marshal errors, nil dependencies). Tool-level errors go in the JSON response as `{"error": "message"}`. |
 
-## Create the tool package
+### Create the tool package
 
 Create a new package under `internal/tool/`:
 
@@ -162,7 +164,7 @@ Key patterns to follow:
 - **`Execute()` returns tool errors as JSON** (`{"error": "..."}`) and reserves the Go `error` return for internal marshal failures.
 - **`ctx.Err()` is checked** inside long-running operations to respect cancellation.
 
-## Register the tool in the MCP server
+### Register the tool in the MCP server
 
 Tools are wired explicitly in the `runMCPServer` function in `cmd/sortie/mcpserver.go`. Registration is conditional — register when the tool's dependencies are available, skip when they aren't:
 
@@ -182,7 +184,7 @@ Three rules:
 2. **Conditional registration.** Check for required environment variables or dependencies before constructing the tool. Skip gracefully if they're absent.
 3. **Unique names.** The `ToolRegistry` panics on duplicate `Name()` values — pick a name that won't collide with existing tools.
 
-## Test the tool
+### Test the tool
 
 Write unit tests in `repostats_test.go`. Use `t.TempDir()` to create an isolated workspace:
 
@@ -269,6 +271,8 @@ func TestRepoStatsTool_ExecuteReturnsErrorOnBadInput(t *testing.T) {
 ```
 
 For integration testing, spawn the MCP server with your tool registered and verify it appears in `tools/list` and responds to `tools/call`. See the existing MCP server tests in `cmd/sortie/mcpserver_test.go` for the pattern.
+
+{{% /steps %}}
 
 ## Access session context
 

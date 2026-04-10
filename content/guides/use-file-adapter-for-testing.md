@@ -14,7 +14,9 @@ The file adapter replaces a live tracker with a local JSON file. Pair it with th
 
 - Sortie installed and on your `PATH` ([installation guide](/getting-started/installation/))
 
-## Create a test fixture
+{{% steps %}}
+
+### Create a test fixture
 
 Create `issues.json` with the fields your prompt template uses. Four fields are required; the rest are optional and default to empty or nil values:
 
@@ -55,7 +57,7 @@ This fixture tests two template paths at once: `TEST-1` has comments and labels,
 
 For the full field schema, see the [file-based tasks spec](https://github.com/sortie-ai/sortie/blob/main/docs/file-based-tasks-spec.md).
 
-## Configure the workflow
+### Configure the workflow
 
 Set `tracker.kind` to `file` and point `file.path` at your fixture:
 
@@ -101,7 +103,7 @@ polling:
 
 Run `sortie validate ./WORKFLOW.md` to catch syntax errors before starting.
 
-## Run and observe
+### Run and observe
 
 ```bash
 sortie ./WORKFLOW.md
@@ -111,7 +113,7 @@ Watch the logs. Sortie reads your JSON file, dispatches one mock agent session p
 
 Press **Ctrl+C** to stop after the cycle completes.
 
-## Test edge cases
+### Test edge cases
 
 The file adapter re-reads the JSON on every operation, so you can edit `issues.json` while Sortie is running. Add a new issue, change a state, introduce a nil field — the next poll picks it up.
 
@@ -125,7 +127,7 @@ Scenarios worth testing:
 
 Each scenario targets a specific `{{ if }}` or `{{ range }}` branch in your template. If a field reference is misspelled, Sortie's strict mode (`missingkey=error`) fails immediately with a line number — no silent empty strings.
 
-## Graduate to a real agent
+### Graduate to a real agent
 
 Once your template renders correctly with the mock agent, swap `agent.kind` to `claude-code` and keep the file tracker:
 
@@ -136,6 +138,8 @@ agent:
 ```
 
 This runs a real agent against your test fixture — full code generation sessions without touching Jira. When you're satisfied, swap `tracker.kind` to `jira`, point it at your project, and the same workflow file drives production.
+
+{{% /steps %}}
 
 ## Troubleshooting
 

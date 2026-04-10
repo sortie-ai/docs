@@ -37,7 +37,9 @@ The Jira integration tutorial proved that Sortie can talk to your tracker. This 
 
     You should see a commit hash. If you get a permission error, fix your SSH or token setup before continuing.
 
-## Create a Jira issue
+{{% steps %}}
+
+### Create a Jira issue
 
 Open your Jira project and create an issue that a coding agent can complete without human judgment. We need a task with a clear, verifiable outcome.
 
@@ -55,7 +57,7 @@ Write down the issue identifier (e.g., `PROJ-55`). We will see it in the logs la
 
 The description matters. A real agent reads it as its primary instruction. Vague descriptions like "improve the API" produce vague results. Concrete, verifiable tasks — add a file, fix a specific bug, write a test — work best.
 
-## Set up the project directory
+### Set up the project directory
 
 Create a directory for this tutorial. We will keep it separate from the Jira integration work:
 
@@ -63,7 +65,7 @@ Create a directory for this tutorial. We will keep it separate from the Jira int
 mkdir sortie-e2e && cd sortie-e2e
 ```
 
-## Write the workflow file
+### Write the workflow file
 
 Create `WORKFLOW.md` with the full configuration. Replace `PROJ` with your Jira project key and the git clone URL with your repository:
 
@@ -216,7 +218,7 @@ The prompt branches on three conditions:
 - **Continuation** (`.run.is_continuation`) — the agent is resuming in the same session. It should check workspace state and continue.
 - **Retry** (`.attempt` is nonzero and not a continuation) — a previous attempt failed. The agent should diagnose before acting.
 
-## Validate the configuration
+### Validate the configuration
 
 Check for syntax errors before running:
 
@@ -232,7 +234,7 @@ echo $?
 
 This should print `0`.
 
-## Run Sortie
+### Run Sortie
 
 Start Sortie:
 
@@ -284,7 +286,7 @@ Here is the full lifecycle, step by step:
 
 Press **Ctrl+C** to stop Sortie.
 
-## Verify the results
+### Verify the results
 
 Three things should be visible now: the code in the workspace, the branch in your remote, and the issue state in Jira.
 
@@ -336,6 +338,8 @@ Open [http://127.0.0.1:8080/](http://127.0.0.1:8080/) in a browser. The workflow
 - **Run history** table showing the completed session — its issue identifier, turn count, duration, exit status, and token usage.
 
 The dashboard auto-refreshes every 5 seconds. It is useful during longer runs when you want to monitor multiple agents. For this tutorial with a single issue, the logs tell the same story.
+
+{{% /steps %}}
 
 ## What we built
 

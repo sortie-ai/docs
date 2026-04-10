@@ -18,7 +18,9 @@ We use the mock agent on purpose. The quick start taught you how Sortie works wi
 - A GitHub repository you control (personal or org)
 - A GitHub personal access token with `repo` scope
 
-## Create a personal access token
+{{% steps %}}
+
+### Create a personal access token
 
 Sortie authenticates with the GitHub API using a Bearer token. You need a personal access token (PAT) — either a [classic token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-personal-access-token-classic) or a [fine-grained token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-fine-grained-personal-access-token).
 
@@ -28,7 +30,7 @@ Copy the token. You cannot view it again after closing the page.
 
 Unlike Jira's `email:token` format, the GitHub token is the raw string by itself — no colon, no email prefix.
 
-## Set environment variables
+### Set environment variables
 
 Export one variable in your shell:
 
@@ -48,7 +50,7 @@ echo "$SORTIE_GITHUB_TOKEN"
 
 You should see your token printed back. If the output is blank, re-run the `export` command.
 
-## Prepare state labels
+### Prepare state labels
 
 GitHub Issues has only two native states: open and closed. Sortie maps richer workflow states through labels. Create four labels in your repository — these are Sortie's defaults for the GitHub adapter:
 
@@ -72,7 +74,7 @@ Or create them through the GitHub web UI under **Settings → Labels**.
 
 These label names match Sortie's default `active_states` and `terminal_states` for the GitHub adapter. You can use different names — match them in `WORKFLOW.md` and Sortie will follow your naming.
 
-## Create a test issue
+### Create a test issue
 
 Create one issue with the `backlog` label:
 
@@ -82,7 +84,7 @@ gh issue create --repo owner/repo --title "Test Sortie integration" --label back
 
 Note the issue number in the output (e.g., `#1`). We will look for it in the next steps.
 
-## Write the workflow file
+### Write the workflow file
 
 Create a new directory and a `WORKFLOW.md` file inside it:
 
@@ -133,7 +135,7 @@ A few things to notice:
 - `max_turns: 1` limits each mock session to a single turn. Enough to prove the flow.
 - `polling.interval_ms: 30000` polls GitHub every 30 seconds.
 
-## Validate the configuration
+### Validate the configuration
 
 Run the validate subcommand to check for syntax errors and misconfigured fields:
 
@@ -159,7 +161,7 @@ error: tracker.project.format: tracker.project must be in owner/repo format (e.g
 
 Fix any reported errors before continuing.
 
-## Test with dry-run
+### Test with dry-run
 
 Dry-run mode connects to GitHub, runs one poll cycle, and reports what it found without dispatching agents or writing to the database:
 
@@ -196,7 +198,7 @@ curl -s -H "Authorization: Bearer $SORTIE_GITHUB_TOKEN" \
 
 A successful response shows your GitHub username. A 401 means the token needs to be regenerated.
 
-## Run for real
+### Run for real
 
 Start Sortie:
 
@@ -233,7 +235,7 @@ Notice the second `tick completed` line: `candidates=0`. Sortie has nothing left
 
 Press **Ctrl+C** to stop Sortie.
 
-## Verify in GitHub
+### Verify in GitHub
 
 Open the issue in the browser, or check from the command line:
 
@@ -248,6 +250,8 @@ Verify three things:
 - The `done` label is **present**.
 
 If the label did not change: check that the labels exist on the repository (Sortie does not create them automatically), review the Sortie logs for error messages, and confirm your token has `repo` scope.
+
+{{% /steps %}}
 
 ## What we built
 

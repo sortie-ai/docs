@@ -17,7 +17,9 @@ Run Sortie in a Kubernetes cluster using plain manifests — a Deployment, Persi
 - A tested `WORKFLOW.md` ([quick start](/getting-started/quick-start/))
 - API credentials for your agent and tracker
 
-## Build and push your image
+{{% steps %}}
+
+### Build and push your image
 
 Sortie's published image is distroless — it contains only the binary. Build an agent-specific image using one of the example Dockerfiles, then push it to your container registry:
 
@@ -28,7 +30,7 @@ docker push registry.example.com/sortie-claude:v1.0.0
 
 For image building details, see [How to use Sortie in Docker](/guides/use-sortie-in-docker/).
 
-## Create the namespace and Secret
+### Create the namespace and Secret
 
 Store API keys in a Kubernetes Secret. Never put credentials in ConfigMaps or environment variable literals in manifests.
 
@@ -62,7 +64,7 @@ kubectl create secret generic sortie-secrets \
 
 For tracker-specific credential details, see [How to connect to Jira](/guides/connect-to-jira/) or [How to connect to GitHub Issues](/guides/connect-to-github/).
 
-## Write the workflow ConfigMap
+### Write the workflow ConfigMap
 
 The ConfigMap holds the `WORKFLOW.md` that Sortie loads at startup. Edit the `data` section to match your tracker and agent configuration:
 
@@ -123,7 +125,7 @@ Tracker credentials use `$VAR` syntax — Sortie expands environment variables a
 
 For the full list of configuration fields, see the [WORKFLOW.md configuration reference](/reference/workflow-config/). For prompt template syntax, see [How to write prompt templates](/guides/write-prompt-template/).
 
-## Create the PersistentVolumeClaim
+### Create the PersistentVolumeClaim
 
 SQLite requires exclusive filesystem access. The PVC must use `ReadWriteOnce`:
 
@@ -157,7 +159,7 @@ spec:
 
 For background on what Sortie persists and why it matters, see [Why persistence changes everything](/concepts/persistence/).
 
-## Deploy the application
+### Deploy the application
 
 The Deployment runs a single replica with Recreate strategy. SQLite does not support concurrent writers, so scaling beyond one replica corrupts the database.
 
@@ -276,7 +278,7 @@ Key decisions in this manifest:
 
 Replace `registry.example.com/sortie-claude:v1.0.0` with your actual image reference.
 
-## Expose the Service
+### Expose the Service
 
 A ClusterIP Service exposes the HTTP observability server within the cluster:
 
@@ -303,7 +305,7 @@ spec:
 
 This Service gives in-cluster access to the [HTML dashboard](/reference/dashboard/), [JSON API](/reference/http-api/), [Prometheus metrics](/reference/prometheus-metrics/), and health probes. To expose the dashboard externally, add an Ingress or LoadBalancer in front of it.
 
-## Apply the manifests
+### Apply the manifests
 
 Apply everything at once from the example directory:
 
@@ -320,7 +322,7 @@ kubectl apply -f examples/k8s/deployment.yaml
 kubectl apply -f examples/k8s/service.yaml
 ```
 
-## Verify the deployment
+### Verify the deployment
 
 Check that the pod starts and passes health probes:
 
@@ -360,6 +362,8 @@ Open `http://localhost:7678` to view the [dashboard](/reference/dashboard/), or 
 ```sh
 curl -s http://localhost:7678/api/status | jq .
 ```
+
+{{% /steps %}}
 
 ## Update the workflow
 

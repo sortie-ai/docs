@@ -17,7 +17,9 @@ Set up Sortie as a managed systemd service so it starts on boot, restarts on fai
 - A Linux system running systemd (Ubuntu 20.04+, Debian 11+, RHEL 8+, or equivalent)
 - Root or sudo access
 
-## Create a dedicated user
+{{% steps %}}
+
+### Create a dedicated user
 
 Sortie should not run as root. Create a system user with no login shell:
 
@@ -27,7 +29,7 @@ sudo useradd --system --shell /usr/sbin/nologin --create-home sortie
 
 This creates a `sortie` user whose home directory exists but can't be logged into interactively. The `--system` flag assigns a UID below 1000, which keeps it out of login screens and user listings.
 
-## Set up the directory structure
+### Set up the directory structure
 
 Sortie needs three things on disk: a workflow file, a database, and a workspace root. Place them under predictable system paths:
 
@@ -57,7 +59,7 @@ db_path: /var/lib/sortie/sortie.db
 
 The database file is created automatically on first run. The workspace directory is where Sortie clones repos and runs agents — it needs to be writable by the `sortie` user.
 
-## Configure environment variables
+### Configure environment variables
 
 Sortie and its agent subprocesses inherit the process environment. Secrets like API keys belong in a dedicated environment file that systemd loads at service start.
 
@@ -80,7 +82,7 @@ SORTIE_JIRA_API_KEY=deploy-bot@mycompany.com:xyztoken123
 
 The `chmod 600` ensures only the `sortie` user can read the file. Agent subprocesses inherit these variables automatically — no extra forwarding is needed.
 
-## Write the unit file
+### Write the unit file
 
 Create `/etc/systemd/system/sortie.service`:
 
@@ -127,7 +129,7 @@ A few things worth noting about this configuration:
 
 **`NoNewPrivileges=yes`** and **`PrivateTmp=yes`** — Prevents privilege escalation and gives the service its own `/tmp`. Both are low-risk hardening options that work with any application.
 
-## Enable and start the service
+### Enable and start the service
 
 Reload systemd's unit file cache, enable the service to start on boot, and start it now:
 
@@ -145,7 +147,7 @@ sudo systemctl status sortie
 
 You should see `Active: active (running)` and the first few log lines. The dashboard is live at `http://localhost:7678` by default.
 
-## View logs
+### View logs
 
 All log output flows through journald. No log files to manage, no rotation to configure.
 
@@ -177,6 +179,8 @@ journalctl -u sortie -o cat | jq 'select(.level == "ERROR")'
 ```
 
 For deeper troubleshooting, add `--log-level debug` to `ExecStart` in the unit file, then restart the service. See [How to monitor with logs](/guides/monitor-with-logs/) for grep patterns, jq examples, and lifecycle messages.
+
+{{% /steps %}}
 
 ## Run multiple workflows
 

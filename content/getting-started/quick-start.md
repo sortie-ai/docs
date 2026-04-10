@@ -31,7 +31,9 @@ You should see output like:
 sortie v0.x.x
 ```
 
-## Set up a project directory
+{{% steps %}}
+
+### Set up a project directory
 
 Create a fresh directory for this tutorial:
 
@@ -41,7 +43,7 @@ mkdir sortie-demo && cd sortie-demo
 
 We will create two files here: an issues file and a workflow file.
 
-## Create an issues file
+### Create an issues file
 
 Create a file called `issues.json` with two sample issues:
 
@@ -69,7 +71,7 @@ Create a file called `issues.json` with two sample issues:
 This is the same shape Sortie gets from a real tracker like Jira. The file
 adapter reads it directly, so we can skip all API setup for now.
 
-## Create a workflow file
+### Create a workflow file
 
 Create `WORKFLOW.md` in the same directory:
 
@@ -115,7 +117,7 @@ Notice a few things:
 - `{{ .issue.identifier }}` and friends are Go template variables that Sortie
   fills in with data from each issue.
 
-## Run Sortie
+### Run Sortie
 
 Start Sortie and point it at the workflow file:
 
@@ -157,7 +159,7 @@ Let's walk through what happened:
 Notice the second `tick completed` line shows `candidates=0` — there is
 nothing left to process. Press **Ctrl+C** to stop Sortie.
 
-## Check the results
+### Check the results
 
 Sortie persists all run history in a local SQLite database. Look at your
 project directory:
@@ -175,6 +177,8 @@ You should see:
 The `.sortie.db` file contains session metadata, turn history, and metrics for
 every run. Open `issues.json` again and notice that both issues now have
 `"state": "Done"` — the file tracker updated them in place.
+
+{{% /steps %}}
 
 ## What we built
 

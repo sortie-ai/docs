@@ -18,7 +18,9 @@ We use the mock agent on purpose. The quick start taught you how Sortie works wi
 - A Jira Cloud instance with project admin or write access
 - Your Jira project key (the prefix on issue identifiers, like `PROJ` in `PROJ-42`)
 
-## Create an API token
+{{% steps %}}
+
+### Create an API token
 
 Sortie authenticates with Jira Cloud using Basic Auth. You need an API token from your Atlassian account.
 
@@ -26,7 +28,7 @@ Go to [Atlassian account settings: API tokens](https://support.atlassian.com/atl
 
 Sortie expects credentials in `email:token` format, where `email` is the address tied to your Atlassian account and `token` is the value you copied. Both sides of the colon must be non-empty. Sortie validates this at startup and rejects values that are missing the colon or have an empty half.
 
-## Set environment variables
+### Set environment variables
 
 Export two variables in your shell. Replace the placeholder values with your own:
 
@@ -47,7 +49,7 @@ echo "$SORTIE_JIRA_ENDPOINT"
 
 You should see your Jira URL printed back. If the output is blank, re-run the `export` commands.
 
-## Prepare a test issue
+### Prepare a test issue
 
 Open your Jira project in a browser and create one issue:
 
@@ -57,7 +59,7 @@ Open your Jira project in a browser and create one issue:
 
 We will use the label as a filter so Sortie only picks up this one issue. Write down your project key (e.g. `PROJ`). We need it in the next step.
 
-## Write the workflow file
+### Write the workflow file
 
 Create a new directory and a `WORKFLOW.md` file inside it:
 
@@ -107,7 +109,7 @@ A few things to notice:
 - `max_turns: 1` limits each mock session to a single turn. Enough to prove the flow works.
 - `polling.interval_ms: 30000` sets the poll interval to 30 seconds. After each cycle, Sortie waits this long before checking Jira again.
 
-## Validate the configuration
+### Validate the configuration
 
 Run the validate subcommand to check for syntax errors and misconfigured fields:
 
@@ -133,7 +135,7 @@ config.tracker.api_key: api_key must be in email:token format
 
 Fix any reported errors before continuing.
 
-## Test with dry-run
+### Test with dry-run
 
 Dry-run mode connects to Jira, runs one poll cycle, and reports what it found without dispatching agents or writing to the database:
 
@@ -170,7 +172,7 @@ curl -s -u "$SORTIE_JIRA_API_KEY" \
 
 A successful response shows your user profile. A 401 means the token needs to be regenerated.
 
-## Run for real
+### Run for real
 
 Start Sortie:
 
@@ -207,7 +209,7 @@ Notice the second `tick completed` line: `candidates=0`. The issue moved to "Don
 
 Press **Ctrl+C** to stop Sortie.
 
-## Verify in Jira
+### Verify in Jira
 
 Open your issue in the browser. The status should now read "Done." If you use a project board, the issue card will have moved to the Done column.
 
@@ -224,6 +226,8 @@ To fix this:
 1. Open your Jira project settings and check the workflow diagram.
 2. Confirm that a transition exists from "To Do" (or your issue's current status) to "Done."
 3. If the transition path requires an intermediate status (e.g., "To Do" to "In Progress" to "Done"), set `handoff_state` to a status that is directly reachable, such as "In Progress," or add a direct transition in the Jira workflow editor.
+
+{{% /steps %}}
 
 ## What we built
 

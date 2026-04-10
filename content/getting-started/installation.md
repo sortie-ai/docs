@@ -64,7 +64,9 @@ See our guide on using [Sortie in Docker](/guides/use-sortie-in-docker/) for mor
 If you prefer to download manually, or you're on a platform the install script
 doesn't cover (like Windows), grab the archive directly from GitHub.
 
-### 1. Determine Your Platform
+{{% steps %}}
+
+### Determine your platform
 
 | OS | Architecture | Asset name |
 |---|---|---|
@@ -75,7 +77,7 @@ doesn't cover (like Windows), grab the archive directly from GitHub.
 | Windows | x86_64 | `sortie_VERSION_windows_amd64.zip` |
 | Windows | ARM64 | `sortie_VERSION_windows_arm64.zip` |
 
-### 2. Download and Extract
+### Download and extract
 
 Go to the [Releases page](https://github.com/sortie-ai/sortie/releases) and
 download the asset matching your platform.
@@ -92,7 +94,7 @@ tar -xzf sortie_VERSION_linux_amd64.tar.gz
 Expand-Archive sortie_VERSION_windows_amd64.zip -DestinationPath .
 ```
 
-### 3. Verify the Checksum (Recommended)
+### Verify the checksum (recommended)
 
 Each release includes a `checksums.txt` file. Download it alongside the
 archive and verify the SHA-256 hash.
@@ -111,7 +113,7 @@ sha256sum -c checksums.txt --ignore-missing
 
 Compare the output against the matching line in `checksums.txt`.
 
-### 4. Move the Binary to Your PATH
+### Move the binary to your PATH
 
 **macOS / Linux:**
 
@@ -124,6 +126,8 @@ install -m 755 sortie /usr/local/bin/sortie
 Move `sortie.exe` to a directory on your `PATH`, or add its current location
 to `PATH` through **Settings > System > About > Advanced system settings >
 Environment Variables**.
+
+{{% /steps %}}
 
 ## Go Install
 
@@ -144,29 +148,33 @@ go install github.com/sortie-ai/sortie/cmd/sortie@v1.0.0
 
 ## Build from Source
 
-For development or when you need a custom build.
+For development or when you need a custom build. Requires
+[Git](https://git-scm.com/) and [Go](https://go.dev/dl/) 1.26+.
 
-### Prerequisites
+{{% steps %}}
 
-- [Git](https://git-scm.com/)
-- [Go](https://go.dev/dl/) 1.26+
-
-### Steps
-
-Clone the repository and compile:
+### Clone the repository
 
 ```bash
 git clone https://github.com/sortie-ai/sortie.git
 cd sortie
+```
+
+### Compile the binary
+
+```bash
 make build
 ```
 
-This produces a `sortie` binary in the repository root. Move it somewhere on
-your `PATH`:
+This produces a `sortie` binary in the repository root.
+
+### Move the binary to your PATH
 
 ```bash
 install -m 755 sortie /usr/local/bin/sortie
 ```
+
+{{% /steps %}}
 
 ## Verify the Installation
 
