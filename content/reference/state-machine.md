@@ -54,10 +54,10 @@ flowchart TD
 
 **Unclaimed → Claimed.** Occurs during the dispatch phase of a poll tick. The issue must pass all [candidate eligibility](#candidate-eligibility) checks and a global or per-state concurrency slot must be available. The issue enters `Running` immediately — there is no `Claimed` without a worker.
 
-**Running → RetryQueued.** Three worker exit outcomes lead here:
+**Running → RetryQueued.** Three worker exit outcomes lead here (none apply when a soft-stop signal is active; see [Claimed → Released](#transition-details) below):
 
-- *Normal exit, issue still active:* continuation retry after 1 000 ms fixed delay.
-- *Normal exit, handoff fails:* continuation retry after 1 000 ms.
+- *Normal exit, issue still active, no soft-stop:* continuation retry after 1 000 ms fixed delay.
+- *Normal exit, handoff fails, no soft-stop:* continuation retry after 1 000 ms.
 - *Error exit, retryable:* exponential backoff retry (see [backoff formula](#backoff-formula)).
 - *Stall timeout:* worker is killed; exponential backoff retry is scheduled.
 
@@ -70,6 +70,9 @@ flowchart TD
 - The `max_sessions` budget is reached.
 - The worker error is classified as non-retryable.
 - A `handoff_state` transition succeeds (the tracker now owns the issue).
+- Soft-stop `blocked`: worker exits normally, claim released. No handoff transition, no continuation retry.
+- Soft-stop `needs-human-review`, handoff succeeds: worker exits normally, handoff transition performed, claim released.
+- Soft-stop `needs-human-review`, handoff fails: worker exits normally, handoff fails, claim released without retry.
 
 **Released → Unclaimed.** A released issue can be re-dispatched on a future poll tick if its tracker state returns to an active state. The orchestrator does not remember previous releases — each poll tick evaluates eligibility from scratch.
 
@@ -142,7 +145,7 @@ Six external events drive state transitions. Each is handled by the orchestrator
 | Trigger | What happens |
 |---|---|
 | **Poll tick** | Reconcile running issues (stall detection + tracker state refresh). Run preflight validation. Fetch candidates. Sort by priority. Dispatch eligible issues until slots are exhausted. Dispatched workers perform the optional in-progress transition (via `tracker.in_progress_state`) and optional dispatch comment (via `tracker.comments.on_dispatch`) as their first steps. |
-| **Worker exit (normal)** | Remove `running` entry. Persist run history to SQLite. Update token totals. Schedule continuation retry or perform handoff transition. Post completion comment if [`tracker.comments.on_completion`](/reference/workflow-config/) is enabled (detached goroutine, non-blocking). |
+| **Worker exit (normal)** | Remove `running` entry. Persist run history to SQLite. Update token totals. Three outcome paths: (1) no soft-stop, issue active -- schedule continuation retry or perform handoff transition (retry on handoff failure); (2) soft-stop `blocked` -- release claim, no handoff, no retry; (3) soft-stop `needs-human-review` -- perform handoff transition (if configured and issue active), release claim (no retry on handoff failure). Post completion comment if [`tracker.comments.on_completion`](/reference/workflow-config/) is enabled (detached goroutine, non-blocking). |
 | **Worker exit (error)** | Remove `running` entry. Persist run history. Classify error. If retryable, schedule exponential backoff retry. If not, release claim. Post failure comment if [`tracker.comments.on_failure`](/reference/workflow-config/) is enabled (detached goroutine, non-blocking). |
 | **Agent update event** | Update live session fields: token counters, session ID, thread ID, agent PID, rate limits, last activity timestamp. |
 | **Retry timer fired** | Re-fetch candidates. If the issue is still eligible and slots are available, dispatch. If no slots, reschedule. If the issue is gone or inactive, release claim. |

@@ -34,19 +34,24 @@ mkdir -p .sortie && echo "blocked" > .sortie/status
 | `blocked` | The agent cannot proceed without human intervention. |
 | `needs-human-review` | Work is complete but requires human review before merging or closing. |
 
-Both values produce the same orchestrator behavior. The distinction is informational — operators and dashboards can differentiate "stuck" from "done, needs eyes."
+Both values suppress continuation retry and release the issue claim. The difference: `needs-human-review` also triggers a handoff transition to `tracker.handoff_state` (when configured and the issue is in an active tracker state). `blocked` does not perform any tracker transition.
 
 ### Orchestrator behavior
 
 When Sortie detects a recognized value in `.sortie/status`:
 
 1. Completes the current turn normally.
-2. Breaks the turn loop — no further turns are attempted.
+2. Breaks the turn loop -- no further turns are attempted.
 3. Exits the worker run.
-4. Releases the issue claim.
-5. Does **not** schedule a continuation retry.
+4. For `needs-human-review` only: when `tracker.handoff_state` is configured and the issue is in an active tracker state, performs the handoff transition.
+5. Releases the issue claim.
+6. Does **not** schedule a continuation retry.
+
+If the handoff transition in step 4 fails (network error, permission denied, nil adapter), the orchestrator logs a warning and releases the claim without retry. The agent finished its work -- retrying would be wrong.
 
 The issue re-dispatches only when the tracker state changes (e.g., a human moves it back to an active state).
+
+The full interaction between `.sortie/status` and `tracker.handoff_state` is documented in the [A2O protocol specification](https://github.com/sortie-ai/sortie/blob/main/docs/agent-to-orchestrator-protocol.md) Section 3.6.
 
 ### Edge cases
 

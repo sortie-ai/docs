@@ -58,7 +58,7 @@ When the MCP server crashes, the agent runtime detects a broken pipe and gets er
 
 ## Control plane: the `.sortie/status` file
 
-The file protocol is deliberately minimal. The agent writes a single recognized token — `blocked` or `needs-human-review` — to `.sortie/status` in the workspace. Sortie reads this file once, after the turn completes and before the retry decision. If the file says `blocked`, Sortie does not schedule another attempt. The issue sits until a human changes its tracker state.
+The file protocol is deliberately minimal. The agent writes a single recognized token — `blocked` or `needs-human-review` — to `.sortie/status` in the workspace. Sortie reads this file once, after the turn completes and before the retry decision. If the file says `blocked`, Sortie does not schedule another attempt. The issue sits until a human changes its tracker state. If the file says `needs-human-review`, Sortie also stops retrying, but goes one step further: it transitions the issue to the configured handoff state in the tracker, so the team sees completed work waiting for review. Both values stop the retry loop. The difference is what happens to the issue in the tracker on the way out.
 
 Timing matters. Sortie reads the file *after* the agent process exits, eliminating race conditions. The read happens *before* the tracker API call, avoiding a wasted request for an issue the agent already declared blocked.
 
@@ -98,7 +98,7 @@ If you're writing workflow prompts or building a custom agent, the decision fram
 | Check remaining turn budget | `sortie_status` tool | You need the data during the turn to plan work |
 | Review prior run outcomes | `workspace_history` tool | You need history to avoid repeating mistakes |
 | Signal "I'm blocked" | `.sortie/status` file | One-way advisory, survives MCP failure |
-| Signal "ready for review" | `.sortie/status` file | Same mechanism, different semantic value |
+| Signal "ready for review" | `.sortie/status` file | Same file, but also triggers [handoff transition](/reference/agent-extensions/) when configured |
 
 The rule of thumb: if the agent needs a response, use a tool. If the agent is sending a signal about its own state, use the file.
 
