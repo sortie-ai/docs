@@ -1,15 +1,15 @@
 document.addEventListener("DOMContentLoaded", function () {
-  var container = document.querySelector(".page-feedback");
+  const container = document.querySelector(".page-feedback");
   if (!container) return;
 
-  var buttons = container.querySelectorAll(".feedback-btn");
-  var actions = container.querySelector(".page-feedback__actions");
-  var thanks = container.querySelector(".page-feedback__thanks");
+  const buttons = container.querySelectorAll(".feedback-btn");
+  const actions = container.querySelector(".page-feedback__actions");
+  const thanks = container.querySelector(".page-feedback__thanks");
 
   buttons.forEach(function (btn) {
     btn.addEventListener("click", function () {
-      var value = parseInt(this.getAttribute("data-value"), 10);
-      var page = document.location.pathname;
+      const value = parseInt(this.getAttribute("data-value"), 10);
+      const page = document.location.pathname;
 
       if (typeof gtag === "function") {
         gtag("event", "page_feedback", {
