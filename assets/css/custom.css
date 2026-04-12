@@ -1,0 +1,149 @@
+/* Reduce excessive vertical spacing between sections */
+article h2 {
+  margin-top: calc(var(--spacing) * 8);
+}
+
+@media (min-width: 64rem) {
+  article h2 {
+    margin-top: calc(var(--spacing) * 10);
+  }
+}
+
+article h3 {
+  margin-top: calc(var(--spacing) * 6);
+}
+
+/* Let table description columns wrap */
+article table tbody tr td {
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+
+article table tbody tr td code {
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+
+/* Keep first-column code on one line */
+article table tbody tr td:first-child code {
+  white-space: nowrap;
+}
+
+/* Mermaid: strip code-block styling after rendering */
+pre.mermaid[data-processed] {
+  background: transparent;
+  border: none;
+  padding: 0;
+  text-align: center;
+  overflow: visible;
+  max-height: none !important;
+  height: auto !important;
+}
+
+pre.mermaid[data-processed] svg {
+  max-height: none !important;
+  height: auto !important;
+}
+
+/* Strip mermaid edge label backgrounds */
+pre.mermaid .edgeLabel,
+.mermaid .edgeLabel {
+  background-color: transparent !important;
+}
+pre.mermaid .edgeLabel rect,
+pre.mermaid .edgeLabel .label-container,
+.mermaid .edgeLabel rect,
+.mermaid .edgeLabel .label-container {
+  fill: transparent !important;
+  stroke: none !important;
+}
+
+/* ─── Page Feedback Widget ─────────────────────────────────────── */
+.page-feedback {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  border-top: 1px solid #e5e7eb; /* gray-200 */
+  padding-top: 1.25rem;
+  margin-bottom: 2rem;
+}
+
+.dark .page-feedback {
+  border-top-color: #262626; /* neutral-800 */
+}
+
+@media print {
+  .page-feedback { display: none; }
+}
+
+.page-feedback__question {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 500;
+  margin: 0;
+  opacity: 0.65;
+}
+
+.page-feedback__right {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.page-feedback__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.feedback-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3125rem;
+  padding: 0.25rem 0.625rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.5;
+  color: inherit;
+  background: transparent;
+  border: 1px solid rgba(156, 163, 175, 0.45);
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+  white-space: nowrap;
+}
+
+.page-feedback__icon {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+}
+
+.feedback-btn:hover {
+  border-color: rgba(156, 163, 175, 0.7);
+  background-color: rgba(156, 163, 175, 0.08);
+}
+
+.feedback-btn:focus-visible {
+  outline: 2px solid rgba(59, 130, 246, 0.5);
+  outline-offset: 2px;
+}
+
+.dark .feedback-btn {
+  border-color: rgba(115, 115, 115, 0.4);
+}
+
+.dark .feedback-btn:hover {
+  border-color: rgba(115, 115, 115, 0.65);
+  background-color: rgba(115, 115, 115, 0.08);
+}
+
+.page-feedback__thanks {
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  opacity: 0.6;
+  margin: 0;
+}

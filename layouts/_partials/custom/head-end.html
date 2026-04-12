@@ -14,9 +14,6 @@
 {{- /* cookieconsent local override styles */ -}}
 <link rel="stylesheet" href="/css/cookieconsent.css" />
 
-{{- /* custom site styles (typography, mermaid, logo switching) */ -}}
-<link rel="stylesheet" href="/css/custom.css" />
-
 {{- /* GA4 analytics with Consent Mode v2 — loads gtag.js dynamically */ -}}
 <script src="/js/analytics.js"></script>
 
@@ -26,8 +23,10 @@
 {{- /* version announcement banner — compares stored cookie with build-time version */ -}}
 <script defer src="/js/version-banner.js"></script>
 
-{{- /* page feedback widget */ -}}
-<script defer src="/js/feedback.js"></script>
+{{- /* page feedback widget — fingerprinted for cache-busting on deploy */ -}}
+{{- $feedback := resources.Get "js/feedback.js" -}}
+{{- if hugo.IsProduction }}{{- $feedback = $feedback | minify | fingerprint -}}{{ end -}}
+<script defer src="{{ $feedback.RelPermalink }}"></script>
 
 {{- /* mermaid CDN + theme-aware initialization */ -}}
 <script defer src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
