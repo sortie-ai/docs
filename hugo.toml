@@ -89,6 +89,20 @@ type = "flexsearch"
 [params.page]
 width = "normal"
 
+# "Copy Page" context menu with AI integrations.
+[params.page.contextMenu]
+enable = true
+
+[[params.page.contextMenu.links]]
+name = "Open in ChatGPT"
+icon = "chatgpt"
+url = "https://chatgpt.com/?hints=search&q=I%27m+looking+at+this+documentation%3A+{markdown_url}%0AHelp+me+understand+how+to+use+it."
+
+[[params.page.contextMenu.links]]
+name = "Open in Claude"
+icon = "claude"
+url = "https://claude.ai/new?q=I%27m+looking+at+this+documentation%3A+{markdown_url}%0AHelp+me+understand+how+to+use+it."
+
 [menu]
 [[menu.main]]
 name = "Search"
