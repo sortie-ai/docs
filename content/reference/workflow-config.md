@@ -186,6 +186,9 @@ At least one of `active_states` or `terminal_states` must be non-empty. When bot
 
 `in_progress_state`, when set, must appear in `active_states` (otherwise reconciliation would immediately cancel the worker after the transition). It must not appear in `terminal_states` or collide with `handoff_state`. If the issue is already in the target state at dispatch time, the transition call is skipped (debug log only). Other transition failures at runtime are non-fatal: the worker logs a warning and continues to workspace preparation. Requires the same write permissions as `handoff_state`.
 
+> [!NOTE]
+> Workspace cleanup for issues that reach a terminal state while no worker is running is handled by a periodic sweep, not by an instant event. The sweep runs every 60 poll cycles — with the default 30-second `polling.interval_ms`, cleanup occurs within approximately 30 minutes; with a 60-second interval, within approximately 60 minutes. When a worker is still running and reconciliation detects a terminal state, cleanup happens on the current poll tick. Sortie also runs a full cleanup sweep on startup.
+
 ### Tracker comments
 
 The `comments` sub-object controls whether Sortie posts plain-text comments on tracker issues at session lifecycle points. Each flag is independent. All default to `false`.

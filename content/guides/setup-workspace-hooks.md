@@ -125,6 +125,9 @@ hooks:
 
 The `2>/dev/null || true` suppresses errors when the branch doesn't exist remotely (for example, if the run never pushed). `before_remove` failures are logged and ignored — cleanup still proceeds.
 
+> [!NOTE]
+> Workspace removal does not happen instantly when an issue reaches a terminal state. If the worker has already exited, Sortie detects the terminal state through a periodic sweep that runs every 60 poll ticks — with the default `polling.interval_ms: 30000`, cleanup happens within approximately 30 minutes; with `polling.interval_ms: 60000`, within approximately 60 minutes. Sortie always runs a full sweep on startup, so any workspaces left behind by a previous run are cleaned up immediately when the process restarts.
+
 ## Use hook environment variables
 
 Every hook receives these variables from the orchestrator:
