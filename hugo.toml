@@ -54,9 +54,10 @@ engine = "katex"
 default = "system"
 displayToggle = true
 
-# Repository link for "Edit this page" functionality.
+# Repository link for "Edit this page on GitHub" in the TOC sidebar.
 [params.editURL]
-enable = false
+enable = true
+base = "https://github.com/sortie-ai/docs/edit/main/content"
 
 # Navbar logo configuration.
 [params.navbar]
