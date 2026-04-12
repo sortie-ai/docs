@@ -50,7 +50,7 @@ internal/tool/repostats/
 
 Here's a complete implementation of a `repo_stats` tool that returns file and line counts for the session workspace:
 
-```go
+```go {filename="repostats.go",hl_lines=[15,38,53,62,71]}
 package repostats
 
 import (
@@ -168,7 +168,7 @@ Key patterns to follow:
 
 Tools are wired explicitly in the `runMCPServer` function in `cmd/sortie/mcpserver.go`. Registration is conditional — register when the tool's dependencies are available, skip when they aren't:
 
-```go
+```go {filename="mcpserver.go",hl_lines=[5,6]}
 // In cmd/sortie/mcpserver.go, inside runMCPServer():
 toolRegistry := domain.NewToolRegistry()
 
@@ -188,7 +188,7 @@ Three rules:
 
 Write unit tests in `repostats_test.go`. Use `t.TempDir()` to create an isolated workspace:
 
-```go
+```go {filename="repostats_test.go",hl_lines=["13-14","16","39-40","65-66"]}
 package repostats
 
 import (

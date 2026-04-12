@@ -41,7 +41,7 @@ export SORTIE_GITHUB_ENDPOINT="https://github.yourcompany.com/api/v3"
 
 Replace the `tracker` section in your `WORKFLOW.md` front matter:
 
-```jinja
+```jinja {filename="WORKFLOW.md",hl_lines=[4,5,6]}
 ---
 tracker:
   kind: github
@@ -128,7 +128,7 @@ One tradeoff: the search endpoint has a stricter rate limit (30 requests/min) co
 
 When an agent completes its work, Sortie can transition the issue to a review state:
 
-```yaml
+```yaml {hl_lines=[7]}
 tracker:
   kind: github
   api_key: $SORTIE_GITHUB_TOKEN
@@ -151,7 +151,7 @@ Constraints:
 
 Sortie can transition an issue when the agent picks it up, moving it to an "in progress" column so your team sees work has started:
 
-```yaml
+```yaml {hl_lines=[7]}
 tracker:
   kind: github
   api_key: $SORTIE_GITHUB_TOKEN

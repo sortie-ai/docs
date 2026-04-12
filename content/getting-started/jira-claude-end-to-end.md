@@ -69,7 +69,7 @@ mkdir sortie-e2e && cd sortie-e2e
 
 Create `WORKFLOW.md` with the full configuration. Replace `PROJ` with your Jira project key and the git clone URL with your repository:
 
-```jinja
+```jinja {filename="WORKFLOW.md",hl_lines=[17,"19-21","25-29",33,"39-42"]}
 ---
 tracker:
   kind: jira

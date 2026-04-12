@@ -130,7 +130,7 @@ Keep `stall_timeout_ms` shorter than `turn_timeout_ms`. Stall detection catches 
 
 Here's a conservative configuration that balances reliability with resource efficiency:
 
-```yaml
+```yaml {hl_lines=["4-5","7-9"]}
 # WORKFLOW.md — agent block
 agent:
   kind: claude-code

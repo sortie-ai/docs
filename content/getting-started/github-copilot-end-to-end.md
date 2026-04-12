@@ -67,7 +67,7 @@ mkdir sortie-github-e2e && cd sortie-github-e2e
 
 Create `WORKFLOW.md` with the full configuration. Replace `yourorg/yourrepo` with your actual repository:
 
-```jinja
+```jinja {filename="WORKFLOW.md",hl_lines=[3,4,"34-35","40-42"]}
 ---
 tracker:
   kind: github

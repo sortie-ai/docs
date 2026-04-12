@@ -85,7 +85,7 @@ hooks:
 
 If your workflow needs to preserve changes across retries, skip the reset and merge instead:
 
-```yaml
+```yaml {hl_lines=[4]}
 hooks:
   before_run: |
     git fetch origin main
@@ -165,7 +165,7 @@ A timed-out hook is treated the same as a failure — fatal for `after_create` a
 
 Here is a complete hooks configuration for a Go project tracked in Jira:
 
-```yaml
+```yaml {hl_lines=[2,5,8,12]}
 hooks:
   after_create: |
     git clone --depth 1 $SORTIE_REPO_URL .

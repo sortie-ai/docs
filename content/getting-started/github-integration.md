@@ -94,7 +94,7 @@ mkdir sortie-github && cd sortie-github
 
 Create `WORKFLOW.md` with the following content. Replace `owner/repo` with your actual repository:
 
-```jinja
+```jinja {filename="WORKFLOW.md",hl_lines=[3,"4-5","6-9",10,17]}
 ---
 tracker:
   kind: github

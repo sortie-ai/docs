@@ -20,7 +20,7 @@ The file adapter replaces a live tracker with a local JSON file. Pair it with th
 
 Create `issues.json` with the fields your prompt template uses. Four fields are required; the rest are optional and default to empty or nil values:
 
-```json
+```json {filename="issues.json"}
 [
   {
     "id": "1",
@@ -61,7 +61,7 @@ For the full field schema, see the [file-based tasks spec](https://github.com/so
 
 Set `tracker.kind` to `file` and point `file.path` at your fixture:
 
-```jinja
+```jinja {filename="WORKFLOW.md",hl_lines=[3,"8-9",20,24,30]}
 ---
 tracker:
   kind: file
@@ -131,7 +131,7 @@ Each scenario targets a specific `{{ if }}` or `{{ range }}` branch in your temp
 
 Once your template renders correctly with the mock agent, swap `agent.kind` to `claude-code` and keep the file tracker:
 
-```yaml
+```yaml {hl_lines=[2]}
 agent:
   kind: claude-code
   max_turns: 3

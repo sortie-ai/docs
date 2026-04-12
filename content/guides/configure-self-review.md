@@ -20,7 +20,7 @@ Self-review adds an orchestrator-controlled feedback loop between "agent finishe
 
 Self-review is disabled by default and adds zero overhead when off. Add a `self_review` block to your WORKFLOW.md front matter:
 
-```yaml
+```yaml {hl_lines=[2,"3-6"]}
 self_review:
   enabled: true
   verification_commands:
@@ -71,7 +71,7 @@ Setting `max_iterations: 1` is valid for a lightweight "check once, no retry" se
 
 ## Configure diff and timeout limits
 
-```yaml
+```yaml {hl_lines=[3,4]}
 self_review:
   enabled: true
   max_diff_bytes: 102400          # default 100 KB
@@ -124,7 +124,7 @@ If the agent fails to write a valid verdict file on non-final iterations, Sortie
 
 The prompt instructs the agent to write a structured JSON verdict file. The verdict format:
 
-```json
+```json {filename=".sortie/review_verdict.json"}
 {
   "verdict": "pass",
   "summary": "All tests pass, implementation matches the task requirements.",
@@ -134,7 +134,7 @@ The prompt instructs the agent to write a structured JSON verdict file. The verd
 
 Or, when something needs fixing:
 
-```json
+```json {filename=".sortie/review_verdict.json"}
 {
   "verdict": "iterate",
   "summary": "Test TestFoo/bar fails due to missing nil check.",
@@ -185,7 +185,7 @@ Your hook can read the summary and include it in a PR description or comment. Th
 
 A full WORKFLOW.md with self-review, CI feedback, GitHub Issues, branch-per-issue hooks, and a prompt template. Self-review runs tests and linters before exit; the `after_run` hook pushes code, creates a PR, and attaches the review summary when available.
 
-````yaml
+````yaml {hl_lines=["22-30"]}
 ---
 tracker:
   kind: github

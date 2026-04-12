@@ -93,7 +93,7 @@ Two other top-level variables are available alongside `.issue`:
 
 A single template serves three modes. Use `.attempt` and `.run.is_continuation` to branch:
 
-```jinja
+```jinja {hl_lines=[1,8,15]}
 {{ if not .run.is_continuation }}
 ## First Run
 
@@ -285,7 +285,7 @@ The `-` trims whitespace on that side of the tag. For most prompts, the extra ne
 
 ## Complete example
 
-```jinja
+```jinja {hl_lines=[7,13,16,25,32,38,44,52]}
 {{/* Production prompt for Jira + Claude Code workflow */}}
 You are a senior engineer. Your work is tracked by Sortie.
 

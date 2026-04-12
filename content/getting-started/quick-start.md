@@ -47,7 +47,7 @@ We will create two files here: an issues file and a workflow file.
 
 Create a file called `issues.json` with two sample issues:
 
-```json
+```json {filename="issues.json"}
 [
   {
     "id": "1",
@@ -75,7 +75,7 @@ adapter reads it directly, so we can skip all API setup for now.
 
 Create `WORKFLOW.md` in the same directory:
 
-```markdown
+```markdown {filename="WORKFLOW.md",hl_lines=[3,13,14,22]}
 ---
 tracker:
   kind: file
@@ -127,7 +127,7 @@ sortie ./WORKFLOW.md
 
 You should see output similar to:
 
-```
+```text {hl_lines=[4,"13-14",15]}
 level=INFO msg="sortie starting" version=0.x.x workflow_path=/home/you/sortie-demo/WORKFLOW.md
 level=INFO msg="database path resolved" db_path=/home/you/sortie-demo/.sortie.db
 level=INFO msg="sortie started"

@@ -42,7 +42,7 @@ The endpoint is the base URL of your Jira instance — no `/rest/api/...` suffix
 
 Replace the `tracker` section in your `WORKFLOW.md` front matter:
 
-```jinja
+```jinja {filename="WORKFLOW.md",hl_lines=[4,5,6]}
 ---
 tracker:
   kind: jira
@@ -109,7 +109,7 @@ The filter applies to candidate fetches and state-change polls. It does **not** 
 
 When an agent completes its work, Sortie can transition the issue to a specific state — a review column, a QA queue, or any reachable status in your Jira workflow:
 
-```yaml
+```yaml {hl_lines=[8]}
 tracker:
   kind: jira
   endpoint: $SORTIE_JIRA_ENDPOINT
@@ -135,7 +135,7 @@ Two constraints:
 
 Sortie can also transition an issue when the agent *picks it up* — moving it to an "In Progress" column so your team sees work has started:
 
-```yaml
+```yaml {hl_lines=[8]}
 tracker:
   kind: jira
   endpoint: $SORTIE_JIRA_ENDPOINT

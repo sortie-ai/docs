@@ -69,7 +69,7 @@ mkdir sortie-jira && cd sortie-jira
 
 Create `WORKFLOW.md` with the following content. Replace `PROJ` with your project key:
 
-```jinja
+```jinja {filename="WORKFLOW.md",hl_lines=[3,"4-5",7,10,18]}
 ---
 tracker:
   kind: jira
