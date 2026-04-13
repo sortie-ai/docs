@@ -11,6 +11,48 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-04-13
+
+### Added
+
+- Cross-retry session resume: continuation retries now propagate the
+  session ID from the exiting worker through the retry entry so the next
+  worker can resume the agent conversation instead of starting a fresh
+  session. The session ID is persisted to SQLite and restored on startup
+  recovery.
+  ([#207](https://github.com/sortie-ai/sortie/issues/207),
+  [#441](https://github.com/sortie-ai/sortie/pull/441))
+- Token usage cost estimation on the dashboard and JSON API: operators
+  configure per-adapter token rates in WORKFLOW.md front matter
+  (`token_rates` block); the dashboard surfaces per-session and aggregate
+  USD cost estimates computed from running sessions. The JSON API includes
+  `active_estimated_cost_usd` when token rates are configured.
+  ([#436](https://github.com/sortie-ai/sortie/issues/436),
+  [#446](https://github.com/sortie-ai/sortie/pull/446))
+- Dashboard accordion tables: Running Sessions, Retry Queue, and Run
+  History tables use an expand/collapse accordion pattern. Primary status
+  columns are visible at a glance; secondary detail expands on click.
+  Expansion state survives the 5-second auto-refresh via sessionStorage.
+  ([#432](https://github.com/sortie-ai/sortie/issues/432),
+  [#443](https://github.com/sortie-ai/sortie/pull/443),
+  [#444](https://github.com/sortie-ai/sortie/issues/444),
+  [#445](https://github.com/sortie-ai/sortie/pull/445))
+- `StderrCollector` buffer hardening: agent stderr collection now uses a
+  10 MiB scanner buffer cap and a head/tail ring-buffer retention strategy
+  with a configurable byte budget, preventing silent line truncation and
+  unbounded memory growth during long agent turns.
+  ([#387](https://github.com/sortie-ai/sortie/issues/387),
+  [#440](https://github.com/sortie-ai/sortie/pull/440))
+
+### Changed
+
+- Retry timer tracker validation: `HandleRetryTimer` now calls
+  `FetchIssueByID` instead of scanning all candidate issues via
+  `FetchCandidateIssues`, reducing each retry timer fire from O(pages)
+  tracker API calls to exactly one.
+  ([#206](https://github.com/sortie-ai/sortie/issues/206),
+  [#442](https://github.com/sortie-ai/sortie/pull/442))
+
 ## [1.6.1] - 2026-04-11 { #1.6.1 }
 
 ### Added
@@ -679,6 +721,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   execution via GitHub Actions.
 - Architecture Decision Records (ADR-0001 through ADR-0005).
 
+[1.7.0]: https://github.com/sortie-ai/sortie/compare/1.6.1...1.7.0
 [1.6.1]: https://github.com/sortie-ai/sortie/compare/1.6.0...1.6.1
 [1.6.0]: https://github.com/sortie-ai/sortie/compare/1.5.1...1.6.0
 [1.5.1]: https://github.com/sortie-ai/sortie/compare/1.5.0...1.5.1

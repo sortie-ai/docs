@@ -399,14 +399,14 @@ The [`install.sh`](https://get.sortie-ai.com/install.sh) script accepts three en
 
 | Variable | Default | Description |
 |---|---|---|
-| `SORTIE_VERSION` | Latest GitHub release | Pin a specific release tag (e.g., `1.5.0`). When set, the script skips the GitHub API call to discover the latest version. |
+| `SORTIE_VERSION` | Latest GitHub release | Pin a specific release tag (e.g., `1.7.0`). When set, the script skips the GitHub API call to discover the latest version. |
 | `SORTIE_INSTALL_DIR` | `/usr/local/bin` (root) or `~/.local/bin` (non-root) | Override the directory where the `sortie` binary is placed. |
 | `SORTIE_NO_VERIFY` | `0` | Set to `1` to skip SHA-256 checksum verification of the downloaded binary. |
 
 Example:
 
 ```sh
-SORTIE_VERSION=1.5.0 SORTIE_INSTALL_DIR=/opt/bin \
+SORTIE_VERSION=1.7.0 SORTIE_INSTALL_DIR=/opt/bin \
   curl -sSL https://get.sortie-ai.com/install.sh | sh
 ```
 

@@ -1,10 +1,10 @@
 ---
 title: Workflow Configuration
 linkTitle: "Workflow File"
-description: Complete reference for every WORKFLOW.md configuration field. Tracker, polling, workspace, hooks, agent, database, prompt template, server, logging, and SSH worker.
-keywords: sortie configuration, WORKFLOW.md, YAML, tracker, agent, ci_feedback, self_review, reactions, review_comments, hooks, workspace, server, worker, SSH, config reference
+description: Complete reference for every WORKFLOW.md configuration field. Tracker, polling, workspace, hooks, agent, database, prompt template, server, logging, token rates, and SSH worker.
+keywords: sortie configuration, WORKFLOW.md, YAML, tracker, agent, ci_feedback, self_review, reactions, review_comments, hooks, workspace, server, worker, SSH, token_rates, cost estimation, config reference
 author: Sortie AI
-date: 2026-03-23
+date: 2026-04-13
 weight: 20
 url: /reference/workflow-config/
 ---
@@ -125,6 +125,13 @@ server:
 logging:
   level: info                         # debug | info | warn | error
   format: json                        # text | json (default: text)
+
+# --- Token Rates (cost estimation) -----------------------------------
+token_rates:
+  claude-code:                        # Agent adapter kind string
+    input_per_mtok: 3.00              # USD per million input tokens
+    output_per_mtok: 15.00            # USD per million output tokens
+    cache_read_per_mtok: 0.30         # USD per million cache-read tokens
 
 # --- Database ---------------------------------------------------------
 db_path: .sortie.db                   # SQLite file (relative to WORKFLOW.md)
@@ -682,6 +689,41 @@ logging:
   format: json
 ```
 
+### `token_rates`
+
+Per-adapter token pricing for cost estimation on the [dashboard](/reference/dashboard/#cost-estimation). Keys are agent adapter kind strings (e.g., `"claude-code"`, `"copilot-cli"`). All rates are in USD per 1 million tokens.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `token_rates` | map | _(absent)_ | Top-level extension key. Keys are agent adapter kind strings. When absent or empty, the dashboard shows raw token counts without cost estimates. |
+| `token_rates.<kind>.input_per_mtok` | number | _(not set)_ | USD per million input tokens. |
+| `token_rates.<kind>.output_per_mtok` | number | _(not set)_ | USD per million output tokens. |
+| `token_rates.<kind>.cache_read_per_mtok` | number | _(not set)_ | USD per million cache-read tokens. |
+
+Each rate field is optional. A missing field means cost is not estimated for that token type. A zero value is valid and produces `$0.00`. Partial rates are accepted — configuring only `output_per_mtok` computes cost from output tokens alone.
+
+Validation rules:
+
+- `token_rates` must be a map when present. Non-map values produce a warning (not a fatal error).
+- Rate values must be non-negative numbers. Negative values produce a warning and are treated as not configured.
+- Invalid sub-values produce warnings logged at startup. They do not prevent boot.
+
+Token rates do not reload dynamically. Changes require a process restart, consistent with `server.port` and `server.host`.
+
+```yaml
+token_rates:
+  claude-code:
+    input_per_mtok: 3.00
+    output_per_mtok: 15.00
+    cache_read_per_mtok: 0.30
+  copilot-cli:
+    input_per_mtok: 2.00
+    output_per_mtok: 8.00
+    cache_read_per_mtok: 0.20
+```
+
+See [how to control agent costs](/guides/control-costs/) for operational guidance on cost monitoring.
+
 ### `worker`
 
 SSH remote execution. The host with the fewest active sessions is selected per dispatch. See the [scale agents with SSH](/guides/scale-agents-with-ssh/) guide for operational setup.
@@ -876,5 +918,6 @@ Sortie watches `WORKFLOW.md` for filesystem changes and re-applies configuration
 | `server.host`                          | Requires restart.                      |
 | `logging.level`                        | Requires restart.                      |
 | `logging.format`                       | Requires restart.                      |
+| `token_rates.*`                        | Requires restart.                      |
 
 In-flight agent sessions are not affected by any reload.

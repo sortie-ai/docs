@@ -30,7 +30,7 @@ COPY --from=sortie /usr/bin/sortie /usr/bin/sortie
 Pin to a specific version for reproducible builds:
 
 ```dockerfile
-FROM ghcr.io/sortie-ai/sortie:1.5.0 AS sortie
+FROM ghcr.io/sortie-ai/sortie:1.7.0 AS sortie
 ```
 
 This pattern keeps Sortie agent-agnostic: it does not dictate your OS, package manager, or runtime environment. You pick the base image your agent requires.
@@ -296,14 +296,14 @@ docker build -t sortie .
 Inject a version string:
 
 ```sh
-docker build --build-arg VERSION=1.5.0 -t sortie .
+docker build --build-arg VERSION=1.7.0 -t sortie .
 ```
 
 Include the Git revision in OCI labels:
 
 ```sh
 docker build \
-    --build-arg VERSION=1.5.0 \
+    --build-arg VERSION=1.7.0 \
     --build-arg REVISION=$(git rev-parse HEAD) \
     -t sortie .
 ```

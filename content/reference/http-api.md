@@ -1,9 +1,9 @@
 ---
 title: "HTTP API"
 description: "Complete reference for Sortie's embedded HTTP server: JSON API endpoints, request/response shapes, error codes, and curl examples."
-keywords: sortie HTTP API, REST API, JSON API, dashboard, endpoints, curl, observability
+keywords: sortie HTTP API, REST API, JSON API, dashboard, endpoints, curl, observability, cost estimation, token rates
 author: Sortie AI
-date: 2026-03-26
+date: 2026-04-13
 weight: 40
 url: /reference/http-api/
 ---
@@ -200,7 +200,8 @@ curl http://localhost:8080/api/v1/state
       "tool_time_percent": 34.7,
       "api_time_percent": 51.2,
       "self_review_active": true,
-      "self_review_iteration": 2
+      "self_review_iteration": 2,
+      "agent_kind": "claude-code"
     }
   ],
   "retrying": [
@@ -219,7 +220,8 @@ curl http://localhost:8080/api/v1/state
     "cache_read_tokens": 31500,
     "seconds_running": 2847.3
   },
-  "rate_limits": {}
+  "rate_limits": {},
+  "active_estimated_cost_usd": 1.47
 }
 ```
 
@@ -238,8 +240,11 @@ curl http://localhost:8080/api/v1/state
 | `api_time_percent` | Percentage of elapsed wall-clock time spent waiting on API calls. `null` when not yet computed. |
 | `self_review_active` | `true` when the worker is in the self-review phase. Omitted when `false`. |
 | `self_review_iteration` | Current review iteration (1-based). Omitted when `0`. See [self-review configuration](/guides/configure-self-review/). |
+| `agent_kind` | Agent adapter kind string active at dispatch time (e.g., `"claude-code"`, `"copilot-cli"`). Used by the dashboard for [cost estimation](/reference/dashboard/#cost-estimation). Omitted when empty. |
 
 **`agent_totals`:** Cumulative across all sessions since Sortie started. `seconds_running` includes elapsed time from currently active sessions, not only completed ones.
+
+**`active_estimated_cost_usd`:** Estimated total cost across currently running sessions, computed from configured [token rates](/reference/workflow-config/#token_rates) and each running entry's `agent_kind`. Omitted when token rates are not configured or no running sessions match a configured rate. This is a presentation-layer estimate, not provider billing data.
 
 **`rate_limits`:** Reserved for future use. Currently an empty object.
 
@@ -299,7 +304,8 @@ curl http://localhost:8080/api/v1/MT-649
     "tool_time_percent": 34.7,
     "api_time_percent": 51.2,
     "self_review_active": true,
-    "self_review_iteration": 2
+    "self_review_iteration": 2,
+    "agent_kind": "claude-code"
   },
   "retry": null,
   "recent_events": [],
