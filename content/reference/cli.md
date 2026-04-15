@@ -47,7 +47,7 @@ sortie: too many arguments
 | Flag | Type | Default | Description |
 |---|---|---|---|
 | `-h`, `--help` | boolean | `false` | Print the help message and exit. |
-| `-V`, `--version` | boolean | `false` | Print the version banner with copyright notice, then exit. |
+| `-V`, `--version` | boolean | `false` | Print the version banner, then exit. |
 | `-dumpversion` | boolean | `false` | Print the bare version string (e.g., `1.7.0`), then exit. |
 | `--dry-run` | boolean | `false` | Run one poll cycle without spawning agents or writing to the database, then exit. |
 | `--env-file` | string | _(empty)_ | Path to a `.env` file containing `SORTIE_*` overrides. See [environment variables reference](/reference/environment/#env-file-support). |
@@ -199,12 +199,10 @@ The Go `flag` package also recognizes `-help` (single-dash long form) and treats
 Prints the full version banner to stdout and exits with code `0`. The short form `-V` is an alias for `--version`.
 
 ```
-sortie 1.7.0
-Copyright (C) 2026 Serghei Iakovlev <oss@serghei.pl>
-
-This is free software; see the source for copying conditions.  There is NO
-warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+sortie 1.7.0 (commit: a1b2c3d, built: 2026-04-15, go1.26.1, linux/amd64)
 ```
+
+The banner includes the Git commit SHA (first 7 characters), build date, Go toolchain version, and target platform. Actual values vary at build time. Development builds without release tags show `dev` as the version.
 
 Skips workflow loading, configuration validation, and database initialization. Ignores the `workflow-path` argument when present.
 
