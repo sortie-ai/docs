@@ -1,6 +1,7 @@
 ---
 title: Getting Started
 linkTitle: Getting Started
+description: "Install Sortie and run your first autonomous coding session: setup, Jira and GitHub integration tutorials, and end-to-end agent walkthroughs."
 weight: 1
 ---
 

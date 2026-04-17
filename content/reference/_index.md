@@ -1,6 +1,7 @@
 ---
 title: Reference
 linkTitle: Reference
+description: "Reference for every Sortie CLI flag, WORKFLOW.md field, environment variable, HTTP endpoint, Prometheus metric, and agent or tracker adapter."
 weight: 4
 ---
 

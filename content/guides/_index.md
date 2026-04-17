@@ -1,6 +1,7 @@
 ---
 title: Guides
 linkTitle: Guides
+description: "Step-by-step guides for configuring, operating, and extending Sortie: tracker setup, retries, CI feedback, observability, Docker, Kubernetes, and more."
 weight: 2
 ---
 

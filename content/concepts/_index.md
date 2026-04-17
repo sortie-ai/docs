@@ -1,6 +1,7 @@
 ---
 title: Concepts
 linkTitle: Concepts
+description: "Design decisions and mental models behind Sortie: architecture, adapter model, persistence, orchestration, agent communication, security, and isolation."
 weight: 3
 ---
 
