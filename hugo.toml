@@ -42,7 +42,7 @@ lastmod = [':git', 'lastmod', ':default']
 publishDate = ['date', ':default']
 
 [params]
-description = "Autonomous coding agent orchestrator. Turns issue tracker tickets into agent sessions."
+description = "Sortie turns Jira and GitHub issues into autonomous coding agent sessions. Single Go binary, SQLite persistence, Claude Code, Copilot, and Codex adapters."
 
 # Version announcement banner. Set to false to disable entirely.
 # message: custom text; leave empty to use the default "Sortie vX.Y.Z is here!" message.
