@@ -16,7 +16,7 @@
 {{ if .IsHome -}}
 {{- $websiteName := printf "%s Documentation" site.Title -}}
 {{- $websiteNode := dict "@type" "WebSite" "@id" (printf "%s#website" $siteURL) "url" $siteURL "name" $websiteName "description" site.Params.description "publisher" (dict "@id" (printf "%s#organization" $siteURL)) "inLanguage" "en" "potentialAction" (dict "@type" "SearchAction" "target" (dict "@type" "EntryPoint" "urlTemplate" (printf "%s?q={search_term_string}" $siteURL)) "query-input" "required name=search_term_string") -}}
-{{- $softwareNode := dict "@type" "SoftwareApplication" "@id" (printf "%s#software" $siteURL) "name" site.Title "description" $desc "applicationCategory" "DeveloperApplication" "operatingSystem" "macOS, Linux, Windows" "url" "https://github.com/sortie-ai/sortie" "author" (dict "@id" (printf "%s#organization" $siteURL)) "offers" (dict "@type" "Offer" "price" 0 "priceCurrency" "USD") "softwareHelp" (dict "@id" (printf "%s#website" $siteURL)) -}}
+{{- $softwareNode := dict "@type" "SoftwareApplication" "@id" (printf "%s#software" $siteURL) "name" site.Title "description" $desc "applicationCategory" "DeveloperApplication" "operatingSystem" "macOS, Linux, Windows" "url" "https://github.com/sortie-ai/sortie" "author" (dict "@id" (printf "%s#organization" $siteURL)) "offers" (dict "@type" "Offer" "price" 0 "priceCurrency" "USD") "softwareHelp" (dict "@type" "CreativeWork" "url" $siteURL) -}}
 {{- $homeSchema := dict "@context" "https://schema.org" "@graph" (slice $orgNode $websiteNode $softwareNode) -}}
 <script type="application/ld+json">
   {{ $homeSchema | jsonify (dict "indent" "  ") | safeJS }}
@@ -53,28 +53,41 @@
 {{- end -}}
 {{- $lastItem := dict "@type" "ListItem" "position" (add (len $breadcrumbs) 1) "name" $title -}}
 {{- $bcItems = $bcItems | append $lastItem -}}
-{{- $webpageNode := dict "@type" "WebPage" "@id" $canonicalURL "url" $canonicalURL "name" $title "isPartOf" (dict "@id" (printf "%s#website" $siteURL)) "breadcrumb" (dict "@id" (printf "%s#breadcrumb" $canonicalURL)) "inLanguage" "en" -}}
+{{- $isArticle := eq .Kind "page" -}}
+{{- $webpageType := "WebPage" -}}
+{{- if not $isArticle -}}
+  {{- $webpageType = "CollectionPage" -}}
+{{- end -}}
+{{- $webpageNode := dict "@type" $webpageType "@id" $canonicalURL "url" $canonicalURL "name" $title "isPartOf" (dict "@id" (printf "%s#website" $siteURL)) "breadcrumb" (dict "@id" (printf "%s#breadcrumb" $canonicalURL)) "inLanguage" "en" -}}
+{{- if $desc -}}
+  {{- $webpageNode = merge $webpageNode (dict "description" $desc) -}}
+{{- end -}}
 {{- if $createdISO -}}
   {{- $webpageNode = merge $webpageNode (dict "datePublished" $createdISO) -}}
 {{- end -}}
 {{- if $modifiedISO -}}
   {{- $webpageNode = merge $webpageNode (dict "dateModified" $modifiedISO) -}}
 {{- end -}}
-{{- $articleNode := dict "@type" "TechArticle" "headline" $title "url" $canonicalURL "author" (dict "@id" (printf "%s#organization" $siteURL)) "publisher" (dict "@id" (printf "%s#organization" $siteURL)) "isPartOf" (dict "@id" (printf "%s#website" $siteURL)) "about" (dict "@id" (printf "%s#software" $siteURL)) "inLanguage" "en" "isAccessibleForFree" true "image" (dict "@type" "ImageObject" "url" $ogImage "width" 1200 "height" 630) "mainEntityOfPage" (dict "@id" $canonicalURL) -}}
-{{- if $desc -}}
-  {{- $articleNode = merge $articleNode (dict "description" $desc) -}}
-{{- end -}}
-{{- if $proficiencyLevel -}}
-  {{- $articleNode = merge $articleNode (dict "proficiencyLevel" $proficiencyLevel) -}}
-{{- end -}}
-{{- if $createdISO -}}
-  {{- $articleNode = merge $articleNode (dict "datePublished" $createdISO) -}}
-{{- end -}}
-{{- if $modifiedISO -}}
-  {{- $articleNode = merge $articleNode (dict "dateModified" $modifiedISO) -}}
+{{- $graphNodes := slice $orgNode $webpageNode -}}
+{{- if $isArticle -}}
+  {{- $articleNode := dict "@type" "TechArticle" "headline" $title "url" $canonicalURL "author" (dict "@id" (printf "%s#organization" $siteURL)) "publisher" (dict "@id" (printf "%s#organization" $siteURL)) "isPartOf" (dict "@id" (printf "%s#website" $siteURL)) "about" (dict "@id" (printf "%s#software" $siteURL)) "inLanguage" "en" "isAccessibleForFree" true "image" (dict "@type" "ImageObject" "url" $ogImage "width" 1200 "height" 630) "mainEntityOfPage" (dict "@id" $canonicalURL) -}}
+  {{- if $desc -}}
+    {{- $articleNode = merge $articleNode (dict "description" $desc) -}}
+  {{- end -}}
+  {{- if $proficiencyLevel -}}
+    {{- $articleNode = merge $articleNode (dict "proficiencyLevel" $proficiencyLevel) -}}
+  {{- end -}}
+  {{- if $createdISO -}}
+    {{- $articleNode = merge $articleNode (dict "datePublished" $createdISO) -}}
+  {{- end -}}
+  {{- if $modifiedISO -}}
+    {{- $articleNode = merge $articleNode (dict "dateModified" $modifiedISO) -}}
+  {{- end -}}
+  {{- $graphNodes = $graphNodes | append $articleNode -}}
 {{- end -}}
 {{- $bcNode := dict "@type" "BreadcrumbList" "@id" (printf "%s#breadcrumb" $canonicalURL) "name" "Breadcrumb" "itemListElement" $bcItems -}}
-{{- $pageSchema := dict "@context" "https://schema.org" "@graph" (slice $orgNode $webpageNode $articleNode $bcNode) -}}
+{{- $graphNodes = $graphNodes | append $bcNode -}}
+{{- $pageSchema := dict "@context" "https://schema.org" "@graph" $graphNodes -}}
 <script type="application/ld+json">
   {{ $pageSchema | jsonify (dict "indent" "  ") | safeJS }}
 </script>
