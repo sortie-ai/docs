@@ -1,8 +1,5 @@
 User-agent: *
 Allow: /
 Disallow: /search/
-Disallow: /js/
-Disallow: /css/
-Disallow: /fonts/
 
 Sitemap: https://docs.sortie-ai.com/sitemap.xml
