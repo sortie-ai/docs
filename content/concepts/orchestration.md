@@ -1,6 +1,6 @@
 ---
 title: "Orchestration"
-description: "How Sortie's poll-dispatch-reconcile loop manages autonomous coding agent sessions: candidate selection, retry strategies, state reconciliation, persistence, the turn model, and self-review."
+description: "How Sortie's poll-dispatch-reconcile loop runs agent sessions: candidate selection, retry, state reconciliation, persistence, and self-review."
 keywords: sortie orchestration, autonomous coding agent, dispatch loop, retry backoff, reconciliation, state machine, polling, agent sessions
 author: Sortie AI
 date: 2026-03-29

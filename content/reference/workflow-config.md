@@ -1,7 +1,7 @@
 ---
 title: Workflow Configuration
 linkTitle: "Workflow File"
-description: Complete reference for every WORKFLOW.md configuration field. Tracker, polling, workspace, hooks, agent, database, prompt template, server, logging, token rates, and SSH worker.
+description: "Reference for every WORKFLOW.md field: tracker, polling, workspace, hooks, agent, database, prompt template, server, logging, and SSH worker."
 keywords: sortie configuration, WORKFLOW.md, YAML, tracker, agent, ci_feedback, self_review, reactions, review_comments, hooks, workspace, server, worker, SSH, token_rates, cost estimation, config reference
 author: Sortie AI
 date: 2026-04-13

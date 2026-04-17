@@ -1,7 +1,7 @@
 ---
 title: How to Set Up Workspace Hooks
 linkTitle: "Set Up Workspace Hooks"
-description: "Configure after_create, before_run, after_run, and before_remove hooks to automate git clone, branch management, dependency install, and cleanup in Sortie workspaces."
+description: "Configure after_create, before_run, after_run, and before_remove hooks to automate git clone, branch management, and cleanup in Sortie workspaces."
 keywords: sortie hooks, workspace hooks, after_create, before_run, after_run, before_remove, git clone, branch creation, workspace lifecycle, WORKFLOW.md hooks
 author: Sortie AI
 date: 2026-03-28

@@ -1,7 +1,7 @@
 ---
 title: "How to Configure PR Review Feedback | Sortie"
 linkTitle: "Configure Review Feedback"
-description: "Guide to configuring PR review feedback in Sortie: detect review comments from Request changes reviews, route them to the agent as continuation context, tune debounce and retry limits, and choose an escalation strategy."
+description: "Configure PR review feedback in Sortie: detect Request changes comments, route them to the agent, tune debounce and retries, and set escalation."
 keywords: sortie review feedback, pr review, changes requested, code review, reactions, review_comments, agent orchestration, continuation
 author: Sortie AI
 date: 2026-04-10

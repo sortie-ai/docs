@@ -1,7 +1,7 @@
 ---
 title: "How to Write a Custom Agent Tool"
 linkTitle: "Write a Custom Agent Tool"
-description: "Step-by-step guide to implementing a custom agent tool for Sortie: implement the AgentTool interface, register the tool, test it, and make it available via MCP during agent sessions."
+description: "Write a custom agent tool for Sortie: implement the AgentTool interface, register it, test it, and expose it over MCP during agent sessions."
 keywords: sortie custom tool, agent tool, AgentTool interface, tool registry, MCP, Go development, extensibility
 author: Sortie AI
 date: 2026-04-03

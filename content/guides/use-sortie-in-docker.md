@@ -1,7 +1,7 @@
 ---
 title: "How to Use Sortie in Docker"
 linkTitle: "Use Sortie in Docker"
-description: "Run Sortie in a Docker container: build the distroless image, compose agent-specific images with COPY --from, configure volumes, health checks, and process reaping."
+description: "Run Sortie in Docker: build the distroless image, compose agent images with COPY --from, configure volumes, health checks, and process reaping."
 keywords: sortie docker, container, distroless, dockerfile, docker image, claude code docker, copilot docker, COPY --from, non-root, healthcheck
 author: Sortie AI
 date: 2026-04-07

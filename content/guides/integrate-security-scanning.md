@@ -1,7 +1,7 @@
 ---
 title: "How to Integrate Security Scanning"
 linkTitle: "Integrate Security Scanning"
-description: "Run gitleaks, semgrep, govulncheck, and other security scanners in Sortie workspace hooks to catch secrets, vulnerabilities, and code issues before agent code reaches a PR."
+description: "Run gitleaks, semgrep, and govulncheck as Sortie workspace hooks to catch secrets, vulnerabilities, and code issues before agent code reaches a PR."
 keywords: sortie security scanning, gitleaks, semgrep, gosec, govulncheck, workspace hooks, SAST, secret scanning, dependency audit, agent security
 author: Sortie AI
 date: 2026-03-30

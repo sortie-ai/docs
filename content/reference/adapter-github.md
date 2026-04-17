@@ -1,6 +1,6 @@
 ---
 title: "GitHub Adapter"
-description: "Complete reference for the GitHub Issues tracker adapter: configuration, authentication, API operations, field mapping, label-based state derivation, pagination, rate limits, and error mapping."
+description: "GitHub Issues tracker adapter reference: configuration, auth, API operations, field mapping, label-based state, pagination, rate limits, and errors."
 keywords: sortie github adapter, github issues, personal access token, tracker adapter, label state, state derivation, pagination, error mapping, rate limiting, github rest api
 author: Sortie AI
 date: 2026-03-30

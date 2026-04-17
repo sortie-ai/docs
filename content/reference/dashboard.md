@@ -1,6 +1,6 @@
 ---
 title: "Dashboard"
-description: "Reference for Sortie's embedded HTML dashboard: summary cards, running sessions table, retry queue, run history, accordion detail panels, cost estimation, and auto-refresh behavior."
+description: "Sortie embedded HTML dashboard reference: summary cards, sessions table, retry queue, run history, detail panels, cost estimation, and auto-refresh."
 keywords: sortie dashboard, HTML dashboard, monitoring, observability, running sessions, retry queue, token usage, accordion, cost estimation, token rates
 author: Sortie AI
 date: 2026-04-13

@@ -1,6 +1,6 @@
 ---
 title: "Workspace Isolation"
-description: "How Sortie isolates concurrent agent sessions in per-issue directories: safety invariants, the hook-based extension model, and why alternatives like containers and git worktrees were rejected."
+description: "How Sortie isolates concurrent agent sessions in per-issue directories: safety invariants, the hook-based model, and why containers were rejected."
 keywords: sortie workspace isolation, agent isolation, workspace safety, directory per issue, autonomous coding agent orchestration, workspace hooks, git worktree alternative
 author: Sortie AI
 date: 2026-03-31

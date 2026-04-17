@@ -1,6 +1,6 @@
 ---
 title: "Claude Code Adapter"
-description: "Complete reference for the Claude Code agent adapter: configuration, session lifecycle, CLI argument mapping, JSONL event stream, token accounting, error handling, SSH remote execution, and authentication."
+description: "Claude Code agent adapter reference: configuration, session lifecycle, JSONL event stream, token accounting, errors, SSH remote execution, and auth."
 keywords: sortie claude code adapter, claude-code, agent adapter, JSONL, session lifecycle, permission mode, max turns, token usage, SSH, ANTHROPIC_API_KEY
 author: Sortie AI
 date: 2026-03-28

@@ -1,7 +1,7 @@
 ---
 title: "Connect Sortie to GitHub Issues"
 linkTitle: "GitHub Integration"
-description: "Tutorial: connect Sortie to GitHub Issues, poll for labeled issues, process them with a mock agent, and watch Sortie swap labels and close issues automatically."
+description: "Tutorial: connect Sortie to GitHub Issues, poll labeled issues, run a mock agent, and watch Sortie swap labels and close issues automatically."
 keywords: sortie github tutorial, github issues, github integration, label states, mock agent, getting started
 author: Sortie AI
 date: 2026-03-30

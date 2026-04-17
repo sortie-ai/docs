@@ -1,7 +1,7 @@
 ---
 title: How to Connect Sortie to GitHub Issues
 linkTitle: "Connect to GitHub"
-description: "Configure Sortie to poll a GitHub repository: set up token authentication, create state labels, scope issues with search filters, configure handoff, and troubleshoot errors."
+description: "Configure Sortie to poll a GitHub repo: token auth, state labels, issue search filters, handoff configuration, and common error troubleshooting."
 keywords: sortie github, github issues, github adapter, pat token, label states, query filter, tracker configuration, connect github
 author: Sortie AI
 date: 2026-03-30

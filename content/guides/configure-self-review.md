@@ -1,7 +1,7 @@
 ---
 title: "How to Configure Self-Review | Sortie"
 linkTitle: "Configure Self-Review"
-description: "Guide to configuring self-review in Sortie: run tests and linters before PR creation, let the agent review its own diff with structured feedback, tune iteration limits, and verify the review loop."
+description: "Configure self-review in Sortie: run tests and linters before PR, let the agent review its own diff, tune iteration limits, and verify the loop."
 keywords: sortie self-review, code review, verification, pre-PR review, self_review, max_iterations, verification_commands, agent orchestration
 author: Sortie AI
 date: 2026-04-10

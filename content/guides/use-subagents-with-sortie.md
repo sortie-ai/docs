@@ -1,7 +1,7 @@
 ---
 title: How to Use Sub-Agents with Sortie
 linkTitle: "Use Sub-Agents with Sortie"
-description: "Run coding agent sub-agents in Sortie workflows with zero configuration. Clone a repo with agent files, reference them in your WORKFLOW.md prompt, and the agent runtime handles discovery and routing."
+description: "Use coding agent sub-agents in Sortie workflows: clone a repo with agent files, reference them in WORKFLOW.md, and let the agent runtime route tasks."
 keywords: sortie sub-agents, claude code agents, copilot agents, gemini agents, agent files, WORKFLOW.md, agent orchestration, sub-agent delegation
 author: Sortie AI
 date: 2026-03-28

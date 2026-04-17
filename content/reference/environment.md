@@ -1,6 +1,6 @@
 ---
 title: "Environment Variables"
-description: "Complete reference for every environment variable Sortie reads, injects, or filters. SORTIE_* config overrides, .env file support, agent passthrough, $VAR indirection, hook subprocess environment, and install script variables."
+description: "Every environment variable Sortie reads, injects, or filters: SORTIE_* overrides, .env support, agent passthrough, hook env, and install vars."
 keywords: sortie environment variables, SORTIE_*, ANTHROPIC_API_KEY, COPILOT_GITHUB_TOKEN, GH_TOKEN, GITHUB_TOKEN, CODEX_API_KEY, SORTIE_ISSUE_ID, env var, configuration, .env, overrides, hooks, install, MCP server
 author: Sortie AI
 date: 2026-03-26

@@ -1,6 +1,6 @@
 ---
 title: "Copilot CLI Adapter"
-description: "Complete reference for the Copilot CLI agent adapter: configuration, session lifecycle, CLI argument mapping, JSONL event stream, token accounting, error handling, SSH remote execution, and authentication."
+description: "Copilot CLI agent adapter reference: configuration, session lifecycle, JSONL event stream, token accounting, errors, SSH remote execution, and auth."
 keywords: sortie copilot cli adapter, copilot-cli, agent adapter, JSONL, session lifecycle, autopilot, max continues, token usage, SSH, GITHUB_TOKEN
 author: Sortie AI
 date: 2026-03-31

@@ -1,7 +1,7 @@
 ---
 title: "How to Use Agent Tools in Prompts"
 linkTitle: "Use Agent Tools in Prompts"
-description: "Guide to writing prompt templates that use Sortie's agent tools: sortie_status for budget awareness, workspace_history for retry context, tracker_api for issue queries, and .sortie/status for blocked signaling."
+description: "Use Sortie's agent tools in prompts: sortie_status for budget, workspace_history for retry context, tracker_api for issues, .sortie/status for blocks."
 keywords: sortie agent tools, prompt template, sortie_status, workspace_history, tracker_api, blocked status, MCP tools, prompt engineering
 author: Sortie AI
 date: 2026-04-03

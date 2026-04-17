@@ -1,6 +1,6 @@
 ---
 title: "Agent Communication"
-description: "Why Sortie uses two independent channels for agent-orchestrator communication: MCP tool calls for data access and .sortie/status files for control-flow signals. Design rationale, failure modes, and the agent-agnostic principle."
+description: "Why Sortie splits agent communication into two channels: MCP tool calls for data and .sortie/status files for control signals. Rationale and trade-offs."
 keywords: sortie agent communication, MCP tools, .sortie/status, agent-to-orchestrator protocol, data plane, control plane, agent-agnostic, defense in depth
 author: Sortie AI
 date: 2026-04-03

@@ -1,6 +1,6 @@
 ---
 title: "Jira Adapter"
-description: "Complete reference for the Jira Cloud tracker adapter: configuration, authentication, API operations, field mapping, normalization rules, JQL generation, pagination, error mapping, and rate limits."
+description: "Jira Cloud tracker adapter reference: configuration, auth, API operations, field mapping, JQL generation, pagination, rate limits, and error mapping."
 keywords: sortie jira adapter, jira cloud, REST API v3, tracker adapter, JQL, field mapping, normalization, ADF, pagination, error mapping, rate limiting
 author: Sortie AI
 date: 2026-03-28

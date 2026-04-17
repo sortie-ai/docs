@@ -1,6 +1,6 @@
 ---
 title: "Codex CLI Adapter"
-description: "Complete reference for the Codex CLI agent adapter: configuration, session lifecycle, JSON-RPC protocol, event stream, token accounting, error handling, SSH remote execution, and authentication."
+description: "Codex CLI agent adapter reference: configuration, session lifecycle, JSON-RPC protocol, token accounting, errors, SSH remote execution, and auth."
 keywords: sortie codex cli adapter, codex, agent adapter, JSON-RPC, session lifecycle, token usage, SSH, CODEX_API_KEY, openai codex, app-server
 author: Sortie AI
 date: 2026-04-17

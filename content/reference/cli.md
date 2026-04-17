@@ -1,7 +1,7 @@
 ---
 title: CLI Reference
 linkTitle: "CLI Usage"
-description: Complete reference for the sortie command-line interface. Synopsis, subcommands, flags, short aliases (-h, -V), dry-run mode, MCP server, arguments, exit codes, signals, startup sequence, logging format, and version injection.
+description: "Complete reference for the sortie CLI: subcommands, flags, short aliases (-h, -V), dry-run mode, MCP server, exit codes, signals, and logging format."
 keywords: sortie CLI, command line, subcommands, validate, mcp-server, dry-run, flags, short aliases, -h, -V, arguments, exit codes, signals, graceful shutdown, logging, log-format, json logs, version, MCP
 author: Sortie AI
 date: 2026-03-24

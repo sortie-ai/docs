@@ -1,7 +1,7 @@
 ---
 title: How to Troubleshoot Common Failures
 linkTitle: "Troubleshoot Common Failures"
-description: "Diagnose and fix the failures you'll hit most often: agent won't start, tracker auth errors, template render failures, workspace permission problems, and stuck retries."
+description: "Diagnose common Sortie failures: agent won't start, tracker auth errors, template render failures, workspace permission issues, and stuck retries."
 keywords: sortie troubleshooting, agent not starting, tracker auth error, template error, workspace permission, retry loop, debugging, common errors
 author: Sortie AI
 date: 2026-03-28

@@ -1,6 +1,6 @@
 ---
 title: "Agent Extensions"
-description: "Reference for agent extensions during Sortie sessions: .sortie/status file protocol, tracker_api, sortie_status, and workspace_history tools with input schemas, response formats, and error handling."
+description: "Reference for Sortie agent extensions: .sortie/status file protocol, tracker_api, sortie_status, and workspace_history tools with schemas and errors."
 keywords: sortie agent tools, tracker_api, sortie_status, workspace_history, .sortie/status, agent extensions, MCP, tool calling
 author: Sortie AI
 date: 2026-03-26
