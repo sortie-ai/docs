@@ -9,6 +9,11 @@ publishDir = "public"
 # Requires the build environment to have full Git history (not a shallow clone).
 enableGitInfo = true
 
+# Taxonomies are unused on this site. Disabling removes empty /tags/ and
+# /categories/ pages that Hugo generates by default and that Google flags as
+# thin content.
+disableKinds = ["taxonomy", "term"]
+
 # Enable inline HTML in Markdown (needed for existing content with raw HTML).
 [markup]
 [markup.goldmark]
