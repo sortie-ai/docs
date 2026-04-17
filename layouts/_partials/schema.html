@@ -33,7 +33,7 @@
 {{- end -}}
 {{- $reversed := $ancestorList | collections.Reverse -}}
 {{- range $reversed -}}
-  {{- if .Title -}}
+  {{- if and .Title (not .IsHome) -}}
     {{- $breadcrumbs = $breadcrumbs | append (dict "name" .Title "url" .Permalink) -}}
   {{- end -}}
 {{- end -}}
@@ -73,7 +73,7 @@
 {{- if $modifiedISO -}}
   {{- $articleNode = merge $articleNode (dict "dateModified" $modifiedISO) -}}
 {{- end -}}
-{{- $bcNode := dict "@type" "BreadcrumbList" "@id" (printf "%s#breadcrumb" $canonicalURL) "itemListElement" $bcItems -}}
+{{- $bcNode := dict "@type" "BreadcrumbList" "@id" (printf "%s#breadcrumb" $canonicalURL) "name" "Breadcrumb" "itemListElement" $bcItems -}}
 {{- $pageSchema := dict "@context" "https://schema.org" "@graph" (slice $orgNode $webpageNode $articleNode $bcNode) -}}
 <script type="application/ld+json">
   {{ $pageSchema | jsonify (dict "indent" "  ") | safeJS }}
