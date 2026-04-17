@@ -10,7 +10,7 @@ url: /reference/workflow-config/
 ---
 `WORKFLOW.md` is a Markdown file with YAML front matter. Front matter between `---` delimiters defines runtime settings. The body after the closing `---` is the prompt template, rendered per issue with Go `text/template`.
 
-See also: [CLI reference](/reference/cli/) for startup flags, [environment variables reference](/reference/environment/) for `$VAR` behavior, [error reference](/reference/errors/) for configuration error diagnostics, [Jira adapter reference](/reference/adapter-jira/) for Jira-specific fields, [GitHub adapter reference](/reference/adapter-github/) for GitHub-specific fields, [Claude Code adapter reference](/reference/adapter-claude-code/) for Claude Code pass-through options, [Copilot CLI adapter reference](/reference/adapter-copilot/) for Copilot CLI pass-through options, [Configure CI feedback](/guides/configure-ci-feedback/) for operational guidance.
+See also: [CLI reference](/reference/cli/) for startup flags, [environment variables reference](/reference/environment/) for `$VAR` behavior, [error reference](/reference/errors/) for configuration error diagnostics, [Jira adapter reference](/reference/adapter-jira/) for Jira-specific fields, [GitHub adapter reference](/reference/adapter-github/) for GitHub-specific fields, [Claude Code adapter reference](/reference/adapter-claude-code/) for Claude Code pass-through options, [Copilot CLI adapter reference](/reference/adapter-copilot/) for Copilot CLI pass-through options, [Codex adapter reference](/reference/adapter-codex/) for Codex pass-through options, [Configure CI feedback](/guides/configure-ci-feedback/) for operational guidance.
 
 > [!TIP]
 > Most configuration fields in this reference can be overridden by `SORTIE_*` environment variables without modifying the workflow file. See the [environment variables reference](/reference/environment/#configuration-overrides) for the full list and precedence rules.
@@ -369,7 +369,7 @@ Coding agent adapter, concurrency, timeouts, and retry behavior. These fields co
 
 | Field                            | Type    | Default         | Description                                                                           |
 | -------------------------------- | ------- | --------------- | ------------------------------------------------------------------------------------- |
-| `kind`                           | string  | `claude-code`   | Agent adapter identifier.                                                             |
+| `kind`                           | string  | `claude-code`   | Agent adapter identifier. Built-in adapters: `claude-code`, `copilot-cli`, `codex`.   |
 | `command`                        | string  | adapter-defined | Shell command to launch the agent. Required for local-process adapters.               |
 | `max_turns`                      | integer | `20`            | Maximum turns per worker session. The worker re-checks tracker state after each turn. |
 | `max_sessions`                   | integer | `0` (unlimited) | Maximum completed sessions per issue before the orchestrator stops retrying. Must be non-negative. |
@@ -633,6 +633,35 @@ copilot-cli:
   mcp_config: ./mcp-servers.json
 ```
 
+### `codex`
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `model` | string | _(API default)_ | Model override (e.g., `o3`, `gpt-5.4`). Maps to `model` on `thread/start`. |
+| `effort` | string | _(API default)_ | Reasoning effort: `low`, `medium`, `high`. Maps to `effort` on `turn/start`. |
+| `approval_policy` | string | `never` | Approval policy for thread and turn. Values: `never`, `onRequest`, `unlessTrusted`, `always`. |
+| `thread_sandbox` | string | `workspaceWrite` | Thread sandbox mode. Values: `workspaceWrite`, `readOnly`, `dangerFullAccess`, `externalSandbox`. |
+| `personality` | string | _(none)_ | Personality preset. Maps to `personality` on `thread/start`. |
+| `skip_git_repo_check` | boolean | `false` | Skip git repository validation for non-git workspaces. |
+| `turn_sandbox_policy` | map | _(none)_ | Per-turn sandbox policy override. Keys such as `networkAccess`, `writableRoots`. |
+
+The Codex adapter uses a persistent subprocess model: the `codex app-server` is launched once in `StartSession` and kept alive across turns. This differs from Claude Code and Copilot CLI, which spawn a new subprocess per turn. See the [Codex adapter reference](/reference/adapter-codex/) for the full lifecycle.
+
+> [!WARNING]
+> `approval_policy: never` allows arbitrary command execution within the sandbox boundary. Use only in sandboxed environments. The default `thread_sandbox: workspaceWrite` restricts writes to the workspace path with no network access.
+
+```yaml
+codex:
+  model: o3
+  effort: medium
+  approval_policy: never
+  thread_sandbox: workspaceWrite
+  personality: concise
+  skip_git_repo_check: false
+  turn_sandbox_policy:
+    networkAccess: true
+```
+
 ### `file` (file-based tracker)
 
 | Field  | Type   | Description                                                        |
@@ -720,6 +749,10 @@ token_rates:
     input_per_mtok: 2.00
     output_per_mtok: 8.00
     cache_read_per_mtok: 0.20
+  codex:
+    input_per_mtok: 2.50
+    output_per_mtok: 10.00
+    cache_read_per_mtok: 0.25
 ```
 
 See [how to control agent costs](/guides/control-costs/) for operational guidance on cost monitoring.

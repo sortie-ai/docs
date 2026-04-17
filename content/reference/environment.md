@@ -1,7 +1,7 @@
 ---
 title: "Environment Variables"
 description: "Complete reference for every environment variable Sortie reads, injects, or filters. SORTIE_* config overrides, .env file support, agent passthrough, $VAR indirection, hook subprocess environment, and install script variables."
-keywords: sortie environment variables, SORTIE_*, ANTHROPIC_API_KEY, COPILOT_GITHUB_TOKEN, GH_TOKEN, GITHUB_TOKEN, SORTIE_ISSUE_ID, env var, configuration, .env, overrides, hooks, install, MCP server
+keywords: sortie environment variables, SORTIE_*, ANTHROPIC_API_KEY, COPILOT_GITHUB_TOKEN, GH_TOKEN, GITHUB_TOKEN, CODEX_API_KEY, SORTIE_ISSUE_ID, env var, configuration, .env, overrides, hooks, install, MCP server
 author: Sortie AI
 date: 2026-03-26
 weight: 30
@@ -206,6 +206,7 @@ Agent adapters spawn subprocesses that inherit the **full** parent process envir
 | `COPILOT_GITHUB_TOKEN` | `copilot-cli` adapter | GitHub token dedicated to Copilot CLI. Highest priority among the three token variables the CLI checks. |
 | `GH_TOKEN` | `copilot-cli` adapter | GitHub token shared with the `gh` CLI. Second priority for Copilot CLI authentication. Also used by many GitHub tooling integrations. |
 | `GITHUB_TOKEN` | `copilot-cli` adapter | GitHub token common in CI environments. Third priority for Copilot CLI authentication. |
+| `CODEX_API_KEY` | `codex` adapter | OpenAI API key for the Codex CLI. The `codex app-server` subprocess reads this on startup. If the variable is unset, the adapter falls back to cached credentials in `~/.codex/auth.json` on the target host. |
 
 **A missing `ANTHROPIC_API_KEY` is the most common `claude-code` deployment failure.** Sortie starts and polls the tracker normally, but every agent session fails at launch with an auth error. The Sortie logs show a worker exit with `exit_type=error`; the root cause is only visible in the agent's stderr output.
 
@@ -216,6 +217,8 @@ Agent adapters spawn subprocesses that inherit the **full** parent process envir
 
 Copilot CLI requires a **fine-grained personal access token** (prefix `github_pat_`) with the **Copilot Requests** permission enabled. Classic PATs (prefix `ghp_`) fail authentication silently — the CLI falls through all three token variables and reports no valid credential. OAuth tokens (`gho_` from `copilot auth login`) and GitHub App user-to-server tokens (`ghu_`) also work. If you see authentication failures despite having a token set, check the token prefix.
 {{< /callout >}}
+
+**For `codex`, a missing `CODEX_API_KEY` produces the same pattern as Claude Code.** Sortie starts normally, but every agent session fails with an authentication error during the app-server initialization handshake. If `CODEX_API_KEY` is unset, the adapter attempts to use cached credentials from `~/.codex/auth.json`; if those are also absent or expired, `StartSession` fails with `response_error`. In SSH mode, the adapter injects `CODEX_API_KEY` into the remote command line because OpenSSH drops local environment variables by default.
 
 ---
 
@@ -399,14 +402,14 @@ The [`install.sh`](https://get.sortie-ai.com/install.sh) script accepts three en
 
 | Variable | Default | Description |
 |---|---|---|
-| `SORTIE_VERSION` | Latest GitHub release | Pin a specific release tag (e.g., `1.7.0`). When set, the script skips the GitHub API call to discover the latest version. |
+| `SORTIE_VERSION` | Latest GitHub release | Pin a specific release tag (e.g., `1.8.0`). When set, the script skips the GitHub API call to discover the latest version. |
 | `SORTIE_INSTALL_DIR` | `/usr/local/bin` (root) or `~/.local/bin` (non-root) | Override the directory where the `sortie` binary is placed. |
 | `SORTIE_NO_VERIFY` | `0` | Set to `1` to skip SHA-256 checksum verification of the downloaded binary. |
 
 Example:
 
 ```sh
-SORTIE_VERSION=1.7.0 SORTIE_INSTALL_DIR=/opt/bin \
+SORTIE_VERSION=1.8.0 SORTIE_INSTALL_DIR=/opt/bin \
   curl -sSL https://get.sortie-ai.com/install.sh | sh
 ```
 

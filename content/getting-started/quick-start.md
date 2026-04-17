@@ -200,5 +200,6 @@ agent's output depends on your prompt and agent configuration, not on Sortie.
 
 - [Connect a Jira tracker](/getting-started/jira-integration/) to pull real issues
 - [Run with Claude Code](/getting-started/jira-claude-end-to-end/) as the agent for automated code changes
+- [Run with Codex](/getting-started/jira-codex-end-to-end/) as the agent for automated code changes with the OpenAI stack
 - [Workflow file reference](/reference/workflow-config/) for all configuration options, template variables, and hook lifecycle
 - [Troubleshoot common failures](/guides/troubleshoot-common-failures/) if something goes wrong

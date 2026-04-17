@@ -14,7 +14,7 @@ Distribute agent sessions across a pool of remote build machines so your orchest
 
 - A working Sortie setup (the [quick start](/getting-started/quick-start/) covers this)
 - SSH key-based access from the orchestrator host to each build machine — no password prompts
-- The agent binary (e.g., `claude`) installed and on `PATH` on every remote host
+- The agent binary (e.g., `claude`, `copilot`, or `codex`) installed and on `PATH` on every remote host
 - `~/.ssh/config` entries or DNS for your build hosts (recommended but not required)
 
 > [!NOTE]
@@ -200,7 +200,7 @@ For the full list of allowed values, see the [worker configuration reference](/r
 
 SSH connection problems (exit code 255) are transient infrastructure failures. Sortie retries them automatically with exponential backoff. The retry uses host affinity — it prefers dispatching back to the same host, but falls back to the least-loaded alternative if that host is at capacity or unreachable.
 
-A remote "command not found" error (exit code 127) is fatal. It means the agent binary is missing on that host. Sortie will not retry this. Check that `claude` (or your configured `agent.command`) is installed and on `PATH` for the SSH user.
+A remote "command not found" error (exit code 127) is fatal. It means the agent binary is missing on that host. Sortie will not retry this. Check that your configured `agent.command` (e.g., `claude`, `copilot`, `codex app-server`) is installed and on `PATH` for the SSH user.
 
 ## What we configured
 

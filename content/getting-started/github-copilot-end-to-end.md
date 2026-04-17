@@ -314,7 +314,7 @@ Open `http://127.0.0.1:8888/` in a browser while Sortie is running. You will see
 
 We ran the complete Sortie lifecycle with Copilot CLI on GitHub Issues — entirely GitHub-native. One token authenticates both the tracker and the agent. Sortie polled GitHub, cloned the repository, launched the Copilot CLI, let it write and test code, pushed the result to a branch, and closed the issue.
 
-The same orchestration loop powers the [Claude Code end-to-end tutorial](/getting-started/jira-claude-end-to-end/) with a different agent and tracker. Sortie's adapter-agnostic design means swapping `copilot-cli` for `claude-code` (or vice versa) is a config change — the prompt template, hooks, and overall flow carry over.
+The same orchestration loop powers the [Claude Code end-to-end tutorial](/getting-started/jira-claude-end-to-end/) and the [Codex end-to-end tutorial](/getting-started/jira-codex-end-to-end/) with different agents and trackers. Sortie's adapter-agnostic design means swapping `copilot-cli` for `claude-code` or `codex` is a config change — the prompt template, hooks, and overall flow carry over.
 
 Where to go next:
 

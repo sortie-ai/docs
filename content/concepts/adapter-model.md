@@ -76,7 +76,7 @@ This means adapter selection is a configuration decision, not a code decision. Y
 
 The question behind this document: if you adopt Sortie today, does that investment survive the next twelve months of agent and tracker churn?
 
-Today, Sortie ships with three tracker adapters (Jira, GitHub Issues, and a file-based adapter for testing) and three agent adapters (Claude Code, Copilot CLI, and a mock for testing). The roadmap includes Linear, Codex, and Gemini — each a new package implementing an existing interface.
+Today, Sortie ships with three tracker adapters (Jira, GitHub Issues, and a file-based adapter for testing) and four agent adapters (Claude Code, Copilot CLI, Codex, and a mock for testing). The roadmap includes Linear and Gemini — each a new package implementing an existing interface.
 
 Consider two scenarios that play out regularly in engineering organizations:
 
@@ -96,5 +96,6 @@ The design bet underlying all of this: the agent and tracker landscape will keep
 - [GitHub adapter reference](/reference/adapter-github/) — GitHub Issues configuration and label mapping
 - [Claude Code adapter reference](/reference/adapter-claude-code/) — agent integration details
 - [Copilot CLI adapter reference](/reference/adapter-copilot/) — agent integration details
+- [Codex adapter reference](/reference/adapter-codex/) — agent integration details
 - [Workflow file reference](/reference/workflow-config/) — `tracker.kind` and `agent.kind` configuration
 - [ADR-0003: Adapter-Based Integration](https://github.com/sortie-ai/sortie/blob/main/docs/decisions/0003-adapter-based-integration.md) — the full decision rationale

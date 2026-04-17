@@ -30,7 +30,7 @@ COPY --from=sortie /usr/bin/sortie /usr/bin/sortie
 Pin to a specific version for reproducible builds:
 
 ```dockerfile
-FROM ghcr.io/sortie-ai/sortie:1.7.0 AS sortie
+FROM ghcr.io/sortie-ai/sortie:1.8.0 AS sortie
 ```
 
 This pattern keeps Sortie agent-agnostic: it does not dictate your OS, package manager, or runtime environment. You pick the base image your agent requires.
@@ -102,6 +102,42 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
 ENTRYPOINT ["/usr/bin/sortie", "--host", "0.0.0.0"]
 ```
 
+## Build a Codex image
+
+The Codex CLI is a statically linked Rust binary with no runtime dependencies. No Node.js or npm is required.
+
+```dockerfile
+FROM ghcr.io/sortie-ai/sortie:latest AS sortie
+
+FROM debian:bookworm-slim
+
+# Install Codex CLI.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates curl git \
+    && curl -fsSL https://raw.githubusercontent.com/openai/codex/main/install.sh | bash \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+RUN useradd --create-home --shell /bin/bash --uid 1000 sortie
+
+COPY --from=sortie /usr/bin/sortie /usr/bin/sortie
+
+USER sortie
+WORKDIR /home/sortie
+
+EXPOSE 7678
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD wget -qO /dev/null http://localhost:7678/readyz || exit 1
+
+ENTRYPOINT ["/usr/bin/sortie", "--host", "0.0.0.0"]
+```
+
+Build the image:
+
+```sh
+docker build -f Dockerfile.codex -t sortie-codex .
+```
+
 ## Run the container
 
 Sortie needs two paths at runtime, plus credentials for both the agent and the tracker passed as environment variables:
@@ -121,6 +157,7 @@ The container needs credentials for the **agent** (to run code) and the **tracke
 |---|---|
 | Claude Code | `ANTHROPIC_API_KEY` |
 | Copilot | `GITHUB_TOKEN` (or `GH_TOKEN`, or `COPILOT_GITHUB_TOKEN`) |
+| Codex | `CODEX_API_KEY` |
 
 **Tracker credentials:**
 
@@ -172,6 +209,20 @@ docker run --rm --init \
     -v "$(pwd)/WORKFLOW.md:/home/sortie/WORKFLOW.md:ro" \
     -p 7678:7678 \
     sortie-copilot /home/sortie/WORKFLOW.md
+```
+
+### Codex with Jira
+
+```sh
+docker run --rm --init \
+    -e CODEX_API_KEY \
+    -e SORTIE_JIRA_API_KEY \
+    -e SORTIE_JIRA_ENDPOINT \
+    -e SORTIE_JIRA_PROJECT \
+    -v "$(pwd)/workspaces:/home/sortie/workspaces" \
+    -v "$(pwd)/WORKFLOW.md:/home/sortie/WORKFLOW.md:ro" \
+    -p 7678:7678 \
+    sortie-codex /home/sortie/WORKFLOW.md
 ```
 
 The flags explained:
@@ -296,14 +347,14 @@ docker build -t sortie .
 Inject a version string:
 
 ```sh
-docker build --build-arg VERSION=1.7.0 -t sortie .
+docker build --build-arg VERSION=1.8.0 -t sortie .
 ```
 
 Include the Git revision in OCI labels:
 
 ```sh
 docker build \
-    --build-arg VERSION=1.7.0 \
+    --build-arg VERSION=1.8.0 \
     --build-arg REVISION=$(git rev-parse HEAD) \
     -t sortie .
 ```
@@ -382,5 +433,6 @@ The Dockerfiles in this guide are self-contained — copy them into your project
 |---|---|---|
 | [`claude-code.Dockerfile`](https://github.com/sortie-ai/sortie/blob/main/examples/docker/claude-code.Dockerfile) | Claude Code | `node:24-slim` |
 | [`copilot.Dockerfile`](https://github.com/sortie-ai/sortie/blob/main/examples/docker/copilot.Dockerfile) | GitHub Copilot | `node:24-slim` |
+| [`codex.Dockerfile`](https://github.com/sortie-ai/sortie/blob/main/examples/docker/codex.Dockerfile) | Codex | `debian:bookworm-slim` |
 
 If a section in this guide becomes outdated, check those files for the current recommended configuration.

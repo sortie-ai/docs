@@ -352,7 +352,7 @@ We ran the complete Sortie lifecycle with a real agent:
 - **Push** — The `after_run` hook committed and pushed the changes.
 - **Handoff** — Sortie transitioned the Jira issue to Done.
 
-This is the same loop that runs in production. Increase `agent.max_turns` and `max_concurrent_agents`, point at more issues, and Sortie scales the pattern across your backlog.
+This is the same loop that runs in production. Increase `agent.max_turns` and `max_concurrent_agents`, point at more issues, and Sortie scales the pattern across your backlog. Swapping the agent is a config change — the same hooks, prompt template, and orchestration flow work with any supported adapter. To see this loop with a different agent, try the [Codex tutorial](/getting-started/jira-codex-end-to-end/) or the [Copilot CLI tutorial](/getting-started/github-copilot-end-to-end/).
 
 Where to go next:
 

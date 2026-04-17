@@ -25,6 +25,7 @@ Comprehensive reference for every CLI flag, configuration field, API endpoint, a
 {{< cards >}}
   {{< card link="adapter-claude-code" title="Claude Code" subtitle="Configuration, JSONL events, token accounting, SSH." >}}
   {{< card link="adapter-copilot" title="Copilot CLI" subtitle="Configuration, session lifecycle, and output parsing." >}}
+  {{< card link="adapter-codex" title="Codex" subtitle="Configuration, JSON-RPC protocol, persistent subprocess, SSH." >}}
 {{< /cards >}}
 
 ## Tracker adapters

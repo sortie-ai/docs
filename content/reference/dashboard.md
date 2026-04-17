@@ -51,7 +51,7 @@ The top bar displays:
 | Element | Description |
 |---|---|
 | **Sortie** | Application name. |
-| Version badge | Build version string (e.g., `1.7.0`). Shows `dev` when running an untagged build. |
+| Version badge | Build version string (e.g., `1.8.0`). Shows `dev` when running an untagged build. |
 | Uptime | Wall-clock time since the process started, formatted as `Xd Xh Xm` or `Xh Xm Xs`. |
 | Timestamp | UTC time when the snapshot was generated, in `HH:MM:SS UTC` format. |
 

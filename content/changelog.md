@@ -11,7 +11,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.7.0] - 2026-04-13
+## [1.8.0] - 2026-04-17 { #1.8.0 }
+
+### Added 
+
+- Codex CLI agent adapter: configure with `agent.kind: codex` for
+  autonomous issue-to-code workflows using OpenAI Codex CLI via the
+  `codex app-server` JSON-RPC 2.0 protocol. Supports the same structured
+  lifecycle as Claude Code and Copilot CLI adapters — event normalization,
+  token tracking, timeout enforcement, graceful SIGTERM→SIGKILL shutdown,
+  and session resume via `ResumeSessionID`. Tool calls are serialized
+  through a channel to prevent concurrent stdin corruption. Handshake
+  reads are cancellable via context, preventing stalled subprocesses from
+  hanging the worker indefinitely.
+  ([#238](https://github.com/sortie-ai/sortie/issues/238))
+
+## [1.7.1] - 2026-04-15 { #1.7.0 }
+
+### Changed
+
+- CLI: `--version` now outputs a single diagnostic line including commit SHA,
+  build date, Go version, and OS/architecture — e.g.
+  `sortie 1.7.0 (commit: a1b2c3d, built: 2026-04-15, go1.26.1, linux/amd64)`.
+  The previous GNU-style copyright/warranty block is removed. Build tooling
+  (`Makefile`, `Dockerfile`, `.goreleaser.yaml`, and the release workflow) now
+  injects `Commit` and `Date` via `-ldflags` at all build sites.
+
+### Fixed
+
+- Orchestrator: `sortie_ci_escalations_total` over-counted during CI escalation.
+  `escalateCIFailure` incremented the metric unconditionally before calling the
+  tracker API, then incremented again on error — producing two increments for one
+  failed operation. It also incremented when `TrackerAdapter` was nil, recording a
+  phantom escalation that was never performed. Both defects are fixed; the metric
+  now increments exactly once per operation outcome, matching the pattern in
+  `escalateReviewFailure`.
+  ([#449](https://github.com/sortie-ai/sortie/issues/449))
+
+## [1.7.0] - 2026-04-13 { #1.7.0 }
 
 ### Added
 
@@ -721,6 +758,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   execution via GitHub Actions.
 - Architecture Decision Records (ADR-0001 through ADR-0005).
 
+[1.8.0]: https://github.com/sortie-ai/sortie/compare/1.7.1...1.8.0
+[1.7.1]: https://github.com/sortie-ai/sortie/compare/1.7.0...1.7.1
 [1.7.0]: https://github.com/sortie-ai/sortie/compare/1.6.1...1.7.0
 [1.6.1]: https://github.com/sortie-ai/sortie/compare/1.6.0...1.6.1
 [1.6.0]: https://github.com/sortie-ai/sortie/compare/1.5.1...1.6.0

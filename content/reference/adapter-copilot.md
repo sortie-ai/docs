@@ -389,3 +389,4 @@ For Claude Code configuration, see [Claude Code adapter reference](/reference/ad
 - [Prometheus metrics reference](/reference/prometheus-metrics/) — `sortie_agent_turns_total` and related counters
 - [Agent extensions reference](/reference/agent-extensions/) — `tracker_api` tool available during agent sessions
 - [Claude Code adapter reference](/reference/adapter-claude-code/) — sibling adapter for comparison
+- [Codex adapter reference](/reference/adapter-codex/) — sibling adapter for comparison

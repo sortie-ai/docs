@@ -95,7 +95,7 @@ The complete normative spec lives in [agent-to-orchestrator-protocol.md](https:/
 
 Sortie delivers tools to agents via an MCP stdio server running as a sidecar process.
 
-Before each agent session, the worker generates `.sortie/mcp.json` inside the workspace directory. This file declares the `sortie-tools` MCP server entry with the absolute path to the `sortie` binary, the workflow path, and session environment variables. The worker passes this config to the agent via `--mcp-config` (Claude Code) or `--additional-mcp-config` (Copilot CLI).
+Before each agent session, the worker generates `.sortie/mcp.json` inside the workspace directory. This file declares the `sortie-tools` MCP server entry with the absolute path to the `sortie` binary, the workflow path, and session environment variables. The worker passes this config to the agent via `--mcp-config` (Claude Code), `--additional-mcp-config` (Copilot CLI), or as a `dynamicTools` registration (Codex).
 
 The agent runtime spawns `sortie mcp-server` as its own child process — the orchestrator worker does not manage the MCP server lifecycle. Any MCP-compatible agent can call tools without adapter-specific integration.
 

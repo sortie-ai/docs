@@ -89,5 +89,6 @@ Bounded failure also limits blast radius from bugs. An agent caught in an infini
 - [Workflow file reference](/reference/workflow-config/) for timeout, budget, and hook configuration fields
 - [Claude Code adapter reference](/reference/adapter-claude-code/) for agent-specific approval and sandbox settings
 - [Copilot CLI adapter reference](/reference/adapter-copilot/) for agent-specific approval and sandbox settings
+- [Codex adapter reference](/reference/adapter-codex/) for agent-specific approval and sandbox settings
 - [Error reference](/reference/errors/) for non-retryable error classification
 - [Harness hardening guidance](https://github.com/sortie-ai/sortie/blob/main/docs/architecture.md#15-security-and-operational-safety) in the architecture spec for the full hardening checklist

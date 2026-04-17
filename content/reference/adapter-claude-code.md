@@ -360,3 +360,5 @@ The orchestrator's preflight validation uses this to produce a specific error me
 - [Dashboard reference](/reference/dashboard/) — live monitoring of running sessions and token usage
 - [Prometheus metrics reference](/reference/prometheus-metrics/) — `sortie_agent_turns_total` and related counters
 - [Agent extensions reference](/reference/agent-extensions/) — `tracker_api` tool available during agent sessions
+- [Copilot CLI adapter reference](/reference/adapter-copilot/) — sibling adapter for comparison
+- [Codex adapter reference](/reference/adapter-codex/) — sibling adapter for comparison
