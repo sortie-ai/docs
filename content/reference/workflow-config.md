@@ -4,13 +4,13 @@ linkTitle: "Workflow File"
 description: "Reference for every WORKFLOW.md field: tracker, polling, workspace, hooks, agent, database, prompt template, server, logging, and SSH worker."
 keywords: sortie configuration, WORKFLOW.md, YAML, tracker, agent, ci_feedback, self_review, reactions, review_comments, hooks, workspace, server, worker, SSH, token_rates, cost estimation, config reference
 author: Sortie AI
-date: 2026-04-13
+date: 2026-04-26
 weight: 20
 url: /reference/workflow-config/
 ---
 `WORKFLOW.md` is a Markdown file with YAML front matter. Front matter between `---` delimiters defines runtime settings. The body after the closing `---` is the prompt template, rendered per issue with Go `text/template`.
 
-See also: [CLI reference](/reference/cli/) for startup flags, [environment variables reference](/reference/environment/) for `$VAR` behavior, [error reference](/reference/errors/) for configuration error diagnostics, [Jira adapter reference](/reference/adapter-jira/) for Jira-specific fields, [GitHub adapter reference](/reference/adapter-github/) for GitHub-specific fields, [Claude Code adapter reference](/reference/adapter-claude-code/) for Claude Code pass-through options, [Copilot CLI adapter reference](/reference/adapter-copilot/) for Copilot CLI pass-through options, [Codex adapter reference](/reference/adapter-codex/) for Codex pass-through options, [Configure CI feedback](/guides/configure-ci-feedback/) for operational guidance.
+See also: [CLI reference](/reference/cli/) for startup flags, [environment variables reference](/reference/environment/) for `$VAR` behavior, [error reference](/reference/errors/) for configuration error diagnostics, [Jira adapter reference](/reference/adapter-jira/) for Jira-specific fields, [GitHub adapter reference](/reference/adapter-github/) for GitHub-specific fields, [Claude Code adapter reference](/reference/adapter-claude-code/) for Claude Code pass-through options, [Copilot CLI adapter reference](/reference/adapter-copilot/) for Copilot CLI pass-through options, [Codex adapter reference](/reference/adapter-codex/) for Codex pass-through options, [OpenCode CLI adapter reference](/reference/adapter-opencode/) for OpenCode pass-through options, [Configure CI feedback](/guides/configure-ci-feedback/) for operational guidance.
 
 > [!TIP]
 > Most configuration fields in this reference can be overridden by `SORTIE_*` environment variables without modifying the workflow file. See the [environment variables reference](/reference/environment/#configuration-overrides) for the full list and precedence rules.
@@ -369,7 +369,7 @@ Coding agent adapter, concurrency, timeouts, and retry behavior. These fields co
 
 | Field                            | Type    | Default         | Description                                                                           |
 | -------------------------------- | ------- | --------------- | ------------------------------------------------------------------------------------- |
-| `kind`                           | string  | `claude-code`   | Agent adapter identifier. Built-in adapters: `claude-code`, `copilot-cli`, `codex`.   |
+| `kind`                           | string  | `claude-code`   | Agent adapter identifier. Built-in adapters: `claude-code`, `copilot-cli`, `codex`, `opencode`.   |
 | `command`                        | string  | adapter-defined | Shell command to launch the agent. Required for local-process adapters.               |
 | `max_turns`                      | integer | `20`            | Maximum turns per worker session. The worker re-checks tracker state after each turn. |
 | `max_sessions`                   | integer | `0` (unlimited) | Maximum completed sessions per issue before the orchestrator stops retrying. Must be non-negative. |
@@ -645,7 +645,7 @@ copilot-cli:
 | `skip_git_repo_check` | boolean | `false` | Skip git repository validation for non-git workspaces. |
 | `turn_sandbox_policy` | map | _(none)_ | Per-turn sandbox policy override. Keys such as `networkAccess`, `writableRoots`. |
 
-The Codex adapter uses a persistent subprocess model: the `codex app-server` is launched once in `StartSession` and kept alive across turns. This differs from Claude Code and Copilot CLI, which spawn a new subprocess per turn. See the [Codex adapter reference](/reference/adapter-codex/) for the full lifecycle.
+The Codex adapter uses a persistent subprocess model: the `codex app-server` is launched once in `StartSession` and kept alive across turns. This differs from Claude Code, Copilot CLI, and OpenCode, which spawn a new subprocess per turn. See the [Codex adapter reference](/reference/adapter-codex/) for the full lifecycle.
 
 > [!WARNING]
 > `approval_policy: never` allows arbitrary command execution within the sandbox boundary. Use only in sandboxed environments. The default `thread_sandbox: workspaceWrite` restricts writes to the workspace path with no network access.
@@ -660,6 +660,40 @@ codex:
   skip_git_repo_check: false
   turn_sandbox_policy:
     networkAccess: true
+```
+
+### `opencode`
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `model` | string | _(CLI default)_ | Model identifier in `provider/model` form. |
+| `agent` | string | _(none)_ | OpenCode agent name passed through unchanged. |
+| `variant` | string | _(none)_ | Provider-specific reasoning variant passed through unchanged. |
+| `thinking` | boolean | `false` | Adds the `--thinking` flag. |
+| `pure` | boolean | `false` | Adds the `--pure` flag. |
+| `dangerously_skip_permissions` | boolean | `true` | Adds `--dangerously-skip-permissions` when true. Omitted when false. |
+| `disable_autocompact` | boolean | `true` | Sets the managed `OPENCODE_DISABLE_AUTOCOMPACT` environment variable for both `run` and `export` subprocesses. |
+| `allowed_tools` | list of strings | `[]` | Builds the managed `OPENCODE_PERMISSION` allowlist. Listed keys become `allow`; every known key not listed becomes `deny`. Unknown keys are forwarded unchanged. |
+| `denied_tools` | list of strings | `[]` | Adds deny rules to `OPENCODE_PERMISSION`. Overlap with `allowed_tools` is rejected during adapter construction. |
+
+The OpenCode adapter always adds `run --format json --dir <workspace> -- <prompt>`. It does not expose `--attach`, `--port`, `--command`, `--file`, `--title`, `--continue`, or `--fork` through WORKFLOW.md.
+
+The OpenCode adapter spawns one `opencode run --format json` subprocess per turn and a second `opencode export --sanitize <sessionID>` subprocess after the turn to recover authoritative token usage. See the [OpenCode CLI adapter reference](/reference/adapter-opencode/) for the full lifecycle, SSH behavior, and authentication model.
+
+> [!WARNING]
+> `agent.max_turns` (orchestrator turn-loop limit) and OpenCode's internal step budget are not the same thing. The adapter does not expose an OpenCode-specific inner turn cap.
+
+```yaml
+opencode:
+  model: anthropic/claude-sonnet-4-5
+  variant: high
+  pure: true
+  dangerously_skip_permissions: true
+  disable_autocompact: true
+  allowed_tools:
+    - read
+    - edit
+    - glob
 ```
 
 ### `file` (file-based tracker)
@@ -720,7 +754,7 @@ logging:
 
 ### `token_rates`
 
-Per-adapter token pricing for cost estimation on the [dashboard](/reference/dashboard/#cost-estimation). Keys are agent adapter kind strings (e.g., `"claude-code"`, `"copilot-cli"`). All rates are in USD per 1 million tokens.
+Per-adapter token pricing for cost estimation on the [dashboard](/reference/dashboard/#cost-estimation). Keys are agent adapter kind strings (e.g., `"claude-code"`, `"copilot-cli"`, `"opencode"`). All rates are in USD per 1 million tokens.
 
 | Field | Type | Default | Description |
 |---|---|---|---|

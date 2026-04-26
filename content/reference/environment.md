@@ -3,7 +3,7 @@ title: "Environment Variables"
 description: "Every environment variable Sortie reads, injects, or filters: SORTIE_* overrides, .env support, agent passthrough, hook env, and install vars."
 keywords: sortie environment variables, SORTIE_*, ANTHROPIC_API_KEY, COPILOT_GITHUB_TOKEN, GH_TOKEN, GITHUB_TOKEN, CODEX_API_KEY, SORTIE_ISSUE_ID, env var, configuration, .env, overrides, hooks, install, MCP server
 author: Sortie AI
-date: 2026-03-26
+date: 2026-04-26
 weight: 30
 url: /reference/environment/
 ---
@@ -220,6 +220,30 @@ Copilot CLI requires a **fine-grained personal access token** (prefix `github_pa
 
 **For `codex`, a missing `CODEX_API_KEY` produces the same pattern as Claude Code.** Sortie starts normally, but every agent session fails with an authentication error during the app-server initialization handshake. If `CODEX_API_KEY` is unset, the adapter attempts to use cached credentials from `~/.codex/auth.json`; if those are also absent or expired, `StartSession` fails with `response_error`. In SSH mode, the adapter injects `CODEX_API_KEY` into the remote command line because OpenSSH drops local environment variables by default.
 
+**For `opencode`, authentication is provider-specific and the adapter does not preflight it.** OpenCode resolves credentials from its own environment, auth store, project `.env`, or `opencode.json` provider config, while the Sortie adapter injects or overrides a small managed `OPENCODE_*` set on every `run` and `export` subprocess.
+
+| Variable | Purpose | Description |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | Anthropic provider auth | API key for Anthropic-backed OpenCode models. |
+| `OPENAI_API_KEY` | OpenAI provider auth | API key for OpenAI-backed OpenCode models. |
+| `GOOGLE_API_KEY` | Google direct provider auth | API key for Google-backed OpenCode models that use direct API-key authentication. |
+| `AWS_*` | AWS-backed provider auth | AWS credentials, profiles, or bearer-token settings used by Bedrock-backed providers. |
+| `GITLAB_TOKEN` | GitLab Duo auth | GitLab token for Duo-backed models. |
+| `CLOUDFLARE_*` | Cloudflare-backed provider auth | Cloudflare credentials and account settings for Cloudflare-backed providers. |
+| `GOOGLE_APPLICATION_CREDENTIALS` | Google / Vertex provider auth | Path to a Google service-account credentials file when OpenCode uses ADC-based Google or Vertex authentication. |
+| `GOOGLE_CLOUD_PROJECT` | Google / Vertex provider config | Google Cloud project ID. |
+| `VERTEX_LOCATION` | Google / Vertex provider config | Vertex AI region. |
+| `OPENCODE_CONFIG` | Config injection | Path to an OpenCode config file. |
+| `OPENCODE_CONFIG_DIR` | Config injection | Directory containing OpenCode config. |
+| `OPENCODE_CONFIG_CONTENT` | Config injection | Inline JSON config content. |
+| `OPENCODE_PERMISSION` | Permission policy | Inline JSON permission policy. When `opencode.allowed_tools` or `opencode.denied_tools` is configured, Sortie removes any inherited value and writes its managed policy instead. |
+| `OPENCODE_AUTO_SHARE` | Session sharing | Auto-share on completion. Sortie-managed runs force this to `false`. |
+| `OPENCODE_DISABLE_AUTOCOMPACT` | Context compaction | Managed by `opencode.disable_autocompact`. |
+| `OPENCODE_DISABLE_AUTOUPDATE` | Self-update | Sortie-managed runs force this to `true`. |
+| `OPENCODE_DISABLE_LSP_DOWNLOAD` | LSP download | Sortie-managed runs force this to `true`. |
+
+In local mode, provider credentials come from the parent environment or from OpenCode's own auth/config state, while the managed `OPENCODE_*` values above are injected by the adapter. In SSH mode, Sortie prefixes only the managed `OPENCODE_*` variables onto the remote command. Provider credentials such as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `AWS_*`, `GITLAB_TOKEN`, `CLOUDFLARE_*`, `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CLOUD_PROJECT`, and `VERTEX_LOCATION` must already exist on the remote host or in the remote host's OpenCode auth/config state.
+
 ---
 
 ## `$VAR` indirection in WORKFLOW.md
@@ -402,14 +426,14 @@ The [`install.sh`](https://get.sortie-ai.com/install.sh) script accepts three en
 
 | Variable | Default | Description |
 |---|---|---|
-| `SORTIE_VERSION` | Latest GitHub release | Pin a specific release tag (e.g., `1.8.0`). When set, the script skips the GitHub API call to discover the latest version. |
+| `SORTIE_VERSION` | Latest GitHub release | Pin a specific release tag (e.g., `1.9.0`). When set, the script skips the GitHub API call to discover the latest version. |
 | `SORTIE_INSTALL_DIR` | `/usr/local/bin` (root) or `~/.local/bin` (non-root) | Override the directory where the `sortie` binary is placed. |
 | `SORTIE_NO_VERIFY` | `0` | Set to `1` to skip SHA-256 checksum verification of the downloaded binary. |
 
 Example:
 
 ```sh
-SORTIE_VERSION=1.8.0 SORTIE_INSTALL_DIR=/opt/bin \
+SORTIE_VERSION=1.9.0 SORTIE_INSTALL_DIR=/opt/bin \
   curl -sSL https://get.sortie-ai.com/install.sh | sh
 ```
 

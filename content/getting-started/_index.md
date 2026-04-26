@@ -31,4 +31,5 @@ Full tutorials that connect a tracker to an agent and run a complete session:
   {{< card link="jira-claude-end-to-end" title="Jira + Claude Code" subtitle="Jira polling → Claude Code agent → commit and push." >}}
   {{< card link="github-copilot-end-to-end" title="GitHub + Copilot" subtitle="GitHub Issues → Copilot CLI agent → commit and push." >}}
   {{< card link="jira-codex-end-to-end" title="Jira + Codex" subtitle="Jira polling → Codex agent → commit and push." >}}
+  {{< card link="jira-opencode-end-to-end" title="Jira + OpenCode" subtitle="Jira polling → OpenCode agent → commit and push." >}}
 {{< /cards >}}

@@ -4,7 +4,7 @@ linkTitle: "CLI Usage"
 description: "Complete reference for the sortie CLI: subcommands, flags, short aliases (-h, -V), dry-run mode, MCP server, exit codes, signals, and logging format."
 keywords: sortie CLI, command line, subcommands, validate, mcp-server, dry-run, flags, short aliases, -h, -V, arguments, exit codes, signals, graceful shutdown, logging, log-format, json logs, version, MCP
 author: Sortie AI
-date: 2026-03-24
+date: 2026-04-26
 weight: 10
 url: /reference/cli/
 ---
@@ -48,7 +48,7 @@ sortie: too many arguments
 |---|---|---|---|
 | `-h`, `--help` | boolean | `false` | Print the help message and exit. |
 | `-V`, `--version` | boolean | `false` | Print the version banner, then exit. |
-| `-dumpversion` | boolean | `false` | Print the bare version string (e.g., `1.8.0`), then exit. |
+| `-dumpversion` | boolean | `false` | Print the bare version string (e.g., `1.9.0`), then exit. |
 | `--dry-run` | boolean | `false` | Run one poll cycle without spawning agents or writing to the database, then exit. |
 | `--env-file` | string | _(empty)_ | Path to a `.env` file containing `SORTIE_*` overrides. See [environment variables reference](/reference/environment/#env-file-support). |
 | `--log-format` | string | `text` | Log output format. Accepted values: `text`, `json`. |
@@ -121,13 +121,13 @@ Sets the log output format. Accepted values (case-insensitive): `text`, `json`. 
 When `text` is active (the default), Sortie emits structured `key=value` lines via `slog.TextHandler`:
 
 ```
-time=2026-04-07T14:30:00.000+00:00 level=INFO msg="sortie starting" version=1.8.0
+time=2026-04-07T14:30:00.000+00:00 level=INFO msg="sortie starting" version=1.9.0
 ```
 
 When `json` is active, each log line is a single JSON object via `slog.JSONHandler`:
 
 ```json
-{"time":"2026-04-07T14:30:00.000Z","level":"INFO","msg":"sortie starting","version":"1.8.0"}
+{"time":"2026-04-07T14:30:00.000Z","level":"INFO","msg":"sortie starting","version":"1.9.0"}
 ```
 
 JSON format is intended for containerized and cloud-native deployments where log aggregation systems (Loki, Datadog, CloudWatch, ELK) expect newline-delimited JSON on stdout/stderr.
@@ -199,7 +199,7 @@ The Go `flag` package also recognizes `-help` (single-dash long form) and treats
 Prints the full version banner to stdout and exits with code `0`. The short form `-V` is an alias for `--version`.
 
 ```
-sortie 1.8.0 (commit: a1b2c3d, built: 2026-04-15, go1.26.1, linux/amd64)
+sortie 1.9.0 (commit: d5a8ed1, built: 2026-04-26, go1.26.1, linux/amd64)
 ```
 
 The banner includes the Git commit SHA (first 7 characters), build date, Go toolchain version, and target platform. Actual values vary at build time. Development builds without release tags show `dev` as the version.
@@ -211,7 +211,7 @@ Skips workflow loading, configuration validation, and database initialization. I
 Prints the version string alone to stdout and exits with code `0`:
 
 ```
-1.8.0
+1.9.0
 ```
 
 Uses single-dash prefix (GCC convention). Designed for scripts and programmatic version checks.
@@ -537,7 +537,7 @@ A second signal during drain is not intercepted — the OS terminates the proces
 All log output goes to **stderr**. The default format is structured `key=value` text:
 
 ```
-time=2026-03-26T14:30:01.271+00:00 level=INFO msg="sortie starting" version=1.8.0 workflow_path=/opt/sortie/WORKFLOW.md port=8080
+time=2026-03-26T14:30:01.271+00:00 level=INFO msg="sortie starting" version=1.9.0 workflow_path=/opt/sortie/WORKFLOW.md port=8080
 time=2026-03-26T14:30:01.298+00:00 level=INFO msg="database path resolved" db_path=/opt/sortie/.sortie.db
 time=2026-03-26T14:30:01.304+00:00 level=INFO msg="sortie started"
 time=2026-03-26T14:30:01.305+00:00 level=INFO msg="http server listening" addr=127.0.0.1:8080
@@ -546,7 +546,7 @@ time=2026-03-26T14:30:01.305+00:00 level=INFO msg="http server listening" addr=1
 When `--log-format json` is active (or `logging.format: json` in the workflow file), each line is a JSON object:
 
 ```json
-{"time":"2026-03-26T14:30:01.271+00:00","level":"INFO","msg":"sortie starting","version":"1.8.0","workflow_path":"/opt/sortie/WORKFLOW.md","port":8080}
+{"time":"2026-03-26T14:30:01.271+00:00","level":"INFO","msg":"sortie starting","version":"1.9.0","workflow_path":"/opt/sortie/WORKFLOW.md","port":8080}
 {"time":"2026-03-26T14:30:01.298+00:00","level":"INFO","msg":"database path resolved","db_path":"/opt/sortie/.sortie.db"}
 {"time":"2026-03-26T14:30:01.304+00:00","level":"INFO","msg":"sortie started"}
 {"time":"2026-03-26T14:30:01.305+00:00","level":"INFO","msg":"http server listening","addr":"127.0.0.1:8080"}
@@ -583,7 +583,7 @@ Stdout is used for help output (`-h`, `--help`), version output (`-V`, `--versio
 The `Version` variable defaults to `dev` when running from source. Release builds inject the version at compile time via linker flags:
 
 ```sh
-go build -ldflags "-s -w -X main.Version=1.8.0" -o sortie ./cmd/sortie
+go build -ldflags "-s -w -X main.Version=1.9.0" -o sortie ./cmd/sortie
 ```
 
 The Makefile sets this automatically from `git describe --tags`:

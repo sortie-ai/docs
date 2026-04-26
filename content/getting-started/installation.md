@@ -3,7 +3,7 @@ title: Installation
 description: Install Sortie on macOS, Linux, or Windows. Supports install script, Homebrew, Go install, Docker, and manual binary downloads.
 keywords: sortie install, installation, setup, autonomous coding agent, homebrew, go install, docker, binary download
 author: Sortie AI
-date: 2026-03-23
+date: 2026-03-26
 weight: 10
 ---
 This guide covers every supported way to install sortie on your machine.
@@ -28,14 +28,14 @@ or `~/.local/bin` otherwise. If the install directory is not already on your
 
 | Variable | Effect |
 |---|---|
-| `SORTIE_VERSION` | Pin a specific release (e.g. `1.8.0`). Without it, the latest release is used. |
+| `SORTIE_VERSION` | Pin a specific release (e.g. `1.9.0`). Without it, the latest release is used. |
 | `SORTIE_INSTALL_DIR` | Override the install directory. |
 | `SORTIE_NO_VERIFY=1` | Skip SHA-256 checksum verification (not recommended). |
 
 Example — install a specific version to a custom directory:
 
 ```bash
-SORTIE_VERSION=1.8.0 SORTIE_INSTALL_DIR=/opt/bin \
+SORTIE_VERSION=1.9.0 SORTIE_INSTALL_DIR=/opt/bin \
   curl -sSL https://get.sortie-ai.com/install.sh | sh
 ```
 

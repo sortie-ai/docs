@@ -4,7 +4,7 @@ linkTitle: "Control Agent Costs"
 description: "Configure per-session budgets, session limits, turn caps, concurrency, and model selection to keep agent API spending predictable."
 keywords: sortie costs, cost control, token budget, autonomous coding agent, concurrency limits, agent spending, max_sessions, max_turns, max_concurrent_agents
 author: Sortie AI
-date: 2026-03-28
+date: 2026-04-26
 weight: 110
 url: /guides/control-costs/
 ---
@@ -29,7 +29,7 @@ claude-code:
   max_budget_usd: 3
 ```
 
-Other adapters may expose an equivalent field in their extension block. Check your adapter's [reference docs](/reference/workflow-config/) for the specific key name.
+Other adapters may expose an equivalent field in their extension block. Check your adapter reference for the specific key name. OpenCode, for example, exposes model selection but no built-in per-turn budget field, so the main hard limits are `agent.max_sessions`, `agent.max_turns`, concurrency caps, and `turn_timeout_ms`. See the [OpenCode CLI adapter reference](/reference/adapter-opencode/) for the adapter-specific details.
 
 This cap applies **per `RunTurn` invocation**, not per issue. If the orchestrator calls `RunTurn` multiple times in a session (controlled by `agent.max_turns`), and the issue retries across multiple sessions (controlled by `agent.max_sessions`), the effective worst-case per-issue budget is:
 
@@ -72,6 +72,8 @@ $$
 $$
 
 With `agent.max_turns: 3` and `claude-code.max_turns: 50`, the agent gets up to 150 agentic steps per session. Setting the adapter's turn limit too low causes the agent to exit mid-task; too high gives it room to explore tangents. The per-turn budget cap acts as the financial backstop regardless of how many steps run.
+
+OpenCode and Codex do not expose a second inner-turn cap in Sortie. One `RunTurn` runs until the CLI exits or `turn_timeout_ms` fires, so orchestrator-level turn, session, and concurrency limits matter more. See the [OpenCode CLI adapter reference](/reference/adapter-opencode/) for the OpenCode turn model.
 
 ## Throttle concurrency
 

@@ -1,6 +1,6 @@
 ---
 title: Sortie
-description: "Sortie turns Jira and GitHub issues into autonomous coding agent sessions. Single Go binary, SQLite persistence, Claude Code, Copilot, and Codex adapters."
+description: "Sortie turns Jira and GitHub issues into autonomous coding agent sessions. Single Go binary, SQLite persistence, Claude Code, Copilot, Codex, and OpenCode adapters."
 keywords: sortie, autonomous coding agent, orchestrator, issue tracker, AI coding, agent sessions, automation
 author: Sortie AI
 breadcrumbs: false
@@ -63,7 +63,7 @@ Sortie watches this file, polls Jira for matching issues, creates an isolated
 workspace for each, and launches the configured coding agent with the rendered prompt. It handles
 the rest: stall detection, timeout enforcement, retries with backoff, state
 reconciliation with the tracker, and workspace cleanup when issues reach terminal
-states. Swap `agent.kind: claude-code` for [`codex`](/reference/adapter-codex/) or [`copilot-cli`](/reference/adapter-copilot/) and the rest of the file stays the same. Changes to the workflow are applied without restart.
+states. Swap `agent.kind: claude-code` for [`codex`](/reference/adapter-codex/), [`copilot-cli`](/reference/adapter-copilot/), or [`opencode`](/reference/adapter-opencode/) and the rest of the file stays the same. Changes to the workflow are applied without restart.
 
 ## Links
 

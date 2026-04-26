@@ -3,7 +3,7 @@ title: "Dashboard"
 description: "Sortie embedded HTML dashboard reference: summary cards, sessions table, retry queue, run history, detail panels, cost estimation, and auto-refresh."
 keywords: sortie dashboard, HTML dashboard, monitoring, observability, running sessions, retry queue, token usage, accordion, cost estimation, token rates
 author: Sortie AI
-date: 2026-04-13
+date: 2026-04-26
 weight: 50
 url: /reference/dashboard/
 ---
@@ -51,7 +51,7 @@ The top bar displays:
 | Element | Description |
 |---|---|
 | **Sortie** | Application name. |
-| Version badge | Build version string (e.g., `1.8.0`). Shows `dev` when running an untagged build. |
+| Version badge | Build version string (e.g., `1.9.0`). Shows `dev` when running an untagged build. |
 | Uptime | Wall-clock time since the process started, formatted as `Xd Xh Xm` or `Xh Xm Xs`. |
 | Timestamp | UTC time when the snapshot was generated, in `HH:MM:SS UTC` format. |
 

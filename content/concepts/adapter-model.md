@@ -3,7 +3,7 @@ title: "Adapter Model"
 description: "How Sortie's adapter architecture makes agent and tracker integrations disposable while keeping the orchestration core stable."
 keywords: sortie adapters, agent agnostic, tracker agnostic, adapter pattern, extensibility, autonomous coding agent orchestration, Go interfaces
 author: Sortie AI
-date: 2026-03-30
+date: 2026-04-26
 weight: 20
 ---
 The agent and tracker landscapes are churning. New autonomous coding agents ship monthly. Tracker APIs introduce breaking changes across versions. Teams switch tools — from Jira to Linear, from Claude Code to Codex — as the market evolves. An orchestrator that hardcodes integration logic into its scheduling core has a shelf life measured in months. The moment your preferred agent changes its CLI protocol or your team migrates trackers, you're refactoring orchestration internals.
@@ -40,6 +40,17 @@ Session state is deliberately opaque. The `Session` struct has an `Internal` fie
 
 The practical consequence: when the Copilot CLI adapter shipped, the orchestrator launched, monitored, and retried Copilot sessions using the exact same code paths it uses for Claude Code. No new retry logic. No new stall detection. No new reconciliation rules. The stall detector checks "time since last `AgentEvent`" — it doesn't know or care whether that event came from a Claude Code JSONL stream or a Copilot CLI JSONL stream.
 
+Today, the agent side already spans four materially different shapes:
+
+| Adapter | Native protocol | Session model |
+|---|---|---|
+| Claude Code | CLI JSONL stdout | One subprocess per turn |
+| Copilot CLI | CLI JSON stdout stream | One subprocess per turn |
+| Codex | JSON-RPC app server | One persistent subprocess across turns |
+| OpenCode CLI | Newline-delimited JSON envelopes plus `opencode export --sanitize` for final usage recovery | One subprocess per turn, plus one export subprocess after each turn |
+
+That spread is why the interface is organized around lifecycle and normalized events rather than around one CLI's flags or transport. Claude Code and Copilot CLI look similar from a distance, but Codex keeps a long-lived server process and OpenCode needs a second pass to recover authoritative token usage. The orchestrator still reacts to the same event vocabulary.
+
 ## The naming rule and why it prevents rot
 
 The strictest convention in the codebase: no `jira_*`, `github_*`, `claude_*`, or `copilot_*` identifiers outside their respective adapter packages. The domain layer uses generic vocabulary — `Issue`, `Session`, `Turn`, `Comment`. The config layer uses `tracker.kind` and `agent.kind`, not `jira.project_key` or `claude_code.model`.
@@ -60,7 +71,7 @@ Go has a plugin system: `plugin.Open` loads shared objects at runtime. It was co
 
 **Platform limitations.** Go plugins work on Linux and macOS. No Windows, no other targets. Sortie's pure-Go, CGo-free build compiles for any platform Go targets.
 
-**Overkill for the scale.** Sortie will never have hundreds of adapters. The realistic count is a handful of trackers (Jira, GitHub Issues, Linear, maybe GitLab and a file-based adapter for testing) and a handful of agents (Claude Code, Copilot, Codex, Gemini, a mock for testing). For that count, compile-time interfaces with additive packages are the right level of abstraction — type-safe, simple to test, zero operational overhead.
+**Overkill for the scale.** Sortie will never have hundreds of adapters. The realistic count is a handful of trackers (Jira, GitHub Issues, Linear, maybe GitLab and a file-based adapter for testing) and a handful of agents (Claude Code, Copilot, Codex, OpenCode, Gemini, a mock for testing). For that count, compile-time interfaces with additive packages are the right level of abstraction — type-safe, simple to test, zero operational overhead.
 
 The trade-off is real: adding an adapter requires recompiling Sortie. For an open-source project where adapters are merged upstream, this works naturally — contributors submit pull requests, CI builds, releases include the new adapter. For organizations that want private adapters, the architecture supports forking with minimal merge conflict risk because adapter packages are isolated. Your internal `internal/tracker/yourtracker/` package touches nothing outside its directory.
 
@@ -76,7 +87,7 @@ This means adapter selection is a configuration decision, not a code decision. Y
 
 The question behind this document: if you adopt Sortie today, does that investment survive the next twelve months of agent and tracker churn?
 
-Today, Sortie ships with three tracker adapters (Jira, GitHub Issues, and a file-based adapter for testing) and four agent adapters (Claude Code, Copilot CLI, Codex, and a mock for testing). The roadmap includes Linear and Gemini — each a new package implementing an existing interface.
+Today, Sortie ships with three tracker adapters (Jira, GitHub Issues, and a file-based adapter for testing) and five agent adapters (Claude Code, Copilot CLI, Codex, OpenCode, and a mock for testing). The roadmap includes Linear and Gemini — each a new package implementing an existing interface.
 
 Consider two scenarios that play out regularly in engineering organizations:
 
@@ -97,5 +108,6 @@ The design bet underlying all of this: the agent and tracker landscape will keep
 - [Claude Code adapter reference](/reference/adapter-claude-code/) — agent integration details
 - [Copilot CLI adapter reference](/reference/adapter-copilot/) — agent integration details
 - [Codex adapter reference](/reference/adapter-codex/) — agent integration details
+- [OpenCode CLI adapter reference](/reference/adapter-opencode/) — agent integration details
 - [Workflow file reference](/reference/workflow-config/) — `tracker.kind` and `agent.kind` configuration
 - [ADR-0003: Adapter-Based Integration](https://github.com/sortie-ai/sortie/blob/main/docs/decisions/0003-adapter-based-integration.md) — the full decision rationale

@@ -3,7 +3,7 @@ title: "Copilot CLI Adapter"
 description: "Copilot CLI agent adapter reference: configuration, session lifecycle, JSONL event stream, token accounting, errors, SSH remote execution, and auth."
 keywords: sortie copilot cli adapter, copilot-cli, agent adapter, JSONL, session lifecycle, autopilot, max continues, token usage, SSH, GITHUB_TOKEN
 author: Sortie AI
-date: 2026-03-31
+date: 2026-04-26
 weight: 110
 url: /reference/adapter-copilot/
 ---
@@ -381,12 +381,7 @@ For Claude Code configuration, see [Claude Code adapter reference](/reference/ad
 - [WORKFLOW.md configuration reference](/reference/workflow-config/) — full `agent` schema and `copilot-cli` extension block
 - [Environment variables reference](/reference/environment/) — GitHub token variables
 - [Error reference](/reference/errors/#agent-errors) — all agent error kinds with retry behavior
+- [How to control agent costs](/guides/control-costs/) — turn caps, session caps, concurrency limits, and model selection
 - [How to write a prompt template](/guides/write-prompt-template/) — template variables, conditionals, and built-in functions
 - [How to scale agents with SSH](/guides/scale-agents-with-ssh/) — remote execution setup and host pool configuration
-- [How to use the file adapter for local testing](/guides/use-file-adapter-for-testing/) — test prompts without a live tracker
 - [State machine reference](/reference/state-machine/) — orchestration states, turn lifecycle, and stall detection
-- [Dashboard reference](/reference/dashboard/) — live monitoring of running sessions and token usage
-- [Prometheus metrics reference](/reference/prometheus-metrics/) — `sortie_agent_turns_total` and related counters
-- [Agent extensions reference](/reference/agent-extensions/) — `tracker_api` tool available during agent sessions
-- [Claude Code adapter reference](/reference/adapter-claude-code/) — sibling adapter for comparison
-- [Codex adapter reference](/reference/adapter-codex/) — sibling adapter for comparison

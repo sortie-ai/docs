@@ -1,20 +1,38 @@
 ---
 title: "How to Use Sortie in Docker"
 linkTitle: "Use Sortie in Docker"
-description: "Run Sortie in Docker: build the distroless image, compose agent images with COPY --from, configure volumes, health checks, and process reaping."
-keywords: sortie docker, container, distroless, dockerfile, docker image, claude code docker, copilot docker, COPY --from, non-root, healthcheck
+description: "Run Sortie in Docker: build the distroless image, compose Claude Code, Copilot, Codex, or OpenCode agent images with COPY --from, and configure volumes, health checks, and process reaping."
+keywords: sortie docker, container, distroless, dockerfile, docker image, claude code docker, copilot docker, codex docker, opencode docker, COPY --from, non-root, healthcheck
 author: Sortie AI
-date: 2026-04-07
+date: 2026-04-26
 weight: 180
 url: /guides/use-sortie-in-docker/
 ---
-Build a container image that pairs Sortie with your agent of choice. The published Sortie image is [distroless](https://github.com/GoogleContainerTools/distroless) — it contains only the binary. You copy it into your own image and choose the base OS, runtime, and packages your agent needs.
+Build a container image that pairs Sortie with your agent of choice. The published Sortie image is [distroless](https://github.com/GoogleContainerTools/distroless) and contains only the binary. You copy it into your own image and choose the base OS, runtime, and packages your agent needs.
+
+This guide supports two valid starting points:
+
+- Use the maintained Dockerfiles under `examples/docker/` when you want the fastest path.
+- Create your own Dockerfile from the snippets below when you want to control the image layout yourself.
 
 ## Prerequisites
 
 - Docker 20.10+ with BuildKit enabled
 - A working `WORKFLOW.md` tested locally ([quick start](/getting-started/quick-start/))
-- API credentials for your agent (e.g., `ANTHROPIC_API_KEY` for Claude Code, `GITHUB_TOKEN` for Copilot, etc.)
+- API credentials for your agent (for example, `ANTHROPIC_API_KEY` for Claude Code, `GITHUB_TOKEN` for Copilot, `CODEX_API_KEY` for Codex, or provider-specific OpenCode credentials such as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GOOGLE_API_KEY`)
+
+## Use the maintained example Dockerfiles
+
+If you do not need to author your own Dockerfile, build one of the maintained examples from the repository root:
+
+```sh
+docker build -f examples/docker/claude-code.Dockerfile -t sortie-claude .
+docker build -f examples/docker/copilot.Dockerfile -t sortie-copilot .
+docker build -f examples/docker/codex.Dockerfile -t sortie-codex .
+docker build -f examples/docker/opencode.Dockerfile -t sortie-opencode .
+```
+
+The rest of this guide shows how to create equivalent Dockerfiles yourself, then explains how to run, persist, and operate the containers.
 
 ## Install Sortie into your image
 
@@ -30,7 +48,7 @@ COPY --from=sortie /usr/bin/sortie /usr/bin/sortie
 Pin to a specific version for reproducible builds:
 
 ```dockerfile
-FROM ghcr.io/sortie-ai/sortie:1.8.0 AS sortie
+FROM ghcr.io/sortie-ai/sortie:<version> AS sortie
 ```
 
 This pattern keeps Sortie agent-agnostic: it does not dictate your OS, package manager, or runtime environment. You pick the base image your agent requires.
@@ -39,7 +57,7 @@ This pattern keeps Sortie agent-agnostic: it does not dictate your OS, package m
 
 Claude Code requires Node.js and npm. Its `--dangerously-skip-permissions` mode refuses to run as root, so the container must use a non-root user.
 
-Create a file named `Dockerfile.claude`:
+Create `Dockerfile.claude`:
 
 ```dockerfile
 FROM ghcr.io/sortie-ai/sortie:latest AS sortie
@@ -65,7 +83,7 @@ EXPOSE 7678
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD wget -qO /dev/null http://localhost:7678/readyz || exit 1
 
-ENTRYPOINT ["/usr/bin/sortie", "--host", "0.0.0.0"]
+ENTRYPOINT ["/usr/bin/sortie", "--host", "0.0.0.0", "--log-format", "json"]
 ```
 
 Build the image:
@@ -77,6 +95,8 @@ docker build -f Dockerfile.claude -t sortie-claude .
 ## Build a Copilot image
 
 GitHub Copilot Coding Agent also requires Node.js. The same pattern applies, with a different npm package:
+
+Create `Dockerfile.copilot`:
 
 ```dockerfile
 FROM ghcr.io/sortie-ai/sortie:latest AS sortie
@@ -99,23 +119,42 @@ EXPOSE 7678
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD wget -qO /dev/null http://localhost:7678/readyz || exit 1
 
-ENTRYPOINT ["/usr/bin/sortie", "--host", "0.0.0.0"]
+ENTRYPOINT ["/usr/bin/sortie", "--host", "0.0.0.0", "--log-format", "json"]
+```
+
+Build the image:
+
+```sh
+docker build -f Dockerfile.copilot -t sortie-copilot .
 ```
 
 ## Build a Codex image
 
 The Codex CLI is a statically linked Rust binary with no runtime dependencies. No Node.js or npm is required.
 
+Create `Dockerfile.codex`:
+
 ```dockerfile
 FROM ghcr.io/sortie-ai/sortie:latest AS sortie
 
 FROM debian:bookworm-slim
 
-# Install Codex CLI.
+# Install git and the download tools Codex needs.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates curl git \
-    && curl -fsSL https://raw.githubusercontent.com/openai/codex/main/install.sh | bash \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+    git ca-certificates curl wget && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install Codex CLI for the current Debian architecture.
+RUN set -eux; \
+    debian_arch="$(dpkg --print-architecture)"; \
+    case "${debian_arch}" in \
+    amd64) codex_arch="x86_64-unknown-linux-musl" ;; \
+    arm64) codex_arch="aarch64-unknown-linux-musl" ;; \
+    *) echo "unsupported Codex architecture: ${debian_arch}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://github.com/openai/codex/releases/latest/download/codex-${codex_arch}.tar.gz" \
+    | tar -xz -C /usr/local/bin codex; \
+    chmod +x /usr/local/bin/codex
 
 RUN useradd --create-home --shell /bin/bash --uid 1000 sortie
 
@@ -129,13 +168,52 @@ EXPOSE 7678
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD wget -qO /dev/null http://localhost:7678/readyz || exit 1
 
-ENTRYPOINT ["/usr/bin/sortie", "--host", "0.0.0.0"]
+ENTRYPOINT ["/usr/bin/sortie", "--host", "0.0.0.0", "--log-format", "json"]
 ```
 
 Build the image:
 
 ```sh
 docker build -f Dockerfile.codex -t sortie-codex .
+```
+
+## Build an OpenCode image
+
+OpenCode requires Node.js, npm, and git. Authentication is provider-specific. In unattended runs, forward the provider variables that match your selected OpenCode model.
+
+Create `Dockerfile.opencode`:
+
+```dockerfile
+FROM ghcr.io/sortie-ai/sortie:latest AS sortie
+
+FROM node:24-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git wget && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN npm install -g opencode-ai@latest && npm cache clean --force
+
+RUN userdel -r node 2>/dev/null; \
+    useradd --create-home --shell /bin/bash --uid 1000 sortie
+
+COPY --from=sortie /usr/bin/sortie /usr/bin/sortie
+
+USER sortie
+WORKDIR /home/sortie
+
+EXPOSE 7678
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD wget -qO /dev/null http://localhost:7678/readyz || exit 1
+
+ENTRYPOINT ["/usr/bin/sortie", "--host", "0.0.0.0", "--log-format", "json"]
+```
+
+Build the image:
+
+```sh
+docker build -f Dockerfile.opencode -t sortie-opencode .
 ```
 
 ## Run the container
@@ -158,6 +236,7 @@ The container needs credentials for the **agent** (to run code) and the **tracke
 | Claude Code | `ANTHROPIC_API_KEY` |
 | Copilot | `GITHUB_TOKEN` (or `GH_TOKEN`, or `COPILOT_GITHUB_TOKEN`) |
 | Codex | `CODEX_API_KEY` |
+| OpenCode | Provider-specific variables such as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GOOGLE_API_KEY`. Vertex-backed runs typically also need `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CLOUD_PROJECT`, and `VERTEX_LOCATION`. |
 
 **Tracker credentials:**
 
@@ -225,14 +304,30 @@ docker run --rm --init \
     sortie-codex /home/sortie/WORKFLOW.md
 ```
 
+### OpenCode with Jira
+
+```sh
+docker run --rm --init \
+    -e ANTHROPIC_API_KEY \
+    -e SORTIE_JIRA_API_KEY \
+    -e SORTIE_JIRA_ENDPOINT \
+    -e SORTIE_JIRA_PROJECT \
+    -v "$(pwd)/workspaces:/home/sortie/workspaces" \
+    -v "$(pwd)/WORKFLOW.md:/home/sortie/WORKFLOW.md:ro" \
+    -p 7678:7678 \
+    sortie-opencode /home/sortie/WORKFLOW.md
+```
+
+If your OpenCode model uses OpenAI, Google, Vertex, GitLab Duo, or another provider, replace `ANTHROPIC_API_KEY` with the provider variables required by that model. See the [environment variables reference](/reference/environment/#agent-runtime-variables) for the supported pass-through variables.
+
 The flags explained:
 
 | Flag | Purpose |
 |---|---|
 | `--rm` | Remove the container on exit |
 | `--init` | Inject an init process (tini) for zombie reaping |
-| `-e ANTHROPIC_API_KEY` | Forward the agent credential into the container |
-| `-e SORTIE_GITHUB_TOKEN` | Forward the tracker credential into the container |
+| `-e <VAR>` | Forward an agent or provider credential into the container |
+| `-e SORTIE_*` | Forward tracker or Sortie runtime configuration into the container |
 | `-v .../workspaces:...` | Mount the workspace root as a read-write volume |
 | `-v .../WORKFLOW.md:...:ro` | Mount the workflow file as read-only |
 | `-p 7678:7678` | Expose the HTTP observability server |
@@ -277,7 +372,7 @@ If you need tini baked into the image itself, install it in your Dockerfile:
 ```dockerfile
 RUN apt-get update && apt-get install -y --no-install-recommends tini \
     && rm -rf /var/lib/apt/lists/*
-ENTRYPOINT ["tini", "--", "/usr/bin/sortie", "--host", "0.0.0.0"]
+ENTRYPOINT ["tini", "--", "/usr/bin/sortie", "--host", "0.0.0.0", "--log-format", "json"]
 ```
 
 ## Run as non-root
@@ -347,14 +442,14 @@ docker build -t sortie .
 Inject a version string:
 
 ```sh
-docker build --build-arg VERSION=1.8.0 -t sortie .
+docker build --build-arg VERSION=<version> -t sortie .
 ```
 
 Include the Git revision in OCI labels:
 
 ```sh
 docker build \
-    --build-arg VERSION=1.8.0 \
+    --build-arg VERSION=<version> \
     --build-arg REVISION=$(git rev-parse HEAD) \
     -t sortie .
 ```
@@ -402,10 +497,10 @@ After building and running your image, confirm that everything works:
 
 ```sh
 # Binary executes correctly
-docker run --rm sortie-claude sortie --version
+docker run --rm --entrypoint /usr/bin/sortie sortie-claude --version
 
 # Container runs as non-root
-docker run --rm sortie-claude id
+docker run --rm --entrypoint /usr/bin/id sortie-claude
 # Expected: uid=1000(sortie) gid=1000(sortie) ...
 
 # Health check passes (wait ~30s for the first check)
@@ -419,11 +514,13 @@ docker inspect --format='{{.State.Health.Status}}' <container-id>
 
 **`COPY --from` fails with "not found":** The image tag in the `FROM ghcr.io/sortie-ai/sortie:...` line doesn't exist. Check available tags at the [GitHub Container Registry page](https://github.com/sortie-ai/sortie/pkgs/container/sortie) or use `:latest`.
 
-**Health check reports unhealthy:** Sortie's HTTP server binds to `127.0.0.1` by default. Ensure the entrypoint includes `--host 0.0.0.0` so the health check can reach it from within the container. Also verify that port 7678 is not blocked or remapped. Run `wget -qO- http://localhost:7678/readyz` inside the container to inspect the response — it returns JSON with per-subsystem status.
+**Health check reports unhealthy:** Docker runs the health check inside the container, so binding to `127.0.0.1` is enough for `HEALTHCHECK`. `--host 0.0.0.0` matters when you also want the host or another container to reach the observability port through `-p`. An unhealthy `/readyz` usually means a workflow, preflight, or database problem. Run `wget -qO- http://localhost:7678/readyz` inside the container to inspect the response.
 
 **Workspace files have wrong permissions:** The host directory mounted at `/home/sortie/workspaces` must be writable by UID 1000. Run `chown -R 1000:1000 workspaces/` on the host, or use `docker run --user $(id -u):$(id -g)` if your host UID differs.
 
 **SQLite database locked:** Two containers are sharing the same database file. Each Sortie instance needs its own `.sortie.db`. Use separate named volumes or `--db` paths for each container.
+
+**OpenCode fails with provider authentication errors:** Forward the provider variables that match the selected OpenCode model. For direct providers, this is typically `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GOOGLE_API_KEY`. Vertex-backed runs also need `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CLOUD_PROJECT`, and usually `VERTEX_LOCATION`. In SSH mode, those variables must exist on the remote host because Sortie forwards only managed `OPENCODE_*` variables.
 
 ## Example Dockerfiles
 
@@ -434,5 +531,6 @@ The Dockerfiles in this guide are self-contained — copy them into your project
 | [`claude-code.Dockerfile`](https://github.com/sortie-ai/sortie/blob/main/examples/docker/claude-code.Dockerfile) | Claude Code | `node:24-slim` |
 | [`copilot.Dockerfile`](https://github.com/sortie-ai/sortie/blob/main/examples/docker/copilot.Dockerfile) | GitHub Copilot | `node:24-slim` |
 | [`codex.Dockerfile`](https://github.com/sortie-ai/sortie/blob/main/examples/docker/codex.Dockerfile) | Codex | `debian:bookworm-slim` |
+| [`opencode.Dockerfile`](https://github.com/sortie-ai/sortie/blob/main/examples/docker/opencode.Dockerfile) | OpenCode | `node:24-slim` |
 
 If a section in this guide becomes outdated, check those files for the current recommended configuration.

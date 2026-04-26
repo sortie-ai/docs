@@ -24,9 +24,10 @@ Comprehensive reference for every CLI flag, configuration field, API endpoint, a
 ## Agent adapters
 
 {{< cards >}}
-  {{< card link="adapter-claude-code" title="Claude Code" subtitle="Configuration, JSONL events, token accounting, SSH." >}}
-  {{< card link="adapter-copilot" title="Copilot CLI" subtitle="Configuration, session lifecycle, and output parsing." >}}
-  {{< card link="adapter-codex" title="Codex" subtitle="Configuration, JSON-RPC protocol, persistent subprocess, SSH." >}}
+  {{< card link="adapter-claude-code" title="Claude Code" subtitle="Configuration, JSONL events, token accounting, including SSH." >}}
+  {{< card link="adapter-copilot" title="Copilot CLI" subtitle="Configuration, session lifecycle, and output parsing, including SSH." >}}
+  {{< card link="adapter-codex" title="Codex" subtitle="Configuration, JSON-RPC protocol, persistent subprocess, including SSH." >}}
+  {{< card link="adapter-opencode" title="OpenCode" subtitle="Configuration, session lifecycle, and output parsing, including SSH." >}}
 {{< /cards >}}
 
 ## Tracker adapters

@@ -3,7 +3,7 @@ title: "Codex CLI Adapter"
 description: "Codex CLI agent adapter reference: configuration, session lifecycle, JSON-RPC protocol, token accounting, errors, SSH remote execution, and auth."
 keywords: sortie codex cli adapter, codex, agent adapter, JSON-RPC, session lifecycle, token usage, SSH, CODEX_API_KEY, openai codex, app-server
 author: Sortie AI
-date: 2026-04-17
+date: 2026-04-26
 weight: 120
 url: /reference/adapter-codex/
 ---
@@ -383,10 +383,7 @@ For Claude Code configuration, see [Claude Code adapter reference](/reference/ad
 - [WORKFLOW.md configuration reference](/reference/workflow-config/) - full `agent` schema and `codex` extension block
 - [Environment variables reference](/reference/environment/) - `CODEX_API_KEY` and related variables
 - [Error reference](/reference/errors/#agent-errors) - all agent error kinds with retry behavior
+- [How to control agent costs](/guides/control-costs/) - session caps, turn caps, concurrency limits, and model selection
 - [How to write a prompt template](/guides/write-prompt-template/) - template variables, conditionals, and built-in functions
 - [How to scale agents with SSH](/guides/scale-agents-with-ssh/) - remote execution setup and host pool configuration
 - [State machine reference](/reference/state-machine/) - orchestration states, turn lifecycle, and stall detection
-- [Prometheus metrics reference](/reference/prometheus-metrics/) - `sortie_agent_turns_total` and related counters
-- [Agent extensions reference](/reference/agent-extensions/) - `tracker_api` tool available during agent sessions
-- [Claude Code adapter reference](/reference/adapter-claude-code/) - sibling adapter for comparison
-- [Copilot CLI adapter reference](/reference/adapter-copilot/) - sibling adapter for comparison

@@ -11,6 +11,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0] - 2026-04-26 { #1.9.0 }
+
+### Added
+
+- OpenCode CLI agent adapter: configure with `agent.kind: opencode` for
+  autonomous issue-to-code workflows using the OpenCode CLI via
+  `opencode run --format json`. Supports fork-per-turn execution, JSON
+  event normalization, SSH remote dispatch, permission policy synthesis,
+  token accounting, and companion deployment examples via
+  `examples/docker/opencode.Dockerfile` and `examples/WORKFLOW.opencode.md`.
+  ([#476](https://github.com/sortie-ai/sortie/issues/476),
+  [#478](https://github.com/sortie-ai/sortie/issues/478),
+  [#479](https://github.com/sortie-ai/sortie/issues/479))
+
+### Fixed
+
+- SSH worker command assembly: multi-token remote commands are now
+  appended verbatim instead of shell-quoted as a single word, so remote
+  agent launches such as `codex app-server` and other pre-formed shell
+  fragments no longer fail with `command not found`.
+  ([#493](https://github.com/sortie-ai/sortie/issues/493))
+- GitHub and Jira tracker adapters no longer return partially populated
+  issues, slices, or state maps when tracked fetch operations fail; the
+  nil-on-error contract is preserved for issue detail and state lookups.
+  ([PR #496](https://github.com/sortie-ai/sortie/pull/496))
+
 ## [1.8.0] - 2026-04-17 { #1.8.0 }
 
 ### Added 
@@ -758,6 +784,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   execution via GitHub Actions.
 - Architecture Decision Records (ADR-0001 through ADR-0005).
 
+[1.9.0]: https://github.com/sortie-ai/sortie/compare/1.8.0...1.9.0
 [1.8.0]: https://github.com/sortie-ai/sortie/compare/1.7.1...1.8.0
 [1.7.1]: https://github.com/sortie-ai/sortie/compare/1.7.0...1.7.1
 [1.7.0]: https://github.com/sortie-ai/sortie/compare/1.6.1...1.7.0

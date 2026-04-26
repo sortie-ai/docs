@@ -110,5 +110,6 @@ These boundaries are load-bearing. Every feature request that conflicts with the
 - [Claude Code adapter reference](/reference/adapter-claude-code/) for agent integration details
 - [Copilot CLI adapter reference](/reference/adapter-copilot/) for agent integration details
 - [Codex adapter reference](/reference/adapter-codex/) for agent integration details
+- [OpenCode CLI adapter reference](/reference/adapter-opencode/) for agent integration details
 - [Security and operational safety](/concepts/security/) for hardening guidance
 - [Architecture Decision Records](https://github.com/sortie-ai/sortie/tree/main/docs/decisions) for detailed rationale behind each major design choice
