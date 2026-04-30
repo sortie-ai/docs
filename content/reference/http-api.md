@@ -7,25 +7,25 @@ date: 2026-04-13
 weight: 40
 url: /reference/http-api/
 ---
-Sortie embeds an HTTP server that exposes a JSON API, an HTML dashboard, health probes, and Prometheus metrics — all on a single port.
+Sortie embeds an HTTP server that exposes a JSON API, an HTML dashboard, health probes, and Prometheus metrics - all on a single port.
 
 ## Server configuration
 
 The HTTP server starts by default on `127.0.0.1:7678` with no flags required.
 
-**Override the port** — pass `--port <N>` when launching Sortie:
+**Override the port** - pass `--port <N>` when launching Sortie:
 
 ```sh
 sortie --port 9090 WORKFLOW.md
 ```
 
-**Override the bind address** — pass `--host <ADDR>` for container deployments:
+**Override the bind address** - pass `--host <ADDR>` for container deployments:
 
 ```sh
 sortie --host 0.0.0.0 WORKFLOW.md
 ```
 
-**Workflow config** — set `server.port` and `server.host` in the WORKFLOW.md front matter extensions:
+**Workflow config** - set `server.port` and `server.host` in the WORKFLOW.md front matter extensions:
 
 ```yaml
 ---
@@ -40,13 +40,13 @@ CLI flags take precedence over extension keys. Port `0` disables the server enti
 
 When the default port (7678) is already occupied and no port was explicitly requested, Sortie logs a warning and starts without the HTTP server. When an explicit port is in use, Sortie exits with code `1`.
 
-The HTTP server is not started in [`--dry-run`](/reference/cli/#-dry-run) mode. Changing the port or host requires a restart — there is no hot-rebind.
+The HTTP server is not started in [`--dry-run`](/reference/cli/#-dry-run) mode. Changing the port or host requires a restart - there is no hot-rebind.
 
 For the full `server` extension schema, see [WORKFLOW.md configuration reference](/reference/workflow-config/). For Prometheus metric definitions, see [Prometheus metrics reference](/reference/prometheus-metrics/).
 
 ---
 
-## GET / — HTML dashboard
+## GET / - HTML dashboard
 
 Server-rendered HTML page showing real-time system state. Auto-refreshes in the browser.
 
@@ -157,7 +157,7 @@ sqlite3 .sortie.db "SELECT review_metadata FROM run_history WHERE review_metadat
 
 ---
 
-## GET /api/v1/state — System state
+## GET /api/v1/state - System state
 
 Returns a full runtime snapshot: running sessions, retry queue, aggregate totals, and rate limits.
 
@@ -257,7 +257,7 @@ curl http://localhost:8080/api/v1/state
 
 ---
 
-## GET /api/v1/{identifier} — Issue detail
+## GET /api/v1/{identifier} - Issue detail
 
 Returns issue-specific runtime and debug details. The `{identifier}` path parameter is the issue identifier (e.g., `MT-649`), not the internal issue ID.
 
@@ -366,7 +366,7 @@ When an issue is in the retry queue rather than actively running, `status` is `"
 
 ---
 
-## POST /api/v1/refresh — Trigger poll cycle
+## POST /api/v1/refresh - Trigger poll cycle
 
 Queues an immediate poll and reconciliation cycle. Useful for CI integrations that push issues and want Sortie to pick them up without waiting for the next poll interval.
 
@@ -385,9 +385,9 @@ curl -X POST http://localhost:8080/api/v1/refresh
 }
 ```
 
-`coalesced: true` means a refresh was already pending when your request arrived. The request was not lost — it merged with the existing pending signal. You don't need to retry.
+`coalesced: true` means a refresh was already pending when your request arrived. The request was not lost - it merged with the existing pending signal. You don't need to retry.
 
-### Response (409 Conflict — draining)
+### Response (409 Conflict - draining)
 
 If Sortie is shutting down, the refresh is rejected:
 
@@ -410,7 +410,7 @@ If Sortie is shutting down, the refresh is rejected:
 
 ---
 
-## GET /livez — Liveness probe
+## GET /livez - Liveness probe
 
 Lightweight liveness check for container orchestrators. Returns `200` when the process is alive, `503` when draining.
 
@@ -426,7 +426,7 @@ curl http://localhost:8080/livez
 }
 ```
 
-### Response (503 — draining)
+### Response (503 - draining)
 
 ```json
 {
@@ -436,7 +436,7 @@ curl http://localhost:8080/livez
 
 ---
 
-## GET /readyz — Readiness probe
+## GET /readyz - Readiness probe
 
 Deep readiness check that validates database connectivity, preflight configuration, and workflow loading. Use this for Kubernetes readiness probes or load balancer health checks.
 
@@ -459,7 +459,7 @@ curl http://localhost:8080/readyz
 }
 ```
 
-### Response (503 — one or more checks failed)
+### Response (503 - one or more checks failed)
 
 ```json
 {
@@ -491,7 +491,7 @@ Each check is independent. `status` is `"pass"` only when every individual check
 
 ---
 
-## GET /metrics — Prometheus metrics
+## GET /metrics - Prometheus metrics
 
 Standard Prometheus text exposition format. Available on the same port as all other endpoints when the HTTP server is enabled.
 
@@ -499,7 +499,7 @@ Standard Prometheus text exposition format. Available on the same port as all ot
 curl http://localhost:8080/metrics
 ```
 
-Returns `text/plain` with Prometheus metric families. For the full metric catalog — names, labels, types, PromQL examples, and cardinality model — see [Prometheus metrics reference](/reference/prometheus-metrics/).
+Returns `text/plain` with Prometheus metric families. For the full metric catalog - names, labels, types, PromQL examples, and cardinality model - see [Prometheus metrics reference](/reference/prometheus-metrics/).
 
 ---
 
@@ -527,7 +527,7 @@ All JSON API errors use a consistent structure:
 
 ## Method enforcement
 
-Every endpoint enforces its allowed HTTP method. Sending the wrong method returns `405 Method Not Allowed` with an `Allow` header indicating the correct method, and a JSON error envelope — not plain text.
+Every endpoint enforces its allowed HTTP method. Sending the wrong method returns `405 Method Not Allowed` with an `Allow` header indicating the correct method, and a JSON error envelope - not plain text.
 
 ```sh
 curl -X DELETE http://localhost:8080/api/v1/state

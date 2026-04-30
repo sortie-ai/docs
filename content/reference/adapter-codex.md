@@ -377,6 +377,17 @@ For Claude Code configuration, see [Claude Code adapter reference](/reference/ad
 
 ---
 
+## External references
+
+- [Codex Documentation](https://developers.openai.com/codex) - official OpenAI documentation site for the Codex CLI
+- [`openai/codex` on GitHub](https://github.com/openai/codex) - Codex CLI source repository, releases, and issue tracker
+- [Codex `config.md`](https://github.com/openai/codex/blob/main/docs/config.md) - sandbox modes, approval policies, and other settings this adapter forwards via JSON-RPC params
+- [JSON-RPC 2.0 specification](https://www.jsonrpc.org/specification) - wire format used over Codex's stdin/stdout
+- [OpenAI API authentication](https://platform.openai.com/docs/api-reference/authentication) - the `CODEX_API_KEY` credential format
+- [Model Context Protocol specification](https://modelcontextprotocol.io/specification) - the dynamic-tools protocol delivered via `dynamicTools` on `thread/start`
+
+---
+
 ## Related pages
 
 - [Jira + Codex end-to-end tutorial](/getting-started/jira-codex-end-to-end/) - step-by-step walkthrough from Jira issue to pushed branch

@@ -194,7 +194,7 @@ At least one of `active_states` or `terminal_states` must be non-empty. When bot
 `in_progress_state`, when set, must appear in `active_states` (otherwise reconciliation would immediately cancel the worker after the transition). It must not appear in `terminal_states` or collide with `handoff_state`. If the issue is already in the target state at dispatch time, the transition call is skipped (debug log only). Other transition failures at runtime are non-fatal: the worker logs a warning and continues to workspace preparation. Requires the same write permissions as `handoff_state`.
 
 > [!NOTE]
-> Workspace cleanup for issues that reach a terminal state while no worker is running is handled by a periodic sweep, not by an instant event. The sweep runs every 60 poll cycles — with the default 30-second `polling.interval_ms`, cleanup occurs within approximately 30 minutes; with a 60-second interval, within approximately 60 minutes. When a worker is still running and reconciliation detects a terminal state, cleanup happens on the current poll tick. Sortie also runs a full cleanup sweep on startup.
+> Workspace cleanup for issues that reach a terminal state while no worker is running is handled by a periodic sweep, not by an instant event. The sweep runs every 60 poll cycles - with the default 30-second `polling.interval_ms`, cleanup occurs within approximately 30 minutes; with a 60-second interval, within approximately 60 minutes. When a worker is still running and reconciliation detects a terminal state, cleanup happens on the current poll tick. Sortie also runs a full cleanup sweep on startup.
 
 ### Tracker comments
 
@@ -206,7 +206,7 @@ The `comments` sub-object controls whether Sortie posts plain-text comments on t
 | `on_completion` | Worker exits normally | Session ID, duration, turns completed. Includes "(re-queuing)" suffix when a continuation retry is scheduled. |
 | `on_failure` | Worker exits with an error | Session ID, duration, truncated error message (200 char limit), retry status and next attempt number. |
 
-Comment failures are non-fatal. A failed comment logs WARN and never blocks dispatch, completion, retry, or handoff. Completion and failure comments are posted from a detached goroutine — the event loop is never blocked by the tracker API.
+Comment failures are non-fatal. A failed comment logs WARN and never blocks dispatch, completion, retry, or handoff. Completion and failure comments are posted from a detached goroutine - the event loop is never blocked by the tracker API.
 
 No comment is posted on worker cancellation (stall timeout, reconciliation, shutdown).
 
@@ -711,7 +711,7 @@ file:
 
 ## Extensions
 
-Unknown top-level keys are collected into an extensions map for forward compatibility. The orchestrator does not validate extension fields at runtime; each consumer defines its own schema. However, [`sortie validate`](/reference/cli/#validate) emits advisory warnings for unknown top-level keys that are not recognized extensions or adapter pass-through blocks — catching typos before deployment.
+Unknown top-level keys are collected into an extensions map for forward compatibility. The orchestrator does not validate extension fields at runtime; each consumer defines its own schema. However, [`sortie validate`](/reference/cli/#validate) emits advisory warnings for unknown top-level keys that are not recognized extensions or adapter pass-through blocks - catching typos before deployment.
 
 ### `server`
 
@@ -739,8 +739,8 @@ Process-wide log verbosity and output format. Controls the minimum severity leve
 
 | Field | Type | Default | Required | Dynamic Reload | Description |
 |---|---|---|---|---|---|
-| `logging.level` | string | `info` | No | **No** — requires restart | Log verbosity: `debug`, `info`, `warn`, `error` (case-insensitive). |
-| `logging.format` | string | `text` | No | **No** — requires restart | Log output format: `text` or `json` (case-insensitive). `text` emits structured `key=value` lines. `json` emits newline-delimited JSON objects. |
+| `logging.level` | string | `info` | No | **No** - requires restart | Log verbosity: `debug`, `info`, `warn`, `error` (case-insensitive). |
+| `logging.format` | string | `text` | No | **No** - requires restart | Log output format: `text` or `json` (case-insensitive). `text` emits structured `key=value` lines. `json` emits newline-delimited JSON objects. |
 
 The CLI [`--log-level`](/reference/cli/#-log-level) flag takes precedence over `logging.level`, and [`--log-format`](/reference/cli/#-log-format) takes precedence over `logging.format`. Changing either field in the workflow file takes effect only after a restart; dynamic reload does not re-initialize the log handler.
 
@@ -763,7 +763,7 @@ Per-adapter token pricing for cost estimation on the [dashboard](/reference/dash
 | `token_rates.<kind>.output_per_mtok` | number | _(not set)_ | USD per million output tokens. |
 | `token_rates.<kind>.cache_read_per_mtok` | number | _(not set)_ | USD per million cache-read tokens. |
 
-Each rate field is optional. A missing field means cost is not estimated for that token type. A zero value is valid and produces `$0.00`. Partial rates are accepted — configuring only `output_per_mtok` computes cost from output tokens alone.
+Each rate field is optional. A missing field means cost is not estimated for that token type. A zero value is valid and produces `$0.00`. Partial rates are accepted - configuring only `output_per_mtok` computes cost from output tokens alone.
 
 Validation rules:
 
@@ -810,7 +810,7 @@ When `ssh_hosts` is absent or empty, all agents run locally. The `ssh_strict_hos
 
 | Value | Behavior |
 |---|---|
-| `accept-new` | Trust on first use — accept unknown host keys, reject changed keys. Default. |
+| `accept-new` | Trust on first use - accept unknown host keys, reject changed keys. Default. |
 | `yes` | Refuse connections unless the host key is already in `known_hosts`. Requires pre-populated `known_hosts`. |
 | `no` | Accept any host key. Intended for isolated test or CI environments with ephemeral hosts. |
 

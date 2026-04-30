@@ -66,7 +66,7 @@ The `--dry-run` flag suppresses server startup regardless of port or host settin
 
 `--version` (or `-V`) and `-dumpversion` take precedence over `--dry-run` when both are provided.
 
-The startup sequence through preflight validation is identical to a normal run. The dry-run branch diverges after tracker adapter construction — see [startup sequence](#startup-sequence) step 7.
+The startup sequence through preflight validation is identical to a normal run. The dry-run branch diverges after tracker adapter construction - see [startup sequence](#startup-sequence) step 7.
 
 #### Dry-run output
 
@@ -112,7 +112,7 @@ An unknown value (e.g., `--log-level trace`) prints an error to stderr and exits
 sortie: unknown log level "trace": accepted values are debug, info, warn, error
 ```
 
-Applied before the workflow file is loaded, so all startup output — including workflow loading errors — respects the requested level.
+Applied before the workflow file is loaded, so all startup output - including workflow loading errors - respects the requested level.
 
 ### `--log-format`
 
@@ -140,7 +140,7 @@ An unknown value (e.g., `--log-format yaml`) prints an error to stderr and exits
 sortie: unknown log format "yaml": accepted values are text, json
 ```
 
-Applied before the workflow file is loaded, so all startup output uses the requested format immediately. Both `--log-format` and `--log-level` can be combined freely — any combination works.
+Applied before the workflow file is loaded, so all startup output uses the requested format immediately. Both `--log-format` and `--log-level` can be combined freely - any combination works.
 
 ### `--env-file`
 
@@ -162,15 +162,15 @@ The file is re-read on every WORKFLOW.md reload (file change detection). If the 
 
 Sets the listening port for the embedded HTTP server. The server starts by default on port `7678`. All observability surfaces share this port:
 
-- `/` — HTML dashboard ([dashboard reference](/reference/dashboard/))
-- `/api/v1/state` — JSON API ([HTTP API reference](http-api.md))
-- `/api/v1/<identifier>` — Per-issue detail
-- `/api/v1/refresh` — Trigger immediate poll cycle
-- `/livez` — Liveness probe
-- `/readyz` — Readiness probe
-- `/metrics` — Prometheus metrics ([Prometheus metrics reference](/reference/prometheus-metrics/))
+- `/` - HTML dashboard ([dashboard reference](/reference/dashboard/))
+- `/api/v1/state` - JSON API ([HTTP API reference](http-api.md))
+- `/api/v1/<identifier>` - Per-issue detail
+- `/api/v1/refresh` - Trigger immediate poll cycle
+- `/livez` - Liveness probe
+- `/readyz` - Readiness probe
+- `/metrics` - Prometheus metrics ([Prometheus metrics reference](/reference/prometheus-metrics/))
 
-Valid range: `1`–`65535`, or `0` to disable. Port `0` disables the server entirely — no TCP listener, no Prometheus metrics. The orchestrator runs with a no-op metrics implementation.
+Valid range: `1`–`65535`, or `0` to disable. Port `0` disables the server entirely - no TCP listener, no Prometheus metrics. The orchestrator runs with a no-op metrics implementation.
 
 Overrides `server.port` from the WORKFLOW.md [`server` extension](/reference/workflow-config/). When the default port (`7678`) is already occupied and the operator did not explicitly request a port, Sortie logs a warning and starts without the HTTP server. When the operator explicitly requested a port (via `--port` or `server.port`) and it is already in use, Sortie exits with code `1`.
 
@@ -190,7 +190,7 @@ Prints the help message to stdout and exits with code `0`. The short form `-h` i
 
 Help output is organized into sections: commands, informational flags, run options, examples, and a "Learn more" link. Subcommands have their own help text: `sortie validate -h` and `sortie mcp-server -h` print subcommand-specific help.
 
-Help is printed to **stdout**, not stderr. This follows GNU convention — help is useful content, not error diagnostics. Piping works as expected: `sortie -h | less`.
+Help is printed to **stdout**, not stderr. This follows GNU convention - help is useful content, not error diagnostics. Piping works as expected: `sortie -h | less`.
 
 The Go `flag` package also recognizes `-help` (single-dash long form) and treats it identically to `--help`.
 
@@ -242,7 +242,7 @@ The pipeline checks:
 - `tracker.handoff_state` is a string, is non-empty when present, and does not collide with `active_states` or `terminal_states`.
 - `db_path` is a string when present.
 - `agent.max_sessions` is non-negative.
-- Go `text/template` syntax in the prompt body (strict mode — unknown variables and functions are errors).
+- Go `text/template` syntax in the prompt body (strict mode - unknown variables and functions are errors).
 - Template static analysis: dot-context misuse inside `{{ range }}` / `{{ with }}`, unknown top-level variables, and unknown sub-fields of known variables (advisory warnings).
 - `tracker.kind` is present and maps to a registered adapter.
 - `agent.kind` maps to a registered adapter. Defaults to `claude-code` when absent.
@@ -258,7 +258,7 @@ The pipeline does **not** check:
 
 #### Advisory warnings
 
-Beyond the error-level checks above, `validate` runs static analysis on the front matter and the prompt template, emitting **warnings** for likely-wrong patterns. Warnings do not block validity — `valid` remains `true` and the exit code is `0` when only warnings are present. Runtime behavior is unchanged; warnings surface patterns that the orchestrator would silently accept or that would produce unexpected output.
+Beyond the error-level checks above, `validate` runs static analysis on the front matter and the prompt template, emitting **warnings** for likely-wrong patterns. Warnings do not block validity - `valid` remains `true` and the exit code is `0` when only warnings are present. Runtime behavior is unchanged; warnings surface patterns that the orchestrator would silently accept or that would produce unexpected output.
 
 Six warning classes across two analysis passes, plus adapter-specific warnings when the tracker adapter declares config validation (see [adapter-specific warning check values](#adapter-specific-warning-check-values)):
 
@@ -270,7 +270,7 @@ Six warning classes across two analysis passes, plus adapter-specific warnings w
 
 **Template static analysis:**
 
-- **Dot-context misuse** (`dot_context`). A reference to a top-level data key (`.issue`, `.attempt`, `.run`) inside a `{{ range }}` or `{{ with }}` block where the dot has been redefined. Almost always a bug — use the `$` prefix (`$.issue.title`) to reach root data from inside these blocks.
+- **Dot-context misuse** (`dot_context`). A reference to a top-level data key (`.issue`, `.attempt`, `.run`) inside a `{{ range }}` or `{{ with }}` block where the dot has been redefined. Almost always a bug - use the `$` prefix (`$.issue.title`) to reach root data from inside these blocks.
 - **Unknown template variable** (`unknown_var`). A top-level variable reference not in the template data contract. For example, `{{ .config }}` or `{{ $.settings }}`. Valid top-level variables are `.issue`, `.attempt`, and `.run`.
 - **Unknown sub-field** (`unknown_field`). A sub-field of a known top-level variable that does not exist in the domain schema. For example, `{{ .run.foo }}` or `{{ .issue.nonexistent }}`. Also flags sub-field access on scalar variables like `{{ .attempt.something }}`.
 
@@ -293,7 +293,7 @@ Invalid `--format` values produce an error and exit `1`.
 
 #### Output formats
 
-**Text** (default) — each diagnostic is written to stderr, one per line, prefixed with its severity:
+**Text** (default) - each diagnostic is written to stderr, one per line, prefixed with its severity:
 
 ```
 error: tracker.kind: tracker.kind is required
@@ -319,7 +319,7 @@ When the workflow file itself cannot be loaded, a single error line is emitted:
 error: workflow_load: workflow file not found: /path/to/WORKFLOW.md: ...
 ```
 
-**JSON** (`--format json`) — a single JSON object is written to stdout on both success and failure:
+**JSON** (`--format json`) - a single JSON object is written to stdout on both success and failure:
 
 ```json
 {"valid":true,"errors":[],"warnings":[]}
@@ -458,8 +458,8 @@ The MCP server does not validate environment variable presence at startup. Valid
 
 The MCP server exits cleanly when either:
 
-- **stdin closes** — the agent runtime terminates the stdio pipe. The JSON-RPC reader detects EOF and returns.
-- **Context cancellation** — the signal handler cancels the context.
+- **stdin closes** - the agent runtime terminates the stdio pipe. The JSON-RPC reader detects EOF and returns.
+- **Context cancellation** - the signal handler cancels the context.
 
 No explicit shutdown handshake. The server's lifetime is bound to the agent runtime's stdio pipe.
 
@@ -476,11 +476,11 @@ No explicit shutdown handshake. The server's lifetime is bound to the agent runt
 
 When no version or help flag is present, Sortie executes these steps in order:
 
-1. **Intercept short flags and parse.** Short aliases (`-h`, `-V`) are intercepted before subcommand dispatch or flag parsing, because the Go `flag` package does not recognize single-dash aliases for long flags. If `-h` is found, help is printed to stdout and the process exits `0`. If `-V` is found, the version banner is printed to stdout and the process exits `0`. Subcommand tokens (`validate`, `mcp-server`) and the POSIX `--` terminator stop the scan — `-h` after a subcommand is handled by the subcommand itself. After interception, remaining flags are parsed normally. Unknown flags exit with code `1` and print a one-line error to stderr (the full help text is not printed on errors). `--env-file` path (when provided) is stored for later use.
+1. **Intercept short flags and parse.** Short aliases (`-h`, `-V`) are intercepted before subcommand dispatch or flag parsing, because the Go `flag` package does not recognize single-dash aliases for long flags. If `-h` is found, help is printed to stdout and the process exits `0`. If `-V` is found, the version banner is printed to stdout and the process exits `0`. Subcommand tokens (`validate`, `mcp-server`) and the POSIX `--` terminator stop the scan - `-h` after a subcommand is handled by the subcommand itself. After interception, remaining flags are parsed normally. Unknown flags exit with code `1` and print a one-line error to stderr (the full help text is not printed on errors). `--env-file` path (when provided) is stored for later use.
 2. **Resolve workflow path.** Relative paths resolve to absolute against the working directory.
 3. **Initialize logging.** Structured output to stderr. Uses `--log-level` and `--log-format` flags when set; otherwise defaults to `INFO` level with `text` format for the duration of startup.
-4. **Load and watch workflow file.** Start a filesystem watcher for dynamic config reload. During config parsing, [`SORTIE_*` overrides](/reference/environment/#configuration-overrides) are applied — including `.env` file loading when enabled.
-5. **Preflight validation.** Verify `tracker.kind` is registered, `agent.kind` is registered, required API keys are present, active/terminal state lists are non-empty, adapter-specific config validation passes (when declared), and the workspace root is writable. Failure exits with code `1` — no database file is created on disk.
+4. **Load and watch workflow file.** Start a filesystem watcher for dynamic config reload. During config parsing, [`SORTIE_*` overrides](/reference/environment/#configuration-overrides) are applied - including `.env` file loading when enabled.
+5. **Preflight validation.** Verify `tracker.kind` is registered, `agent.kind` is registered, required API keys are present, active/terminal state lists are non-empty, adapter-specific config validation passes (when declared), and the workspace root is writable. Failure exits with code `1` - no database file is created on disk.
 6. **Resolve log level and format.** When `--log-level` was not set, check `logging.level` from the workflow config. When `--log-format` was not set, check `logging.format` from the workflow config. If either differs from the startup default, re-initialize the logger before emitting the startup message.
 7. **Construct tracker adapter.** Instantiate the tracker adapter from the registry using the configuration map.
 8. **Open SQLite database.** Path from [`db_path`](/reference/workflow-config/) config field, or `.sortie.db` adjacent to the workflow file. Relative paths resolve against the workflow file's directory, not the working directory.
@@ -505,7 +505,7 @@ Any step that fails prints a diagnostic to stderr and exits with code `1`.
 | `0` | Clean shutdown (signal received), help output (`-h`, `--help`), version output (`-V`, `--version`, `-dumpversion`), successful `validate`, successful `--dry-run`, or clean `mcp-server` shutdown. |
 | `1` | Startup failure: unknown flag, too many arguments, missing or unreadable workflow file, invalid configuration, preflight validation failure, or database open/migration error. Also used by `validate` for any validation failure, by `--dry-run` when the tracker fetch fails, and by `mcp-server` for startup or runtime errors. |
 
-Sortie does not define exit codes above `1`. Agent subprocess failures, tracker errors, and runtime exceptions are handled internally through the retry and reconciliation mechanisms — they do not affect the process exit code.
+Sortie does not define exit codes above `1`. Agent subprocess failures, tracker errors, and runtime exceptions are handled internally through the retry and reconciliation mechanisms - they do not affect the process exit code.
 
 ---
 
@@ -520,7 +520,7 @@ Both signals trigger the same sequence:
 
 1. Stop accepting new dispatches.
 2. Cancel all running worker contexts.
-3. Wait up to 30 seconds for workers to exit (drain timeout). Worker results are processed through the normal exit handler during drain — run history is persisted and retry entries are recorded.
+3. Wait up to 30 seconds for workers to exit (drain timeout). Worker results are processed through the normal exit handler during drain - run history is persisted and retry entries are recorded.
 4. Cancel pending retry timers.
 5. Shut down the HTTP server with a 5-second timeout for in-flight responses.
 6. Close the SQLite database.
@@ -528,7 +528,7 @@ Both signals trigger the same sequence:
 
 During drain, `/livez` and `/readyz` return `503`, and `POST /api/v1/refresh` returns a rejection instead of `202 Accepted`.
 
-A second signal during drain is not intercepted — the OS terminates the process immediately.
+A second signal during drain is not intercepted - the OS terminates the process immediately.
 
 ---
 
@@ -682,8 +682,8 @@ sortie mcp-server --workflow /opt/sortie/WORKFLOW.md
 
 ## See also
 
-- [WORKFLOW.md configuration reference](/reference/workflow-config/) — all config fields
-- [Environment variables reference](/reference/environment/) — `SORTIE_*` config overrides, agent runtime vars, `$VAR` indirection, hook env
-- [HTTP API reference](http-api.md) — JSON API endpoints and response shapes
-- [Dashboard reference](/reference/dashboard/) — built-in HTML monitoring dashboard
-- [Prometheus metrics reference](/reference/prometheus-metrics/) — metric names, types, labels, and PromQL examples
+- [WORKFLOW.md configuration reference](/reference/workflow-config/) - all config fields
+- [Environment variables reference](/reference/environment/) - `SORTIE_*` config overrides, agent runtime vars, `$VAR` indirection, hook env
+- [HTTP API reference](http-api.md) - JSON API endpoints and response shapes
+- [Dashboard reference](/reference/dashboard/) - built-in HTML monitoring dashboard
+- [Prometheus metrics reference](/reference/prometheus-metrics/) - metric names, types, labels, and PromQL examples

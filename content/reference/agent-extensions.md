@@ -15,7 +15,7 @@ See also: [agent communication model](/concepts/agent-communication/) for why tw
 
 ## `.sortie/status` file protocol
 
-The agent-to-orchestrator advisory signal. This is not a tool — it's an out-of-band file written by the agent to tell the orchestrator "stop dispatching me." No SDK, no network call, no runtime dependency. One shell command.
+The agent-to-orchestrator advisory signal. This is not a tool - it's an out-of-band file written by the agent to tell the orchestrator "stop dispatching me." No SDK, no network call, no runtime dependency. One shell command.
 
 ### Path
 
@@ -57,7 +57,7 @@ The full interaction between `.sortie/status` and `tracker.handoff_state` is doc
 
 | Condition | Behavior |
 |---|---|
-| File absent | Normal behavior — continue and retry as configured. |
+| File absent | Normal behavior - continue and retry as configured. |
 | Unrecognized value | Ignored. Warning logged. Normal behavior continues. |
 | Read error | Treated as absent. Warning logged. Never fails the worker run. |
 | Symlink on `.sortie/` or `status` | Rejected via `Lstat` check. Treated as absent. Warning logged. |
@@ -77,7 +77,7 @@ Use "blocked" when you cannot proceed. Use "needs-human-review" when your work i
 complete and awaiting review. Do not write this file during normal productive work.
 ```
 
-Continuation turns do not repeat the instructions. You can include your own instructions in prompt templates too — duplicates are harmless.
+Continuation turns do not repeat the instructions. You can include your own instructions in prompt templates too - duplicates are harmless.
 
 ### Cleanup and protection
 
@@ -97,19 +97,19 @@ Sortie delivers tools to agents via an MCP stdio server running as a sidecar pro
 
 Before each agent session, the worker generates `.sortie/mcp.json` inside the workspace directory. This file declares the `sortie-tools` MCP server entry with the absolute path to the `sortie` binary, the workflow path, and session environment variables. The worker passes this config to the agent via `--mcp-config` (Claude Code), `--additional-mcp-config` (Copilot CLI), or as a `dynamicTools` registration (Codex).
 
-The agent runtime spawns `sortie mcp-server` as its own child process — the orchestrator worker does not manage the MCP server lifecycle. Any MCP-compatible agent can call tools without adapter-specific integration.
+The agent runtime spawns `sortie mcp-server` as its own child process - the orchestrator worker does not manage the MCP server lifecycle. Any MCP-compatible agent can call tools without adapter-specific integration.
 
-Session context (issue ID, workspace path, database path, credentials) flows to the MCP server via the `env` block in `.sortie/mcp.json`. Credentials (`SORTIE_*` variables from the orchestrator process) are explicitly included in this block — they do not rely on process inheritance. See [MCP server environment](/reference/environment/#mcp-server-environment) for the full variable table.
+Session context (issue ID, workspace path, database path, credentials) flows to the MCP server via the `env` block in `.sortie/mcp.json`. Credentials (`SORTIE_*` variables from the orchestrator process) are explicitly included in this block - they do not rely on process inheritance. See [MCP server environment](/reference/environment/#mcp-server-environment) for the full variable table.
 
 If the operator specifies a custom `mcp_config` in WORKFLOW.md, Sortie merges it with the `sortie-tools` entry. The operator's config must not use the reserved server name `sortie-tools`.
 
-Sortie also appends tool documentation to the first-turn prompt for discoverability alongside MCP `tools/list`. If the agent calls an unrecognized tool name, the MCP server returns an error response and continues the session — it does not stall or crash.
+Sortie also appends tool documentation to the first-turn prompt for discoverability alongside MCP `tools/list`. If the agent calls an unrecognized tool name, the MCP server returns an error response and continues the session - it does not stall or crash.
 
 ---
 
 ## `tracker_api`
 
-Read and write access to the configured issue tracker (Jira, GitHub Issues, file-based). The agent does not need its own API key — Sortie uses the tracker credentials from [WORKFLOW.md](/reference/workflow-config/). All operations are scoped to the configured `tracker.project`; the agent cannot access issues in other projects.
+Read and write access to the configured issue tracker (Jira, GitHub Issues, file-based). The agent does not need its own API key - Sortie uses the tracker credentials from [WORKFLOW.md](/reference/workflow-config/). All operations are scoped to the configured `tracker.project`; the agent cannot access issues in other projects.
 
 `tracker_api` is a **Tier 2** tool: it requires an external dependency (a tracker API with valid credentials and project). Sortie registers the tool only when a valid tracker configuration with credentials and project is present in WORKFLOW.md.
 
@@ -237,7 +237,7 @@ Lists active-state issues in the configured project. No parameters beyond `opera
 ]
 ```
 
-Each entry has the same shape as a `fetch_issue` response. Only issues matching the configured `active_states` are returned — the candidates for dispatch, not every issue in the project.
+Each entry has the same shape as a `fetch_issue` response. Only issues matching the configured `active_states` are returned - the candidates for dispatch, not every issue in the project.
 
 ---
 
@@ -300,12 +300,12 @@ The `kind` field is a machine-readable category. The `message` field is a human-
 
 | Kind | Meaning |
 |---|---|
-| `invalid_input` | Malformed request — missing required field, unknown field, or unparseable JSON. |
+| `invalid_input` | Malformed request - missing required field, unknown field, or unparseable JSON. |
 | `unsupported_operation` | The `operation` value is not one of the four recognized operations. |
 | `project_scope_violation` | The requested issue belongs to a different project than the configured `tracker.project`. |
 | `tracker_transport_error` | Network or connection failure reaching the tracker API. Also returned on request cancellation or deadline exceeded. |
 | `tracker_auth_error` | Authentication failure (HTTP 401/403). The tracker API key is invalid or lacks permissions. |
-| `tracker_api_error` | Tracker API error — rate limiting, 5xx server errors, or other non-200 responses. |
+| `tracker_api_error` | Tracker API error - rate limiting, 5xx server errors, or other non-200 responses. |
 | `tracker_not_found` | The requested issue does not exist (HTTP 404). |
 | `tracker_payload_error` | Malformed response from the tracker, or an invalid state transition. |
 | `internal_error` | Unexpected internal failure. If you see this, [report a bug](https://github.com/sortie-ai/sortie/issues). |
@@ -318,7 +318,7 @@ For retry behavior and operator actions for each tracker error kind, see the [er
 
 The tool enforces that all operations target issues within `tracker.project` from [WORKFLOW.md](/reference/workflow-config/). If the agent passes an issue ID that resolves to a different project, the tool returns a `project_scope_violation` error before performing any mutation.
 
-This is a defense-in-depth measure. The primary access control is the tracker adapter's own API scoping — JQL project filter for Jira, repository scope for GitHub. The tool-level check catches edge cases where the API key happens to have cross-project access.
+This is a defense-in-depth measure. The primary access control is the tracker adapter's own API scoping - JQL project filter for Jira, repository scope for GitHub. The tool-level check catches edge cases where the API key happens to have cross-project access.
 
 When `tracker.project` is empty (e.g., the file-based tracker), project scoping is disabled.
 
@@ -326,7 +326,7 @@ When `tracker.project` is empty (e.g., the file-based tracker), project scoping 
 
 ## `sortie_status`
 
-Read-only session metadata. The agent calls this tool to check how many turns remain, how long the session has been running, and how many tokens have been consumed. Zero external calls — reads a local file only.
+Read-only session metadata. The agent calls this tool to check how many turns remain, how long the session has been running, and how many tokens have been consumed. Zero external calls - reads a local file only.
 
 `sortie_status` is a **Tier 1** tool: no external dependencies. Registered when `SORTIE_WORKSPACE` is set in the MCP server environment.
 
@@ -392,13 +392,13 @@ Token usage fields:
 }
 ```
 
-The error format is a flat `{"error": "message"}` object — different from `tracker_api`'s structured error envelope.
+The error format is a flat `{"error": "message"}` object - different from `tracker_api`'s structured error envelope.
 
 ---
 
 ## `workspace_history`
 
-Read-only access to prior run history for the current issue. The agent calls this tool to see what happened in previous attempts — whether they succeeded, failed, timed out, or stalled. Useful for avoiding repeated mistakes on retry.
+Read-only access to prior run history for the current issue. The agent calls this tool to see what happened in previous attempts - whether they succeeded, failed, timed out, or stalled. Useful for avoiding repeated mistakes on retry.
 
 `workspace_history` is a **Tier 1** tool: queries the local SQLite database in read-only mode, no external calls. Registered when both `SORTIE_DB_PATH` and `SORTIE_ISSUE_ID` are set and the database can be opened in read-only mode. If the database open fails, the MCP server continues without this tool (non-fatal).
 
@@ -493,13 +493,13 @@ Different tools use different response envelopes. This table shows the shape at 
 | `sortie_status` | Bare JSON object | `{"error": "message"}` |
 | `workspace_history` | `{"issue_id": "...", "entries": [...]}` | `{"error": "message"}` |
 
-The `tracker_api` envelope provides structured error kinds for programmatic handling. The Tier 1 tools use a simpler flat error string — there are fewer failure modes to categorize.
+The `tracker_api` envelope provides structured error kinds for programmatic handling. The Tier 1 tools use a simpler flat error string - there are fewer failure modes to categorize.
 
 ---
 
 ## Using tools in prompt templates
 
-Sortie appends tool documentation to the first-turn prompt automatically — you don't need to reproduce schemas or describe the tools' existence. The agent discovers tools through both the prompt text and MCP `tools/list`.
+Sortie appends tool documentation to the first-turn prompt automatically - you don't need to reproduce schemas or describe the tools' existence. The agent discovers tools through both the prompt text and MCP `tools/list`.
 
 You can add task-specific guidance about *when* to use tools in your prompt template. Write this in natural language:
 
@@ -511,7 +511,7 @@ You have access to Sortie tools via MCP. Use them to:
 - Transition the issue when done with the tracker_api tool (transition_issue operation)
 ```
 
-Do not include JSON tool call syntax in prompt templates. The agent calls tools through its MCP client, not by writing JSON into the prompt. Natural language instructions are sufficient — the agent already knows the schemas.
+Do not include JSON tool call syntax in prompt templates. The agent calls tools through its MCP client, not by writing JSON into the prompt. Natural language instructions are sufficient - the agent already knows the schemas.
 
 For detailed patterns and worked examples, see [how to use agent tools in prompts](/guides/use-agent-tools-in-prompts/).
 
@@ -519,12 +519,12 @@ For detailed patterns and worked examples, see [how to use agent tools in prompt
 
 ## See also
 
-- [Agent communication model](/concepts/agent-communication/) — why two channels (file protocol + MCP tools) exist
-- [How to use agent tools in prompts](/guides/use-agent-tools-in-prompts/) — task-specific tool guidance for workflow authors
-- [How to write a custom agent tool](/guides/write-custom-agent-tool/) — implementing the `Tool` interface
-- [Environment variables reference](/reference/environment/#mcp-server-environment) — MCP server env vars
-- [WORKFLOW.md configuration reference](/reference/workflow-config/) — `agent` section, `agent.max_turns`
-- [Error reference](/reference/errors/) — tracker error kinds with retry behavior
-- [State machine reference](/reference/state-machine/) — orchestration states, retry suppression
-- [Prometheus metrics reference](/reference/prometheus-metrics/) — `sortie_tool_calls_total` counter
-- [A2O protocol specification](https://github.com/sortie-ai/sortie/blob/main/docs/agent-to-orchestrator-protocol.md) — full normative spec
+- [Agent communication model](/concepts/agent-communication/) - why two channels (file protocol + MCP tools) exist
+- [How to use agent tools in prompts](/guides/use-agent-tools-in-prompts/) - task-specific tool guidance for workflow authors
+- [How to write a custom agent tool](/guides/write-custom-agent-tool/) - implementing the `Tool` interface
+- [Environment variables reference](/reference/environment/#mcp-server-environment) - MCP server env vars
+- [WORKFLOW.md configuration reference](/reference/workflow-config/) - `agent` section, `agent.max_turns`
+- [Error reference](/reference/errors/) - tracker error kinds with retry behavior
+- [State machine reference](/reference/state-machine/) - orchestration states, retry suppression
+- [Prometheus metrics reference](/reference/prometheus-metrics/) - `sortie_tool_calls_total` counter
+- [A2O protocol specification](https://github.com/sortie-ai/sortie/blob/main/docs/agent-to-orchestrator-protocol.md) - full normative spec

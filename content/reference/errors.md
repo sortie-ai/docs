@@ -7,7 +7,7 @@ date: 2026-03-26
 weight: 80
 url: /reference/errors/
 ---
-Every error Sortie produces falls into one of six categories: startup failures, tracker errors, agent errors, workspace errors, worker exit outcomes, and HTTP API errors. This page documents each — what it means, whether Sortie retries it, and what you should do.
+Every error Sortie produces falls into one of six categories: startup failures, tracker errors, agent errors, workspace errors, worker exit outcomes, and HTTP API errors. This page documents each - what it means, whether Sortie retries it, and what you should do.
 
 Error kind strings appear in logs exactly as shown below. Search this page for the string you see in your output. For step-by-step diagnosis of the most common failures, see [How to troubleshoot common failures](/guides/troubleshoot-common-failures/).
 
@@ -15,7 +15,7 @@ Error kind strings appear in logs exactly as shown below. Search this page for t
 
 ## Startup and configuration errors
 
-These errors prevent Sortie from starting. They appear immediately on launch and cause exit code `1`. None are retryable — Sortie exits. Fix the configuration and restart.
+These errors prevent Sortie from starting. They appear immediately on launch and cause exit code `1`. None are retryable - Sortie exits. Fix the configuration and restart.
 
 | Check | Log output | Action |
 |---|---|---|
@@ -58,11 +58,11 @@ Three are configuration errors (before any API calls). Six occur at runtime duri
 | Error kind | Description | Retryable | Backoff | Operator action |
 |---|---|---|---|---|
 | `tracker_transport_error` | Network or connection failure (DNS, TCP timeout, TLS). | Yes | Exponential | Check network connectivity to the tracker endpoint. |
-| `tracker_auth_error` | Authentication or authorization failure (HTTP 401/403). | No | — | Verify API key or token and check account permissions. |
+| `tracker_auth_error` | Authentication or authorization failure (HTTP 401/403). | No | - | Verify API key or token and check account permissions. |
 | `tracker_api_error` | Non-200 HTTP response from the tracker, including rate limiting and 5xx server errors. | Yes | Exponential | Check tracker service status. Usually self-resolves; investigate if persistent. |
-| `tracker_not_found` | The requested resource does not exist (HTTP 404). | No | — | Verify the project key and issue identifiers in your configuration. |
-| `tracker_payload_error` | Malformed or unexpected response body from the tracker. | No | — | Check tracker API version compatibility. |
-| `tracker_missing_end_cursor` | Pagination integrity error — expected cursor missing from response. | Yes | Exponential | Usually transient. If persistent, [report a bug](https://github.com/sortie-ai/sortie/issues). |
+| `tracker_not_found` | The requested resource does not exist (HTTP 404). | No | - | Verify the project key and issue identifiers in your configuration. |
+| `tracker_payload_error` | Malformed or unexpected response body from the tracker. | No | - | Check tracker API version compatibility. |
+| `tracker_missing_end_cursor` | Pagination integrity error - expected cursor missing from response. | Yes | Exponential | Usually transient. If persistent, [report a bug](https://github.com/sortie-ai/sortie/issues). |
 
 ---
 
@@ -72,15 +72,15 @@ Errors from agent adapter sessions. They appear in logs with the format `agent: 
 
 | Error kind | Description | Retryable | Backoff | Operator action |
 |---|---|---|---|---|
-| `agent_not_found` | Agent command or binary not found in `PATH`. Also triggered by SSH exit code `127` (remote binary missing). | No | — | Install the agent binary, or set `agent.command` in WORKFLOW.md. For SSH workers, install the agent on the remote host. |
-| `invalid_workspace_cwd` | Workspace path is invalid, doesn't exist, or isn't a directory. | No | — | Check `workspace.root` permissions and available disk space. |
+| `agent_not_found` | Agent command or binary not found in `PATH`. Also triggered by SSH exit code `127` (remote binary missing). | No | - | Install the agent binary, or set `agent.command` in WORKFLOW.md. For SSH workers, install the agent on the remote host. |
+| `invalid_workspace_cwd` | Workspace path is invalid, doesn't exist, or isn't a directory. | No | - | Check `workspace.root` permissions and available disk space. |
 | `response_timeout` | Startup or synchronous communication timed out before the agent responded. | Yes | Exponential | Increase [`agent.read_timeout_ms`](/reference/workflow-config/) if persistent. |
 | `turn_timeout` | A turn exceeded the configured [`agent.turn_timeout_ms`](/reference/workflow-config/). | Yes | Exponential | Increase the timeout, or simplify the task so the agent finishes faster. |
-| `port_exit` | Agent subprocess exited unexpectedly (non-zero exit code, pipe failure, or crash). | Yes | Exponential | Check agent logs for crash details. For SSH workers, exit code `255` indicates an SSH connection failure — check connectivity and verify the host is in `worker.ssh_hosts`. |
+| `port_exit` | Agent subprocess exited unexpectedly (non-zero exit code, pipe failure, or crash). | Yes | Exponential | Check agent logs for crash details. For SSH workers, exit code `255` indicates an SSH connection failure - check connectivity and verify the host is in `worker.ssh_hosts`. |
 | `response_error` | Agent returned a protocol-level error response. | Yes | Exponential | Check agent version compatibility with Sortie. |
-| `turn_failed` | Agent turn completed with a failure status (the agent reported its own failure), or the agent exited with zero output tokens and no result event (no-output safety heuristic). | Yes | Exponential | Review the agent output in Sortie's logs for failure details. For no-output failures, check WARN-level logs for the agent's stderr content — common causes include MCP config parse errors and missing model configuration. |
-| `turn_cancelled` | Turn was cancelled (reconciliation kill, stall detection, or shutdown). | No | — | Expected during reconciliation. No action needed unless frequent outside of shutdown. |
-| `turn_input_required` | Agent requested interactive user input. | No | — | Reconfigure the agent for non-interactive mode. For Claude Code, use `--allowedTools` to pre-authorize tools. |
+| `turn_failed` | Agent turn completed with a failure status (the agent reported its own failure), or the agent exited with zero output tokens and no result event (no-output safety heuristic). | Yes | Exponential | Review the agent output in Sortie's logs for failure details. For no-output failures, check WARN-level logs for the agent's stderr content - common causes include MCP config parse errors and missing model configuration. |
+| `turn_cancelled` | Turn was cancelled (reconciliation kill, stall detection, or shutdown). | No | - | Expected during reconciliation. No action needed unless frequent outside of shutdown. |
+| `turn_input_required` | Agent requested interactive user input. | No | - | Reconfigure the agent for non-interactive mode. For Claude Code, use `--allowedTools` to pre-authorize tools. |
 
 ---
 
@@ -98,7 +98,7 @@ Occur when Sortie prepares the per-issue workspace directory.
 |---|---|---|
 | `sanitize` | Issue identifier contains characters invalid for a directory name. | Check that your tracker returns clean identifiers. |
 | `resolve` | Workspace root path resolution failed (e.g., `~` expansion). | Verify `workspace.root` is a valid, absolute-resolvable path. |
-| `containment` | The computed workspace path escapes the workspace root. This is a security violation — an identifier like `../../etc` was used. | Investigate the issue identifier in your tracker. This should not happen with legitimate data. |
+| `containment` | The computed workspace path escapes the workspace root. This is a security violation - an identifier like `../../etc` was used. | Investigate the issue identifier in your tracker. This should not happen with legitimate data. |
 | `create` | Directory creation failed (permission denied, disk full). | Check filesystem permissions and available disk space on `workspace.root`. |
 | `stat` | Filesystem stat failed on the workspace path. | Check that the path exists and is accessible. |
 | `conflict` | Directory already exists when Sortie expected to create a fresh workspace. | A previous run may not have cleaned up. Remove the conflicting directory manually, or check `before_remove` hook behavior. |
@@ -116,7 +116,7 @@ Occur when lifecycle hook scripts (`after_create`, `before_run`, `after_run`, `b
 | `run` | Script exited with non-zero exit code. Hook output is captured in the log. | Read the captured output to diagnose the script failure. |
 | `timeout` | Script exceeded [`hooks.timeout_ms`](/reference/workflow-config/) or the parent context was cancelled. | Increase `hooks.timeout_ms`, or make the hook script faster. |
 
-Hook errors in `after_create` prevent the worker from starting — the error is retryable. Hook errors in `before_remove` are logged but ignored; workspace cleanup still proceeds.
+Hook errors in `after_create` prevent the worker from starting - the error is retryable. Hook errors in `before_remove` are logged but ignored; workspace cleanup still proceeds.
 
 ---
 
@@ -128,7 +128,7 @@ Not errors per se, but essential for understanding session outcomes. Appear in l
 |---|---|---|
 | `normal` | Turn loop completed without error. | If issue is still active and `max_turns` reached: continuation retry (1s delay). If [`handoff_state`](/reference/workflow-config/) configured and issue still active: transition attempt, claim released on success, continuation retry on failure. If issue no longer active: claim released. |
 | `error` | Fatal error during session. | If the error is retryable: exponential backoff retry. If not: claim released immediately, the issue becomes re-dispatchable on the next poll cycle. |
-| `cancelled` | Context cancelled (reconciliation kill, stall detection, or shutdown). | Claim released unless reconciliation pre-scheduled a retry. No automatic retry — reconciliation handles re-dispatch. |
+| `cancelled` | Context cancelled (reconciliation kill, stall detection, or shutdown). | Claim released unless reconciliation pre-scheduled a retry. No automatic retry - reconciliation handles re-dispatch. |
 
 ---
 
@@ -169,7 +169,7 @@ For full endpoint documentation, request/response shapes, and curl examples, see
 
 ## Retry behavior
 
-**Exponential backoff** — retryable errors schedule the next attempt with:
+**Exponential backoff** - retryable errors schedule the next attempt with:
 
 ```
 delay = min(10000ms × 2^(attempt-1), max_retry_backoff_ms)
@@ -179,6 +179,6 @@ With the default `max_retry_backoff_ms` of 300,000 (5 minutes), the progression 
 
 **Non-retryable errors** release the claim immediately. The issue becomes dispatchable again on the next poll cycle if it's still in an active tracker state.
 
-**Continuation retries** fire after a normal worker exit when `max_turns` was reached but the issue remains active. These use a fixed 1-second delay — no exponential backoff.
+**Continuation retries** fire after a normal worker exit when `max_turns` was reached but the issue remains active. These use a fixed 1-second delay - no exponential backoff.
 
 The backoff cap is configurable via [`agent.max_retry_backoff_ms`](/reference/workflow-config/) in WORKFLOW.md.

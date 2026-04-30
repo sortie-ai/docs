@@ -7,9 +7,9 @@ date: 2026-04-26
 weight: 50
 url: /reference/dashboard/
 ---
-Sortie ships a self-contained HTML dashboard at `/` on the same port as the [JSON API](http-api.md) and [Prometheus metrics](/reference/prometheus-metrics/). No external tools, no JavaScript frameworks, no CDN dependencies — one HTML page rendered server-side by Go's `html/template` engine with vanilla JavaScript for interactive behavior.
+Sortie ships a self-contained HTML dashboard at `/` on the same port as the [JSON API](http-api.md) and [Prometheus metrics](/reference/prometheus-metrics/). No external tools, no JavaScript frameworks, no CDN dependencies - one HTML page rendered server-side by Go's `html/template` engine with vanilla JavaScript for interactive behavior.
 
-The dashboard is designed for local, at-a-glance monitoring. Open it in a browser while Sortie runs, and you see what is happening right now: which agents are working, how many tokens they have consumed, what is waiting for retry, and how past runs ended. Tables use an accordion pattern — each row shows primary identification and status fields, and clicking a row expands an inline detail panel with secondary fields. All rows are collapsed by default. The page auto-refreshes every 5 seconds via an HTML `<meta http-equiv="refresh">` tag.
+The dashboard is designed for local, at-a-glance monitoring. Open it in a browser while Sortie runs, and you see what is happening right now: which agents are working, how many tokens they have consumed, what is waiting for retry, and how past runs ended. Tables use an accordion pattern - each row shows primary identification and status fields, and clicking a row expands an inline detail panel with secondary fields. All rows are collapsed by default. The page auto-refreshes every 5 seconds via an HTML `<meta http-equiv="refresh">` tag.
 
 The dashboard supports light and dark modes automatically via `prefers-color-scheme`. No toggle is needed.
 
@@ -17,7 +17,7 @@ The dashboard supports light and dark modes automatically via `prefers-color-sch
 
 ## Accessing the dashboard
 
-The dashboard is available when the HTTP server is running. By default, Sortie starts the server on `127.0.0.1:7678` — open `http://127.0.0.1:7678/` in a browser.
+The dashboard is available when the HTTP server is running. By default, Sortie starts the server on `127.0.0.1:7678` - open `http://127.0.0.1:7678/` in a browser.
 
 Override the port or bind address with CLI flags:
 
@@ -38,11 +38,11 @@ To disable the server entirely, pass `--port 0`. For the full `server` extension
 
 ## Network access
 
-Sortie binds to `127.0.0.1` by default. The dashboard is accessible on the machine where Sortie is running — not from other hosts on the network. This is intentional: Sortie is a local orchestration tool, and the dashboard is a local monitoring surface.
+Sortie binds to `127.0.0.1` by default. The dashboard is accessible on the machine where Sortie is running - not from other hosts on the network. This is intentional: Sortie is a local orchestration tool, and the dashboard is a local monitoring surface.
 
 For container deployments or when Sortie runs on a remote host, pass `--host 0.0.0.0` to listen on all interfaces. Alternatively, place a reverse proxy such as Nginx in front of it and forward traffic to the local port. Secure the proxy with authentication; Sortie's HTTP server has no built-in auth.
 
-For production monitoring across multiple hosts, use the [Prometheus `/metrics` endpoint](/reference/prometheus-metrics/) with a Prometheus server and [Grafana](https://prometheus.io/docs/visualization/grafana/) dashboards. Prometheus is built for aggregated, historical, alertable monitoring — the dashboard is not.
+For production monitoring across multiple hosts, use the [Prometheus `/metrics` endpoint](/reference/prometheus-metrics/) with a Prometheus server and [Grafana](https://prometheus.io/docs/visualization/grafana/) dashboards. Prometheus is built for aggregated, historical, alertable monitoring - the dashboard is not.
 
 ## Header
 
@@ -62,7 +62,7 @@ Four cards across the top provide the high-level picture. A fifth card appears w
 | Card | Color | Value | Condition | Description |
 |---|---|---|---|---|
 | **Running** | Green | Integer | Always | Number of agent sessions currently executing. Maps to `sortie_sessions_running` in [Prometheus](/reference/prometheus-metrics/). |
-| **Retrying** | Yellow | Integer | Always | Number of issues in the retry queue — waiting for their next attempt after an error, continuation, or stall timeout. Maps to `sortie_sessions_retrying`. |
+| **Retrying** | Yellow | Integer | Always | Number of issues in the retry queue - waiting for their next attempt after an error, continuation, or stall timeout. Maps to `sortie_sessions_retrying`. |
 | **Slots Free** | Gray | Integer | Always | Remaining dispatch capacity: `max_concurrent_agents − running`. When this reaches 0, the orchestrator waits for a running session to finish before dispatching the next issue. |
 | **Total Tokens** | Blue | Integer (comma-formatted) | Always | Cumulative LLM tokens consumed across all sessions since startup. Includes input, output, and cache-read tokens. |
 | **Active Est. Cost (USD)** | Neutral | USD string | `token_rates` configured | Estimated cost across currently running sessions, computed from configured per-token rates. Shows an em dash when no running session matches a configured rate. See [cost estimation](#cost-estimation). |
@@ -75,7 +75,7 @@ All three tables (Running Sessions, Retry Queue, Run History) use an accordion p
 
 - **Click** any row (except links) to toggle its detail panel open or closed.
 - **Keyboard**: focus a row with Tab, then press Enter or Space to toggle.
-- **Links** inside rows (e.g., the Identifier link in Running Sessions) navigate normally — they do not trigger the accordion.
+- **Links** inside rows (e.g., the Identifier link in Running Sessions) navigate normally - they do not trigger the accordion.
 
 ### Expand indicator
 
@@ -152,7 +152,7 @@ When no retries are pending, the table is replaced with "No retries pending."
 
 ## Run history table
 
-Lists recently completed session attempts — both successful and failed. Shows the last 25 entries. This section appears only when run history data is available (requires persistence to be enabled).
+Lists recently completed session attempts - both successful and failed. Shows the last 25 entries. This section appears only when run history data is available (requires persistence to be enabled).
 
 ### Collapsed row columns
 
@@ -189,7 +189,7 @@ When `token_rates` is configured, a disclaimer line appears below the aggregate 
 
 ## Cost estimation
 
-The dashboard displays estimated USD cost when `token_rates` is configured in WORKFLOW.md front matter. Without `token_rates`, the dashboard shows raw token counts only — no cost figures appear anywhere.
+The dashboard displays estimated USD cost when `token_rates` is configured in WORKFLOW.md front matter. Without `token_rates`, the dashboard shows raw token counts only - no cost figures appear anywhere.
 
 Cost is computed at render time from per-session token counts and the configured rate for each session's agent adapter kind. No cost data is persisted. The formula for a single session:
 
@@ -197,7 +197,7 @@ $$
 \text{cost} = \frac{\text{input\_tokens} \times \text{input\_per\_mtok} + \text{output\_tokens} \times \text{output\_per\_mtok} + \text{cache\_read\_tokens} \times \text{cache\_read\_per\_mtok}}{1{,}000{,}000}
 $$
 
-The aggregate cost card sums per-session costs across currently running sessions. It does not include historical sessions because the `aggregate_metrics` table stores unpartitioned global token totals without an agent-kind dimension — applying a single rate to lifetime totals would produce misleading numbers when the workspace has used multiple adapter kinds with different pricing.
+The aggregate cost card sums per-session costs across currently running sessions. It does not include historical sessions because the `aggregate_metrics` table stores unpartitioned global token totals without an agent-kind dimension - applying a single rate to lifetime totals would produce misleading numbers when the workspace has used multiple adapter kinds with different pricing.
 
 Each running session's cost is resolved using the agent adapter kind captured at dispatch time (e.g., `claude-code`, `copilot-cli`). When a session's adapter kind does not match any configured rate, that session contributes no cost and shows an em dash in the detail panel.
 

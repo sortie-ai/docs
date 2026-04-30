@@ -459,6 +459,15 @@ The orchestrator's preflight validation uses this metadata to require a non-empt
 
 ---
 
+## External references
+
+- [OpenCode CLI documentation](https://opencode.ai/docs/cli/) - official command reference for `opencode run`, `opencode export`, and session flags
+- [OpenCode configuration reference](https://opencode.ai/docs/config/) - `opencode.json` schema, provider auth store, and permission policy fields
+- [`anomalyco/opencode` on GitHub](https://github.com/anomalyco/opencode) - source repository, releases, and issue tracker
+- [OpenCode permissions documentation](https://opencode.ai/docs/permissions/) - semantics of the `OPENCODE_PERMISSION` policy this adapter synthesizes
+
+---
+
 ## Related pages
 
 - [WORKFLOW.md configuration reference](/reference/workflow-config/) - full `agent` schema and `opencode` extension block

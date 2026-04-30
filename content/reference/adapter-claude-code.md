@@ -94,7 +94,7 @@ When `permission_mode` is absent, the adapter passes `--dangerously-skip-permiss
 
 | Value | Behavior |
 |---|---|
-| `default` | Claude Code prompts for approval on each tool call. Incompatible with headless operation — the session stalls until the orchestrator's stall timeout kills it. |
+| `default` | Claude Code prompts for approval on each tool call. Incompatible with headless operation - the session stalls until the orchestrator's stall timeout kills it. |
 | `acceptEdits` | Auto-approves file edits. Prompts for other tool calls (shell commands, MCP tools). |
 | `bypassPermissions` | Auto-approves all tool calls without prompting. Required for unattended operation. |
 
@@ -127,7 +127,7 @@ Validates the workspace path and resolves the agent binary. No subprocess is spa
 Spawns a Claude Code subprocess, reads JSONL events from stdout, and delivers normalized events via the `OnEvent` callback.
 
 1. Builds the CLI argument list from session state and pass-through configuration.
-2. Spawns the subprocess with `exec.Command` (not `exec.CommandContext` — see [process shutdown](#process-shutdown) for rationale).
+2. Spawns the subprocess with `exec.Command` (not `exec.CommandContext` - see [process shutdown](#process-shutdown) for rationale).
 3. Sets `cmd.Dir` to the workspace path and `cmd.Env` to the full parent process environment.
 4. Reads stdout line by line via a buffered scanner (64 KB initial buffer, 10 MB max line).
 5. Parses each line as JSON and dispatches to the appropriate event handler.
@@ -180,14 +180,14 @@ Claude Code emits one JSON object per line on stdout when invoked with `--output
 | `system` | `init` | `session_started` | Captures `session_id` from the payload. |
 | `system` | `api_retry` | `notification` | Formats retry metadata (attempt, delay, status). |
 | `system` | _(other)_ | `notification` | Generic system notification. |
-| `assistant` | — | `notification` | Summarizes content blocks (text, tool_use). |
+| `assistant` | - | `notification` | Summarizes content blocks (text, tool_use). |
 | `assistant` | _(with usage)_ | `token_usage` | Emits cumulative token counts and model identifier. |
 | `assistant` | _(with tool_use block)_ | `tool_result` | Records tool name, duration, and error status. |
 | `user` | _(tool_result blocks)_ | `tool_result` | Correlates with in-flight `tool_use` blocks for duration. |
 | `result` | `subtype=success`, `is_error=false` | `turn_completed` | Successful turn completion. |
 | `result` | `subtype≠success` or `is_error=true` | `turn_failed` | Agent-reported failure. |
-| `stream_event` | — | `notification` | Heartbeat event with no payload. |
-| _(parse failure)_ | — | `malformed` | Unparseable JSONL line, truncated to 500 characters. |
+| `stream_event` | - | `notification` | Heartbeat event with no payload. |
+| _(parse failure)_ | - | `malformed` | Unparseable JSONL line, truncated to 500 characters. |
 
 ### Result event fields
 
@@ -332,7 +332,7 @@ A missing `ANTHROPIC_API_KEY` is the most common deployment failure. Sortie star
 
 The adapter is safe for concurrent use. One `ClaudeCodeAdapter` instance serves all sessions. Per-session state (workspace path, session ID, process handle) is isolated in the opaque `Session.Internal` field. A mutex guards the subprocess handle for concurrent access from `StopSession` and the graceful-kill goroutine.
 
-No adapter-level serialization is needed for `RunTurn` calls — each spawns an independent subprocess with its own stdout pipe and scanner.
+No adapter-level serialization is needed for `RunTurn` calls - each spawns an independent subprocess with its own stdout pipe and scanner.
 
 ---
 
@@ -348,12 +348,21 @@ The orchestrator's preflight validation uses this to produce a specific error me
 
 ---
 
+## External references
+
+- [Claude Code overview](https://docs.anthropic.com/en/docs/claude-code) - Anthropic's official product documentation
+- [Claude Code CLI reference](https://docs.anthropic.com/en/docs/claude-code/cli-reference) - every flag this adapter forwards (`--permission-mode`, `--output-format`, `--resume`, `--mcp-config`, etc.)
+- [`anthropics/claude-code` on GitHub](https://github.com/anthropics/claude-code) - source repository, releases, and issue tracker
+- [Model Context Protocol specification](https://modelcontextprotocol.io/specification) - the MCP server protocol consumed via `--mcp-config`
+
+---
+
 ## Related pages
 
-- [WORKFLOW.md configuration reference](/reference/workflow-config/) — full `agent` schema and `claude-code` extension block
-- [Environment variables reference](/reference/environment/#agent-runtime-variables) — `ANTHROPIC_API_KEY`, Bedrock, Vertex AI, and proxy variables
-- [Error reference](/reference/errors/#agent-errors) — all agent error kinds with retry behavior
-- [How to control agent costs](/guides/control-costs/) — per-turn budget, turn caps, session caps, and concurrency limits
-- [How to write a prompt template](/guides/write-prompt-template/) — template variables, conditionals, and built-in functions
-- [How to scale agents with SSH](/guides/scale-agents-with-ssh/) — remote execution setup and host pool configuration
-- [State machine reference](/reference/state-machine/) — orchestration states, turn lifecycle, and stall detection
+- [WORKFLOW.md configuration reference](/reference/workflow-config/) - full `agent` schema and `claude-code` extension block
+- [Environment variables reference](/reference/environment/#agent-runtime-variables) - `ANTHROPIC_API_KEY`, Bedrock, Vertex AI, and proxy variables
+- [Error reference](/reference/errors/#agent-errors) - all agent error kinds with retry behavior
+- [How to control agent costs](/guides/control-costs/) - per-turn budget, turn caps, session caps, and concurrency limits
+- [How to write a prompt template](/guides/write-prompt-template/) - template variables, conditionals, and built-in functions
+- [How to scale agents with SSH](/guides/scale-agents-with-ssh/) - remote execution setup and host pool configuration
+- [State machine reference](/reference/state-machine/) - orchestration states, turn lifecycle, and stall detection

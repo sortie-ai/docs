@@ -21,9 +21,9 @@ The adapter reads its configuration from the `tracker` section of the [WORKFLOW.
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `kind` | string | Yes | — | Must be `"github"`. |
-| `api_key` | string | Yes | — | GitHub personal access token. Plain token string — not `email:token` format. |
-| `project` | string | Yes | — | Repository in `owner/repo` format. |
+| `kind` | string | Yes | - | Must be `"github"`. |
+| `api_key` | string | Yes | - | GitHub personal access token. Plain token string - not `email:token` format. |
+| `project` | string | Yes | - | Repository in `owner/repo` format. |
 | `endpoint` | string | No | `https://api.github.com` | GitHub API base URL. Override for GitHub Enterprise Server. |
 | `active_states` | list of strings | No | `["backlog", "in-progress", "review"]` | Issue label names that map to active Sortie states. Compared case-insensitively; stored lowercased. |
 | `terminal_states` | list of strings | No | `["done", "wontfix"]` | Issue label names that map to terminal Sortie states. Stored lowercased. |
@@ -40,7 +40,7 @@ Accepts [`$VAR` indirection](/reference/environment/#var-indirection-in-workflow
 
 ### `api_key`
 
-A GitHub personal access token (classic or fine-grained). This field is **not** in `email:token` format — the value is the token string alone.
+A GitHub personal access token (classic or fine-grained). This field is **not** in `email:token` format - the value is the token string alone.
 
 Minimum required scopes for classic tokens: `repo` (reads issues, posts comments, manages labels).
 
@@ -55,7 +55,7 @@ api_key: $GITHUB_TOKEN
 
 ### `project`
 
-Repository in `owner/repo` format — for example, `myorg/myrepo`. The adapter splits on the `/` to extract the owner and repository name. A value with zero or more than one `/`, or with empty parts, produces a `tracker_payload_error` at construction time.
+Repository in `owner/repo` format - for example, `myorg/myrepo`. The adapter splits on the `/` to extract the owner and repository name. A value with zero or more than one `/`, or with empty parts, produces a `tracker_payload_error` at construction time.
 
 ```yaml
 project: myorg/myrepo
@@ -66,7 +66,7 @@ project: $SORTIE_GITHUB_PROJECT
 
 Label names that map to active Sortie states. Issues with one of these labels are eligible for dispatch. Values are compared case-insensitively and stored lowercased at construction time.
 
-When omitted, defaults to `["backlog", "in-progress", "review"]`. These label names must exist in the repository — GitHub has no built-in equivalents.
+When omitted, defaults to `["backlog", "in-progress", "review"]`. These label names must exist in the repository - GitHub has no built-in equivalents.
 
 ### `terminal_states`
 
@@ -83,7 +83,7 @@ query_filter: "label:agent-ready"
 query_filter: "label:agent-ready milestone:v2"
 ```
 
-Do not include `repo:` or `type:issue` in the value — they are added automatically.
+Do not include `repo:` or `type:issue` in the value - they are added automatically.
 
 ### Pre-creating labels
 
@@ -118,7 +118,7 @@ Empty `tracker.project` is caught by the generic preflight check (`tracker.proje
 | `tracker.in_progress_state.collision` | `in_progress_state` appears in `terminal_states` | `tracker.in_progress_state "{state}" must not appear in terminal_states` |
 | `tracker.in_progress_state.collision` | `in_progress_state` collides with `handoff_state` | `tracker.in_progress_state must not collide with tracker.handoff_state ("{state}")` |
 
-The `api_key` warnings are supplementary hints. The generic preflight check already reports an **error** when `tracker.api_key` is empty — the adapter-specific warnings provide actionable remediation guidance alongside that error.
+The `api_key` warnings are supplementary hints. The generic preflight check already reports an **error** when `tracker.api_key` is empty - the adapter-specific warnings provide actionable remediation guidance alongside that error.
 
 ---
 
@@ -138,7 +138,7 @@ Additional fixed headers on all requests:
 | `X-GitHub-Api-Version` | `2026-03-10` |
 | `User-Agent` | Configured `user_agent` value |
 
-The HTTP client has a 30-second per-request timeout. Context cancellation is propagated — a cancelled context causes the in-flight request to return immediately with `context.Canceled`.
+The HTTP client has a 30-second per-request timeout. Context cancellation is propagated - a cancelled context causes the in-flight request to return immediately with `context.Canceled`.
 
 ---
 
@@ -177,7 +177,7 @@ The adapter implements all eight methods of the `TrackerAdapter` interface.
 
 Returns issues in configured active states.
 
-**When `query_filter` is empty (default — issues endpoint):**
+**When `query_filter` is empty (default - issues endpoint):**
 
 - **Endpoint:** `GET /repos/{owner}/{repo}/issues`
 - **Parameters:** `state=open`, `sort=created`, `direction=asc`, `per_page=50`
@@ -202,10 +202,10 @@ Returns a single fully-populated issue. The `issueID` parameter is the issue num
 
 **Four requests:**
 
-1. `GET /repos/{owner}/{repo}/issues/{issueID}` — issue body and labels.
-2. `GET /repos/{owner}/{repo}/issues/{issueID}/dependencies/blocked_by` — blocker list. Returns `[]` on 404.
-3. `GET /repos/{owner}/{repo}/issues/{issueID}/parent` — parent issue. Returns `nil` on 404.
-4. `GET /repos/{owner}/{repo}/issues/{issueID}/comments` — comments, Link-header paginated.
+1. `GET /repos/{owner}/{repo}/issues/{issueID}` - issue body and labels.
+2. `GET /repos/{owner}/{repo}/issues/{issueID}/dependencies/blocked_by` - blocker list. Returns `[]` on 404.
+3. `GET /repos/{owner}/{repo}/issues/{issueID}/parent` - parent issue. Returns `nil` on 404.
+4. `GET /repos/{owner}/{repo}/issues/{issueID}/comments` - comments, Link-header paginated.
 
 Returns `tracker_not_found` when the issue does not exist (HTTP 404) or when the resolved entity is a pull request.
 
@@ -247,13 +247,13 @@ Applies a state transition by manipulating issue labels and the open/closed nati
 
 **Steps:**
 
-1. `GET /repos/{owner}/{repo}/issues/{issueID}` — read current labels and native state.
-2. `DELETE /repos/{owner}/{repo}/issues/{issueID}/labels/{old_label}` — remove the current state label, if present and different from the target. Label names are URL path-escaped. A 404 here is treated as a no-op (label already absent).
-3. `POST /repos/{owner}/{repo}/issues/{issueID}/labels` — add the target state label.
+1. `GET /repos/{owner}/{repo}/issues/{issueID}` - read current labels and native state.
+2. `DELETE /repos/{owner}/{repo}/issues/{issueID}/labels/{old_label}` - remove the current state label, if present and different from the target. Label names are URL path-escaped. A 404 here is treated as a no-op (label already absent).
+3. `POST /repos/{owner}/{repo}/issues/{issueID}/labels` - add the target state label.
 4. If the target is a terminal state and the issue is open: `PATCH /repos/{owner}/{repo}/issues/{issueID}` with `{"state": "closed", "state_reason": "completed"}`.
 5. If the target is an active state and the issue is closed: `PATCH /repos/{owner}/{repo}/issues/{issueID}` with `{"state": "open"}`.
 
-**Atomicity:** The steps are not atomic. A failure at any step causes the adapter to return an error; the orchestrator retries on the next tick. Label operations are idempotent — retries converge to the correct state without creating duplicates.
+**Atomicity:** The steps are not atomic. A failure at any step causes the adapter to return an error; the orchestrator retries on the next tick. Label operations are idempotent - retries converge to the correct state without creating duplicates.
 
 **Label case:** Target labels are sent as configured (lowercased). GitHub label matching is case-insensitive.
 
@@ -263,7 +263,7 @@ Posts a plain-text comment on an issue.
 
 **Endpoint:** `POST /repos/{owner}/{repo}/issues/{issueID}/comments`
 
-**Request body:** `{"body": "<text>"}`. No ADF conversion — GitHub natively accepts Markdown.
+**Request body:** `{"body": "<text>"}`. No ADF conversion - GitHub natively accepts Markdown.
 
 Returns `nil` on success (HTTP 201).
 
@@ -276,7 +276,7 @@ Returns `nil` on success (HTTP 201).
 | `ID` | `number` | `strconv.Itoa(number)`. Same value as `Identifier`. |
 | `Identifier` | `number` | `strconv.Itoa(number)`. Human-readable issue number (e.g., `"42"`). |
 | `Title` | `title` | String, as-is. |
-| `Description` | `body` | Pointer dereferenced. `nil` → `""`. Markdown pass-through — no ADF conversion. |
+| `Description` | `body` | Pointer dereferenced. `nil` → `""`. Markdown pass-through - no ADF conversion. |
 | `Priority` | _(not available)_ | Always `nil`. GitHub issues have no native priority field. |
 | `State` | `labels` + `state` | Derived via [state derivation algorithm](#state-derivation). |
 | `BranchName` | _(not available)_ | Always `""`. Issues API does not expose branch metadata. |
@@ -292,7 +292,7 @@ Returns `nil` on success (HTTP 201).
 
 ### ID and Identifier
 
-Both `ID` and `Identifier` map to the GitHub issue number. The global integer `id` field returned by the API is not used as the adapter's ID — it cannot be used to look up issues via the REST API. As a result, `FetchIssueStatesByIDs` and `FetchIssueStatesByIdentifiers` are structurally equivalent for this adapter.
+Both `ID` and `Identifier` map to the GitHub issue number. The global integer `id` field returned by the API is not used as the adapter's ID - it cannot be used to look up issues via the REST API. As a result, `FetchIssueStatesByIDs` and `FetchIssueStatesByIdentifiers` are structurally equivalent for this adapter.
 
 ### Comment normalization
 
@@ -312,16 +312,16 @@ Both `ID` and `Identifier` map to the GitHub issue number. The global integer `i
 | 200–299 | Success | _(none)_ |
 | 400 | Bad request | `tracker_payload_error` |
 | 401 | Invalid or expired token | `tracker_auth_error` |
-| 403 | Rate limited (primary) — `x-ratelimit-remaining: 0` | `tracker_api_error` |
-| 403 | Rate limited (secondary) — body contains `"rate limit"` | `tracker_api_error` |
+| 403 | Rate limited (primary) - `x-ratelimit-remaining: 0` | `tracker_api_error` |
+| 403 | Rate limited (secondary) - body contains `"rate limit"` | `tracker_api_error` |
 | 403 | Insufficient permissions | `tracker_auth_error` |
 | 404 | Resource not found | `tracker_not_found` |
 | 410 | Gone (for example, deleted repository) | `tracker_api_error` |
 | 422 | Validation failed | `tracker_payload_error` |
 | 429 | Rate limited | `tracker_api_error` |
 | 5xx | GitHub server error | `tracker_transport_error` |
-| — | Network or DNS failure | `tracker_transport_error` |
-| — | JSON decode failure on success response | `tracker_payload_error` |
+| - | Network or DNS failure | `tracker_transport_error` |
+| - | JSON decode failure on success response | `tracker_payload_error` |
 | other | Unexpected status code | `tracker_api_error` |
 
 ### 403 disambiguation
@@ -347,7 +347,7 @@ All list endpoints use Link header-based pagination.
 | `per_page` | `50` (fixed page size) |
 | Next page URL | Extracted from the `Link: <url>; rel="next"` response header. Absent when on the last page. |
 
-The adapter follows `rel="next"` links directly — it does not construct URLs manually. A maximum of 200 pages are fetched per operation. When the limit is reached, accumulated results are returned with a WARN log.
+The adapter follows `rel="next"` links directly - it does not construct URLs manually. A maximum of 200 pages are fetched per operation. When the limit is reached, accumulated results are returned with a WARN log.
 
 ---
 
@@ -363,3 +363,14 @@ GitHub enforces two independent rate limit buckets.
 At the default 30-second poll interval with `max_concurrent_agents: 10`, typical usage is well within the primary rate limit. The search budget applies only when `query_filter` is configured or during the one-time startup terminal-state cleanup.
 
 Rate limit violations return HTTP 429 or HTTP 403. Both are mapped to `tracker_api_error`. The orchestrator logs the error and waits for the next poll interval.
+
+---
+
+## External references
+
+- [GitHub REST API documentation](https://docs.github.com/en/rest) - entry point for all endpoints called by this adapter
+- [Issues REST API](https://docs.github.com/en/rest/issues/issues) - fetch, list, and comment endpoints used by `FetchIssuesByStates`, `FetchCandidateIssues`, and `CommentIssue`
+- [Search issues and pull requests](https://docs.github.com/en/rest/search/search#search-issues-and-pull-requests) - the search API used when `query_filter` is configured
+- [Using pagination in the REST API](https://docs.github.com/en/rest/using-the-rest-api/using-pagination-in-the-rest-api) - Link header semantics this adapter follows for `rel="next"`
+- [REST API rate limits](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api) - primary and search bucket limits referenced above
+- [Managing personal access tokens](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens) - generate the token used in `GITHUB_TOKEN`

@@ -7,7 +7,7 @@ date: 2026-03-28
 weight: 70
 url: /reference/state-machine/
 ---
-Sortie maintains two layers of state for every issue it processes. The **orchestration state** tracks whether the orchestrator has claimed the issue and what it is doing with it. The **run attempt phase** tracks where a single agent invocation stands within its lifecycle. These are independent from tracker states (`To Do`, `In Progress`) — they are Sortie's internal bookkeeping.
+Sortie maintains two layers of state for every issue it processes. The **orchestration state** tracks whether the orchestrator has claimed the issue and what it is doing with it. The **run attempt phase** tracks where a single agent invocation stands within its lifecycle. These are independent from tracker states (`To Do`, `In Progress`) - they are Sortie's internal bookkeeping.
 
 See also: [WORKFLOW.md configuration](/reference/workflow-config/) for `active_states`, `terminal_states`, `handoff_state`, and `in_progress_state`; [error reference](/reference/errors/) for error kinds that trigger retries; [CLI reference](/reference/cli/) for `--dry-run` mode that simulates dispatch without launching agents; [dashboard reference](/reference/dashboard/) for real-time visibility into orchestration state.
 
@@ -15,7 +15,7 @@ See also: [WORKFLOW.md configuration](/reference/workflow-config/) for `active_s
 
 ## Orchestration states
 
-Every issue known to the orchestrator is in exactly one of five states. The orchestrator is the single authority for these transitions — no other component mutates scheduling state.
+Every issue known to the orchestrator is in exactly one of five states. The orchestrator is the single authority for these transitions - no other component mutates scheduling state.
 
 | State | Description |
 |---|---|
@@ -52,7 +52,7 @@ flowchart TD
 
 ### Transition details
 
-**Unclaimed → Claimed.** Occurs during the dispatch phase of a poll tick. The issue must pass all [candidate eligibility](#candidate-eligibility) checks and a global or per-state concurrency slot must be available. The issue enters `Running` immediately — there is no `Claimed` without a worker.
+**Unclaimed → Claimed.** Occurs during the dispatch phase of a poll tick. The issue must pass all [candidate eligibility](#candidate-eligibility) checks and a global or per-state concurrency slot must be available. The issue enters `Running` immediately - there is no `Claimed` without a worker.
 
 **Running → RetryQueued.** Three worker exit outcomes lead here (none apply when a soft-stop signal is active; see [Claimed → Released](#transition-details) below):
 
@@ -74,7 +74,7 @@ flowchart TD
 - Soft-stop `needs-human-review`, handoff succeeds: worker exits normally, handoff transition performed, claim released.
 - Soft-stop `needs-human-review`, handoff fails: worker exits normally, handoff fails, claim released without retry.
 
-**Released → Unclaimed.** A released issue can be re-dispatched on a future poll tick if its tracker state returns to an active state. The orchestrator does not remember previous releases — each poll tick evaluates eligibility from scratch.
+**Released → Unclaimed.** A released issue can be re-dispatched on a future poll tick if its tracker state returns to an active state. The orchestrator does not remember previous releases - each poll tick evaluates eligibility from scratch.
 
 ---
 
@@ -84,8 +84,8 @@ Each worker attempt progresses through a linear sequence of phases. Terminal pha
 
 | Phase | Description |
 |---|---|
-| `DispatchTransition` | Optional. When [`tracker.in_progress_state`](/reference/workflow-config/) is configured, the worker calls `TransitionIssue` before workspace preparation. If the issue is already in the target state, the call is skipped (debug log only). Failure is non-fatal — the worker logs a warning and continues. |
-| `DispatchComment` | Optional. When [`tracker.comments.on_dispatch`](/reference/workflow-config/) is `true`, the worker posts a tracker comment acknowledging that Sortie has claimed the issue. Fires after the dispatch transition and before workspace preparation. Failure is non-fatal — the worker logs a warning and continues. |
+| `DispatchTransition` | Optional. When [`tracker.in_progress_state`](/reference/workflow-config/) is configured, the worker calls `TransitionIssue` before workspace preparation. If the issue is already in the target state, the call is skipped (debug log only). Failure is non-fatal - the worker logs a warning and continues. |
+| `DispatchComment` | Optional. When [`tracker.comments.on_dispatch`](/reference/workflow-config/) is `true`, the worker posts a tracker comment acknowledging that Sortie has claimed the issue. Fires after the dispatch transition and before workspace preparation. Failure is non-fatal - the worker logs a warning and continues. |
 | `PreparingWorkspace` | Workspace directory is created or reused. `after_create` and `before_run` hooks execute. |
 | `BuildingPrompt` | The `text/template` prompt body is rendered with issue data, attempt number, and turn context. |
 | `LaunchingAgentProcess` | The agent adapter starts a session (subprocess, API call, or mock). |
@@ -203,9 +203,9 @@ When a retry fires but no concurrency slot is available, the retry is reschedule
 
 Reconciliation runs at the start of every poll tick, before dispatch. It has two parts.
 
-**Part A — Stall detection.** For each running issue, compute elapsed time since the last agent event (or `started_at` if no event has arrived). If elapsed exceeds [`agent.stall_timeout_ms`](/reference/workflow-config/), the worker is killed and an exponential backoff retry is scheduled. Disabled when `stall_timeout_ms` is zero or negative.
+**Part A - Stall detection.** For each running issue, compute elapsed time since the last agent event (or `started_at` if no event has arrived). If elapsed exceeds [`agent.stall_timeout_ms`](/reference/workflow-config/), the worker is killed and an exponential backoff retry is scheduled. Disabled when `stall_timeout_ms` is zero or negative.
 
-**Part B — Tracker state refresh.** Fetch current tracker states for all running issue IDs.
+**Part B - Tracker state refresh.** Fetch current tracker states for all running issue IDs.
 
 | Tracker reports | Action |
 |---|---|
@@ -227,4 +227,4 @@ When Sortie starts (or restarts after a crash), it reconstructs orchestration st
 5. Query the tracker for active issues. Reconcile with persisted state.
 6. Begin the normal poll loop.
 
-If the terminal-issue query fails at startup, Sortie logs a warning and continues — workspace cleanup is deferred to the next successful reconciliation.
+If the terminal-issue query fails at startup, Sortie logs a warning and continues - workspace cleanup is deferred to the next successful reconciliation.

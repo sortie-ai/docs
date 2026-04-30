@@ -9,7 +9,7 @@ url: /reference/adapter-copilot/
 ---
 The Copilot CLI adapter connects Sortie to the [GitHub Copilot CLI](https://docs.github.com/en/copilot/using-github-copilot/using-github-copilot-in-the-command-line) via subprocess management. It launches the `copilot` binary with `--output-format json`, reads newline-delimited JSON from stdout, and normalizes events into domain types. Registered under kind `"copilot-cli"`.
 
-Each `RunTurn` call spawns an independent subprocess. The adapter is safe for concurrent use: one adapter instance serves all sessions, with per-session state held in an opaque internal handle. Node.js 22+ is required — a canary check runs `copilot --version` at session start to verify the binary is functional.
+Each `RunTurn` call spawns an independent subprocess. The adapter is safe for concurrent use: one adapter instance serves all sessions, with per-session state held in an opaque internal handle. Node.js 22+ is required - a canary check runs `copilot --version` at session start to verify the binary is functional.
 
 See also: [WORKFLOW.md configuration](/reference/workflow-config/) for the full `agent` schema, [environment variables](/reference/environment/) for GitHub token variables, [error reference](/reference/errors/#agent-errors) for all agent error kinds, [how to write a prompt template](/guides/write-prompt-template/) for template authoring.
 
@@ -25,7 +25,7 @@ These fields control the orchestrator's scheduling behavior. They are not passed
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `kind` | string | — | Must be `"copilot-cli"` to select this adapter. |
+| `kind` | string | - | Must be `"copilot-cli"` to select this adapter. |
 | `command` | string | `copilot` | Path or name of the Copilot CLI binary. Resolved via `exec.LookPath` at session start. |
 | `max_turns` | integer | `20` | Maximum Sortie turns per worker session. The orchestrator calls `RunTurn` up to this many times, re-checking tracker state after each turn. |
 | `max_sessions` | integer | `0` (unlimited) | Maximum completed worker sessions per issue before the orchestrator stops retrying. `0` disables the budget. |
@@ -124,7 +124,7 @@ Spawns a Copilot CLI subprocess, reads JSONL events from stdout, and delivers no
 1. Builds the CLI argument list from session state and pass-through configuration.
 2. Always includes: `-p <prompt>`, `--output-format json`, `-s`, `--autopilot`, `--no-ask-user`.
 3. Applies session management flags (see [session resume mechanism](#session-resume-mechanism)).
-4. Spawns the subprocess with `exec.Command` (not `exec.CommandContext` — see [process shutdown](#process-shutdown) for rationale).
+4. Spawns the subprocess with `exec.Command` (not `exec.CommandContext` - see [process shutdown](#process-shutdown) for rationale).
 5. Sets `cmd.Dir` to the workspace path and `cmd.Env` to the full parent process environment.
 6. Emits `session_started` event before the scan loop begins.
 7. Reads stdout line by line via a buffered scanner (64 KB initial buffer, 10 MB max line).
@@ -235,7 +235,7 @@ The adapter observes tool execution by correlating `tool.execution_start` and `t
 
 ### Tool error detail
 
-**Key difference from Claude Code:** the `success` boolean is the only error signal. There is no error text extraction or ANSI stripping. The Claude Code adapter extracts error text from `tool_result` content blocks and applies XML stripping, ANSI removal, and truncation — the Copilot CLI adapter reports only whether the tool succeeded or failed.
+**Key difference from Claude Code:** the `success` boolean is the only error signal. There is no error text extraction or ANSI stripping. The Claude Code adapter extracts error text from `tool_result` content blocks and applies XML stripping, ANSI removal, and truncation - the Copilot CLI adapter reports only whether the tool succeeded or failed.
 
 ---
 
@@ -249,10 +249,10 @@ The adapter observes tool execution by correlating `tool.execution_start` and `t
 | `0` | No result event, output tokens = 0 | `turn_failed` | Agent exited without producing output. Retryable with exponential backoff. Check WARN-level logs for stderr content. |
 | `0` | Result event with `exitCode: 0` | _(none)_ | Normal completion. |
 | `0` | Result event with `exitCode != 0` | `turn_failed` | Non-zero exit in result event despite clean process exit. |
-| `127` | — | `agent_not_found` | Binary not found on local or remote host. |
+| `127` | - | `agent_not_found` | Binary not found on local or remote host. |
 | Non-zero (non-127) | No result event | `port_exit` | Unexpected subprocess exit. |
-| Signal termination | — | `turn_cancelled` | Process killed by signal (graceful or forced). |
-| Context cancelled | — | `turn_cancelled` | Orchestrator cancelled the turn. |
+| Signal termination | - | `turn_cancelled` | Process killed by signal (graceful or forced). |
+| Context cancelled | - | `turn_cancelled` | Orchestrator cancelled the turn. |
 
 ### Stdout scanner failure
 
@@ -330,7 +330,7 @@ At runtime, the Copilot CLI handles its own authentication using whichever token
 {{< callout type="warning" >}}
 **Classic PATs do not work with Copilot CLI**
 
-Copilot CLI requires a **fine-grained personal access token** (prefix `github_pat_`) with the **Copilot Requests** permission enabled. Classic PATs (prefix `ghp_`) fail authentication silently — the CLI falls through all token variables and reports no valid credential. OAuth tokens (`gho_` from `copilot auth login`) and GitHub App user-to-server tokens (`ghu_`) also work. If you see authentication failures despite having a token set, check the token prefix.
+Copilot CLI requires a **fine-grained personal access token** (prefix `github_pat_`) with the **Copilot Requests** permission enabled. Classic PATs (prefix `ghp_`) fail authentication silently - the CLI falls through all token variables and reports no valid credential. OAuth tokens (`gho_` from `copilot auth login`) and GitHub App user-to-server tokens (`ghu_`) also work. If you see authentication failures despite having a token set, check the token prefix.
 {{< /callout >}}
 
 ---
@@ -339,7 +339,7 @@ Copilot CLI requires a **fine-grained personal access token** (prefix `github_pa
 
 The adapter is safe for concurrent use. One `CopilotAdapter` instance serves all sessions. Per-session state (workspace path, session ID, process handle) is isolated in the opaque `Session.Internal` field. A mutex guards the subprocess handle for concurrent access from `StopSession` and the graceful-kill goroutine.
 
-No adapter-level serialization is needed for `RunTurn` calls — each spawns an independent subprocess with its own stdout pipe and scanner.
+No adapter-level serialization is needed for `RunTurn` calls - each spawns an independent subprocess with its own stdout pipe and scanner.
 
 ---
 
@@ -376,12 +376,21 @@ For Claude Code configuration, see [Claude Code adapter reference](/reference/ad
 
 ---
 
+## External references
+
+- [Using GitHub Copilot in the command line](https://docs.github.com/en/copilot/using-github-copilot/using-github-copilot-in-the-command-line) - official Copilot CLI documentation
+- [`gh auth login` reference](https://cli.github.com/manual/gh_auth_login) - establishes the credentials this adapter inherits when no `*_TOKEN` env var is set
+- [Managing your personal access tokens](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens) - GitHub token types and permissions
+- [Model Context Protocol specification](https://modelcontextprotocol.io/specification) - the MCP server protocol consumed via `--additional-mcp-config`
+
+---
+
 ## Related pages
 
-- [WORKFLOW.md configuration reference](/reference/workflow-config/) — full `agent` schema and `copilot-cli` extension block
-- [Environment variables reference](/reference/environment/) — GitHub token variables
-- [Error reference](/reference/errors/#agent-errors) — all agent error kinds with retry behavior
-- [How to control agent costs](/guides/control-costs/) — turn caps, session caps, concurrency limits, and model selection
-- [How to write a prompt template](/guides/write-prompt-template/) — template variables, conditionals, and built-in functions
-- [How to scale agents with SSH](/guides/scale-agents-with-ssh/) — remote execution setup and host pool configuration
-- [State machine reference](/reference/state-machine/) — orchestration states, turn lifecycle, and stall detection
+- [WORKFLOW.md configuration reference](/reference/workflow-config/) - full `agent` schema and `copilot-cli` extension block
+- [Environment variables reference](/reference/environment/) - GitHub token variables
+- [Error reference](/reference/errors/#agent-errors) - all agent error kinds with retry behavior
+- [How to control agent costs](/guides/control-costs/) - turn caps, session caps, concurrency limits, and model selection
+- [How to write a prompt template](/guides/write-prompt-template/) - template variables, conditionals, and built-in functions
+- [How to scale agents with SSH](/guides/scale-agents-with-ssh/) - remote execution setup and host pool configuration
+- [State machine reference](/reference/state-machine/) - orchestration states, turn lifecycle, and stall detection

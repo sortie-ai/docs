@@ -11,12 +11,12 @@ cascade:
 
 Sortie turns issue tracker tickets into autonomous coding agent sessions. Engineers manage work at the ticket level. Agents handle implementation. Single binary, zero dependencies, SQLite persistence.
 
-Sortie assumes your coding agent already produces useful results when you run it manually. It handles scheduling, retry, isolation, and persistence around that agent — it does not improve the agent's output.
+Sortie assumes your coding agent already produces useful results when you run it manually. It handles scheduling, retry, isolation, and persistence around that agent - it does not improve the agent's output.
 
 ## The Problem
 
-Autonomous coding agents can handle routine engineering tasks — bug fixes, dependency updates, test
-coverage, feature work — when they have good system prompts, appropriate tool permissions,
+Autonomous coding agents can handle routine engineering tasks - bug fixes, dependency updates, test
+coverage, feature work - when they have good system prompts, appropriate tool permissions,
 and have been tested on representative issues. But running validated agents at scale
 requires AI agent orchestration infrastructure that doesn't exist yet: isolated workspaces, retry logic, state
 reconciliation, tracker integration, cost tracking. Teams build this ad-hoc, poorly, and
@@ -67,6 +67,6 @@ states. Swap `agent.kind: claude-code` for [`codex`](/reference/adapter-codex/),
 
 ## Links
 
-- [Changelog](/changelog/) — release history
-- [GitHub](https://github.com/sortie-ai/sortie) — source code
-- [Contributing](https://github.com/sortie-ai/sortie/blob/main/CONTRIBUTING.md) — how to contribute
+- [Changelog](/changelog/) - release history
+- [GitHub](https://github.com/sortie-ai/sortie) - source code
+- [Contributing](https://github.com/sortie-ai/sortie/blob/main/CONTRIBUTING.md) - how to contribute
