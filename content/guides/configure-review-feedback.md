@@ -45,6 +45,8 @@ Your `after_run` hook or agent workflow writes these fields. Here's what `.sorti
 
 The `branch` and `sha` fields drive CI feedback (if configured). The `pr_number`, `owner`, and `repo` fields drive review feedback. Both features read from the same file.
 
+The optional `pushed_at` field is an ISO-8601/RFC3339 UTC timestamp of the last push. Sortie reads it on startup when it reconstructs handoff-stage pending reactions, so review polling for an open PR survives a restart instead of waiting for the next push or active-state transition. If `pushed_at` is missing, recovery falls back to the agent run's `completed_at` time. Long-lived PRs age out after 30 days of inactivity. Write `pushed_at` from the same hook that pushes the branch so the age-out reflects the latest push, not the agent run. See [Resume sessions across restarts](/guides/resume-sessions-across-restarts/) for the recovery model and bounds.
+
 ## Configure retry limits and escalation
 
 ```yaml

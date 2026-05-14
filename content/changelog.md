@@ -11,6 +11,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.1] - 2026-05-14 { #1.9.1 }
+
+### Fixed
+
+- Orchestrator: CI and PR review pending reactions are now enqueued when
+  `tracker.handoff_state` is configured. Previously, a successful handoff
+  released the claim before `HandleWorkerExit` checked reaction
+  eligibility, so the reconcile loop had no entry to poll — post-run CI
+  failures and review comments on agent-created PRs went unobserved and
+  no continuation turn was dispatched. Eligibility now derives from the
+  exit-time claim state and the handoff path; blocked soft stops remain
+  ineligible and existing review-reaction idempotency is preserved.
+  ([#506](https://github.com/sortie-ai/sortie/issues/506))
+- Orchestrator: handoff-stage pending review and CI reactions are now
+  reconstructed on startup. `state.PendingReactions` is a runtime-only
+  map, so a restart after a successful handoff previously left the
+  issue with no pending review entry — the tracker issue was no longer
+  active, the dispatch loop did not rediscover it, and human review
+  comments on agent-created PRs went unobserved until an operator
+  manually re-engaged the issue. Startup now rebuilds eligible review
+  and CI pending entries from `run_history`, tracker state, and
+  `.sortie/scm.json`, bounded to the most recent 200 unique issues
+  completed within the last 30 days and gated by a single batched
+  `FetchIssueStatesByIDs` call. Stale candidates age out via a new
+  optional `pushed_at` field in `.sortie/scm.json` (falling back to
+  `run_history.completed_at` when absent), and existing
+  `reaction_fingerprints` continue to suppress duplicate review-fix
+  dispatches.
+  ([#507](https://github.com/sortie-ai/sortie/issues/507))
+
 ## [1.9.0] - 2026-04-26 { #1.9.0 }
 
 ### Added
@@ -784,6 +814,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   execution via GitHub Actions.
 - Architecture Decision Records (ADR-0001 through ADR-0005).
 
+[1.9.1]: https://github.com/sortie-ai/sortie/compare/1.9.0...1.9.1
 [1.9.0]: https://github.com/sortie-ai/sortie/compare/1.8.0...1.9.0
 [1.8.0]: https://github.com/sortie-ai/sortie/compare/1.7.1...1.8.0
 [1.7.1]: https://github.com/sortie-ai/sortie/compare/1.7.0...1.7.1

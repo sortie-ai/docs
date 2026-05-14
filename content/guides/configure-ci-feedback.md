@@ -90,13 +90,13 @@ CI feedback needs a repository to query and a ref to check. It gets these from t
 
 **Repository coordinates** come from the tracker adapter. When `tracker.kind: github`, the `tracker` block already contains `api_key` and `project` (owner/repo). CI feedback reuses these credentials. No additional configuration needed.
 
-**Branch and SHA** come from `.sortie/scm.json` in the workspace. Your `after_run` hook writes this file after pushing code. It contains at minimum a `branch` field and optionally a `sha` field:
+**Branch and SHA** come from `.sortie/scm.json` in the workspace. Your `after_run` hook writes this file after pushing code. It contains at minimum a `branch` field, optionally a `sha` field, and optionally a `pushed_at` UTC timestamp:
 
 ```json
-{"branch": "sortie/PROJ-123", "sha": "abc123def456"}
+{"branch": "sortie/PROJ-123", "sha": "abc123def456", "pushed_at": "2026-04-10T12:00:00Z"}
 ```
 
-When both `branch` and `sha` are present, Sortie uses the SHA as the ref for more deterministic results. When only `branch` is present, Sortie queries CI status by branch name.
+When both `branch` and `sha` are present, Sortie uses the SHA as the ref for more deterministic results. When only `branch` is present, Sortie queries CI status by branch name. The `pushed_at` timestamp is used only by startup recovery for handoff-stage issues — it determines whether a previously pushed branch is still fresh enough to re-poll after a restart. If absent, recovery falls back to the agent run's `completed_at` time. See [Resume sessions across restarts](/guides/resume-sessions-across-restarts/) for the recovery model.
 
 Here's an `after_run` hook that pushes and writes the SCM metadata:
 
@@ -108,9 +108,10 @@ git diff --cached --quiet || {
 
   # Write SCM metadata for CI feedback
   SHA=$(git rev-parse HEAD)
+  PUSHED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   mkdir -p .sortie
-  printf '{"branch":"sortie/%s","sha":"%s"}' \
-    "${SORTIE_ISSUE_IDENTIFIER}" "${SHA}" > .sortie/scm.json
+  printf '{"branch":"sortie/%s","sha":"%s","pushed_at":"%s"}' \
+    "${SORTIE_ISSUE_IDENTIFIER}" "${SHA}" "${PUSHED_AT}" > .sortie/scm.json
 }
 ```
 
@@ -220,10 +221,11 @@ hooks:
       git commit -m "sortie(${SORTIE_ISSUE_IDENTIFIER}): automated changes"
       git push origin "sortie/${SORTIE_ISSUE_IDENTIFIER}" --force-with-lease
       SHA=$(git rev-parse HEAD)
+      PUSHED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
       mkdir -p .sortie
 
-printf '{"branch":"sortie/%s","sha":"%s"}' \
-        "${SORTIE_ISSUE_IDENTIFIER}" "${SHA}" > .sortie/scm.json
+      printf '{"branch":"sortie/%s","sha":"%s","pushed_at":"%s"}' \
+        "${SORTIE_ISSUE_IDENTIFIER}" "${SHA}" "${PUSHED_AT}" > .sortie/scm.json
     }
   timeout_ms: 120000
 

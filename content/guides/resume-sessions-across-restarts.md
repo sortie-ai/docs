@@ -49,6 +49,34 @@ No special configuration is needed for this to work. It's the default behavior.
 
 If your `before_run` hook does a `git fetch && git reset`, the agent picks up exactly where the previous session left off. If you haven't configured hooks, the workspace contains whatever files the agent wrote before the process stopped.
 
+## What happens to handoff-stage PRs
+
+The poll-based recovery in the previous section finds in-flight issues because they're still in an active tracker state. Handoff-stage issues are different: the agent has finished, the PR is open, and the tracker issue has moved to your `tracker.handoff_state` (for example, "In Review"). The dispatch loop no longer sees these issues as candidates, so a restart used to leave them with no pending CI or review polling until the reviewer manually pushed them back to an active state.
+
+On startup, Sortie now reconstructs review and CI pending entries for handoff-stage issues from three persisted sources:
+
+- The latest successful run per issue in SQLite `run_history`.
+- The current tracker state for those issues (one batched `FetchIssueStatesByIDs` call).
+- The workspace's existing `.sortie/scm.json` (PR coordinates for review, branch for CI).
+
+After the recovery summary line, normal review and CI polling resumes against those entries on the next reconcile tick. Reviewer comments left while the process was down are picked up within one review poll interval. No operator action is required.
+
+Recovery is bounded so startup stays cheap:
+
+- The candidate set is the most recent 200 unique issues with a successful run in the last 30 days.
+- An issue ages out when the SCM activity is older than 30 days. Sortie reads the `pushed_at` field from `.sortie/scm.json` for this check; if it's missing, it falls back to the run's `completed_at` timestamp.
+- If a successful run is older than 30 days and the PR has had no fresh push, recovery skips it. Move the issue back to an active tracker state to re-engage it.
+
+Write `pushed_at` from the `after_run` hook that pushes the PR so handoffs age out on the most recent push instead of the agent's completion time. See [Configure review feedback](/guides/configure-review-feedback/) and [Configure CI feedback](/guides/configure-ci-feedback/) for the hook examples.
+
+Check the startup log line to confirm recovery ran:
+
+```
+time=2026-05-14T10:00:01.500+00:00 level=INFO msg="pending reaction recovery completed" candidates=3 cap_skipped=0 state_checked=3 review_recovered=2 ci_recovered=2 stale_skipped=0 skipped=1
+```
+
+`review_recovered` and `ci_recovered` show what was reinstated. `stale_skipped` counts handoff candidates that aged out. `skipped` counts candidates excluded for any other reason (terminal state, claim conflict, missing PR coordinates, malformed metadata).
+
 ## Design your hooks for restartability
 
 Workspace paths are deterministic. Issue `PROJ-42` always maps to the same directory: `<workspace_root>/PROJ-42`. The first dispatch creates it; every subsequent dispatch reuses it — including dispatches after a restart.

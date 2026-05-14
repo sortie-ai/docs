@@ -236,9 +236,10 @@ hooks:
       git push origin "sortie/${SORTIE_ISSUE_IDENTIFIER}" --force-with-lease
 
       SHA=$(git rev-parse HEAD)
+      PUSHED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
       mkdir -p .sortie
-      printf '{"branch":"sortie/%s","sha":"%s"}' \
-        "${SORTIE_ISSUE_IDENTIFIER}" "${SHA}" > .sortie/scm.json
+      printf '{"branch":"sortie/%s","sha":"%s","pushed_at":"%s"}' \
+        "${SORTIE_ISSUE_IDENTIFIER}" "${SHA}" "${PUSHED_AT}" > .sortie/scm.json
 
       # Include self-review summary in PR body when available.
       PR_BODY="Automated changes for ${SORTIE_ISSUE_IDENTIFIER}."
