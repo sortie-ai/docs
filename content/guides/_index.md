@@ -20,6 +20,7 @@ Step-by-step instructions for configuring, operating, and extending Sortie.
   {{< card link="integrate-security-scanning" title="Security Scanning" subtitle="Run gitleaks, semgrep, and govulncheck." >}}
   {{< card link="run-multiple-workflows" title="Multiple Workflows" subtitle="Separate processes for different projects." >}}
   {{< card link="orchestrate-across-repositories" title="Multi-Repo Orchestration" subtitle="One Sortie instance per repository." >}}
+  {{< card link="configure-dispatch-rules" title="Dispatch Rules" subtitle="Route issues to agents and templates by label, type, or priority." >}}
 {{< /cards >}}
 
 ## Operations
@@ -30,6 +31,7 @@ Step-by-step instructions for configuring, operating, and extending Sortie.
   {{< card link="run-as-systemd-service" title="Systemd Service" subtitle="Run as a persistent service on Linux." >}}
   {{< card link="run-as-launchctl-service" title="Launchctl Service" subtitle="Run as a persistent service on macOS." >}}
   {{< card link="scale-agents-with-ssh" title="Scale with SSH" subtitle="Distribute sessions across remote machines." >}}
+  {{< card link="setup-pr-reactions" title="PR Reactions" subtitle="Enable post-PR feedback loops and auto-merge." >}}
   {{< card link="configure-ci-feedback" title="CI Feedback" subtitle="Detect CI failures and retry automatically." >}}
   {{< card link="configure-review-feedback" title="Review Feedback" subtitle="Route PR review comments back to the agent as continuation context." >}}
 {{< /cards >}}

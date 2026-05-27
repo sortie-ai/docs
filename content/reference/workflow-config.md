@@ -2,15 +2,15 @@
 title: Workflow Configuration
 linkTitle: "Workflow File"
 description: "Reference for every WORKFLOW.md field: tracker, polling, workspace, hooks, agent, database, prompt template, server, logging, and SSH worker."
-keywords: sortie configuration, WORKFLOW.md, YAML, tracker, agent, ci_feedback, self_review, reactions, review_comments, hooks, workspace, server, worker, SSH, token_rates, cost estimation, config reference
+keywords: sortie configuration, WORKFLOW.md, YAML, tracker, agent, dispatch, dispatch rules, rule-based routing, ci_feedback, self_review, reactions, review_comments, hooks, workspace, server, worker, SSH, token_rates, cost estimation, config reference
 author: Sortie AI
 date: 2026-04-26
 weight: 20
 url: /reference/workflow-config/
 ---
-`WORKFLOW.md` is a Markdown file with YAML front matter. Front matter between `---` delimiters defines runtime settings. The body after the closing `---` is the prompt template, rendered per issue with Go `text/template`.
+`WORKFLOW.md` is a Markdown file with YAML front matter. Front matter between `---` delimiters defines runtime settings. The body after the closing `---` is the default prompt template, rendered per issue with Go `text/template`. When the front matter defines [dispatch rules](/guides/configure-dispatch-rules/), a matching rule can select a different per-rule template file in place of the body.
 
-See also: [CLI reference](/reference/cli/) for startup flags, [environment variables reference](/reference/environment/) for `$VAR` behavior, [error reference](/reference/errors/) for configuration error diagnostics, [Jira adapter reference](/reference/adapter-jira/) for Jira-specific fields, [GitHub adapter reference](/reference/adapter-github/) for GitHub-specific fields, [Claude Code adapter reference](/reference/adapter-claude-code/) for Claude Code pass-through options, [Copilot CLI adapter reference](/reference/adapter-copilot/) for Copilot CLI pass-through options, [Codex adapter reference](/reference/adapter-codex/) for Codex pass-through options, [OpenCode CLI adapter reference](/reference/adapter-opencode/) for OpenCode pass-through options, [Configure CI feedback](/guides/configure-ci-feedback/) for operational guidance.
+See also: [CLI reference](/reference/cli/) for startup flags, [environment variables reference](/reference/environment/) for `$VAR` behavior, [error reference](/reference/errors/) for configuration error diagnostics, [Jira adapter reference](/reference/adapter-jira/) for Jira-specific fields, [GitHub adapter reference](/reference/adapter-github/) for GitHub-specific fields, [Claude Code adapter reference](/reference/adapter-claude-code/) for Claude Code pass-through options, [Copilot CLI adapter reference](/reference/adapter-copilot/) for Copilot CLI pass-through options, [Codex adapter reference](/reference/adapter-codex/) for Codex pass-through options, [OpenCode CLI adapter reference](/reference/adapter-opencode/) for OpenCode pass-through options, [Configure dispatch rules](/guides/configure-dispatch-rules/) for routing issues to different agents and prompt templates, [Configure CI feedback](/guides/configure-ci-feedback/) for operational guidance.
 
 > [!TIP]
 > Most configuration fields in this reference can be overridden by `SORTIE_*` environment variables without modifying the workflow file. See the [environment variables reference](/reference/environment/#configuration-overrides) for the full list and precedence rules.
@@ -78,6 +78,21 @@ agent:
   max_concurrent_agents_by_state:
     in progress: 3                    # Per-state concurrency cap
     to do: 1
+
+# --- Dispatch (rule-based routing; optional) ----------------------
+dispatch:
+  rules:                                # First match wins, in order
+    - name: bug-fix                     # ^[a-z][a-z0-9_-]*$; logs/metric
+      match:
+        labels: ["bug", "bug/*"]        # glob vs lowercased labels
+      agent: claude-code                # overrides agent.kind
+      template: ./prompts/bug.md        # path relative to WORKFLOW.md
+    - name: urgent
+      match:
+        priority: { lte: 2 }            # op: eq/in/lt/lte/gt/gte
+      template: ./prompts/urgent.md
+  default:                              # Applied when no rule matches
+    template: ./prompts/default.md      # agent omitted -> agent.kind
 
 # --- CI Feedback --------------------------------------------------
 ci_feedback:
@@ -397,6 +412,111 @@ agent:
 
 ---
 
+## `dispatch`
+
+Routing for the initial dispatch of each issue. Rules select an agent kind and prompt template from the issue's tracker metadata, evaluated first-match-wins in declaration order. When the `dispatch` block is absent, every issue dispatches with the top-level `agent.kind` and the WORKFLOW.md body template. The block is additive and changes no default.
+
+The block accepts two keys:
+
+| Field     | Type | Default     | Description                                                                 |
+| --------- | ---- | ----------- | --------------------------------------------------------------------------- |
+| `rules`   | list | _(absent)_  | Ordered dispatch rules, evaluated first-match-wins in YAML declaration order. |
+| `default` | map  | _(absent)_  | Fallback selection applied when no rule matches. Keys: `agent`, `template`.  |
+
+Each entry in `rules` accepts:
+
+| Field      | Type   | Default      | Description                                                                                                  |
+| ---------- | ------ | ------------ | ------------------------------------------------------------------------------------------------------------ |
+| `name`     | string | _(absent)_   | Rule identifier recorded in logs and the dispatch rule-match metric. Must match `^[a-z][a-z0-9_-]*$` when set. Unnamed rules report as `<none>`. |
+| `match`    | map    | _(absent)_   | Predicate block. An absent or empty `match` matches every issue (catch-all).                                 |
+| `agent`    | string | _(fallback)_ | Agent kind for matching issues. Must name a registered adapter. Falls through to `default.agent`, then `agent.kind`. |
+| `template` | string | _(fallback)_ | Prompt template path, relative to the WORKFLOW.md directory. Falls through to `default.template`, then the body template. |
+
+A rule whose `agent` differs from the top-level `agent.kind` requires the matching [adapter pass-through block](#adapter-pass-through-configuration) to be present in the front matter.
+
+### Match predicates
+
+The `match` block accepts five keys. A rule matches when every key present in the block matches (AND across keys); within a single key, a list matches when any element matches (OR within a key). Absent keys do not participate.
+
+| Key          | Type           | Matching                                                                          |
+| ------------ | -------------- | --------------------------------------------------------------------------------- |
+| `labels`     | string or list | Glob (`*`, `?`, `[set]`) against the adapter-normalized lowercase label set.      |
+| `issue_type` | string or list | Case-insensitive equality. Globs are not expanded.                                |
+| `priority`   | predicate      | Numeric comparison. An issue with no priority value never matches.                |
+| `identifier` | string or list | Glob against the issue key or number.                                             |
+| `assignee`   | string or list | Case-insensitive equality. An issue with no assignee never matches a non-empty value. |
+
+The `priority` predicate carries exactly one operator. Priority is an integer where lower values are more urgent.
+
+| Operator | Match condition                                       |
+| -------- | ----------------------------------------------------- |
+| `eq`     | Equal to the value.                                   |
+| `in`     | A member of the list, for example `{ in: [1, 2] }`.   |
+| `lt`     | Less than the value.                                  |
+| `lte`    | Less than or equal to the value.                      |
+| `gt`     | Greater than the value.                               |
+| `gte`    | Greater than or equal to the value.                   |
+
+Tracker support differs. GitHub supplies `labels`, `issue_type`, `assignee`, and `identifier` (the issue number) and carries no priority. Jira supplies all five, with `identifier` as the issue key (for example `ACME-123`).
+
+### Resolution and fallback
+
+`agent` and `template` resolve independently. Each follows this chain until a value is found:
+
+1. The matched rule's `agent` or `template`.
+2. `dispatch.default.agent` or `dispatch.default.template`.
+3. The top-level `agent.kind`, and the WORKFLOW.md body template.
+
+Resolution runs once, at the issue's first dispatch. The resolved `(agent, template)` is frozen for the life of the claim; retries and reaction-driven continuations reuse it.
+
+### Template paths
+
+Per-rule `template` paths resolve relative to the directory containing WORKFLOW.md. Per-rule template files are plain `text/template` bodies and carry no YAML front matter. They use the same variables and functions as the body template; see [Prompt template](#prompt-template). The following are rejected at load time:
+
+- Absolute paths and `~`-prefixed paths.
+- Paths that resolve outside the WORKFLOW.md directory tree, including through symlinks or `..` traversal.
+- Files that begin with `---`, since front matter is not permitted in per-rule templates.
+
+### Validation
+
+`sortie validate` parses the `dispatch` block, resolves and parses every referenced template, and reports the first error before dispatch:
+
+- `dispatch.rules` is not a YAML sequence.
+- A rule `name` does not match `^[a-z][a-z0-9_-]*$`.
+- Two rules share a `name`.
+- A catch-all rule (absent or empty `match`) precedes another rule, reported as `unreachable_rules`. A catch-all must be the last entry.
+- A `rule.agent` or `default.agent` names an unregistered adapter kind.
+- A `match` key is not one of `labels`, `issue_type`, `priority`, `identifier`, or `assignee`.
+- A `labels` or `identifier` glob is malformed.
+- A `priority` predicate carries no operator or more than one.
+- A referenced template is missing, unreadable, contains front matter, or fails to parse.
+
+Validation is single-pass: the first error short-circuits the run, so two unrelated dispatch errors surface across two runs.
+
+> [!NOTE]
+> Environment variable overrides for `dispatch` fields are not supported. Rule definitions and template paths must come from WORKFLOW.md.
+
+### Dynamic reload
+
+The rule set reloads with WORKFLOW.md changes and applies to future claims only. An in-flight issue keeps the agent and template frozen at its first dispatch until its claim is released. Per-rule template files are read at WORKFLOW.md load and on every reload; a standalone edit to a per-rule template file applies on the next WORKFLOW.md change or the next dispatch, whichever comes first.
+
+**Minimal:**
+
+```yaml
+dispatch:
+  rules:
+    - name: bug-fix
+      match:
+        labels: ["bug"]
+      template: ./prompts/bug.md
+  default:
+    template: ./prompts/default.md
+```
+
+For setup procedures, match-type recipes, and `--dry-run` verification, see [how to configure dispatch rules](/guides/configure-dispatch-rules/).
+
+---
+
 ## `ci_feedback`
 
 CI feedback configuration. When activated, Sortie detects CI failures on agent-created branches and dispatches continuation runs with failure context injected into the agent prompt. When retries are exhausted, Sortie escalates to a human via label or comment.
@@ -510,6 +630,8 @@ For operational guidance on setting up self-review, choosing verification comman
 ## `reactions`
 
 The `reactions` block configures post-PR feedback loops. Each key is a reaction kind (e.g. `review_comments`) with its own provider, retry budget, and escalation policy. Reactions are opt-in: omit the block entirely to disable all reaction types.
+
+For the shared reaction lifecycle and every kind (`ci_failure`, `review_comments`, and `auto_merge`) with field tables and safety rules, see the [reactions reference](/reference/reactions/).
 
 ### `reactions.review_comments`
 
@@ -970,6 +1092,8 @@ Sortie watches `WORKFLOW.md` for filesystem changes and re-applies configuration
 | `agent.turn_timeout_ms`, `agent.read_timeout_ms`, `agent.stall_timeout_ms` | Future worker attempts. |
 | `worker.ssh_hosts`, `worker.max_concurrent_agents_per_host`, `worker.ssh_strict_host_key_checking` | Dynamic. Future dispatches use the reloaded value; in-flight sessions are unaffected. |
 | Prompt template                        | Future worker attempts.                |
+| `dispatch.rules`, `dispatch.default`   | Future claims. In-flight issues keep the agent and template frozen at first dispatch. |
+| Per-rule `dispatch` template files     | Read on WORKFLOW.md load and reload; a standalone edit applies on the next WORKFLOW.md change or dispatch. |
 | `ci_feedback.max_retries`              | Next reconcile tick.                   |
 | `ci_feedback.escalation`, `ci_feedback.escalation_label` | Next reconcile tick.   |
 | `ci_feedback.kind`, `ci_feedback.max_log_lines` | Requires restart.              |

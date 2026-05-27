@@ -46,6 +46,10 @@ Monotonically increasing. Apply `rate()` or `increase()` to extract per-second o
 | `sortie_tool_calls_total` | `tool`, `result` | Agent tool call completions. `tool` is the tool name (e.g., `Bash`, `tracker_api`). `result` is `success` or `error`. | Coordination |
 | `sortie_ci_status_checks_total` | `result` | CI status check outcomes. `result` is `passing`, `pending`, `failing`, or `error`. Only recorded when the CI reconciliation loop runs. | Coordination |
 | `sortie_ci_escalations_total` | `action` | CI escalation actions taken when checks remain non-passing beyond the configured threshold. `action` is `label`, `comment`, or `error`. | Coordination |
+| `sortie_reactions_auto_merge_total` | `result` | Auto-merge reaction outcomes. `result` is `merged` (PR merged), `escalated` (retry budget exhausted, issue labeled or commented for a human), or `error` (a merge precondition or API call failed and the attempt is retried). Precondition-fail re-enqueues are not counted. Only recorded when [`reactions.auto_merge`](/reference/reactions/#reactionsauto_merge) is configured. | Coordination |
+| `sortie_review_checks_total` | `result` | Review-comment check outcomes, one per reconciliation pass that acts. `result` is `dispatched` (actionable reviewer comments found, continuation turn dispatched) or `error` (the SCM review fetch failed and is retried with backoff). Passes with no actionable comments, a duplicate fingerprint, or an active debounce window do not increment this counter. Only recorded when [`reactions.review_comments`](/reference/reactions/#reactionsreview_comments) is configured. | Coordination |
+| `sortie_review_escalations_total` | `action` | Review escalation actions taken when review-fix continuation turns are exhausted. `action` is `label`, `comment`, or `error`. Only recorded when `reactions.review_comments` is configured. | Coordination |
+| `sortie_dispatch_rule_match_total` | `layer`, `rule` | Dispatch routing resolutions, one per dispatched issue. `layer` is `rule` (a named dispatch rule matched), `default` (the dispatch `default` block supplied the selection), or `fallback` (neither matched; the workflow-wide agent and body template were used). `rule` is the matched rule name, `default` when the default block fired, or `<none>` for the fallback layer. | Coordination |
 | `sortie_self_review_iterations_total` | `verdict` | Self-review iterations by outcome. `verdict` is `pass` (verification succeeded), `iterate` (agent re-prompted for another attempt), or `none` (no verdict produced). Only recorded when [`self_review.enabled: true`](/reference/workflow-config/) is set. When self-review is disabled, this counter remains at zero. | Coordination |
 | `sortie_self_review_sessions_total` | `final_verdict` | Self-review sessions by final outcome. `final_verdict` is `pass`, `iterate`, or `none`. One increment per completed self-review session. Only recorded when self-review is enabled. | Coordination |
 | `sortie_self_review_cap_reached_total` | - | Self-review sessions that hit the iteration cap without passing. A sustained non-zero rate means verification commands are consistently failing - check your `self_review.verify_commands` configuration. Only recorded when self-review is enabled. | Coordination |
@@ -187,11 +191,33 @@ rate(sortie_self_review_cap_reached_total[1h])
 
 Sessions per second that exhausted all iterations without passing. Any sustained non-zero value warrants investigation. See [Configure self-review](/guides/configure-self-review/) for tuning iteration caps and verify commands.
 
+### Auto-merge outcomes
+
+```promql
+sum(rate(sortie_reactions_auto_merge_total[30m])) by (result)
+```
+
+Auto-merge reactions per second by result over the last 30 minutes. A rising `escalated` series means PRs exhaust the merge retry budget and fall back to a human often enough to matter, usually because CI is failing, the branch has conflicts, or branch protection blocks the merge. A non-zero `error` rate points at SCM API or permission problems. Use a wide window because merges are infrequent.
+
+### Dispatch rule fallback rate
+
+```promql
+sum(rate(sortie_dispatch_rule_match_total{layer="fallback"}[1h]))
+/ on() sum(rate(sortie_dispatch_rule_match_total[1h]))
+* 100
+```
+
+Percentage of dispatches that matched neither a named rule nor the `default` block. A high value means most issues bypass your dispatch rules and run on the workflow-wide agent and body template. To see which named rules are firing, keep both labels:
+
+```promql
+sum(rate(sortie_dispatch_rule_match_total[1h])) by (layer, rule)
+```
+
 ## Grafana dashboard
 
 A reference Grafana dashboard JSON is available for import at [`grafana-dashboard.json`](/downloads/grafana-dashboard.json). It is tested against Grafana 10+ and uses the `sortie_` metrics documented on this page.
 
-The dashboard organizes panels into eight collapsible rows. Each panel maps to one or more metrics from the tables above.
+The dashboard organizes panels into nine collapsible rows. Each panel maps to one or more metrics from the tables above.
 
 | Row | Panel | Metric(s) | Visualization |
 |---|---|---|---|
@@ -218,6 +244,10 @@ The dashboard organizes panels into eight collapsible rows. Each panel maps to o
 | Self-Review | Iteration verdicts | `sortie_self_review_iterations_total` | Time series (rate) by `verdict` |
 | Self-Review | Verification duration | `sortie_self_review_verification_duration_seconds` | Heatmap + p50/p95 percentile lines |
 | Self-Review | Cap reached | `sortie_self_review_cap_reached_total` | Stat counter (hidden when self-review is disabled) |
+| Reactions & Routing | Auto-merge reactions | `sortie_reactions_auto_merge_total` | Time series (rate) by `result` |
+| Reactions & Routing | Review checks | `sortie_review_checks_total` | Time series (rate) by `result` |
+| Reactions & Routing | Review escalations | `sortie_review_escalations_total` | Time series (rate) by `action` |
+| Reactions & Routing | Dispatch rule matches | `sortie_dispatch_rule_match_total` | Time series (rate) by `layer` |
 
 Import the JSON file in Grafana via **Dashboards → Import → Upload JSON file**. Set your Prometheus data source when prompted.
 

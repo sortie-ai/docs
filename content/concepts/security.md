@@ -72,6 +72,14 @@ Operators who manage `known_hosts` through configuration management should set `
 
 This is an operator decision, not a security default Sortie can make for you. The field is documented in the [worker configuration reference](/reference/workflow-config/#worker) and the [SSH scaling guide](/guides/scale-agents-with-ssh/#configure-ssh-host-key-checking) covers the three deployment scenarios.
 
+## Auto-merge and write authority
+
+By default, the most consequential thing Sortie does to an external system is move a ticket between states and post a comment. Both are reversible. Auto-merge changes that. When you add the `reactions.auto_merge` block, the orchestrator gains the authority to merge a pull request and delete its source branch on its own, with no human pressing the final button. A merge is not reversible the way a tracker transition is, which is why this capability is off by default and activates only through an explicit configuration block. Letting software merge code unattended is a decision only the operator can make for a given repository.
+
+Three things bound the risk once you enable it. The SCM token must carry write scopes (`pull_requests:write`, plus `contents:write` when branch deletion is on), so the authority is visible in the credential you provision rather than buried in the code. The orchestrator merges only pull requests it created and tracks, never arbitrary ones, and never a draft. And the merge fires only when the configured preconditions hold: an approving review or none required, and, unless you opt out, passing CI. Branch protection still applies on top of all of this; a merge the platform refuses returns as a conflict and is retried, not forced through.
+
+The operator's responsibility mirrors the rest of this model. Scope the token to the repositories Sortie should touch, and treat enabling auto-merge as the same class of decision as granting a CI system merge rights, because that is precisely what it is.
+
 ## Bounded failure as a safety property
 
 Every failure path in Sortie has a bound. This is a design decision that bridges orchestration and security.
@@ -87,6 +95,7 @@ Bounded failure also limits blast radius from bugs. An agent caught in an infini
 - [Workspace isolation](/concepts/isolation/) for the directory-per-issue model, safety invariants, and rejected alternatives (git worktrees, containers)
 - [Architecture overview](/concepts/architecture/) for the single-binary design and adapter model
 - [Workflow file reference](/reference/workflow-config/) for timeout, budget, and hook configuration fields
+- [Reactions reference](/reference/reactions/) for the auto-merge fields, preconditions, and escalation policy
 - [Claude Code adapter reference](/reference/adapter-claude-code/) for agent-specific approval and sandbox settings
 - [Copilot CLI adapter reference](/reference/adapter-copilot/) for agent-specific approval and sandbox settings
 - [Codex adapter reference](/reference/adapter-codex/) for agent-specific approval and sandbox settings

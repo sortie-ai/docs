@@ -8,7 +8,7 @@ weight: 20
 ---
 The agent and tracker landscapes are churning. New autonomous coding agents ship monthly. Tracker APIs introduce breaking changes across versions. Teams switch tools — from Jira to Linear, from Claude Code to Codex — as the market evolves. An orchestrator that hardcodes integration logic into its scheduling core has a shelf life measured in months. The moment your preferred agent changes its CLI protocol or your team migrates trackers, you're refactoring orchestration internals.
 
-Sortie's answer is two Go interfaces — `TrackerAdapter` and `AgentAdapter` — that form a hard boundary between the orchestration core and the outside world. The orchestrator works exclusively with domain types: `Issue`, `Session`, `Turn`, `AgentEvent`. It never touches a Jira field name, a GitHub REST endpoint, or a Claude Code JSONL message. Every integration-specific concept lives inside its adapter package and cannot leak out.
+Sortie's answer is two core Go interfaces — `TrackerAdapter` and `AgentAdapter` — that form a hard boundary between the orchestration core and the outside world. The orchestrator works exclusively with domain types: `Issue`, `Session`, `Turn`, `AgentEvent`. It never touches a Jira field name, a GitHub REST endpoint, or a Claude Code JSONL message. Every integration-specific concept lives inside its adapter package and cannot leak out.
 
 This is not a plugin architecture bolted on after the fact. It is a structural constraint that shaped the codebase from day one, and the distinction matters. Plugins are optional extensions. Adapter interfaces are load-bearing boundaries that the core depends on for every dispatch, every retry, and every reconciliation check. Remove the adapters and the orchestrator has no way to read issues or launch agents. The design forces every integration through the same contract, which is what makes the core stable enough to survive the integrations themselves being replaced.
 
@@ -50,6 +50,12 @@ Today, the agent side already spans four materially different shapes:
 | OpenCode CLI | Newline-delimited JSON envelopes plus `opencode export --sanitize` for final usage recovery | One subprocess per turn, plus one export subprocess after each turn |
 
 That spread is why the interface is organized around lifecycle and normalized events rather than around one CLI's flags or transport. Claude Code and Copilot CLI look similar from a distance, but Codex keeps a long-lived server process and OpenCode needs a second pass to recover authoritative token usage. The orchestrator still reacts to the same event vocabulary.
+
+## CI and SCM: the same pattern, extended
+
+The boundary is not limited to trackers and agents. The reaction subsystem, which acts on a pull request after the agent hands off, added two more interfaces behind the same wall. The `CIStatusProvider` reads pipeline status for a git ref, so the orchestrator can re-dispatch an agent when CI fails. The `SCMAdapter` reads pull-request data (review decisions, requested-change comments, mergeability) and, for the auto-merge reaction, writes: it merges an approved pull request and optionally deletes the source branch. Both register through the same kind-keyed registry as trackers and agents, obey the same naming rule, and normalize provider-specific responses (GitHub today) into domain types.
+
+Auto-merge is worth singling out, because it is the one place where an adapter changes the outside world rather than only observing it. Even there, the orchestrator gained the authority to merge pull requests without learning a single GitHub-specific detail. The write path is six methods on one interface and a typed `ErrSCMConflict` for the races a merge can lose; the scheduler that calls them still sees only domain types. The pattern that made trackers and agents disposable made the merge capability additive in exactly the same way.
 
 ## The naming rule and why it prevents rot
 

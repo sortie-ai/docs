@@ -115,6 +115,10 @@ The dashboard includes these panels, grouped into collapsible rows:
 | Tracker comments | Tracker comment rate by lifecycle and result |
 | CI status checks | CI check outcome rate |
 | CI escalations | CI escalation action rate |
+| Auto-merge reactions | Auto-merge outcome rate: merged, escalated, error |
+| Review checks | Review-comment check rate: dispatched, error |
+| Review escalations | Review escalation action rate: label, comment, error |
+| Dispatch rule matches | Dispatch routing rate by layer: rule, default, fallback |
 | Tool calls | Agent tool call rate by tool |
 | SSH host utilization | Per-host session gauge (hidden when no SSH hosts are configured) |
 | Build info | Version and Go version |
@@ -152,6 +156,14 @@ sortie_slots_available == 0
 ```
 
 Set this with a `for: 15m` duration in your alert rule. Brief saturation is normal during batch dispatches — sustained saturation is a problem.
+
+**Auto-merge keeps escalating.** Auto-merge is exhausting its retry budget and handing PRs back to a human instead of merging them, usually because CI is failing or branch protection is blocking the merge:
+
+```promql
+rate(sortie_reactions_auto_merge_total{result="escalated"}[1h]) > 0
+```
+
+Pair this with a `for: 30m` duration so a single escalation does not page you. A sustained `escalated` rate means auto-merge is not completing and PRs are piling up for manual review.
 
 {{% /steps %}}
 
