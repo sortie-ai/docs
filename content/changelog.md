@@ -11,6 +11,90 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.0] - 2026-05-27 { #1.10.0 }
+
+### Added
+
+- Auto-merge reaction for Sortie-created PRs: a new opt-in
+  `reactions.auto_merge` block in `WORKFLOW.md` instructs the
+  orchestrator to merge an agent-created pull request directly through
+  the SCM adapter once review decision, CI conclusion, draft state,
+  and mergeability all satisfy the configured preconditions. The
+  reconcile loop polls every `poll_interval_ms` (default 60 s,
+  minimum 30 s), calls `MergePR` with the expected head SHA to close
+  the TOCTOU window, and treats an "already merged" 409 response as
+  success. Merge strategy (`squash` default, also `merge` or
+  `rebase`), `require_ci` (default `true`), `delete_branch` (default
+  `true`), and the standard `max_retries` / `escalation` /
+  `escalation_label` fields are configurable. At startup the
+  orchestrator runs a one-shot scope preflight against the SCM
+  provider; an auth-class failure sets a sticky
+  `auto_merge_preflight_failed` flag that disables merge attempts for
+  the process lifetime, while a transport-class failure schedules a
+  single retry after 5 minutes. `reactions.review_comments` and
+  `reactions.auto_merge` must declare the same SCM provider; a
+  mismatch or an unknown provider fails startup. Workflows without an
+  `auto_merge` block are unaffected. The `SCMAdapter` interface gains
+  five write methods (`GetReviewDecision`, `GetCIStatus`,
+  `GetMergeability`, `MergePR`, `DeleteBranch`) and a new
+  `ErrSCMConflict` error kind; see
+  [ADR-0012](https://github.com/sortie-ai/sortie/blob/main/docs/decisions/0012-auto-merge-reaction.md).
+  ([#417](https://github.com/sortie-ai/sortie/issues/417))
+- Extension `$VAR` resolution: every string leaf inside top-level
+  front matter keys outside the core schema (for example
+  `github.api_key`, `worker.ssh_hosts[0]`, `server.host`) now resolves
+  `$VAR` and `${VAR}` environment indirection in a single pass during
+  `NewServiceConfig`, after `SORTIE_*` overrides are applied. Nested
+  maps and lists are traversed recursively; non-string leaves
+  (integers, booleans, floats, timestamps, nil) are returned
+  unchanged. `sortie validate` now emits a new advisory
+  `unresolved_extension_var` warning naming the field path and the
+  unset variable name when a referenced variable is absent from the
+  process environment; the variable's resolved value never appears in
+  any warning, log, or error. Exit code remains 0 and `valid` remains
+  `true` when only this advisory warning is present. Operators of
+  cross-platform setups (for example a Jira tracker paired with a
+  GitHub SCM adapter) may now reference secrets such as
+  `$SORTIE_GITHUB_TOKEN` directly inside the adapter extension block
+  without an external `envsubst` step.
+  ([#512](https://github.com/sortie-ai/sortie/issues/512))
+- Dispatch rule routing: a new optional `dispatch:` block in
+  `WORKFLOW.md` front matter routes each issue to a specific agent
+  kind and prompt template based on issue metadata. Rules match
+  first-wins on `labels`, `issue_type`, `priority`, `identifier`, and
+  `assignee` (AND across keys, OR within a key), with optional
+  `dispatch.default` and a final fallback to the workflow-wide
+  `agent.kind` and body template. Per-rule templates live as
+  Markdown files under the workflow tree and must not carry their
+  own front matter; absolute paths, `~` expansion, and symlink
+  targets that escape the tree are rejected at load time.
+  `sortie validate` reports unknown agent kinds, unreachable
+  catch-all rules, duplicate names, malformed globs and priority
+  predicates, and missing or out-of-tree templates before dispatch.
+  The resolved `(agent_kind, template_id, rule_name)` is frozen at
+  first dispatch and reused across every retry and reaction
+  continuation. Routing outcomes are exposed via the
+  `sortie_dispatch_rule_match_total{layer,rule}` Prometheus counter
+  and new `dispatched_by_rule` / `dispatched_by_default` /
+  `dispatched_by_fallback` fields on the `tick completed` log line.
+  Workflows without a `dispatch:` section are unaffected.
+  ([#435](https://github.com/sortie-ai/sortie/issues/435))
+
+### Fixed
+
+- Orchestrator: CI-failure and review-comment retries now continue from
+  the configured `tracker.handoff_state` instead of being dropped when
+  the issue is no longer in an active state. Fresh dispatch remains
+  limited to active states.
+  ([#513](https://github.com/sortie-ai/sortie/issues/513))
+
+### Migrations
+
+- 010: Add `rule_name`, `template_id`, and `agent_kind` to
+  `retry_entries` and `rule_name`, `template_id` to `run_history`.
+  Existing rows read back as empty strings and are treated as legacy
+  fallback dispatches.
+
 ## [1.9.1] - 2026-05-14 { #1.9.1 }
 
 ### Fixed
@@ -814,6 +898,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   execution via GitHub Actions.
 - Architecture Decision Records (ADR-0001 through ADR-0005).
 
+[1.10.0]: https://github.com/sortie-ai/sortie/compare/1.9.1...1.10.0
 [1.9.1]: https://github.com/sortie-ai/sortie/compare/1.9.0...1.9.1
 [1.9.0]: https://github.com/sortie-ai/sortie/compare/1.8.0...1.9.0
 [1.8.0]: https://github.com/sortie-ai/sortie/compare/1.7.1...1.8.0
