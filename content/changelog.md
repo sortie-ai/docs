@@ -90,7 +90,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Migrations
 
-- 010: Add `rule_name`, `template_id`, and `agent_kind` to
+- Add `rule_name`, `template_id`, and `agent_kind` to
   `retry_entries` and `rule_name`, `template_id` to `run_history`.
   Existing rows read back as empty strings and are treated as legacy
   fallback dispatches.
@@ -539,9 +539,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Migrations
 
-- 004: Add index `idx_run_history_issue_id` on `run_history(issue_id)`
-- 005: Add `turns_completed INTEGER NOT NULL DEFAULT 0` to `run_history`
-- 006: Add nullable `display_identifier` column to `run_history`
+- Add index `idx_run_history_issue_id` on `run_history(issue_id)`
+- Add `turns_completed INTEGER NOT NULL DEFAULT 0` to `run_history`
+- Add nullable `display_identifier` column to `run_history`
 
 ## [1.2.0] - 2026-03-31 { #1.2.0 }
 
