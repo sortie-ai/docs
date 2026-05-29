@@ -56,6 +56,7 @@ Step-by-step instructions for configuring, operating, and extending Sortie.
   {{< card link="use-agent-tools-in-prompts" title="Agent Tools in Prompts" subtitle="Use sortie_status and other tools in templates." >}}
   {{< card link="use-subagents-with-sortie" title="Sub-Agents" subtitle="Run coding agent sub-agents with zero config." >}}
   {{< card link="write-custom-agent-tool" title="Custom Agent Tool" subtitle="Implement the AgentTool interface step by step." >}}
+  {{< card link="write-custom-agent-adapter" title="Custom Agent Adapter" subtitle="Implement the AgentAdapter interface for a new coding agent." >}}
 {{< /cards >}}
 
 ## Troubleshooting

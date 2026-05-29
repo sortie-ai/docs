@@ -10,7 +10,7 @@ url: /reference/workflow-config/
 ---
 `WORKFLOW.md` is a Markdown file with YAML front matter. Front matter between `---` delimiters defines runtime settings. The body after the closing `---` is the default prompt template, rendered per issue with Go `text/template`. When the front matter defines [dispatch rules](/guides/configure-dispatch-rules/), a matching rule can select a different per-rule template file in place of the body.
 
-See also: [CLI reference](/reference/cli/) for startup flags, [environment variables reference](/reference/environment/) for `$VAR` behavior, [error reference](/reference/errors/) for configuration error diagnostics, [Jira adapter reference](/reference/adapter-jira/) for Jira-specific fields, [GitHub adapter reference](/reference/adapter-github/) for GitHub-specific fields, [Claude Code adapter reference](/reference/adapter-claude-code/) for Claude Code pass-through options, [Copilot CLI adapter reference](/reference/adapter-copilot/) for Copilot CLI pass-through options, [Codex adapter reference](/reference/adapter-codex/) for Codex pass-through options, [OpenCode CLI adapter reference](/reference/adapter-opencode/) for OpenCode pass-through options, [Configure dispatch rules](/guides/configure-dispatch-rules/) for routing issues to different agents and prompt templates, [Configure CI feedback](/guides/configure-ci-feedback/) for operational guidance.
+See also: [CLI reference](/reference/cli/) for startup flags, [environment variables reference](/reference/environment/) for `$VAR` behavior, [error reference](/reference/errors/) for configuration error diagnostics, [Jira adapter reference](/reference/adapter-jira/) for Jira-specific fields, [GitHub adapter reference](/reference/adapter-github/) for GitHub-specific fields, [Claude Code adapter reference](/reference/adapter-claude-code/) for Claude Code pass-through options, [Copilot CLI adapter reference](/reference/adapter-copilot/) for Copilot CLI pass-through options, [Codex adapter reference](/reference/adapter-codex/) for Codex pass-through options, [OpenCode CLI adapter reference](/reference/adapter-opencode/) for OpenCode pass-through options, [Kiro CLI adapter reference](/reference/adapter-kiro/) for Kiro CLI pass-through options, [Configure dispatch rules](/guides/configure-dispatch-rules/) for routing issues to different agents and prompt templates, [Configure CI feedback](/guides/configure-ci-feedback/) for operational guidance.
 
 > [!TIP]
 > Most configuration fields in this reference can be overridden by `SORTIE_*` environment variables without modifying the workflow file. See the [environment variables reference](/reference/environment/#configuration-overrides) for the full list and precedence rules.
@@ -384,7 +384,7 @@ Coding agent adapter, concurrency, timeouts, and retry behavior. These fields co
 
 | Field                            | Type    | Default         | Description                                                                           |
 | -------------------------------- | ------- | --------------- | ------------------------------------------------------------------------------------- |
-| `kind`                           | string  | `claude-code`   | Agent adapter identifier. Built-in adapters: `claude-code`, `copilot-cli`, `codex`, `opencode`.   |
+| `kind`                           | string  | `claude-code`   | Agent adapter identifier. Built-in adapters: `claude-code`, `copilot-cli`, `codex`, `opencode`, `kiro`.   |
 | `command`                        | string  | adapter-defined | Shell command to launch the agent. Required for local-process adapters.               |
 | `max_turns`                      | integer | `20`            | Maximum turns per worker session. The worker re-checks tracker state after each turn. |
 | `max_sessions`                   | integer | `0` (unlimited) | Maximum completed sessions per issue before the orchestrator stops retrying. Must be non-negative. |
@@ -815,6 +815,29 @@ opencode:
   allowed_tools:
     - read
     - edit
+    - glob
+```
+
+### `kiro`
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `model` | string | _(none)_ | Maps to `--model`. The model must be pinned here because the `/model` slash command is unavailable in headless mode. |
+| `trust_all_tools` | boolean | `false` | Maps to `--trust-all-tools`, auto-approving every tool call. Mutually exclusive with `trust_tools`. |
+| `trust_tools` | list of strings | `[]` | Maps to `--trust-tools=<comma-joined>`. An empty list trusts nothing. Mutually exclusive with `trust_all_tools`. |
+| `agent` | string | _(none)_ | Maps to `--agent`, an optional custom-agent selector. |
+
+The Kiro adapter spawns one `kiro-cli chat --no-interactive` subprocess per turn. The headless path reports no token counts, so budget enforcement is time-based through `agent.turn_timeout_ms`, and MCP is unavailable on the `KIRO_API_KEY` path. See the [Kiro CLI adapter reference](/reference/adapter-kiro/) for the full lifecycle.
+
+> [!WARNING]
+> `kiro.trust_all_tools: true` combined with a non-empty `kiro.trust_tools` list is rejected at adapter construction. Use `--trust-all-tools` only inside a hardened sandbox; prefer a least-privilege `trust_tools` allowlist.
+
+```yaml
+kiro:
+  model: claude-sonnet-4.6
+  trust_tools:
+    - read
+    - grep
     - glob
 ```
 

@@ -40,7 +40,7 @@ Session state is deliberately opaque. The `Session` struct has an `Internal` fie
 
 The practical consequence: when the Copilot CLI adapter shipped, the orchestrator launched, monitored, and retried Copilot sessions using the exact same code paths it uses for Claude Code. No new retry logic. No new stall detection. No new reconciliation rules. The stall detector checks "time since last `AgentEvent`" — it doesn't know or care whether that event came from a Claude Code JSONL stream or a Copilot CLI JSONL stream.
 
-Today, the agent side already spans four materially different shapes:
+Today, the agent side already spans five materially different shapes:
 
 | Adapter | Native protocol | Session model |
 |---|---|---|
@@ -48,8 +48,9 @@ Today, the agent side already spans four materially different shapes:
 | Copilot CLI | CLI JSON stdout stream | One subprocess per turn |
 | Codex | JSON-RPC app server | One persistent subprocess across turns |
 | OpenCode CLI | Newline-delimited JSON envelopes plus `opencode export --sanitize` for final usage recovery | One subprocess per turn, plus one export subprocess after each turn |
+| Kiro | Plain-text transcript on stdout, no structured output | One subprocess per turn |
 
-That spread is why the interface is organized around lifecycle and normalized events rather than around one CLI's flags or transport. Claude Code and Copilot CLI look similar from a distance, but Codex keeps a long-lived server process and OpenCode needs a second pass to recover authoritative token usage. The orchestrator still reacts to the same event vocabulary.
+That spread is why the interface is organized around lifecycle and normalized events rather than around one CLI's flags or transport. Claude Code and Copilot CLI look similar from a distance, but Codex keeps a long-lived server process, OpenCode needs a second pass to recover authoritative token usage, and Kiro emits only a plain transcript and reports no token usage, so its budget is time-based. The orchestrator still reacts to the same event vocabulary.
 
 ## CI and SCM: the same pattern, extended
 
@@ -93,7 +94,7 @@ This means adapter selection is a configuration decision, not a code decision. Y
 
 The question behind this document: if you adopt Sortie today, does that investment survive the next twelve months of agent and tracker churn?
 
-Today, Sortie ships with three tracker adapters (Jira, GitHub Issues, and a file-based adapter for testing) and five agent adapters (Claude Code, Copilot CLI, Codex, OpenCode, and a mock for testing). The roadmap includes Linear and Gemini — each a new package implementing an existing interface.
+Today, Sortie ships with three tracker adapters (Jira, GitHub Issues, and a file-based adapter for testing) and six agent adapters (Claude Code, Copilot CLI, Codex, OpenCode, Kiro, and a mock for testing). The roadmap includes Linear and Gemini — each a new package implementing an existing interface.
 
 Consider two scenarios that play out regularly in engineering organizations:
 
@@ -115,5 +116,6 @@ The design bet underlying all of this: the agent and tracker landscape will keep
 - [Copilot CLI adapter reference](/reference/adapter-copilot/) — agent integration details
 - [Codex adapter reference](/reference/adapter-codex/) — agent integration details
 - [OpenCode CLI adapter reference](/reference/adapter-opencode/) — agent integration details
+- [Kiro CLI adapter reference](/reference/adapter-kiro/) — agent integration details
 - [Workflow file reference](/reference/workflow-config/) — `tracker.kind` and `agent.kind` configuration
 - [ADR-0003: Adapter-Based Integration](https://github.com/sortie-ai/sortie/blob/main/docs/decisions/0003-adapter-based-integration.md) — the full decision rationale

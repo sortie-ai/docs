@@ -28,15 +28,51 @@ or `~/.local/bin` otherwise. If the install directory is not already on your
 
 | Variable | Effect |
 |---|---|
-| `SORTIE_VERSION` | Pin a specific release (e.g. `1.9.0`). Without it, the latest release is used. |
+| `SORTIE_VERSION` | Pin a specific release (e.g. `1.11.0`). Without it, the latest release is used. |
 | `SORTIE_INSTALL_DIR` | Override the install directory. |
 | `SORTIE_NO_VERIFY=1` | Skip SHA-256 checksum verification (not recommended). |
 
 Example — install a specific version to a custom directory:
 
 ```bash
-SORTIE_VERSION=1.9.0 SORTIE_INSTALL_DIR=/opt/bin \
+SORTIE_VERSION=1.11.0 SORTIE_INSTALL_DIR=/opt/bin \
   curl -sSL https://get.sortie-ai.com/install.sh | sh
+```
+
+## Install Script (Windows)
+
+The recommended method for Windows. The script detects your architecture,
+downloads the correct binary, verifies its checksum, installs `sortie.exe`, and
+adds the install directory to your user `PATH`. It runs on Windows PowerShell
+5.1 (the default on Windows 10 and 11) and on PowerShell 7+.
+
+Run the one-liner in a PowerShell prompt:
+
+```powershell
+irm 'https://get.sortie-ai.com/install.ps1' | iex
+```
+
+By default the binary is installed to `%LOCALAPPDATA%\Programs\sortie`, a
+per-user location that needs no administrator rights. The script adds that
+directory to your user `PATH`; restart any open shell sessions for the change
+to take effect.
+
+### Script Options
+
+Set these as environment variables before running the one-liner:
+
+| Variable | Effect |
+|---|---|
+| `SORTIE_VERSION` | Pin a specific release (e.g. `1.11.0`). Without it, the latest release is used. |
+| `SORTIE_INSTALL_DIR` | Override the install directory. |
+| `SORTIE_NO_VERIFY` | Set to `1` to skip SHA-256 checksum verification (not recommended). |
+
+Example — install a specific version to a custom directory:
+
+```powershell
+$env:SORTIE_VERSION = '1.11.0'
+$env:SORTIE_INSTALL_DIR = 'C:\tools\sortie'
+irm 'https://get.sortie-ai.com/install.ps1' | iex
 ```
 
 ## Homebrew (macOS and Linux)
@@ -61,8 +97,8 @@ See our guide on using [Sortie in Docker](/guides/use-sortie-in-docker/) for mor
 
 ## Download from GitHub Releases
 
-If you prefer to download manually, or you're on a platform the install script
-doesn't cover (like Windows), grab the archive directly from GitHub.
+If you prefer to download and install manually, grab the archive directly from
+GitHub.
 
 {{% steps %}}
 
@@ -205,6 +241,15 @@ Add it to your shell configuration file (`~/.bashrc`, `~/.zshrc`, or
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
+```
+
+**`sortie` is not recognized (Windows)** — The install script updates your user
+`PATH`, but open shells keep their old environment until you restart them. Close
+and reopen PowerShell, then run `sortie --version` again. To check that the
+install directory is on your user `PATH`:
+
+```powershell
+[Environment]::GetEnvironmentVariable('Path', 'User')
 ```
 
 **Checksum mismatch** — The download may have been corrupted or tampered with.

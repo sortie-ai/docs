@@ -29,6 +29,7 @@ Comprehensive reference for every CLI flag, configuration field, API endpoint, a
   {{< card link="adapter-copilot" title="Copilot CLI" subtitle="Configuration, session lifecycle, and output parsing, including SSH." >}}
   {{< card link="adapter-codex" title="Codex" subtitle="Configuration, JSON-RPC protocol, persistent subprocess, including SSH." >}}
   {{< card link="adapter-opencode" title="OpenCode" subtitle="Configuration, session lifecycle, and output parsing, including SSH." >}}
+  {{< card link="adapter-kiro" title="Kiro CLI" subtitle="Configuration, session lifecycle, and output parsing, including SSH." >}}
 {{< /cards >}}
 
 ## Tracker adapters

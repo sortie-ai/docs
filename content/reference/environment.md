@@ -1,7 +1,7 @@
 ---
 title: "Environment Variables"
 description: "Every environment variable Sortie reads, injects, or filters: SORTIE_* overrides, .env support, agent passthrough, hook env, and install vars."
-keywords: sortie environment variables, SORTIE_*, ANTHROPIC_API_KEY, COPILOT_GITHUB_TOKEN, GH_TOKEN, GITHUB_TOKEN, CODEX_API_KEY, SORTIE_ISSUE_ID, env var, configuration, .env, overrides, hooks, install, MCP server
+keywords: sortie environment variables, SORTIE_*, ANTHROPIC_API_KEY, COPILOT_GITHUB_TOKEN, GH_TOKEN, GITHUB_TOKEN, CODEX_API_KEY, KIRO_API_KEY, SORTIE_ISSUE_ID, env var, configuration, .env, overrides, hooks, install, MCP server
 author: Sortie AI
 date: 2026-04-26
 weight: 30
@@ -207,6 +207,7 @@ Agent adapters spawn subprocesses that inherit the **full** parent process envir
 | `GH_TOKEN` | `copilot-cli` adapter | GitHub token shared with the `gh` CLI. Second priority for Copilot CLI authentication. Also used by many GitHub tooling integrations. |
 | `GITHUB_TOKEN` | `copilot-cli` adapter | GitHub token common in CI environments. Third priority for Copilot CLI authentication. |
 | `CODEX_API_KEY` | `codex` adapter | OpenAI API key for the Codex CLI. The `codex app-server` subprocess reads this on startup. If the variable is unset, the adapter falls back to cached credentials in `~/.codex/auth.json` on the target host. |
+| `KIRO_API_KEY` | `kiro` adapter | API key the Kiro CLI reads on the headless path; requires a Kiro Pro, Pro+, or Power subscription. The adapter preflights it at session start (presence plus a usability check), so a missing or invalid credential surfaces as a startup error rather than a hang or a silent empty turn. |
 
 **A missing `ANTHROPIC_API_KEY` is the most common `claude-code` deployment failure.** Sortie starts and polls the tracker normally, but every agent session fails at launch with an auth error. The Sortie logs show a worker exit with `exit_type=error`; the root cause is only visible in the agent's stderr output.
 
@@ -243,6 +244,8 @@ Copilot CLI requires a **fine-grained personal access token** (prefix `github_pa
 | `OPENCODE_DISABLE_LSP_DOWNLOAD` | LSP download | Sortie-managed runs force this to `true`. |
 
 In local mode, provider credentials come from the parent environment or from OpenCode's own auth/config state, while the managed `OPENCODE_*` values above are injected by the adapter. In SSH mode, Sortie prefixes only the managed `OPENCODE_*` variables onto the remote command. Provider credentials such as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `AWS_*`, `GITLAB_TOKEN`, `CLOUDFLARE_*`, `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CLOUD_PROJECT`, and `VERTEX_LOCATION` must already exist on the remote host or in the remote host's OpenCode auth/config state.
+
+**For `kiro`, authentication is a single credential.** The adapter reads `KIRO_API_KEY`, which requires a Kiro Pro, Pro+, or Power subscription, and validates it at `StartSession` before any turn runs, so a missing or invalid key surfaces as a startup error. In SSH mode the adapter injects `KIRO_API_KEY` inline into the remote command because OpenSSH drops local environment variables. See the [Kiro CLI adapter reference](/reference/adapter-kiro/) for the credential preflight and headless behavior.
 
 ---
 
@@ -426,14 +429,14 @@ The [`install.sh`](https://get.sortie-ai.com/install.sh) script accepts three en
 
 | Variable | Default | Description |
 |---|---|---|
-| `SORTIE_VERSION` | Latest GitHub release | Pin a specific release tag (e.g., `1.9.0`). When set, the script skips the GitHub API call to discover the latest version. |
+| `SORTIE_VERSION` | Latest GitHub release | Pin a specific release tag (e.g., `1.11.0`). When set, the script skips the GitHub API call to discover the latest version. |
 | `SORTIE_INSTALL_DIR` | `/usr/local/bin` (root) or `~/.local/bin` (non-root) | Override the directory where the `sortie` binary is placed. |
 | `SORTIE_NO_VERIFY` | `0` | Set to `1` to skip SHA-256 checksum verification of the downloaded binary. |
 
 Example:
 
 ```sh
-SORTIE_VERSION=1.9.0 SORTIE_INSTALL_DIR=/opt/bin \
+SORTIE_VERSION=1.11.0 SORTIE_INSTALL_DIR=/opt/bin \
   curl -sSL https://get.sortie-ai.com/install.sh | sh
 ```
 
