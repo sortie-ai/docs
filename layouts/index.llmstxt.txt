@@ -6,6 +6,8 @@
 Sortie is an autonomous coding agent orchestrator. Engineers manage work at the ticket level — Sortie handles the rest: isolated workspaces, retry logic, state reconciliation, tracker integration, and cost tracking. Single binary, zero dependencies, SQLite persistence.
 
 For full documentation in a single file suitable for pasting into an AI assistant, see: {{ $site.BaseURL }}llms-full.txt
+
+Tip for agents: every page linked below is also available as clean Markdown. Request its URL with the HTTP header `Accept: text/markdown` to receive the Markdown rendering instead of HTML (lower token count, no navigation chrome).
 {{ range $site.Sections }}
 ## {{ .Title }}
 {{ range .RegularPages }}
