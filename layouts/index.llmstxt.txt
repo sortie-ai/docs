@@ -9,11 +9,11 @@ For full documentation in a single file suitable for pasting into an AI assistan
 {{ range $site.Sections }}
 ## {{ .Title }}
 {{ range .RegularPages }}
-- [{{ .Title }}]({{ with .OutputFormats.Get "Markdown" }}{{ .Permalink }}{{ else }}{{ .Permalink }}{{ end }}){{ with .Params.description }}: {{ . }}{{ end }}
+- [{{ .Title }}]({{ .Permalink }}){{ with .Params.description }}: {{ . }}{{ end }}
 {{- end }}
 {{ end -}}
 
 ## Optional
 {{ range where $site.RegularPages "Section" "" }}
-- [{{ .Title }}]({{ with .OutputFormats.Get "Markdown" }}{{ .Permalink }}{{ else }}{{ .Permalink }}{{ end }}){{ with .Params.description }}: {{ . }}{{ end }}
+- [{{ .Title }}]({{ .Permalink }}){{ with .Params.description }}: {{ . }}{{ end }}
 {{- end }}

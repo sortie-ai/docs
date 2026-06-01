@@ -95,6 +95,15 @@ type = "flexsearch"
 width = "normal"
 
 # "Copy Page" context menu with AI integrations.
+#
+# Markdown is obtained at runtime from Cloudflare content negotiation
+# (Accept: text/markdown on the canonical URL); no static .md mirrors are
+# generated. Two project overrides make this work without the markdown output
+# format Hextra normally requires:
+#   - layouts/_partials/components/page-context-menu.html (points at the
+#     canonical URL, drops the markdown-output gate and the "View as Markdown"
+#     item, which a browser navigation cannot negotiate)
+#   - assets/js/core/page-context-menu.js (sends the Accept: text/markdown header)
 [params.page.contextMenu]
 enable = true
 
@@ -122,13 +131,12 @@ path = "github.com/imfing/hextra"
 # --------------------------------------------------------------------------
 # llms.txt support — https://llmstxt.org/
 # Generates /llms.txt (navigation index) and /llms-full.txt (full content)
-# at build time, plus /path/to/page/index.md for every regular page.
+# at build time. Per-page Markdown is served on demand by Cloudflare via
+# content negotiation (Accept: text/markdown), so no static .md mirrors are
+# emitted.
 # --------------------------------------------------------------------------
 
-[mediaTypes."text/markdown"]
-suffixes = ["md"]
-
-# llms.txt — navigation index with links to .md versions of each page.
+# llms.txt — navigation index linking to each page.
 [outputFormats.LLMsTxt]
 mediaType = "text/plain"
 baseName = "llms"
@@ -146,18 +154,9 @@ isPlainText = true
 notAlternative = true
 rel = "alternate"
 
-# Markdown — serves the raw Markdown source of each page at index.md.
-[outputFormats.Markdown]
-mediaType = "text/markdown"
-baseName = "index"
-isPlainText = true
-notAlternative = true
-rel = "alternate"
-
 [outputs]
 # Home page generates HTML + both LLM text files.
 home = ["HTML", "RSS", "LLMsTxt", "LLMsFull"]
-# Regular pages generate HTML + a raw Markdown mirror at index.md.
-page = ["HTML", "Markdown"]
-# Sections generate HTML only (index pages mostly contain shortcodes).
+# Regular pages and sections generate HTML only.
+page = ["HTML"]
 section = ["HTML"]
