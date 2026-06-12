@@ -1,7 +1,7 @@
 ---
 title: "Security Model"
 description: "Sortie's trust model: workspace isolation invariants, prompt injection surface, secret handling, hook safety, and bounded failure as a security property."
-keywords: sortie security, trust model, workspace isolation, prompt injection, agent safety, operational security, autonomous coding agent, coding agent orchestration
+keywords: sortie security, trust model, workspace isolation, prompt injection, notify_operator, outbound notifications, agent safety, operational security, autonomous coding agent, coding agent orchestration
 author: Sortie AI
 date: 2026-03-29
 weight: 60
@@ -80,11 +80,23 @@ Three things bound the risk once you enable it. The SCM token must carry write s
 
 The operator's responsibility mirrors the rest of this model. Scope the token to the repositories Sortie should touch, and treat enabling auto-merge as the same class of decision as granting a CI system merge rights, because that is precisely what it is.
 
+## Outbound notifications
+
+With a `notifications` list configured in WORKFLOW.md, the MCP sidecar gains a new kind of egress: during agent sessions, the `notify_operator` tool posts JSON to operator-supplied URLs. Other tool traffic goes to a known external API behind an adapter; this is the first surface that reaches whatever URL the configuration names, so it deserves the same scrutiny as hooks.
+
+The endpoint URL is trusted configuration, in the same class as hook scripts and WORKFLOW.md itself. Anyone who can edit the workflow file chooses where notifications go, so the file's access controls are the access control. There is no destination allowlist inside Sortie; review of WORKFLOW.md changes is the review of notification destinations.
+
+Backend secrets ride the same `$VAR` indirection as tracker credentials, with one extra constraint: the variable name must carry the `SORTIE_` prefix. The sidecar re-resolves the workflow file in its own process, and only `SORTIE_`-prefixed variables reach that process, so a reference without the prefix resolves to the empty string there. Sortie turns that into a fatal sidecar startup error instead of a notification silently posted nowhere. And because Sortie has no log-redaction facility, the notification backends are built to never log the endpoint URL, the request body, or the response body; delivery errors surface as fixed categories (`timeout`, `connection failure`, and HTTP status classes such as `unauthorized (HTTP 401)`) rather than raw error text that could embed the secret-bearing URL.
+
+The blast radius is bounded on three axes. A per-session notification cap (default 20; `0` selects the default rather than unlimited) bounds how much spam a misbehaving agent can generate. A 10-second per-call timeout bounds how long a slow endpoint can stall a turn. And delivery stops at the first failing backend instead of working through the rest of the list.
+
+What the agent can and cannot influence splits cleanly. The envelope (issue ID and key, session ID, attempt, agent kind, timestamp, notification ID) is system-owned and filled from session context, so an agent cannot attribute a notification to another issue or forge its origin. The `severity`, `title`, and `body` are agent-generated text, and tracker content flows through the agent, so prompt-injected text can reach your notification channel. Treat notification text with the same skepticism as any agent output, and pick channel audiences accordingly: an operations channel staffed by people who know what Sortie is beats a company-wide channel for raw agent text.
+
 ## Bounded failure as a safety property
 
 Every failure path in Sortie has a bound. This is a design decision that bridges orchestration and security.
 
-The retry budget (`agent.max_sessions`) caps the total sessions Sortie will create for a single issue. Without it, a stuck issue retries forever — consuming agent tokens, accumulating API costs, and potentially repeating destructive operations. The turn timeout (`agent.turn_timeout_ms`, default 1 hour) puts a hard cap on agent execution time per turn. Stall detection (`agent.stall_timeout_ms`, default 5 minutes) kills agents that stop producing events. The backoff cap (`agent.max_retry_backoff_ms`) prevents retry delays from growing without bound. Concurrency limits (`agent.max_concurrent_agents` plus per-state limits) bound total resource consumption.
+The retry budget (`agent.max_sessions`) caps the total sessions Sortie will create for a single issue. Without it, a stuck issue retries forever — consuming agent tokens, accumulating API costs, and potentially repeating destructive operations. The turn timeout (`agent.turn_timeout_ms`, default 1 hour) puts a hard cap on agent execution time per turn. Stall detection (`agent.stall_timeout_ms`, default 5 minutes) kills agents that stop producing events. The backoff cap (`agent.max_retry_backoff_ms`) prevents retry delays from growing without bound. Concurrency limits (`agent.max_concurrent_agents` plus per-state limits) bound total resource consumption. The per-session notification cap (default 20) bounds how many outbound notifications a single session can emit.
 
 Why this matters for security: an attacker who can create issues in the tracker can force Sortie to dispatch agents against them. Without bounded failure, this is a denial-of-resources attack — every malicious issue consumes unbounded compute. With bounded failure, each issue consumes at most *N* sessions × *M* turns × *T* timeout seconds. The damage is capped and predictable. You can calculate the worst-case cost of an attacker flooding your project with issues, and you can set budgets that make that cost acceptable.
 
@@ -96,6 +108,7 @@ Bounded failure also limits blast radius from bugs. An agent caught in an infini
 - [Architecture overview](/concepts/architecture/) for the single-binary design and adapter model
 - [Workflow file reference](/reference/workflow-config/) for timeout, budget, and hook configuration fields
 - [Reactions reference](/reference/reactions/) for the auto-merge fields, preconditions, and escalation policy
+- [Agent extensions reference](/reference/agent-extensions/) for the notify_operator tool schema and delivery behavior
 - [Claude Code adapter reference](/reference/adapter-claude-code/) for agent-specific approval and sandbox settings
 - [Copilot CLI adapter reference](/reference/adapter-copilot/) for agent-specific approval and sandbox settings
 - [Codex adapter reference](/reference/adapter-codex/) for agent-specific approval and sandbox settings

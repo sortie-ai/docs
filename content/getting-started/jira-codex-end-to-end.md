@@ -11,6 +11,8 @@ In this tutorial, we will wire Sortie to a Jira project and the OpenAI Codex CLI
 
 The [Jira integration tutorial](/getting-started/jira-integration/) proved that Sortie can talk to your tracker. This tutorial completes the setup with three new pieces: the Codex CLI agent adapter, workspace hooks for git operations, and a prompt template that guides the agent through the task.
 
+> **Jira Server and Data Center:** This tutorial uses Jira Cloud. If you are connecting to a self-hosted Jira Server or Data Center instance, see the [Jira adapter reference](/reference/adapter-jira/#api_version) for the `api_version: "2"` field and Server / Data Center configuration before continuing.
+
 ## Prerequisites
 
 - [Jira integration tutorial](/getting-started/jira-integration/) completed - Sortie connects to your Jira project, and the environment variables `SORTIE_JIRA_ENDPOINT` and `SORTIE_JIRA_API_KEY` are set

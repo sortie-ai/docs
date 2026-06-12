@@ -1,8 +1,8 @@
 ---
 title: Workflow Configuration
 linkTitle: "Workflow File"
-description: "Reference for every WORKFLOW.md field: tracker, polling, workspace, hooks, agent, database, prompt template, server, logging, and SSH worker."
-keywords: sortie configuration, WORKFLOW.md, YAML, tracker, agent, dispatch, dispatch rules, rule-based routing, ci_feedback, self_review, reactions, review_comments, hooks, workspace, server, worker, SSH, token_rates, cost estimation, config reference
+description: "Reference for every WORKFLOW.md field: tracker, polling, workspace, hooks, agent, notifications, database, prompt template, server, logging, and SSH worker."
+keywords: sortie configuration, WORKFLOW.md, YAML, tracker, api_version, agent, max_tokens, dispatch, dispatch rules, rule-based routing, ci_feedback, self_review, reactions, review_comments, notifications, notify_operator, max_per_session, hooks, workspace, server, worker, SSH, token_rates, cost estimation, config reference
 author: Sortie AI
 date: 2026-04-26
 weight: 20
@@ -25,6 +25,7 @@ tracker:
   endpoint: $SORTIE_JIRA_ENDPOINT     # Jira base URL ($VAR expanded)
   api_key: $SORTIE_JIRA_API_KEY       # API token ($VAR expanded anywhere)
   project: PLATFORM                   # Jira project key
+  api_version: "3"                    # Jira REST API version: "3" Cloud, "2" Server/DC
   query_filter: "labels = 'agent-ready'"  # JQL fragment appended to queries
   active_states:                      # Issues in these states get dispatched
     - To Do
@@ -70,6 +71,7 @@ agent:
   command: claude                     # CLI binary to launch
   max_turns: 5                        # Orchestrator turn-loop limit
   max_sessions: 3                     # Max completed sessions per issue
+  max_tokens: 1500000                 # Cumulative per-issue token ceiling (0 = unlimited)
   max_concurrent_agents: 4            # Global concurrency cap
   turn_timeout_ms: 1800000            # 30 min per turn
   read_timeout_ms: 10000              # 10 s startup timeout
@@ -123,6 +125,14 @@ self_review:
   verification_timeout_ms: 120000          # per-command timeout
   max_diff_bytes: 102400                   # diff truncation limit
   reviewer: "same"                         # only "same" in v1
+
+# --- Notifications (notify_operator backends; optional) ------------
+notifications:
+  - kind: slack                       # Notifier backend
+    webhook_url: $SORTIE_SLACK_WEBHOOK_URL  # SORTIE_-prefixed reference (required)
+    max_per_session: 20               # Per-session cap; 0 selects the default (20)
+  - kind: webhook
+    url: $SORTIE_OPS_WEBHOOK_URL      # Generic JSON POST endpoint
 
 # --- Claude Code adapter (pass-through) ------------------------------
 claude-code:
@@ -188,6 +198,7 @@ Issue tracker connection and query settings.
 | `query_filter`    | string          | `""`                  | Query fragment appended to tracker queries. For Jira: a JQL expression. |
 | `handoff_state`   | string          | _(absent)_            | Target state after a successful agent run. Absent disables handoff.     |
 | `in_progress_state` | string        | _(absent)_            | Target state for dispatch-time transition at the start of each worker attempt. Absent disables dispatch-time transitions. |
+| `api_version`     | string          | `"3"`                 | Jira REST API version: `"3"` for Jira Cloud, `"2"` for Jira Server / Data Center. Quote the value; a bare integer draws a `sortie validate` advisory. Adapters other than Jira ignore this field. See the [Jira adapter reference](/reference/adapter-jira/#api_version) for deployment-mode behavior. |
 | `comments.on_dispatch`   | bool   | `false`               | Post a tracker comment when a worker is dispatched.                     |
 | `comments.on_completion` | bool   | `false`               | Post a tracker comment when a worker completes normally.                |
 | `comments.on_failure`    | bool   | `false`               | Post a tracker comment when a worker exits with an error.               |
@@ -196,7 +207,7 @@ Issue tracker connection and query settings.
 
 `api_key` applies full environment expansion: `$VAR` and `${VAR}` references are resolved at any position in the string.
 
-`endpoint`, `project`, `handoff_state`, and `in_progress_state` use targeted resolution: the value is expanded only when the entire trimmed string starts with `$`. Literal URIs and project keys that contain `$` characters elsewhere are returned unchanged.
+`endpoint`, `project`, `handoff_state`, `in_progress_state`, and `api_version` use targeted resolution: the value is expanded only when the entire trimmed string starts with `$`. Literal URIs and project keys that contain `$` characters elsewhere are returned unchanged.
 
 See the [environment variables reference](/reference/environment/#var-indirection-in-workflowmd) for expansion mechanics.
 
@@ -388,6 +399,7 @@ Coding agent adapter, concurrency, timeouts, and retry behavior. These fields co
 | `command`                        | string  | adapter-defined | Shell command to launch the agent. Required for local-process adapters.               |
 | `max_turns`                      | integer | `20`            | Maximum turns per worker session. The worker re-checks tracker state after each turn. |
 | `max_sessions`                   | integer | `0` (unlimited) | Maximum completed sessions per issue before the orchestrator stops retrying. Must be non-negative. |
+| `max_tokens`                     | integer | `0` (unlimited) | Cumulative per-issue token ceiling. Sortie sums the `total_tokens` recorded for every session of the issue from run history and stops dispatching new sessions once the sum reaches a non-zero budget. The check runs before re-dispatch; it never stops a running session. Independent of `max_sessions`; the first ceiling reached wins. Must be non-negative. |
 | `max_concurrent_agents`          | integer | `10`            | Global concurrency limit across all issues.                                           |
 | `max_concurrent_agents_by_state` | map     | `{}`            | Per-state concurrency limits. Keys are state names, lowercased for matching. Non-positive or non-numeric entries are silently ignored. |
 | `turn_timeout_ms`                | integer | `3600000` (1h)  | Total timeout for a single agent turn.                                                |
@@ -395,7 +407,7 @@ Coding agent adapter, concurrency, timeouts, and retry behavior. These fields co
 | `stall_timeout_ms`               | integer | `300000` (5m)   | Inactivity timeout based on event stream gaps. `0` or negative disables stall detection. |
 | `max_retry_backoff_ms`           | integer | `300000` (5m)   | Maximum delay cap for exponential backoff on retries.                                 |
 
-`max_concurrent_agents`, `max_concurrent_agents_by_state`, `max_retry_backoff_ms`, and `max_sessions` reload dynamically without restart. All other fields apply to future dispatches only.
+`max_concurrent_agents`, `max_concurrent_agents_by_state`, `max_retry_backoff_ms`, `max_sessions`, and `max_tokens` reload dynamically without restart; `max_tokens` takes effect at the next retry evaluation. All other fields apply to future dispatches only.
 
 ```yaml
 agent:
@@ -403,12 +415,15 @@ agent:
   command: claude
   max_turns: 5
   max_sessions: 3
+  max_tokens: 1500000
   max_concurrent_agents: 4
   stall_timeout_ms: 300000
   max_concurrent_agents_by_state:
     in progress: 3
     to do: 1
 ```
+
+Agents can read the remaining token budget mid-session through the `cost_budget` tool; see the [agent extensions reference](/reference/agent-extensions/) for the tool contract and [how to control agent costs](/guides/control-costs/) for budget strategy.
 
 ---
 
@@ -681,6 +696,47 @@ reactions:
 When a review-fix continuation dispatches, the prompt receives a `review_comments` template variable: a list of maps with keys `id`, `file`, `start_line`, `end_line`, `reviewer`, `body`. Templates should guard with `{{ if .review_comments }}`. See the [`.review_comments`](#review_comments) template variable reference below for the full schema, and [how to write a prompt template](/guides/write-prompt-template/) for syntax.
 
 For operational guidance on setting up review feedback, see [how to configure PR review feedback](/guides/configure-review-feedback/).
+
+---
+
+## `notifications`
+
+Notification backends for the `notify_operator` agent tool. While a session runs, the agent escalates decisions, reports progress, or flags blockers through these channels. The tool is registered only when the list configures at least one backend; when the list is absent or empty, the agent is never offered the tool. The value is a sequence: a second channel is a second entry. The tool contract (input schema, response shapes, error kinds) lives in the [agent extensions reference](/reference/agent-extensions/#notify_operator).
+
+Each entry accepts two typed fields:
+
+| Field             | Type    | Default      | Description                                                                                         |
+| ----------------- | ------- | ------------ | ---------------------------------------------------------------------------------------------------- |
+| `kind`            | string  | _(required)_ | Backend discriminator. Built-in backends: `webhook`, `slack`.                                       |
+| `max_per_session` | integer | `20`         | Per-session notification cap. `0` selects the default (`20`); it never means unlimited. Must be non-negative. |
+
+Every other key in an entry passes through to the backend untyped, with `$VAR` and `${VAR}` references resolved on string values, the same mechanism as [adapter pass-through configuration](#adapter-pass-through-configuration). Per-backend required fields:
+
+| `kind`    | Field         | Description                                                               |
+| --------- | ------------- | -------------------------------------------------------------------------- |
+| `webhook` | `url`         | Endpoint that receives an HTTP POST of the notification as a JSON object. |
+| `slack`   | `webhook_url` | Slack incoming webhook URL that receives a Slack-shaped JSON body.        |
+
+When more than one entry sets `max_per_session`, the effective cap is the maximum non-zero value across entries, falling back to `20` when every entry is `0` or unset. The cap counts `notify_operator` calls, not per-backend sends.
+
+> [!WARNING]
+> Backend secrets must be references to `SORTIE_`-prefixed environment variables (`$SORTIE_NAME` or `${SORTIE_NAME}`). The `notify_operator` tool runs in a separate `sortie mcp-server` process that receives only `SORTIE_`-prefixed variables; a reference without the prefix, or to an unset variable, resolves to the empty string there and surfaces as a fatal sidecar startup error at session start rather than a notification posted nowhere. `sortie validate` checks the section's shape (a sequence of maps, a non-empty `kind`, a non-negative `max_per_session`) but cannot catch an unknown `kind` or an empty secret.
+
+> [!NOTE]
+> Environment variable overrides for `notifications` fields are not supported. Backend configuration must come from WORKFLOW.md; environment values reach a backend only through `$VAR` references inside its entry.
+
+The `webhook` backend is an outbound POST to an operator-supplied endpoint. It is unrelated to inbound tracker webhooks, which trigger reconciliation.
+
+```yaml
+notifications:
+  - kind: slack
+    webhook_url: $SORTIE_SLACK_WEBHOOK_URL
+    max_per_session: 20
+  - kind: webhook
+    url: $SORTIE_OPS_WEBHOOK_URL
+```
+
+Changes to this section apply to the next agent session: each session's MCP sidecar reads the workflow file at startup, so in-flight sessions keep their backends.
 
 ---
 
@@ -1109,7 +1165,10 @@ Sortie watches `WORKFLOW.md` for filesystem changes and re-applies configuration
 | `agent.max_concurrent_agents_by_state` | Next dispatch decision.                |
 | `agent.max_retry_backoff_ms`           | Next retry schedule.                   |
 | `agent.max_sessions`                   | Next retry evaluation.                 |
-| `tracker.*` (including `tracker.comments.*`) | Future dispatches and reconciliation.  |
+| `agent.max_tokens`                     | Next retry evaluation.                 |
+| `tracker.*`                            | Future dispatches and reconciliation.  |
+| `tracker.comments.on_dispatch`         | Future dispatches.                     |
+| `tracker.comments.on_completion`, `tracker.comments.on_failure` | Future worker exits. Both toggles are evaluated against the active configuration when a worker exits, so a reload can change whether an in-flight session posts its completion or failure comment. |
 | `hooks.*`                              | Future hook executions.                |
 | `agent.kind`, `agent.command`, `agent.max_turns` | Future dispatches.            |
 | `agent.turn_timeout_ms`, `agent.read_timeout_ms`, `agent.stall_timeout_ms` | Future worker attempts. |
@@ -1127,6 +1186,7 @@ Sortie watches `WORKFLOW.md` for filesystem changes and re-applies configuration
 | `reactions.review_comments.poll_interval_ms` | Next reconcile tick.             |
 | `reactions.review_comments.debounce_ms` | Next reconcile tick.                 |
 | `reactions.review_comments.max_continuation_turns` | Future dispatches.          |
+| `notifications`                        | Next agent session. Each session's MCP sidecar reads the workflow file at startup; in-flight sessions are unaffected. |
 | `db_path`                              | Requires restart.                      |
 | `server.port`                          | Requires restart.                      |
 | `server.host`                          | Requires restart.                      |
@@ -1134,4 +1194,4 @@ Sortie watches `WORKFLOW.md` for filesystem changes and re-applies configuration
 | `logging.format`                       | Requires restart.                      |
 | `token_rates.*`                        | Requires restart.                      |
 
-In-flight agent sessions are not affected by any reload.
+An in-flight agent session keeps its agent and prompt template frozen at first dispatch. The exception is exit-time behavior: `tracker.comments.on_completion` and `tracker.comments.on_failure` are evaluated against the active configuration when the worker exits, so a reload during a session can change whether it posts a completion or failure comment.

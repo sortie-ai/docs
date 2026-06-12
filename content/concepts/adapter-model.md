@@ -58,6 +58,8 @@ The boundary is not limited to trackers and agents. The reaction subsystem, whic
 
 Auto-merge is worth singling out, because it is the one place where an adapter changes the outside world rather than only observing it. Even there, the orchestrator gained the authority to merge pull requests without learning a single GitHub-specific detail. The write path is six methods on one interface and a typed `ErrSCMConflict` for the races a merge can lose; the scheduler that calls them still sees only domain types. The pattern that made trackers and agents disposable made the merge capability additive in exactly the same way.
 
+The newest arrival is the notifier family: the `webhook` and `slack` backends behind the [`notify_operator` tool](/reference/agent-extensions/#notify_operator) implement a one-method `Notifier` interface, register through the same kind-keyed registry, and obey the same boundary rules. A new notification channel is a new package, not a core change.
+
 ## The naming rule and why it prevents rot
 
 The strictest convention in the codebase: no `jira_*`, `github_*`, `claude_*`, or `copilot_*` identifiers outside their respective adapter packages. The domain layer uses generic vocabulary — `Issue`, `Session`, `Turn`, `Comment`. The config layer uses `tracker.kind` and `agent.kind`, not `jira.project_key` or `claude_code.model`.

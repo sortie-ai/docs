@@ -264,7 +264,7 @@ Six warning classes across two analysis passes, plus adapter-specific warnings w
 
 **Front matter analysis:**
 
-- **Unknown top-level keys** (`unknown_key`). A top-level YAML key that is not a core section (`tracker`, `polling`, `workspace`, `hooks`, `agent`, `db_path`), not a recognized extension (`server`, `logging`, `worker`), and not the adapter pass-through block matching the configured `tracker.kind` or `agent.kind`. Catches typos like `trackers:` instead of `tracker:`.
+- **Unknown top-level keys** (`unknown_key`). A top-level YAML key that is not a core section (`tracker`, `polling`, `workspace`, `hooks`, `agent`, `db_path`, `ci_feedback`, `self_review`, `reactions`, `dispatch`, `notifications`), not a recognized extension (`server`, `logging`, `worker`), and not the adapter pass-through block matching the configured `tracker.kind` or `agent.kind`. Catches typos like `trackers:` instead of `tracker:`.
 - **Unknown sub-keys** (`unknown_sub_key`). A key inside a known section that does not match any defined field. For example, `tracker.typo_endpoint` or `hooks.before_launch`. Sub-objects named after the section's adapter kind are exempt (e.g., `tracker.jira` when `tracker.kind` is `jira`).
 - **Type mismatches** (`type_mismatch`). A value whose YAML type does not match the expected type for a field. For example, `hooks.timeout_ms: "not-a-number"` or `tracker.kind: 123`. Also covers semantic issues: a non-positive `hooks.timeout_ms` that falls back to the default, and non-numeric or non-positive entries in `agent.max_concurrent_agents_by_state` that are silently ignored at runtime.
 

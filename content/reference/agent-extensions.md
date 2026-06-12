@@ -1,13 +1,13 @@
 ---
 title: "Agent Extensions"
-description: "Reference for Sortie agent extensions: .sortie/status file protocol, tracker_api, sortie_status, and workspace_history tools with schemas and errors."
-keywords: sortie agent tools, tracker_api, sortie_status, workspace_history, .sortie/status, agent extensions, MCP, tool calling
+description: "Reference for Sortie agent extensions: .sortie/status file protocol, tracker_api, sortie_status, workspace_history, cost_budget, and notify_operator tools with schemas and errors."
+keywords: sortie agent tools, tracker_api, sortie_status, workspace_history, cost_budget, token budget, notify_operator, operator notifications, .sortie/status, agent extensions, MCP, tool calling
 author: Sortie AI
 date: 2026-03-26
 weight: 90
 url: /reference/agent-extensions/
 ---
-Agents running inside a Sortie session have two extension surfaces beyond the codebase and rendered prompt: a **file-based signaling protocol** and **callable tools** delivered over MCP. The file protocol lets the agent influence orchestration flow by writing a single file. The tools give the agent structured access to tracker data, session metadata, and run history.
+Agents running inside a Sortie session have two extension surfaces beyond the codebase and rendered prompt: a **file-based signaling protocol** and **callable tools** delivered over MCP. The file protocol lets the agent influence orchestration flow by writing a single file. The tools give the agent structured access to tracker data, session metadata, run history, and the issue's token budget, plus an outbound notification path to a human operator.
 
 See also: [agent communication model](/concepts/agent-communication/) for why two channels exist, [environment variables reference](/reference/environment/#mcp-server-environment) for MCP server environment, [WORKFLOW.md configuration](/reference/workflow-config/) for the `agent` section.
 
@@ -111,7 +111,7 @@ Sortie also appends tool documentation to the first-turn prompt for discoverabil
 
 Read and write access to the configured issue tracker (Jira, GitHub Issues, file-based). The agent does not need its own API key - Sortie uses the tracker credentials from [WORKFLOW.md](/reference/workflow-config/). All operations are scoped to the configured `tracker.project`; the agent cannot access issues in other projects.
 
-`tracker_api` is a **Tier 2** tool: it requires an external dependency (a tracker API with valid credentials and project). Sortie registers the tool only when a valid tracker configuration with credentials and project is present in WORKFLOW.md.
+`tracker_api` is a **[Tier 2](/concepts/agent-tools/)** tool: it requires an external dependency (a tracker API with valid credentials and project). Sortie registers the tool only when a valid tracker configuration with credentials and project is present in WORKFLOW.md.
 
 ### Input schema
 
@@ -267,7 +267,7 @@ The `target_state` value must match a valid state name in the tracker. If the tr
 
 ### Response envelope
 
-All `tracker_api` responses use a consistent JSON envelope.
+All `tracker_api` responses use a consistent JSON envelope. This is the same envelope every built-in tool returns; the per-tool sections below show each tool's `data` payload and its error kinds.
 
 **Success:**
 
@@ -344,7 +344,7 @@ The tool reads `.sortie/state.json`, a file the worker goroutine writes at sessi
 
 ### Response fields
 
-Returned as a bare JSON object (no `success`/`data` wrapper):
+The fields below are returned under `data` in the standard success envelope:
 
 | Field | Type | Description |
 |---|---|---|
@@ -370,16 +370,19 @@ Token usage fields:
 
 ```json
 {
-  "turn_number": 3,
-  "max_turns": 20,
-  "turns_remaining": 17,
-  "attempt": null,
-  "session_duration_seconds": 142.537,
-  "tokens": {
-    "input_tokens": 45000,
-    "output_tokens": 12000,
-    "total_tokens": 57000,
-    "cache_read_tokens": 8000
+  "success": true,
+  "data": {
+    "turn_number": 3,
+    "max_turns": 20,
+    "turns_remaining": 17,
+    "attempt": null,
+    "session_duration_seconds": 142.537,
+    "tokens": {
+      "input_tokens": 45000,
+      "output_tokens": 12000,
+      "total_tokens": 57000,
+      "cache_read_tokens": 8000
+    }
   }
 }
 ```
@@ -388,11 +391,22 @@ Token usage fields:
 
 ```json
 {
-  "error": "state file unavailable: open .sortie/state.json: no such file or directory"
+  "success": false,
+  "error": {
+    "kind": "state_unavailable",
+    "message": "state file unavailable: open .sortie/state.json: no such file or directory"
+  }
 }
 ```
 
-The error format is a flat `{"error": "message"}` object - different from `tracker_api`'s structured error envelope.
+The failure shape is the same structured envelope every built-in tool uses.
+
+### Error kinds
+
+| Kind | Meaning |
+|---|---|
+| `state_unavailable` | The state file is absent, a symlink, oversized, or unreadable. |
+| `state_malformed` | The state file is present but unparseable - malformed JSON or an invalid `started_at`. |
 
 ---
 
@@ -416,7 +430,7 @@ The tool opens the Sortie SQLite database (`SORTIE_DB_PATH`) with the `?mode=ro`
 
 ### Response fields
 
-Top-level:
+Returned under `data` in the standard success envelope:
 
 | Field | Type | Description |
 |---|---|---|
@@ -440,25 +454,28 @@ Per entry:
 
 ```json
 {
-  "issue_id": "42",
-  "entries": [
-    {
-      "attempt": 2,
-      "agent_adapter": "claude-code",
-      "started_at": "2026-03-30T14:20:00Z",
-      "completed_at": "2026-03-30T14:35:12Z",
-      "status": "failed",
-      "error": "agent turn error: turn timeout exceeded"
-    },
-    {
-      "attempt": 1,
-      "agent_adapter": "claude-code",
-      "started_at": "2026-03-30T13:00:00Z",
-      "completed_at": "2026-03-30T13:45:30Z",
-      "status": "succeeded",
-      "error": null
-    }
-  ]
+  "success": true,
+  "data": {
+    "issue_id": "42",
+    "entries": [
+      {
+        "attempt": 2,
+        "agent_adapter": "claude-code",
+        "started_at": "2026-03-30T14:20:00Z",
+        "completed_at": "2026-03-30T14:35:12Z",
+        "status": "failed",
+        "error": "agent turn error: turn timeout exceeded"
+      },
+      {
+        "attempt": 1,
+        "agent_adapter": "claude-code",
+        "started_at": "2026-03-30T13:00:00Z",
+        "completed_at": "2026-03-30T13:45:30Z",
+        "status": "succeeded",
+        "error": null
+      }
+    ]
+  }
 }
 ```
 
@@ -466,8 +483,11 @@ Per entry:
 
 ```json
 {
-  "issue_id": "42",
-  "entries": []
+  "success": true,
+  "data": {
+    "issue_id": "42",
+    "entries": []
+  }
 }
 ```
 
@@ -475,25 +495,226 @@ Per entry:
 
 ```json
 {
-  "error": "query failed: database is locked"
+  "success": false,
+  "error": {
+    "kind": "query_failed",
+    "message": "query failed: database is locked"
+  }
 }
 ```
 
-The error format is a flat `{"error": "message"}` object, same as `sortie_status`.
+The failure shape is the same structured envelope every built-in tool uses.
+
+### Error kinds
+
+| Kind | Meaning |
+|---|---|
+| `query_failed` | The history query failed. |
+
+---
+
+## `cost_budget`
+
+Read-only token accounting for the current issue. The agent calls this tool to check cumulative token spend across all of the issue's sessions and the remaining budget, then decide whether to skip an expensive step, return partial work, or hand off before the orchestrator's token ceiling blocks the next session. Where `sortie_status` reports token usage for the current session (read from `.sortie/state.json`), `cost_budget` reports cumulative spend across every session for the issue (read from SQLite) and compares it against the configured budget.
+
+`cost_budget` is a **Tier 1** tool: queries the local SQLite database in read-only mode, no external calls. Registered when both `SORTIE_DB_PATH` and `SORTIE_ISSUE_ID` are set and the database can be opened in read-only mode - the same condition as `workspace_history`, sharing the same read-only connection. If the database open fails, the MCP server continues without both tools (non-fatal). When `SORTIE_SESSION_ID` is also set, the reading includes the running session's recorded spend; without it, only completed sessions count.
+
+### Input schema
+
+No parameters. The agent sends an empty JSON object:
+
+```json
+{}
+```
+
+### How it works
+
+The tool sums `total_tokens` across the issue's `run_history` rows (one per completed session) and adds the running session's recorded total from `session_metadata`. The orchestrator updates `session_metadata` incrementally during the session, throttled to at most one write per issue every two seconds and driven by token usage events, so the running number stays current. That total is added only when the stored session ID matches `SORTIE_SESSION_ID`, so a stale row from an earlier session is never counted. Nothing is counted twice: a running session reaches `run_history` only when it ends.
+
+Run-history rows written before the token columns existed (migration 011) read as zero, so spend recorded before the upgrade is invisible to the budget.
+
+### Response fields
+
+The fields below are returned under `data` in the standard success envelope:
+
+| Field | Type | Description |
+|---|---|---|
+| `used_tokens` | integer | Cumulative `total_tokens` across the issue's completed sessions, plus the running session's recorded spend. |
+| `budget_tokens` | integer | The configured [`agent.max_tokens`](/reference/workflow-config/#agent). `0` means unlimited. |
+| `remaining_tokens` | integer or null | `budget_tokens - used_tokens`, floored at 0. `null` when the budget is unlimited, so the agent can tell "no limit" from "nothing left". |
+| `used_sessions` | integer | Completed sessions for the issue. The running session is not counted. |
+| `budget_sessions` | integer | The configured [`agent.max_sessions`](/reference/workflow-config/#agent). `0` means unlimited. |
+
+`used_tokens` includes the running session while `used_sessions` excludes it. The asymmetry is deliberate: a session is either finished or not, tokens accrue continuously, and a reading that ignored in-flight spend would be useless at exactly the moment the agent consults it.
+
+The orchestrator enforces the same numbers. When `used_tokens` reaches a non-zero `budget_tokens`, the next re-dispatch for the issue is blocked. See [how to control agent costs](/guides/control-costs/) for the enforcement behavior and budget strategy.
+
+### Example response
+
+**Success with a configured budget:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "used_tokens": 384000,
+    "budget_tokens": 1000000,
+    "remaining_tokens": 616000,
+    "used_sessions": 2,
+    "budget_sessions": 5
+  }
+}
+```
+
+**Success with an unlimited budget:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "used_tokens": 384000,
+    "budget_tokens": 0,
+    "remaining_tokens": null,
+    "used_sessions": 2,
+    "budget_sessions": 5
+  }
+}
+```
+
+**Error:**
+
+```json
+{
+  "success": false,
+  "error": {
+    "kind": "query_failed",
+    "message": "query failed: database is locked"
+  }
+}
+```
+
+The failure shape is the same structured envelope every built-in tool uses.
+
+### Error kinds
+
+| Kind | Meaning |
+|---|---|
+| `query_failed` | The budget query failed. |
+
+---
+
+## `notify_operator`
+
+Real-time notification to the operator's configured channels. The agent calls this tool to escalate a decision it should not make alone, report progress on a long task, or flag a blocker, without terminating the session. Sending a notification changes nothing in orchestration: no retry suppression, no tracker transition, no claim release. To tell the orchestrator to stop, the agent writes `.sortie/status`; see the [agent communication model](/concepts/agent-communication/) for how the two surfaces relate.
+
+`notify_operator` is a **Tier 2** tool: it makes outbound HTTP POST calls to operator-configured endpoints. Sortie registers the tool only when the `notifications` list in [WORKFLOW.md](/reference/workflow-config/#notifications) configures at least one backend (`webhook` or `slack`); an empty or absent list leaves the tool unregistered, so the agent is never offered a tool it cannot use. An invalid backend (unknown kind, missing endpoint URL, a secret that resolved to the empty string) is a fatal MCP server startup error, never a partial registration.
+
+### Input schema
+
+The tool accepts a JSON object with these fields:
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `severity` | string | Yes | One of: `info`, `warning`, `critical` |
+| `title` | string | Yes | Non-empty short summary |
+| `body` | string | Yes | Non-empty notification detail |
+| `category` | string | No | One of: `decision_needed`, `progress`, `blocked`, `completed`, `other` |
+
+No additional fields are accepted. Unknown fields, trailing content, out-of-enum values, and an empty `title` or `body` all produce an `invalid_input` error. The agent supplies only the message; every envelope field below is system-owned and absent from the schema.
+
+### How it works
+
+Each accepted call produces one notification with two layers. The agent supplies the message (`severity`, `title`, `body`, optional `category`). The tool fills the envelope from session context the agent cannot set or forge: a generated UUID `notification_id`, an RFC3339 UTC `timestamp`, a `source` identifying the Sortie instance (the hostname), the `issue_id` and `identifier`, the `session_id`, the `attempt` (`null` on the first run), and the dispatch-frozen `agent` kind from `SORTIE_SESSION_AGENT_KIND`.
+
+Delivery goes to every configured backend in configuration order and stops at the first backend that fails, which yields a `send_failed` error. Partial delivery across backends is not reported in this version. Each backend call carries a 10-second timeout, so a slow endpoint cannot stall the turn indefinitely.
+
+Calls are capped per session. The effective cap is the highest non-zero `max_per_session` across the configured backends, falling back to 20 when every entry is `0` or unset; `0` selects the default, never unlimited. A call past the cap returns `rate_limited` and sends nothing. The counter counts accepted tool calls, not per-backend sends, and increments only after every backend succeeded, so a failed call does not consume the cap.
+
+The backends never log or echo the endpoint URL, the request body, or the response body. Delivery failures surface as fixed categories (`timeout`, `connection failure`, `unauthorized (HTTP <code>)`, `rate limited (HTTP 429)`, `server error (HTTP <code>)`, `unexpected response (HTTP <code>)`) in the `send_failed` message, so a secret-bearing webhook URL never reaches a log or the agent.
+
+### What each backend delivers
+
+The `webhook` backend posts the notification as a single JSON object with generic field names. Any 2xx response counts as success:
+
+```json
+{
+  "notification_id": "3f8a2c1d-9b4e-4f6a-8c2d-1e7b5a9d0c3f",
+  "timestamp": "2026-06-11T14:03:05Z",
+  "source": "build-host-01",
+  "issue_id": "abc123",
+  "identifier": "PROJ-42",
+  "session_id": "b4c0e7d2-5a19-4e8b-9f3c-6d2a8e1b7c4d",
+  "attempt": 2,
+  "agent": "claude-code",
+  "severity": "critical",
+  "title": "Decision needed: breaking schema change",
+  "body": "Fixing this bug requires dropping a column other services may read. Need a human decision before proceeding.",
+  "category": "decision_needed"
+}
+```
+
+`attempt` is `null` on the first run and a number afterwards. `category` is omitted when the agent did not set one. This outbound webhook backend is unrelated to inbound tracker webhooks that trigger reconciliation: same word, opposite direction.
+
+The `slack` backend posts a Slack incoming-webhook body whose `text` field renders the message with the severity uppercased:
+
+```json
+{"text": "[CRITICAL] Decision needed: breaking schema change\nFixing this bug requires dropping a column other services may read. Need a human decision before proceeding."}
+```
+
+The Slack rendering carries only the message. The envelope (issue key, session ID) does not appear in the Slack text.
+
+### Response envelope
+
+**Success:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "delivered": 2,
+    "notification_id": "3f8a2c1d-9b4e-4f6a-8c2d-1e7b5a9d0c3f"
+  }
+}
+```
+
+`data.delivered` is the number of backends that accepted the notification; on success it equals the number of configured backends.
+
+**Failure:**
+
+```json
+{
+  "success": false,
+  "error": {
+    "kind": "send_failed",
+    "message": "notification delivery failed: timeout"
+  }
+}
+```
+
+### Error kinds
+
+| Kind | Meaning |
+|---|---|
+| `invalid_input` | Malformed request: unknown or trailing fields, an out-of-enum `severity` or `category`, or an empty `title` or `body`. |
+| `rate_limited` | The per-session notification cap is reached. Nothing was sent. |
+| `send_failed` | A backend returned a transport failure, a non-2xx response, or an unparseable response. The message is a redacted category and never echoes the URL, request body, or response body. |
+| `backend_unavailable` | No backend could be resolved at execution time. Defensive: normal operation registers the tool only when a backend is configured. |
 
 ---
 
 ## Response format summary
 
-Different tools use different response envelopes. This table shows the shape at a glance:
+Every tool uses the same response envelope; each tool's section above documents what goes in `data`. This table shows the shape at a glance:
 
 | Tool | Success format | Error format |
 |---|---|---|
 | `tracker_api` | `{"success": true, "data": {...}}` | `{"success": false, "error": {"kind": "...", "message": "..."}}` |
-| `sortie_status` | Bare JSON object | `{"error": "message"}` |
-| `workspace_history` | `{"issue_id": "...", "entries": [...]}` | `{"error": "message"}` |
+| `sortie_status` | `{"success": true, "data": {...}}` | `{"success": false, "error": {"kind": "...", "message": "..."}}` |
+| `workspace_history` | `{"success": true, "data": {...}}` | `{"success": false, "error": {"kind": "...", "message": "..."}}` |
+| `cost_budget` | `{"success": true, "data": {...}}` | `{"success": false, "error": {"kind": "...", "message": "..."}}` |
+| `notify_operator` | `{"success": true, "data": {...}}` | `{"success": false, "error": {"kind": "...", "message": "..."}}` |
 
-The `tracker_api` envelope provides structured error kinds for programmatic handling. The Tier 1 tools use a simpler flat error string - there are fewer failure modes to categorize.
+All tools provide structured `error.kind` values for programmatic handling. The Tier 1 tools (`sortie_status`, `workspace_history`, `cost_budget`) share a small closed set (`state_unavailable`, `state_malformed`, `query_failed`) because their only failure mode is local state that is missing or unreadable; the Tier 2 tools (`tracker_api`, `notify_operator`) carry broader kind sets covering transport, auth, rate-limit, and input failures.
 
 ---
 
@@ -508,6 +729,8 @@ You have access to Sortie tools via MCP. Use them to:
 - Check related issues with the tracker_api tool (search_issues operation)
 - Check your remaining turns with the sortie_status tool
 - Review prior run history with the workspace_history tool
+- Check cumulative token spend and remaining budget with the cost_budget tool
+- Escalate a decision to a human or report progress with the notify_operator tool (when notifications are configured)
 - Transition the issue when done with the tracker_api tool (transition_issue operation)
 ```
 
@@ -520,6 +743,8 @@ For detailed patterns and worked examples, see [how to use agent tools in prompt
 ## See also
 
 - [Agent communication model](/concepts/agent-communication/) - why two channels (file protocol + MCP tools) exist
+- [Agent tools concept](/concepts/agent-tools/) - the tier model: what each tier guarantees and when each tool registers
+- [Security model](/concepts/security/) - trust boundaries for outbound notifications and agent-generated content
 - [How to use agent tools in prompts](/guides/use-agent-tools-in-prompts/) - task-specific tool guidance for workflow authors
 - [How to write a custom agent tool](/guides/write-custom-agent-tool/) - implementing the `Tool` interface
 - [Environment variables reference](/reference/environment/#mcp-server-environment) - MCP server env vars

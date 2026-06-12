@@ -2,7 +2,7 @@
 title: "How to Configure Retry Behavior"
 linkTitle: "Configure Retry Behavior"
 description: "Control how Sortie retries failed agents with session budgets, backoff tuning, stall detection, and timeout settings for production reliability."
-keywords: sortie retry, max_sessions, backoff, stall detection, turn timeout, retry configuration, agent failure, max_retry_backoff_ms
+keywords: sortie retry, max_sessions, max_tokens, backoff, stall detection, turn timeout, retry configuration, agent failure, max_retry_backoff_ms
 author: Sortie AI
 date: 2026-03-28
 weight: 60
@@ -39,10 +39,23 @@ $$
 When the budget is exhausted, you'll see this in the logs:
 
 ```
-level=WARN msg="effort budget exhausted, releasing claim" issue_id="PROJ-42" identifier="PROJ-42" completed_sessions=3 max_sessions=3
+level=WARN msg="effort budget exhausted, blocking re-dispatch" issue_id="PROJ-42" issue_identifier="PROJ-42" count=3 max_sessions=3
 ```
 
 At that point, the issue is no longer Sortie's problem. Check the [dashboard](/reference/dashboard/) run history to see what each session accomplished.
+
+A second ceiling guards cost rather than attempts. When [`agent.max_tokens`](/reference/workflow-config/#agent) is set, Sortie also sums the tokens consumed across the issue's completed sessions before every re-dispatch and blocks the issue once the sum reaches the budget. The effect is identical to session exhaustion: claim released, retry entry dropped, issue left for human review. The two ceilings are independent and whichever fills first wins; when one evaluation finds both exhausted, the logged reason names the token budget (`token_budget`). If the token query fails, the check fails open and dispatch proceeds. For choosing a budget and the cost math, see [how to control agent costs](/guides/control-costs/).
+
+```yaml
+agent:
+  max_tokens: 1500000
+```
+
+When the token ceiling fires:
+
+```
+level=WARN msg="token budget exhausted, blocking re-dispatch" issue_id="PROJ-42" issue_identifier="PROJ-42" reason="token_budget" used_tokens=1503417 budget_tokens=1500000 used_sessions=2 budget_sessions=3
+```
 
 ## Tune backoff timing
 
@@ -130,19 +143,20 @@ Keep `stall_timeout_ms` shorter than `turn_timeout_ms`. Stall detection catches 
 
 Here's a conservative configuration that balances reliability with resource efficiency:
 
-```yaml {hl_lines=["4-5","7-9"]}
+```yaml {hl_lines=["4-6","8-10"]}
 # WORKFLOW.md — agent block
 agent:
   kind: claude-code
   max_turns: 3
   max_sessions: 3
+  max_tokens: 1500000
   max_concurrent_agents: 4
   turn_timeout_ms: 1800000      # 30 min per turn
   stall_timeout_ms: 300000       # 5 min stall detection
   max_retry_backoff_ms: 120000   # 2 min max backoff
 ```
 
-What this means in practice: each issue gets up to 3 sessions. Each session runs up to 3 turns. Stalled sessions are killed after 5 minutes of silence. Error retries cap at 2 minutes between attempts.
+What this means in practice: each issue gets up to 3 sessions. Each session runs up to 3 turns. An issue stops getting new sessions once its sessions have consumed 1.5M tokens in total. Stalled sessions are killed after 5 minutes of silence. Error retries cap at 2 minutes between attempts.
 
 Worst case for a single issue: 3 sessions × 3 turns × 30 minutes = 4.5 hours of compute time, plus retry delays between sessions. In reality, most issues resolve in one session, and failed turns trigger backoff well before hitting the turn timeout.
 
@@ -166,6 +180,9 @@ grep "retried issue dispatched" sortie.log
 # Session budget exhausted
 grep "effort budget exhausted" sortie.log
 
+# Token budget exhausted
+grep "token budget exhausted" sortie.log
+
 # Stall killed a session
 grep "stall detected" sortie.log
 ```
@@ -174,6 +191,6 @@ grep "stall detected" sortie.log
 
 ## What we configured
 
-You now have control over all four dimensions of Sortie's retry behavior: how many times it retries (`max_sessions`), how long it waits between retries (`max_retry_backoff_ms`), how it detects stuck sessions (`stall_timeout_ms`), and when it gives up on a single turn (`turn_timeout_ms`). The continuation retry for successful-but-incomplete work runs at a fixed 1-second interval and needs no configuration.
+You now have control over all five dimensions of Sortie's retry behavior: how many times it retries (`max_sessions`), how much an issue may spend across those attempts (`max_tokens`), how long it waits between retries (`max_retry_backoff_ms`), how it detects stuck sessions (`stall_timeout_ms`), and when it gives up on a single turn (`turn_timeout_ms`). The continuation retry for successful-but-incomplete work runs at a fixed 1-second interval and needs no configuration.
 
 For the full state machine and backoff formulas, see the [state machine reference](/reference/state-machine/). For all config field defaults in one place, see the [workflow config reference](/reference/workflow-config/). For budget and cost controls that complement retry settings, see [how to control agent costs](/guides/control-costs/).

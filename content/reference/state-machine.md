@@ -68,6 +68,7 @@ flowchart TD
 - Reconciliation detects the tracker state is terminal or no longer in `active_states`.
 - The retry timer fires but the issue is absent from the candidate list.
 - The `max_sessions` budget is reached.
+- The `max_tokens` token budget is reached.
 - The worker error is classified as non-retryable.
 - A `handoff_state` transition succeeds (the tracker now owns the issue).
 - Soft-stop `blocked`: worker exits normally, claim released. No handoff transition, no continuation retry.

@@ -9,6 +9,8 @@ weight: 80
 ---
 In this tutorial, we will connect Sortie to Jira and the OpenCode CLI, then watch the full unattended cycle: Jira offers an `agent-ready` issue, Sortie clones your repository, OpenCode writes and commits code, Sortie pushes a branch, and Jira moves the issue to Done. This builds on the [Jira integration tutorial](/getting-started/jira-integration/) and adds three pieces: the OpenCode CLI adapter, workspace hooks for git operations, and a prompt template. The tracker stays the same as in the [Claude Code tutorial](/getting-started/jira-claude-end-to-end/) and the [Codex tutorial](/getting-started/jira-codex-end-to-end/). Only the agent changes.
 
+> **Jira Server and Data Center:** This tutorial uses Jira Cloud. If you are connecting to a self-hosted Jira Server or Data Center instance, see the [Jira adapter reference](/reference/adapter-jira/#api_version) for the `api_version: "2"` field and Server / Data Center configuration before continuing.
+
 ## Prerequisites
 
 - [Jira integration tutorial](/getting-started/jira-integration/) completed - Sortie connects to your Jira project, and the environment variables `SORTIE_JIRA_ENDPOINT` and `SORTIE_JIRA_API_KEY` are set

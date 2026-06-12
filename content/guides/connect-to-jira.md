@@ -1,27 +1,29 @@
 ---
-title: How to Connect Sortie to Jira Cloud
+title: How to connect Sortie to Jira
 linkTitle: "Connect to Jira"
-description: "Configure Sortie to poll a Jira Cloud project: set up API authentication, map workflow states, scope queries with JQL filters, and verify the connection."
-keywords: sortie jira, jira cloud, jira adapter, api token, jql, workflow states, tracker configuration, connect jira
+description: "Configure Sortie to poll a Jira project: set up API authentication, map workflow states, scope queries with JQL filters, and verify the connection. Covers Jira Cloud and Jira Server / Data Center."
+keywords: sortie jira, jira cloud, jira server, jira data center, jira adapter, api token, jql, workflow states, tracker configuration, connect jira
 author: Sortie AI
 date: 2026-03-28
 weight: 10
 url: /guides/connect-to-jira/
 ---
-This guide configures Sortie to poll issues from a Jira Cloud project, dispatch agents, and transition issues through your Jira workflow. By the end, you'll have a working `WORKFLOW.md` that authenticates against your Jira instance, fetches the right issues, and reports back status changes.
+This guide configures Sortie to poll issues from a Jira project, dispatch agents, and transition issues through your Jira workflow. By the end, you will have a working `WORKFLOW.md` that authenticates against your Jira instance, fetches the right issues, and reports back status changes.
+
+> **Jira Server and Data Center:** This guide walks through the Cloud setup (REST API v3, Basic auth with `email:token`). If you are connecting to a self-hosted Jira Server or Data Center instance, see the [Jira adapter reference](/reference/adapter-jira/#api_version) for v2 configuration, Bearer/PAT authentication, and the `api_version: "2"` field.
 
 ## Prerequisites
 
 - Sortie installed and on your `PATH` ([installation guide](/getting-started/installation/))
 - Quick start completed with the file adapter ([quick start](/getting-started/quick-start/))
-- A **Jira Cloud** instance (Server and Data Center are not supported — the adapter uses REST API v3, which is Cloud-only)
-- An API token from [Atlassian account settings → Security → API tokens](https://id.atlassian.com/manage-profile/security/api-tokens)
-- Your Jira project key (the prefix on issue identifiers — `PROJ` in `PROJ-42`)
+- A Jira Cloud instance with an API token, or a Jira Server / Data Center instance (see note above)
+- An API token from [Atlassian account settings: Security: API tokens](https://id.atlassian.com/manage-profile/security/api-tokens) (Cloud) or a Personal Access Token from your instance profile (Server / Data Center)
+- Your Jira project key (the prefix on issue identifiers, `PROJ` in `PROJ-42`)
 - The workflow status names used in your project (e.g., "To Do", "In Progress", "Done")
 
 ## Create the API token
 
-Generate a token in your Atlassian account settings. Sortie authenticates with Basic Auth, which requires your **email address and the token joined by a colon**:
+Generate a token in your Atlassian account settings. Sortie authenticates with Basic Auth for Cloud, which requires your **email address and the token joined by a colon**:
 
 ```
 you@company.com:your-api-token-here
@@ -36,7 +38,7 @@ export SORTIE_JIRA_ENDPOINT="https://yourcompany.atlassian.net"
 export SORTIE_JIRA_API_KEY="you@company.com:your-api-token-here"
 ```
 
-The endpoint is the base URL of your Jira instance — no `/rest/api/...` suffix. Sortie rejects endpoints that include an API path.
+The endpoint is the base URL of your Jira instance, no `/rest/api/...` suffix. Sortie rejects endpoints that include an API path.
 
 ## Write the minimum configuration
 
@@ -61,13 +63,13 @@ Fix {{ .issue.identifier }}: {{ .issue.title }}
 
 Three fields are required:
 
-- **`endpoint`** — Jira Cloud base URL. Sortie strips trailing slashes.
-- **`api_key`** — `email:token` format. Sent as a Base64-encoded Basic Auth header on every request.
-- **`project`** — Jira project key. Must not be empty.
+- **`endpoint`**: Jira Cloud base URL. Sortie strips trailing slashes.
+- **`api_key`**: `email:token` format. Sent as a Base64-encoded Basic Auth header on every request.
+- **`project`**: Jira project key. Must not be empty.
 
 The `$VAR` syntax expands environment variables at config load time. `endpoint` and `project` expand only when the entire value is a variable reference (`$VAR` or `${VAR}`). `api_key` expands variables anywhere in the string, so `$SORTIE_JIRA_API_KEY` works both ways.
 
-If you omit `active_states`, Sortie defaults to `["Backlog", "Selected for Development", "In Progress"]`. Override this to match your project's actual workflow status names. State names are compared **case-insensitively** — `"to do"` matches Jira's `"To Do"`.
+If you omit `active_states`, Sortie defaults to `["Backlog", "Selected for Development", "In Progress"]`. Override this to match your project's actual workflow status names. State names are compared **case-insensitively**; `"to do"` matches Jira's `"To Do"`.
 
 ## Scope issues with a query filter
 
@@ -107,7 +109,7 @@ The filter applies to candidate fetches and state-change polls. It does **not** 
 
 ## Configure handoff state
 
-When an agent completes its work, Sortie can transition the issue to a specific state — a review column, a QA queue, or any reachable status in your Jira workflow:
+When an agent completes its work, Sortie can transition the issue to a specific state (a review column, a QA queue, or any reachable status in your Jira workflow):
 
 ```yaml {hl_lines=[8]}
 tracker:
@@ -120,7 +122,7 @@ tracker:
   terminal_states: [Done]
 ```
 
-Sortie uses the Jira transitions API: it fetches available transitions for the issue, finds one whose target status matches `handoff_state` (case-insensitive), and executes it. If no matching transition exists — because the Jira workflow doesn't allow it from the current status — Sortie logs an error:
+Sortie uses the Jira transitions API: it fetches available transitions for the issue, finds one whose target status matches `handoff_state` (case-insensitive), and executes it. If no matching transition exists (because the Jira workflow does not allow it from the current status), Sortie logs an error:
 
 ```
 level=ERROR msg="transition failed" error="tracker: tracker_payload: no transition to state \"Human Review\" available for issue PROJ-42"
@@ -133,7 +135,7 @@ Two constraints:
 
 ## Configure dispatch-time transitions
 
-Sortie can also transition an issue when the agent *picks it up* — moving it to an "In Progress" column so your team sees work has started:
+Sortie can also transition an issue when the agent picks it up, moving it to an "In Progress" column so your team sees work has started:
 
 ```yaml {hl_lines=[8]}
 tracker:
@@ -147,7 +149,7 @@ tracker:
   terminal_states: [Done]
 ```
 
-`in_progress_state` must be a value in `active_states`. If the issue is already in that state at dispatch time, the transition is skipped (debug log only). If the transition fails for other reasons — for example, the Jira workflow doesn't allow it — Sortie logs a warning and continues. The agent session proceeds regardless.
+`in_progress_state` must be a value in `active_states`. If the issue is already in that state at dispatch time, the transition is skipped (debug log only). If the transition fails for other reasons (for example, the Jira workflow does not allow it), Sortie logs a warning and continues. The agent session proceeds regardless.
 
 Three constraints:
 
@@ -157,7 +159,7 @@ Three constraints:
 
 ## Enable tracker comments
 
-Sortie can post comments on Jira issues at session lifecycle points — dispatch, completion, and failure. This creates a visible audit trail in the ticket without leaving Jira:
+Sortie can post comments on Jira issues at session lifecycle points (dispatch, completion, and failure). This creates a visible audit trail in the ticket without leaving Jira:
 
 ```yaml
 tracker:
@@ -170,7 +172,7 @@ tracker:
 
 Each flag is independent. Enable only the events you care about. All default to `false`.
 
-Comment failures are non-fatal — Sortie logs a warning and continues. The API token needs the same write permissions as `handoff_state` (`write:jira-work` or `write:issue:jira`).
+Comment failures are non-fatal. Sortie logs a warning and continues. The API token needs the same write permissions as `handoff_state` (`write:jira-work` or `write:issue:jira`).
 
 See the [workflow config reference](/reference/workflow-config/) for comment content details.
 
@@ -200,7 +202,7 @@ Watch the logs. A successful poll produces:
 level=INFO msg="tick completed" candidates=3 dispatched=0 running=0 retrying=0
 ```
 
-`candidates=3` means Sortie found 3 issues in your active states (and matching your `query_filter`, if set). `dispatched=0` is expected in dry-run mode — no agents are launched.
+`candidates=3` means Sortie found 3 issues in your active states (and matching your `query_filter`, if set). `dispatched=0` is expected in dry-run mode; no agents are launched.
 
 If `candidates=0` and you expected results, check that your `active_states` values match Jira's status names exactly (comparison is case-insensitive, but the names must otherwise match) and that your `query_filter` JQL is valid.
 
@@ -224,7 +226,7 @@ If this returns your user profile, the token works. If it returns 401, regenerat
 ### CAPTCHA lockout
 
 ```
-level=ERROR msg="poll failed" error="tracker: tracker_auth_error: GET /rest/api/3/search/jql: 401 (CAPTCHA challenge triggered — log in via browser to resolve)"
+level=ERROR msg="poll failed" error="tracker: tracker_auth_error: GET /rest/api/3/search/jql: 401 (CAPTCHA challenge triggered; log in via browser to resolve)"
 ```
 
 Jira locked the account after repeated failed attempts. Log in to Jira through a browser, complete the CAPTCHA, then restart Sortie.
@@ -235,7 +237,7 @@ Jira locked the account after repeated failed attempts. Log in to Jira through a
 level=ERROR msg="poll failed" error="tracker: tracker_not_found: GET /rest/api/3/search/jql: not found"
 ```
 
-The `project` key doesn't match any project in your Jira instance. Verify the key in Jira's project settings — it's the short prefix, not the project name.
+The `project` key does not match any project in your Jira instance. Verify the key in Jira's project settings; it is the short prefix, not the project name.
 
 ### Rate limiting
 
@@ -243,7 +245,7 @@ The `project` key doesn't match any project in your Jira instance. Verify the ke
 level=WARN msg="poll failed" error="tracker: tracker_api: GET /rest/api/3/search/jql: rate limited (retry after 30 seconds)"
 ```
 
-Jira enforces rate limits on API calls. Sortie does not throttle client-side — it logs the response and waits for the next poll interval. If you hit this repeatedly, increase `polling.interval_ms` or narrow your `query_filter` to reduce result set size. Sortie paginates with a page size of 50, so large projects generate multiple API calls per poll.
+Jira enforces rate limits on API calls. Sortie does not throttle client-side; it logs the response and waits for the next poll interval. If you hit this repeatedly, increase `polling.interval_ms` or narrow your `query_filter` to reduce result set size. Sortie paginates with a page size of 50, so large projects generate multiple API calls per poll.
 
 ### Unreachable handoff transition
 

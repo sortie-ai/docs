@@ -11,6 +11,8 @@ In this tutorial, we will connect Sortie to a live Jira Cloud project, watch it 
 
 We use the mock agent on purpose. The quick start taught you how Sortie works with local files. This tutorial isolates the next variable: a real issue tracker. Once Jira works, swapping in a real agent is a one-line change.
 
+> **Jira Server and Data Center:** This tutorial uses Jira Cloud with REST API v3 and Basic auth (`email:token`). If you are connecting to a self-hosted Jira Server or Data Center instance, see the [Jira adapter reference](/reference/adapter-jira/#api_version) for the `api_version: "2"` field, Bearer/PAT authentication, and Server / Data Center configuration.
+
 ## Prerequisites
 
 - Sortie installed and on your `PATH` ([installation guide](/getting-started/installation/))

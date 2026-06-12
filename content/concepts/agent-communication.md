@@ -1,7 +1,7 @@
 ---
 title: "Agent Communication"
 description: "Why Sortie splits agent communication into two channels: MCP tool calls for data and .sortie/status files for control signals. Rationale and trade-offs."
-keywords: sortie agent communication, MCP tools, .sortie/status, agent-to-orchestrator protocol, data plane, control plane, agent-agnostic, defense in depth
+keywords: sortie agent communication, MCP tools, .sortie/status, agent-to-orchestrator protocol, notify_operator, agent-to-operator, data plane, control plane, agent-agnostic, defense in depth
 author: Sortie AI
 date: 2026-04-03
 weight: 50
@@ -13,6 +13,8 @@ The first channel is **MCP tool calls** — a request-response protocol where th
 The second channel is the **`.sortie/status` file** — a one-line file the agent writes to disk to advise the orchestrator about task feasibility. "I'm blocked, stop retrying me" is a status file. The agent doesn't need a response. It's sending a signal, not asking a question. This is the control plane.
 
 These two channels are independent. They use different transports, operate at different times, serve different purposes, and fail in different ways. The rest of this document explains why that independence is the point.
+
+There is also a third path, aimed elsewhere: the **`notify_operator` tool** sends a real-time notification to a human operator through channels the operator configured, such as a Slack webhook. It is a tool call by transport, but its audience is a person, not the orchestrator. The two channels to the orchestrator are still two; this one leaves the loop entirely.
 
 ## Both channels in one session
 
@@ -50,7 +52,7 @@ When Sortie dispatches an agent, the worker creates a `.sortie/mcp.json` configu
 
 The agent runtime reads the config, spawns the sidecar, and from that point owns the MCP server process. The worker has no direct relationship with the MCP server — it created the config file and walked away. The worker manages the agent. The agent manages its tools. Clean ownership boundaries.
 
-During the session, the agent talks to the MCP server over a stdio pipe. `tools/list` returns what's available — `tracker_api`, `sortie_status`, `workspace_history`. `tools/call` executes a tool and returns a JSON result. The agent uses these responses to inform its work: reading issue comments before writing code, checking turn budget before attempting a large refactor.
+During the session, the agent talks to the MCP server over a stdio pipe. `tools/list` returns what's available — `tracker_api`, `sortie_status`, `workspace_history`, `cost_budget`, `notify_operator`. `tools/call` executes a tool and returns a JSON result. The agent uses these responses to inform its work: reading issue comments before writing code, checking turn budget before attempting a large refactor.
 
 Why MCP instead of a custom protocol, HTTP, or adapter-specific hooks? MCP is the standard tool protocol for coding agents. Claude Code, Copilot CLI, and others support it natively. Sortie works with any MCP-compatible agent without adapter-specific integration code in the orchestrator core. Stdio transport means no ports, no firewalls, no URL configuration — the agent and MCP server communicate through a pipe on the same host.
 
@@ -76,6 +78,14 @@ The file is advisory, not authoritative. The agent can't force the orchestrator 
 
 Before each new dispatch, Sortie deletes any existing `.sortie/status` file. Stale signals never leak between sessions.
 
+## Agent to operator: notify_operator
+
+The two channels above terminate at the orchestrator. The `notify_operator` tool is different: it rides the data plane's transport, an MCP tool call into the `sortie mcp-server` sidecar, but the destination is outside the orchestration loop. The sidecar posts the notification to channels the operator configured in WORKFLOW.md, such as a Slack incoming webhook or a generic HTTP endpoint. The audience is a human.
+
+Orchestration does not react. A notification suppresses no retry, performs no tracker transition, releases no claim. Sortie treats it as what it is: a message to a person who may act on it. The tool also exists only when the operator configured at least one notification backend; with none configured, it is not registered and the agent never sees it.
+
+Because it shares the MCP transport, it shares the data plane's failure mode: a crashed sidecar takes notifications down with the tools. An agent that is blocked should therefore do both, in this order: call `notify_operator` so a human hears about it now, then write `.sortie/status` so the retries actually stop. The file survives an MCP crash, and it is the only signal the orchestrator acts on. See the [agent extensions reference](/reference/agent-extensions/) for the tool schema and delivery behavior.
+
 ## Defense in depth
 
 The independence of these two channels is a safety property, not an accident of implementation.
@@ -97,10 +107,12 @@ If you're writing workflow prompts or building a custom agent, the decision fram
 | Query tracker data | `tracker_api` tool | You need a structured response to act on |
 | Check remaining turn budget | `sortie_status` tool | You need the data during the turn to plan work |
 | Review prior run outcomes | `workspace_history` tool | You need history to avoid repeating mistakes |
+| Escalate a decision to a human mid-session | `notify_operator` tool | The human needs to know now; the orchestrator does not act on it |
+| Report progress on a long task | `notify_operator` tool | Fire-and-forget to a configured channel |
 | Signal "I'm blocked" | `.sortie/status` file | One-way advisory, survives MCP failure |
 | Signal "ready for review" | `.sortie/status` file | Same file, but also triggers [handoff transition](/reference/agent-extensions/) when configured |
 
-The rule of thumb: if the agent needs a response, use a tool. If the agent is sending a signal about its own state, use the file.
+The rule of thumb: if the agent needs a response, use a tool. If the agent is sending a signal about its own state, use the file. If a human needs to know, use `notify_operator`.
 
 Both channels exist because the design optimizes for resilience over simplicity. Two channels means two things to learn — that's a real cost. It's worth paying because the alternative is a single channel where a crashed MCP server means the agent can't say "I'm stuck," or where a full disk means the agent can't read issue comments. Independent failure modes keep the system functional when pieces break. And in a system that runs autonomous agents on production codebases, pieces will break.
 
