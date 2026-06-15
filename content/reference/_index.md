@@ -37,4 +37,5 @@ Comprehensive reference for every CLI flag, configuration field, API endpoint, a
 {{< cards >}}
   {{< card link="adapter-jira" title="Jira Cloud" subtitle="Authentication, field mapping, JQL, and transitions." >}}
   {{< card link="adapter-github" title="GitHub Issues" subtitle="Token auth, label filters, state mapping, and webhooks." >}}
+  {{< card link="adapter-linear" title="Linear" subtitle="API-key auth, GraphQL field mapping, and IssueFilter scoping." >}}
 {{< /cards >}}

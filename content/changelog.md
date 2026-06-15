@@ -11,6 +11,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.0] - 2026-06-15 { #1.13.0 }
+
+### Added
+
+- Linear tracker adapter: configure with `tracker.kind: linear` and
+  `tracker.project` set to a Linear team key (the prefix in identifiers
+  such as `ABC-123`). The adapter speaks Linear's GraphQL API over a
+  single endpoint and authenticates with a personal API key,
+  validating the key against the workspace at construction time. It
+  implements the full `TrackerAdapter` interface: cursor-paginated
+  candidate fetch, issue and comment retrieval, and state reconciliation
+  on the read path; `TransitionIssue`, `CommentIssue`, and `AddLabel` on
+  the write path, so a Linear-backed deployment performs handoff
+  transitions, posts lifecycle comments, and attaches escalation labels
+  on par with the Jira and GitHub adapters. Workflow states are mapped
+  by display name, matched case-insensitively and verified against the
+  team at startup, rather than by Linear's immutable state `type`.
+  `tracker.query_filter` accepts a Linear `IssueFilter` JSON fragment
+  merged with the adapter-owned team and state constraints; a top-level
+  `team` or `state` key is reserved and rejected. Linear returns
+  application errors inside HTTP 200 bodies, so the adapter classifies
+  the response body before any HTTP-status check; the request rate limit
+  is read from response headers rather than hardcoded. Ships with an
+  `examples/WORKFLOW.linear.md` sample workflow.
+  ([#237](https://github.com/sortie-ai/sortie/issues/237),
+  [#589](https://github.com/sortie-ai/sortie/issues/589),
+  [#599](https://github.com/sortie-ai/sortie/issues/599),
+  [#593](https://github.com/sortie-ai/sortie/issues/593))
+- `sortie validate` Linear adapter config validation: emits offline
+  diagnostics for `tracker.kind: linear` covering `tracker.project` as a
+  Linear team key, a `$SORTIE_LINEAR_API_KEY` environment-variable hint,
+  empty state labels, and active/terminal state overlap, matching the
+  checks already provided for the Jira and GitHub adapters. Errors block
+  dispatch; warnings are advisory.
+  ([#590](https://github.com/sortie-ai/sortie/issues/590))
+
 ## [1.12.0] - 2026-06-12 { #1.12.0 }
 
 ### Added
@@ -1050,6 +1086,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   execution via GitHub Actions.
 - Architecture Decision Records (ADR-0001 through ADR-0005).
 
+[1.13.0]: https://github.com/sortie-ai/sortie/compare/1.12.0...1.13.0
 [1.12.0]: https://github.com/sortie-ai/sortie/compare/1.11.0...1.12.0
 [1.11.0]: https://github.com/sortie-ai/sortie/compare/1.10.0...1.11.0
 [1.10.0]: https://github.com/sortie-ai/sortie/compare/1.9.1...1.10.0

@@ -12,6 +12,7 @@ Step-by-step instructions for configuring, operating, and extending Sortie.
 {{< cards >}}
   {{< card link="connect-to-jira" title="Connect to Jira" subtitle="API authentication, state mapping, and JQL filters." >}}
   {{< card link="connect-to-github" title="Connect to GitHub" subtitle="Token setup, label filters, and state mapping." >}}
+  {{< card link="connect-to-linear" title="Connect to Linear" subtitle="API-key authentication, state mapping, and IssueFilter scoping." >}}
   {{< card link="use-file-adapter-for-testing" title="File Adapter for Testing" subtitle="Test workflows without a real tracker." >}}
   {{< card link="write-prompt-template" title="Write a Prompt Template" subtitle="Go text/template with issue fields and helpers." >}}
   {{< card link="setup-workspace-hooks" title="Workspace Hooks" subtitle="Run scripts before and after agent sessions." >}}

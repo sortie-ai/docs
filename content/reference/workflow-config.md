@@ -2,7 +2,7 @@
 title: Workflow Configuration
 linkTitle: "Workflow File"
 description: "Reference for every WORKFLOW.md field: tracker, polling, workspace, hooks, agent, notifications, database, prompt template, server, logging, and SSH worker."
-keywords: sortie configuration, WORKFLOW.md, YAML, tracker, api_version, agent, max_tokens, dispatch, dispatch rules, rule-based routing, ci_feedback, self_review, reactions, review_comments, notifications, notify_operator, max_per_session, hooks, workspace, server, worker, SSH, token_rates, cost estimation, config reference
+keywords: sortie configuration, WORKFLOW.md, YAML, tracker, api_version, linear, team key, IssueFilter, agent, max_tokens, dispatch, dispatch rules, rule-based routing, ci_feedback, self_review, reactions, review_comments, notifications, notify_operator, max_per_session, hooks, workspace, server, worker, SSH, token_rates, cost estimation, config reference
 author: Sortie AI
 date: 2026-04-26
 weight: 20
@@ -10,7 +10,7 @@ url: /reference/workflow-config/
 ---
 `WORKFLOW.md` is a Markdown file with YAML front matter. Front matter between `---` delimiters defines runtime settings. The body after the closing `---` is the default prompt template, rendered per issue with Go `text/template`. When the front matter defines [dispatch rules](/guides/configure-dispatch-rules/), a matching rule can select a different per-rule template file in place of the body.
 
-See also: [CLI reference](/reference/cli/) for startup flags, [environment variables reference](/reference/environment/) for `$VAR` behavior, [error reference](/reference/errors/) for configuration error diagnostics, [Jira adapter reference](/reference/adapter-jira/) for Jira-specific fields, [GitHub adapter reference](/reference/adapter-github/) for GitHub-specific fields, [Claude Code adapter reference](/reference/adapter-claude-code/) for Claude Code pass-through options, [Copilot CLI adapter reference](/reference/adapter-copilot/) for Copilot CLI pass-through options, [Codex adapter reference](/reference/adapter-codex/) for Codex pass-through options, [OpenCode CLI adapter reference](/reference/adapter-opencode/) for OpenCode pass-through options, [Kiro CLI adapter reference](/reference/adapter-kiro/) for Kiro CLI pass-through options, [Configure dispatch rules](/guides/configure-dispatch-rules/) for routing issues to different agents and prompt templates, [Configure CI feedback](/guides/configure-ci-feedback/) for operational guidance.
+See also: [CLI reference](/reference/cli/) for startup flags, [environment variables reference](/reference/environment/) for `$VAR` behavior, [error reference](/reference/errors/) for configuration error diagnostics, [Jira adapter reference](/reference/adapter-jira/) for Jira-specific fields, [GitHub adapter reference](/reference/adapter-github/) for GitHub-specific fields, [Linear adapter reference](/reference/adapter-linear/) for Linear-specific fields, [Claude Code adapter reference](/reference/adapter-claude-code/) for Claude Code pass-through options, [Copilot CLI adapter reference](/reference/adapter-copilot/) for Copilot CLI pass-through options, [Codex adapter reference](/reference/adapter-codex/) for Codex pass-through options, [OpenCode CLI adapter reference](/reference/adapter-opencode/) for OpenCode pass-through options, [Kiro CLI adapter reference](/reference/adapter-kiro/) for Kiro CLI pass-through options, [Configure dispatch rules](/guides/configure-dispatch-rules/) for routing issues to different agents and prompt templates, [Configure CI feedback](/guides/configure-ci-feedback/) for operational guidance.
 
 > [!TIP]
 > Most configuration fields in this reference can be overridden by `SORTIE_*` environment variables without modifying the workflow file. See the [environment variables reference](/reference/environment/#configuration-overrides) for the full list and precedence rules.
@@ -21,7 +21,7 @@ See also: [CLI reference](/reference/cli/) for startup flags, [environment varia
 ---
 # --- Tracker ----------------------------------------------------------
 tracker:
-  kind: jira                          # Adapter: "jira" or "file"
+  kind: jira                          # Adapter: "jira", "github", "linear", or "file"
   endpoint: $SORTIE_JIRA_ENDPOINT     # Jira base URL ($VAR expanded)
   api_key: $SORTIE_JIRA_API_KEY       # API token ($VAR expanded anywhere)
   project: PLATFORM                   # Jira project key
@@ -189,13 +189,13 @@ Issue tracker connection and query settings.
 
 | Field             | Type            | Default               | Description                                                             |
 | ----------------- | --------------- | --------------------- | ----------------------------------------------------------------------- |
-| `kind`            | string          | _(required)_          | Adapter identifier. `"jira"`, `"github"`, or `"file"`.                  |
+| `kind`            | string          | _(required)_          | Adapter identifier. `"jira"`, `"github"`, `"linear"`, or `"file"`.      |
 | `endpoint`        | string          | adapter-defined       | Tracker API base URL.                                                   |
 | `api_key`         | string          | _(required for Jira)_ | API authentication token.                                               |
-| `project`         | string          | _(required for Jira)_ | Project key (e.g., `PLATFORM`).                                         |
+| `project`         | string          | _(required for Jira)_ | Project identifier, adapter-defined: Jira project key (e.g., `PLATFORM`), GitHub `owner/repo`, or Linear team key (e.g., `ENG`, the prefix in `ENG-123`; not a Linear project). |
 | `active_states`   | list of strings | `[]`                  | Issue states eligible for dispatch.                                     |
 | `terminal_states` | list of strings | `[]`                  | Issue states that trigger workspace cleanup.                            |
-| `query_filter`    | string          | `""`                  | Query fragment appended to tracker queries. For Jira: a JQL expression. |
+| `query_filter`    | string          | `""`                  | Query fragment that narrows candidate and terminal-state queries. For Jira: a JQL expression appended to the query. For Linear: an `IssueFilter` JSON object merged into the query (see the Linear example below). |
 | `handoff_state`   | string          | _(absent)_            | Target state after a successful agent run. Absent disables handoff.     |
 | `in_progress_state` | string        | _(absent)_            | Target state for dispatch-time transition at the start of each worker attempt. Absent disables dispatch-time transitions. |
 | `api_version`     | string          | `"3"`                 | Jira REST API version: `"3"` for Jira Cloud, `"2"` for Jira Server / Data Center. Quote the value; a bare integer draws a `sortie validate` advisory. Adapters other than Jira ignore this field. See the [Jira adapter reference](/reference/adapter-jira/#api_version) for deployment-mode behavior. |
@@ -288,6 +288,21 @@ tracker:
 ```
 
 GitHub state names are issue label names. They must exist as labels in the repository before Sortie starts. State values are compared case-insensitively and stored lowercased. See the [GitHub adapter reference](/reference/adapter-github/) for state derivation rules.
+
+**Example: Linear**
+
+```yaml
+tracker:
+  kind: linear
+  api_key: $SORTIE_LINEAR_API_KEY
+  project: ENG
+  query_filter: '{ "labels": { "name": { "eq": "agent-ready" } } }'
+  active_states: [Backlog, Todo, In Progress]
+  terminal_states: [Done, Canceled, Duplicate]
+  handoff_state: In Review
+```
+
+`project` is the Linear team key (the prefix in identifiers such as `ENG-123`), not a Linear project. `api_key` is a Linear personal API key, sent verbatim in the `Authorization` header with no `Bearer` prefix. Linear state names match workflow states by display name, compared case-insensitively and verified against the team at startup. When `active_states` or `terminal_states` is omitted, the adapter applies the stock defaults: active `["Backlog", "Todo", "In Progress"]`, terminal `["Done", "Canceled", "Duplicate"]`. Unlike Jira's appended JQL, the Linear `query_filter` is an `IssueFilter` JSON object merged into the query: it must be a JSON object, and it must not contain a top-level `team` or `state` key, which the adapter reserves for its own team and state constraints. See the [Linear adapter reference](/reference/adapter-linear/) for field mapping, the state model, and the full `IssueFilter` surface.
 
 ---
 

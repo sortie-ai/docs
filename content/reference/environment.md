@@ -1,7 +1,7 @@
 ---
 title: "Environment Variables"
 description: "Every environment variable Sortie reads, injects, or filters: SORTIE_* overrides, .env support, agent passthrough, hook env, and install vars."
-keywords: sortie environment variables, SORTIE_*, ANTHROPIC_API_KEY, COPILOT_GITHUB_TOKEN, GH_TOKEN, GITHUB_TOKEN, CODEX_API_KEY, KIRO_API_KEY, SORTIE_ISSUE_ID, env var, configuration, .env, overrides, hooks, install, MCP server
+keywords: sortie environment variables, configuration, .env, overrides, hooks, install, MCP server
 author: Sortie AI
 date: 2026-04-26
 weight: 30
@@ -158,6 +158,17 @@ SORTIE_POLLING_INTERVAL_MS=30000
 SORTIE_WORKSPACE_ROOT=~/workspace/sortie
 ```
 
+Linear adapter equivalent:
+
+```sh
+# /etc/sortie/linear.env
+SORTIE_TRACKER_KIND=linear
+SORTIE_TRACKER_API_KEY="lin_api_your_personal_api_key"
+SORTIE_TRACKER_PROJECT=ENG
+SORTIE_POLLING_INTERVAL_MS=30000
+SORTIE_WORKSPACE_ROOT=~/workspace/sortie
+```
+
 Rules:
 
 - One `KEY=VALUE` per line. No multiline values.
@@ -281,6 +292,8 @@ Two expansion functions exist. The mode depends on the field.
 All other fields (including `agent.kind`, `agent.max_turns`, hook scripts, etc.) are treated as literal strings with no expansion.
 
 The variable names in the table are user-defined conventions, not Sortie-internal identifiers. For the GitHub adapter, common conventions are `$SORTIE_GITHUB_TOKEN` or `$GITHUB_TOKEN` for `tracker.api_key` (a plain personal access token, **not** `email:token` format) and `$SORTIE_GITHUB_PROJECT` for `tracker.project` (an `owner/repo` string). See the [GitHub adapter reference](/reference/adapter-github/#configuration) for per-field semantics.
+
+For the Linear adapter, the conventions are `$SORTIE_LINEAR_API_KEY` for `tracker.api_key` (a Linear personal API key carrying the `lin_api_` prefix, sent verbatim in the `Authorization` header with no `Bearer` prefix; this is the name `sortie validate` suggests), and `$SORTIE_LINEAR_TEAM_KEY` for `tracker.project` (a Linear team key, such as `ENG`). See the [Linear adapter reference](/reference/adapter-linear/#configuration) for per-field semantics.
 
 ### Behavior when a variable is unset or empty
 
