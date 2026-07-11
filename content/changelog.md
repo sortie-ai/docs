@@ -11,6 +11,65 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.0] - 2026-07-11 { #1.14.0 }
+
+### Added
+
+- Bot-review reaction kind: review-bot comments (linters, static
+  analyzers, security scanners, and AI reviewers) on a Sortie-created
+  pull request are now detected and routed back into the agent session
+  as continuation turns, separately from human review comments.
+  Configure it with a `reactions.bot_review` block in WORKFLOW.md, where
+  `provider` activates the kind, `bot_usernames` allowlists bot logins,
+  and `max_continuation_turns`, `poll_interval_ms`, and `escalation`
+  tune the retry budget, poll cadence, and handoff. A comment is
+  classified as bot-authored by its platform author type or the
+  allowlist, never by its content; bot comments dispatch immediately
+  with no debounce window and own an independent retry budget,
+  fingerprint, and escalation, so the bot-review and human-review kinds
+  never interfere on the same pull request.
+  ([#415](https://github.com/sortie-ai/sortie/issues/415))
+
+- Merge-conflict reaction kind: the orchestrator now polls mergeability
+  of each open Sortie-managed pull request per reconcile cycle and, on a
+  no-conflict-to-conflict transition, dispatches a single continuation
+  turn that rebases the PR branch onto its base and resolves the
+  conflicts on the existing workspace. Configure it with a
+  `reactions.merge_conflicts` block in WORKFLOW.md, where `provider`
+  activates the kind and `max_retries`, `poll_interval_ms`, and
+  `escalation` tune the retry budget, poll cadence, and handoff; the
+  retry budget defaults lower than other reaction kinds because conflict
+  resolution rarely succeeds on retry. Tracking is episodic: resolving a
+  conflict resets the budget, so a later independent conflict gets a
+  fresh attempt rather than immediate escalation.
+  ([#416](https://github.com/sortie-ai/sortie/issues/416))
+
+- PR label commands: apply a label to a Sortie-managed pull request to
+  trigger an agent action on it. Two commands share a
+  `reactions.label_commands` block in WORKFLOW.md. Applying `sortie:review`
+  (the `review_label`) runs a read-only session that posts review comments
+  and changes no code; applying `sortie:fix` (the `fix_label`) runs a
+  session that checks out the PR branch, addresses the outstanding review
+  comments, pushes the fixes, and posts a summary comment. `provider`
+  activates the feature (for example `provider: github`); both labels
+  default to their `sortie:` names and are active once `provider` is set,
+  so disable either command by setting its label to `""`.
+  `poll_interval_ms` (default 60000, minimum 30000) sets how often the
+  labels are checked. Sortie removes the label once it accepts the
+  command, so re-applying it after the run finishes starts a new one. The
+  operator creates the labels (Sortie never creates them) and adds the
+  matching `{{ if .label_review }}` or `{{ if .label_fix }}` branch to the
+  prompt template.
+  ([#584](https://github.com/sortie-ai/sortie/issues/584),
+  [#585](https://github.com/sortie-ai/sortie/issues/585))
+
+### Changed
+
+- Homebrew installs now use `brew install --cask sortie-ai/tap/sortie`.
+  The tap distributes a Homebrew cask covering both macOS and Linux,
+  replacing the previous formula.
+  ([#613](https://github.com/sortie-ai/sortie/issues/613))
+
 ## [1.13.0] - 2026-06-15 { #1.13.0 }
 
 ### Added
@@ -1086,6 +1145,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   execution via GitHub Actions.
 - Architecture Decision Records (ADR-0001 through ADR-0005).
 
+[1.14.0]: https://github.com/sortie-ai/sortie/compare/1.13.0...1.14.0
 [1.13.0]: https://github.com/sortie-ai/sortie/compare/1.12.0...1.13.0
 [1.12.0]: https://github.com/sortie-ai/sortie/compare/1.11.0...1.12.0
 [1.11.0]: https://github.com/sortie-ai/sortie/compare/1.10.0...1.11.0

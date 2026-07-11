@@ -18,6 +18,7 @@ Comprehensive reference for every CLI flag, configuration field, API endpoint, a
   {{< card link="prometheus-metrics" title="Prometheus Metrics" subtitle="Gauges, counters, and histograms." >}}
   {{< card link="state-machine" title="State Machine" subtitle="Orchestration states, phases, and transitions." >}}
   {{< card link="reactions" title="Reactions" subtitle="Post-PR feedback loops: CI failure, review comments, and auto-merge." >}}
+  {{< card link="label-commands" title="Label Commands" subtitle="One-shot review and fix labels that dispatch agent sessions on a PR." >}}
   {{< card link="errors" title="Errors" subtitle="All error kinds and their resolution." >}}
   {{< card link="agent-extensions" title="Agent Extensions" subtitle=".sortie/status file protocol and tool contracts." >}}
 {{< /cards >}}

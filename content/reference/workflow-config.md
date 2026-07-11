@@ -2,7 +2,7 @@
 title: Workflow Configuration
 linkTitle: "Workflow File"
 description: "Reference for every WORKFLOW.md field: tracker, polling, workspace, hooks, agent, notifications, database, prompt template, server, logging, and SSH worker."
-keywords: sortie configuration, WORKFLOW.md, YAML, tracker, api_version, linear, team key, IssueFilter, agent, max_tokens, dispatch, dispatch rules, rule-based routing, ci_feedback, self_review, reactions, review_comments, notifications, notify_operator, max_per_session, hooks, workspace, server, worker, SSH, token_rates, cost estimation, config reference
+keywords: sortie configuration, WORKFLOW.md, YAML, tracker, api_version, linear, team key, IssueFilter, agent, max_tokens, dispatch, dispatch rules, rule-based routing, ci_feedback, self_review, reactions, review_comments, label_commands, sortie:review, sortie:fix, review_label, fix_label, label commands, notifications, notify_operator, max_per_session, hooks, workspace, server, worker, SSH, token_rates, cost estimation, config reference
 author: Sortie AI
 date: 2026-04-26
 weight: 20
@@ -114,6 +114,11 @@ reactions:
     poll_interval_ms: 120000              # 2 min poll interval
     debounce_ms: 60000                    # 60s debounce window
     max_continuation_turns: 3             # hard cap per PR
+  label_commands:
+    provider: github                      # SCM adapter for PR label commands
+    review_label: "sortie:review"         # label that triggers a read-only review
+    fix_label: "sortie:fix"               # label that triggers pushed fixes
+    poll_interval_ms: 60000               # 60s poll interval; floor 30000
 
 # --- Self-Review --------------------------------------------------
 self_review:
@@ -659,7 +664,7 @@ For operational guidance on setting up self-review, choosing verification comman
 
 ## `reactions`
 
-The `reactions` block configures post-PR feedback loops. Each key is a reaction kind (e.g. `review_comments`) with its own provider, retry budget, and escalation policy. Reactions are opt-in: omit the block entirely to disable all reaction types.
+The `reactions` block configures post-PR feedback loops. Each key is a reaction kind (e.g. `review_comments`) with its own provider, retry budget, and escalation policy. Reactions are opt-in: omit the block entirely to disable all reaction types. The `label_commands` key is configured in the same block but is human-triggered rather than event-driven, and it carries no retry budget or escalation.
 
 For the shared reaction lifecycle and every kind (`ci_failure`, `review_comments`, and `auto_merge`) with field tables and safety rules, see the [reactions reference](/reference/reactions/).
 
@@ -711,6 +716,32 @@ reactions:
 When a review-fix continuation dispatches, the prompt receives a `review_comments` template variable: a list of maps with keys `id`, `file`, `start_line`, `end_line`, `reviewer`, `body`. Templates should guard with `{{ if .review_comments }}`. See the [`.review_comments`](#review_comments) template variable reference below for the full schema, and [how to write a prompt template](/guides/write-prompt-template/) for syntax.
 
 For operational guidance on setting up review feedback, see [how to configure PR review feedback](/guides/configure-review-feedback/).
+
+### `reactions.label_commands`
+
+Configures the PR label commands: an operator applies a configured label to a Sortie-managed PR, and Sortie dispatches an agent session in response. The `review_label` (`sortie:review` by default) dispatches a read-only review; the `fix_label` (`sortie:fix` by default) dispatches a session that pushes review-feedback fixes. Unlike the other reaction kinds, this block is human-triggered: it parses through its own path, carries no retry budget or escalation fields, and never appears as a generic reaction entry. For detection semantics, session behavior, and authorization, see the [label commands reference](/reference/label-commands/).
+
+| Field              | Type    | Default           | Description                                                                                                                                  |
+| ------------------ | ------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `provider`         | string  | _(required)_      | SCM adapter kind (e.g. `"github"`). Must match a registered SCM adapter. Absent or empty leaves the feature off, and no label polling happens. |
+| `review_label`     | string  | `"sortie:review"` | Label that triggers the read-only review command. An explicit empty string (`""`) disables the review command.                               |
+| `fix_label`        | string  | `"sortie:fix"`    | Label that triggers the fix command. An explicit empty string (`""`) disables the fix command.                                               |
+| `poll_interval_ms` | integer | `60000`           | Minimum interval between label-journal polls per PR. Minimum `30000`; lower values are clamped up to the floor with a warning, not rejected.  |
+
+Activation is by `provider`: with the block absent or `provider` empty, the feature is off and no label polling happens for either command. An absent `review_label` or `fix_label` takes its default; an explicit empty string is a deliberate disable of that command. Setting `provider` while both labels are empty strings is a configuration error, which `sortie validate` reports offline; because the defaults are non-empty, this occurs only when you empty both. A `provider` naming an unregistered SCM adapter is not a validate error; it fails at construction. When more than one SCM reaction kind is active, every active kind must name the same `provider`.
+
+Every `reactions.label_commands` field, including `provider`, takes effect at startup; changing any of them requires a restart.
+
+A block using the defaults:
+
+```yaml
+reactions:
+  label_commands:
+    provider: github
+    review_label: "sortie:review"
+    fix_label: "sortie:fix"
+    poll_interval_ms: 60000
+```
 
 ---
 
@@ -1201,6 +1232,7 @@ Sortie watches `WORKFLOW.md` for filesystem changes and re-applies configuration
 | `reactions.review_comments.poll_interval_ms` | Next reconcile tick.             |
 | `reactions.review_comments.debounce_ms` | Next reconcile tick.                 |
 | `reactions.review_comments.max_continuation_turns` | Future dispatches.          |
+| `reactions.label_commands.*`           | Requires restart.                      |
 | `notifications`                        | Next agent session. Each session's MCP sidecar reads the workflow file at startup; in-flight sessions are unaffected. |
 | `db_path`                              | Requires restart.                      |
 | `server.port`                          | Requires restart.                      |

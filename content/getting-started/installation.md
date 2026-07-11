@@ -28,14 +28,14 @@ or `~/.local/bin` otherwise. If the install directory is not already on your
 
 | Variable | Effect |
 |---|---|
-| `SORTIE_VERSION` | Pin a specific release (e.g. `1.11.0`). Without it, the latest release is used. |
+| `SORTIE_VERSION` | Pin a specific release (e.g. `1.14.0`). Without it, the latest release is used. |
 | `SORTIE_INSTALL_DIR` | Override the install directory. |
 | `SORTIE_NO_VERIFY=1` | Skip SHA-256 checksum verification (not recommended). |
 
 Example — install a specific version to a custom directory:
 
 ```bash
-SORTIE_VERSION=1.11.0 SORTIE_INSTALL_DIR=/opt/bin \
+SORTIE_VERSION=1.14.0 SORTIE_INSTALL_DIR=/opt/bin \
   curl -sSL https://get.sortie-ai.com/install.sh | sh
 ```
 
@@ -63,30 +63,45 @@ Set these as environment variables before running the one-liner:
 
 | Variable | Effect |
 |---|---|
-| `SORTIE_VERSION` | Pin a specific release (e.g. `1.11.0`). Without it, the latest release is used. |
+| `SORTIE_VERSION` | Pin a specific release (e.g. `1.14.0`). Without it, the latest release is used. |
 | `SORTIE_INSTALL_DIR` | Override the install directory. |
 | `SORTIE_NO_VERIFY` | Set to `1` to skip SHA-256 checksum verification (not recommended). |
 
 Example — install a specific version to a custom directory:
 
 ```powershell
-$env:SORTIE_VERSION = '1.11.0'
+$env:SORTIE_VERSION = '1.14.0'
 $env:SORTIE_INSTALL_DIR = 'C:\tools\sortie'
 irm 'https://get.sortie-ai.com/install.ps1' | iex
 ```
 
 ## Homebrew (macOS and Linux)
 
-If you use Homebrew, install Sortie from the official tap:
+If you use Homebrew, install Sortie from the official tap as a cask:
 
 ```bash
-brew install sortie-ai/tap/sortie
+brew install --cask sortie-ai/tap/sortie
 ```
 
-The tap is added automatically on first install. To upgrade to a new release:
+The cask carries native binaries for macOS and Linux, on both Intel/x86_64 and
+Apple Silicon/ARM64. The tap is added automatically on first install. To
+upgrade to a new release:
 
 ```bash
 brew upgrade sortie
+```
+
+Linux support for casks that ship binaries requires Homebrew 4.5.0 or newer
+(latest recommended); macOS has no such floor.
+
+If you installed an earlier version through the Homebrew *formula*
+(`brew install sortie-ai/tap/sortie`, without `--cask`), recent Homebrew
+migrates you to the cask automatically on `brew update`. If it does not, switch
+manually:
+
+```bash
+brew remove sortie
+brew install --cask sortie-ai/tap/sortie
 ```
 
 ## Docker
@@ -228,11 +243,22 @@ sortie v0.x.x
 
 ## Troubleshooting
 
-**Homebrew formula fails to install** — The local tap may be stale. Run `brew update` first, then retry:
+**Homebrew install fails or the tap looks stale** — Update Homebrew first, then
+retry the cask install:
 
 ```bash
 brew update
-brew install sortie-ai/tap/sortie
+brew install --cask sortie-ai/tap/sortie
+```
+
+**Coming from the old Homebrew formula** — Older releases were distributed as a
+formula. Recent Homebrew migrates you to the cask on `brew update`; if
+`brew install sortie-ai/tap/sortie` still resolves to the formula or warns that
+it is deprecated, switch explicitly:
+
+```bash
+brew remove sortie
+brew install --cask sortie-ai/tap/sortie
 ```
 
 **`command not found: sortie`** — The install directory is not on your `PATH`.
