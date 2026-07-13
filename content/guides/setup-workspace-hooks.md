@@ -192,22 +192,25 @@ Start Sortie and watch the logs for hook activity:
 sortie ./WORKFLOW.md
 ```
 
-On the first dispatch, you should see workspace creation followed by the hook:
+On the first dispatch, you should see the hook run during workspace creation:
 
 ```
+level=INFO msg="running hook" issue_id=42 issue_identifier=PROJ-42 hook=after_create workspace=/tmp/sortie_workspaces/PROJ-42
 level=INFO msg="workspace prepared" issue_id=42 issue_identifier=PROJ-42 workspace=/tmp/sortie_workspaces/PROJ-42
 ```
 
-If a hook fails, the logs show the error and output:
+If a hook fails, the WARN record carries the error and the hook's combined stdout and stderr under `hook_output` (the last 8 KiB, prefixed with a truncation marker when earlier output was dropped):
 
 ```
-level=ERROR msg="after_create hook failed" issue_id=42 issue_identifier=PROJ-42 error="exit status 128" output="fatal: repository 'git@...' not found"
+level=WARN msg="after_create hook failed, rolling back workspace" issue_id=42 issue_identifier=PROJ-42 workspace=/tmp/sortie_workspaces/PROJ-42 error="hook run: exit_code=128: exit status 128" hook_output="fatal: repository 'git@github.com:acme/backend.git' not found"
 ```
+
+A hook that succeeds while printing output logs it only at `--log-level debug`, on a `hook completed` record.
 
 ## Troubleshooting
 
 **"Permission denied (publickey)" during clone.**
-The SSH agent isn't available inside the hook. Verify that `SSH_AUTH_SOCK` is set in the Sortie process environment — it's on the allowlist and will pass through. Run `ssh -T git@github.com` as the same user that runs Sortie to confirm key access.
+The SSH agent isn't available inside the hook. Verify that `SSH_AUTH_SOCK` is set in the Sortie process environment; it's on the allowlist and will pass through. Run `ssh -T git@github.com` as the same user that runs Sortie to confirm key access. If your git setup relies on a variable outside the allowlist, such as `GIT_SSH_COMMAND`, Sortie strips it; point SSH at the agent or `~/.ssh/config` instead.
 
 **Hook works locally but fails under Sortie.**
 Hooks run in a restricted environment. Commands that depend on `~/.bashrc` (like `nvm` or `pyenv`) won't find their shims. Wrap them with `bash -lc '...'` to source the login profile:

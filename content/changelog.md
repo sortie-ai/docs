@@ -11,6 +11,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+
+## [1.14.1] - 2026-07-13 { #1.14.1 }
+
+### Fixed
+
+- Failing lifecycle hooks (`after_create`, `before_run`, `after_run`,
+  `before_remove`) now log their captured stdout and stderr in a
+  `hook_output` attribute on the failure WARN record, so the output is
+  visible at the default log level without enabling debug; previously
+  the output was discarded and a failed hook, such as a `git clone` in
+  `after_create`, could not be diagnosed from the logs even at
+  `--log-level debug`. A hook that succeeds while printing output logs
+  it at debug level on a `hook completed` record. `hook_output` keeps
+  the last 8 KiB of output and starts with a truncation marker when
+  longer.
+  ([#643](https://github.com/sortie-ai/sortie/issues/643))
+
 ## [1.14.0] - 2026-07-11 { #1.14.0 }
 
 ### Added
@@ -1145,6 +1162,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   execution via GitHub Actions.
 - Architecture Decision Records (ADR-0001 through ADR-0005).
 
+[1.14.1]: https://github.com/sortie-ai/sortie/compare/1.14.0...1.14.1
 [1.14.0]: https://github.com/sortie-ai/sortie/compare/1.13.0...1.14.0
 [1.13.0]: https://github.com/sortie-ai/sortie/compare/1.12.0...1.13.0
 [1.12.0]: https://github.com/sortie-ai/sortie/compare/1.11.0...1.12.0

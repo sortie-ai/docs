@@ -113,7 +113,7 @@ Occur when lifecycle hook scripts (`after_create`, `before_run`, `after_run`, `b
 |---|---|---|
 | `validate` | Empty script body or invalid timeout (non-positive `hooks.timeout_ms`). | Fix your hook script or set a valid `hooks.timeout_ms`. |
 | `start` | Failed to spawn the hook subprocess (missing shell, permission denied). | On POSIX, check that `/bin/sh` exists and is executable. On Windows, check that `cmd.exe` is available. |
-| `run` | Script exited with non-zero exit code. Hook output is captured in the log. | Read the captured output to diagnose the script failure. |
+| `run` | Script exited with non-zero exit code. The failure WARN record carries the script's combined stdout and stderr under `hook_output` (the last 8 KiB). | Read `hook_output` on the WARN record to diagnose the script failure. |
 | `timeout` | Script exceeded [`hooks.timeout_ms`](/reference/workflow-config/) or the parent context was cancelled. | Increase `hooks.timeout_ms`, or make the hook script faster. |
 
 Hook errors in `after_create` prevent the worker from starting - the error is retryable. Hook errors in `before_remove` are logged but ignored; workspace cleanup still proceeds.

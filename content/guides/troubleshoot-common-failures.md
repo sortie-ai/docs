@@ -131,12 +131,12 @@ Three variants:
 ## Hook script fails
 
 ```
-level=WARN msg="worker run failed, scheduling retry" error="hook after_create: run: exit status 128"
+level=WARN msg="after_create hook failed, rolling back workspace" issue_id=abc123 issue_identifier=PROJ-42 workspace=/opt/sortie_workspaces/PROJ-42 error="hook run: exit_code=128: exit status 128" hook_output="Cloning into '.'...\nfatal: Could not read from remote repository."
 ```
 
-A hook exited non-zero. `after_create` and `before_run` failures are fatal for the attempt; `after_run` and `before_remove` are logged but ignored.
+A hook exited non-zero. `after_create` and `before_run` failures are fatal for the attempt; `after_run` and `before_remove` are logged but ignored. For a fatal hook the orchestrator follows up with a `worker run failed, scheduling retry` line carrying the same error.
 
-1. Run with `--log-level debug` — Sortie captures the hook's stdout and stderr.
+1. Read the `hook_output` attribute on the WARN record. It holds the hook's combined stdout and stderr at every log level; no debug flag is needed. The value keeps the last 8 KiB of output and starts with a truncation marker when earlier output was dropped. A hook that printed nothing produces no `hook_output` attribute. Output of successful hooks appears only at `--log-level debug`, on `hook completed` records.
 
 2. Test the hook manually:
 
@@ -145,7 +145,7 @@ A hook exited non-zero. `after_create` and `before_run` failures are fatal for t
     git clone --depth 1 git@github.com:acme/backend.git .
     ```
 
-    Common causes: SSH key not forwarded, wrong repo URL, missing dependencies.
+    Common causes: SSH key not forwarded, wrong repo URL, missing dependencies. Hooks run with a restricted environment that strips variables like `GIT_SSH_COMMAND`; see the [environment reference](/reference/environment/#hook-subprocess-environment).
 
 3. For timeout errors, increase `hooks.timeout_ms` in WORKFLOW.md.
 

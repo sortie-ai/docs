@@ -50,7 +50,7 @@ workspace:
 
 # --- Hooks ------------------------------------------------------------
 hooks:
-  after_create: |                     # Runs once when workspace is created
+  after_create: |                     # Runs once, in the freshly created (empty) workspace
     git clone --depth 1 git@github.com:myorg/myrepo.git .
     go mod download
   before_run: |                       # Runs before each agent attempt
@@ -406,6 +406,9 @@ hooks:
   after_run: ./hooks/post-run.sh
   timeout_ms: 120000
 ```
+
+> [!NOTE]
+> `after_create` runs only when the per-issue workspace directory is first created, so the clone above starts in an empty directory. When `after_create` fails, Sortie removes the directory, and the retry again starts empty; a clone error such as "destination path already exists" does not come from this example. An SSH clone must reach its key through `SSH_AUTH_SOCK` or `~/.ssh` via `HOME`, because a variable outside the [restricted environment](#restricted-environment), such as `GIT_SSH_COMMAND`, is stripped.
 
 ---
 
