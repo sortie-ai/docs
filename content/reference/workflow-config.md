@@ -2,7 +2,7 @@
 title: Workflow Configuration
 linkTitle: "Workflow File"
 description: "Reference for every WORKFLOW.md field: tracker, polling, workspace, hooks, agent, notifications, database, prompt template, server, logging, and SSH worker."
-keywords: sortie configuration, WORKFLOW.md, YAML, tracker, api_version, linear, team key, IssueFilter, agent, max_tokens, dispatch, dispatch rules, rule-based routing, ci_feedback, self_review, reactions, review_comments, label_commands, sortie:review, sortie:fix, review_label, fix_label, label commands, notifications, notify_operator, max_per_session, hooks, workspace, server, worker, SSH, token_rates, cost estimation, config reference
+keywords: sortie configuration, WORKFLOW.md, YAML, tracker, api_version, linear, gitea, team key, IssueFilter, agent, max_tokens, dispatch, dispatch rules, rule-based routing, ci_feedback, self_review, reactions, review_comments, label_commands, sortie:review, sortie:fix, review_label, fix_label, label commands, notifications, notify_operator, max_per_session, hooks, workspace, server, worker, SSH, token_rates, cost estimation, config reference
 author: Sortie AI
 date: 2026-04-26
 weight: 20
@@ -10,7 +10,7 @@ url: /reference/workflow-config/
 ---
 `WORKFLOW.md` is a Markdown file with YAML front matter. Front matter between `---` delimiters defines runtime settings. The body after the closing `---` is the default prompt template, rendered per issue with Go `text/template`. When the front matter defines [dispatch rules](/guides/configure-dispatch-rules/), a matching rule can select a different per-rule template file in place of the body.
 
-See also: [CLI reference](/reference/cli/) for startup flags, [environment variables reference](/reference/environment/) for `$VAR` behavior, [error reference](/reference/errors/) for configuration error diagnostics, [Jira adapter reference](/reference/adapter-jira/) for Jira-specific fields, [GitHub adapter reference](/reference/adapter-github/) for GitHub-specific fields, [Linear adapter reference](/reference/adapter-linear/) for Linear-specific fields, [Claude Code adapter reference](/reference/adapter-claude-code/) for Claude Code pass-through options, [Copilot CLI adapter reference](/reference/adapter-copilot/) for Copilot CLI pass-through options, [Codex adapter reference](/reference/adapter-codex/) for Codex pass-through options, [OpenCode CLI adapter reference](/reference/adapter-opencode/) for OpenCode pass-through options, [Kiro CLI adapter reference](/reference/adapter-kiro/) for Kiro CLI pass-through options, [Configure dispatch rules](/guides/configure-dispatch-rules/) for routing issues to different agents and prompt templates, [Configure CI feedback](/guides/configure-ci-feedback/) for operational guidance.
+See also: [CLI reference](/reference/cli/) for startup flags, [environment variables reference](/reference/environment/) for `$VAR` behavior, [error reference](/reference/errors/) for configuration error diagnostics, [Jira adapter reference](/reference/adapter-jira/) for Jira-specific fields, [GitHub adapter reference](/reference/adapter-github/) for GitHub-specific fields, [Linear adapter reference](/reference/adapter-linear/) for Linear-specific fields, [Gitea adapter reference](/reference/adapter-gitea/) for Gitea-specific fields, [Claude Code adapter reference](/reference/adapter-claude-code/) for Claude Code pass-through options, [Copilot CLI adapter reference](/reference/adapter-copilot/) for Copilot CLI pass-through options, [Codex adapter reference](/reference/adapter-codex/) for Codex pass-through options, [OpenCode CLI adapter reference](/reference/adapter-opencode/) for OpenCode pass-through options, [Kiro CLI adapter reference](/reference/adapter-kiro/) for Kiro CLI pass-through options, [Configure dispatch rules](/guides/configure-dispatch-rules/) for routing issues to different agents and prompt templates, [Configure CI feedback](/guides/configure-ci-feedback/) for operational guidance.
 
 > [!TIP]
 > Most configuration fields in this reference can be overridden by `SORTIE_*` environment variables without modifying the workflow file. See the [environment variables reference](/reference/environment/#configuration-overrides) for the full list and precedence rules.
@@ -21,7 +21,7 @@ See also: [CLI reference](/reference/cli/) for startup flags, [environment varia
 ---
 # --- Tracker ----------------------------------------------------------
 tracker:
-  kind: jira                          # Adapter: "jira", "github", "linear", or "file"
+  kind: jira                          # Adapter: "jira", "github", "linear", "gitea", or "file"
   endpoint: $SORTIE_JIRA_ENDPOINT     # Jira base URL ($VAR expanded)
   api_key: $SORTIE_JIRA_API_KEY       # API token ($VAR expanded anywhere)
   project: PLATFORM                   # Jira project key
@@ -194,13 +194,13 @@ Issue tracker connection and query settings.
 
 | Field             | Type            | Default               | Description                                                             |
 | ----------------- | --------------- | --------------------- | ----------------------------------------------------------------------- |
-| `kind`            | string          | _(required)_          | Adapter identifier. `"jira"`, `"github"`, `"linear"`, or `"file"`.      |
-| `endpoint`        | string          | adapter-defined       | Tracker API base URL.                                                   |
+| `kind`            | string          | _(required)_          | Adapter identifier. `"jira"`, `"github"`, `"linear"`, `"gitea"`, or `"file"`.      |
+| `endpoint`        | string          | adapter-defined       | Tracker API base URL. Required for Gitea (self-hosted, no default host); the adapter appends `/api/v1` and tolerates a value already ending in `/api/v1`.                                                   |
 | `api_key`         | string          | _(required for Jira)_ | API authentication token.                                               |
-| `project`         | string          | _(required for Jira)_ | Project identifier, adapter-defined: Jira project key (e.g., `PLATFORM`), GitHub `owner/repo`, or Linear team key (e.g., `ENG`, the prefix in `ENG-123`; not a Linear project). |
+| `project`         | string          | _(required for Jira)_ | Project identifier, adapter-defined: Jira project key (e.g., `PLATFORM`), GitHub or Gitea `owner/repo` (e.g., `sortie-ai/sortie`), or Linear team key (e.g., `ENG`, the prefix in `ENG-123`; not a Linear project). |
 | `active_states`   | list of strings | `[]`                  | Issue states eligible for dispatch.                                     |
 | `terminal_states` | list of strings | `[]`                  | Issue states that trigger workspace cleanup.                            |
-| `query_filter`    | string          | `""`                  | Query fragment that narrows candidate and terminal-state queries. For Jira: a JQL expression appended to the query. For Linear: an `IssueFilter` JSON object merged into the query (see the Linear example below). |
+| `query_filter`    | string          | `""`                  | Query fragment that narrows candidate and terminal-state queries. For Jira: a JQL expression appended to the query. For Linear: an `IssueFilter` JSON object merged into the query (see the Linear example below). For Gitea: a URL query fragment merged into the repository issue-list query (see the Gitea example below). |
 | `handoff_state`   | string          | _(absent)_            | Target state after a successful agent run. Absent disables handoff.     |
 | `in_progress_state` | string        | _(absent)_            | Target state for dispatch-time transition at the start of each worker attempt. Absent disables dispatch-time transitions. |
 | `api_version`     | string          | `"3"`                 | Jira REST API version: `"3"` for Jira Cloud, `"2"` for Jira Server / Data Center. Quote the value; a bare integer draws a `sortie validate` advisory. Adapters other than Jira ignore this field. See the [Jira adapter reference](/reference/adapter-jira/#api_version) for deployment-mode behavior. |
@@ -212,7 +212,7 @@ Issue tracker connection and query settings.
 
 `api_key` applies full environment expansion: `$VAR` and `${VAR}` references are resolved at any position in the string.
 
-`endpoint`, `project`, `handoff_state`, `in_progress_state`, and `api_version` use targeted resolution: the value is expanded only when the entire trimmed string starts with `$`. Literal URIs and project keys that contain `$` characters elsewhere are returned unchanged.
+`endpoint`, `project`, `query_filter`, `handoff_state`, `in_progress_state`, and `api_version` use targeted resolution: the value is expanded only when the entire trimmed string starts with `$`. Literal URIs and project keys that contain `$` characters elsewhere are returned unchanged.
 
 See the [environment variables reference](/reference/environment/#var-indirection-in-workflowmd) for expansion mechanics.
 
@@ -308,6 +308,24 @@ tracker:
 ```
 
 `project` is the Linear team key (the prefix in identifiers such as `ENG-123`), not a Linear project. `api_key` is a Linear personal API key, sent verbatim in the `Authorization` header with no `Bearer` prefix. Linear state names match workflow states by display name, compared case-insensitively and verified against the team at startup. When `active_states` or `terminal_states` is omitted, the adapter applies the stock defaults: active `["Backlog", "Todo", "In Progress"]`, terminal `["Done", "Canceled", "Duplicate"]`. Unlike Jira's appended JQL, the Linear `query_filter` is an `IssueFilter` JSON object merged into the query: it must be a JSON object, and it must not contain a top-level `team` or `state` key, which the adapter reserves for its own team and state constraints. See the [Linear adapter reference](/reference/adapter-linear/) for field mapping, the state model, and the full `IssueFilter` surface.
+
+**Example: Gitea**
+
+```yaml
+tracker:
+  kind: gitea
+  endpoint: https://gitea.example.com
+  api_key: $SORTIE_GITEA_TOKEN
+  project: sortie-ai/sortie
+  query_filter: "assigned_by=hermes-bot"
+  active_states: [backlog, in-progress]
+  terminal_states: [done, wontfix]
+  handoff_state: review
+```
+
+`endpoint` is required for Gitea: the instance is self-hosted, so there is no default host. The adapter trims a trailing slash and appends `/api/v1`, and tolerates a value already ending in `/api/v1`. `api_key` is a Gitea access token, sent verbatim as `Authorization: token <key>` (the canonical Gitea scheme, not a `Bearer` prefix), so surrounding whitespace fails authentication. `project` is the repository in `owner/repo` form.
+
+Gitea state names are repository label names, compared case-insensitively and stored lowercased. A configured label absent from the repository is created on demand the first time an issue transitions into it, so labels need not exist beforehand. When `active_states` or `terminal_states` is omitted, the adapter carries internal fallback labels (active `["backlog", "in-progress", "review"]`, terminal `["done", "wontfix"]`) that derive an issue's state from its labels; they do not drive dispatch, which the orchestrator gates on the workflow's `active_states` and `terminal_states`. `handoff_state` and `in_progress_state` name repository labels too, and a transition swaps the current state label for the target, closing the issue on a terminal target and reopening it on an active one. Unlike Jira's appended JQL, the Gitea `query_filter` is a URL query fragment merged into the repository issue-list query: the adapter reserves the `state`, `type`, `page`, and `limit` keys (a fragment naming any of them fails at construction), warns on an unrecognized key, and warns when a `labels` value does not resolve to a repository label, because Gitea's server-side `labels` filter is AND-across-names, case-sensitive, and drops entirely on an unresolvable name. See the [Gitea adapter reference](/reference/adapter-gitea/) for the state model, field mapping, and the full `query_filter` surface.
 
 ---
 

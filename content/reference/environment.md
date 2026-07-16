@@ -1,7 +1,7 @@
 ---
 title: "Environment Variables"
 description: "Every environment variable Sortie reads, injects, or filters: SORTIE_* overrides, .env support, agent passthrough, hook env, and install vars."
-keywords: sortie environment variables, configuration, .env, overrides, hooks, install, MCP server
+keywords: sortie environment variables, configuration, .env, overrides, hooks, install, MCP server, gitea
 author: Sortie AI
 date: 2026-04-26
 weight: 30
@@ -169,6 +169,18 @@ SORTIE_POLLING_INTERVAL_MS=30000
 SORTIE_WORKSPACE_ROOT=~/workspace/sortie
 ```
 
+Gitea adapter equivalent:
+
+```sh
+# /etc/sortie/gitea.env
+SORTIE_TRACKER_KIND=gitea
+SORTIE_TRACKER_ENDPOINT=https://gitea.example.com
+SORTIE_TRACKER_API_KEY="your_gitea_access_token"
+SORTIE_TRACKER_PROJECT=sortie-ai/sortie
+SORTIE_POLLING_INTERVAL_MS=30000
+SORTIE_WORKSPACE_ROOT=~/workspace/sortie
+```
+
 Rules:
 
 - One `KEY=VALUE` per line. No multiline values.
@@ -265,7 +277,7 @@ In local mode, provider credentials come from the parent environment or from Ope
 
 Selected [WORKFLOW.md configuration](/reference/workflow-config/) fields resolve environment variable references at startup. This keeps secrets and deployment-specific values out of the workflow file.
 
-When a field is overridden by a `SORTIE_*` environment variable, `$VAR` indirection is skipped for that field. See [Configuration overrides](#configuration-overrides).
+`$VAR` indirection and [`SORTIE_*` configuration overrides](#configuration-overrides) are two ways to supply a field from the environment. With indirection, the workflow file names the variable, for example `api_key: $SORTIE_GITEA_TOKEN`, and Sortie expands it at startup. With an override, a generic `SORTIE_TRACKER_*` variable such as `SORTIE_TRACKER_API_KEY`, set in the shell or a `.env` file, replaces the field value regardless of the workflow file. When both target the same field, the override wins and `$VAR` indirection is skipped for that field.
 
 ### Expansion modes
 
@@ -286,6 +298,8 @@ Two expansion functions exist. The mode depends on the field.
 | `tracker.project` | `resolveEnvRef` | `$SORTIE_JIRA_PROJECT` | `PLATFORM` |
 | `tracker.query_filter` | `resolveEnvRef` | `$SORTIE_JIRA_QUERY_FILTER` | `labels = 'agent-ready'` |
 | `tracker.handoff_state` | `resolveEnvRef` | `$SORTIE_HANDOFF_STATE` | `Human Review` |
+| `tracker.in_progress_state` | `resolveEnvRef` | `$SORTIE_IN_PROGRESS_STATE` | `In Progress` |
+| `tracker.api_version` | `resolveEnvRef` | `$SORTIE_JIRA_API_VERSION` | `2` |
 | `workspace.root` | `expandPath` | `~/workspace/sortie` | `/home/deploy/workspace/sortie` |
 | `db_path` | `expandPath` | `$SORTIE_DB_DIR/sortie.db` | `/var/lib/sortie/sortie.db` |
 
@@ -294,6 +308,8 @@ All other fields (including `agent.kind`, `agent.max_turns`, hook scripts, etc.)
 The variable names in the table are user-defined conventions, not Sortie-internal identifiers. For the GitHub adapter, common conventions are `$SORTIE_GITHUB_TOKEN` or `$GITHUB_TOKEN` for `tracker.api_key` (a plain personal access token, **not** `email:token` format) and `$SORTIE_GITHUB_PROJECT` for `tracker.project` (an `owner/repo` string). See the [GitHub adapter reference](/reference/adapter-github/#configuration) for per-field semantics.
 
 For the Linear adapter, the conventions are `$SORTIE_LINEAR_API_KEY` for `tracker.api_key` (a Linear personal API key carrying the `lin_api_` prefix, sent verbatim in the `Authorization` header with no `Bearer` prefix; this is the name `sortie validate` suggests), and `$SORTIE_LINEAR_TEAM_KEY` for `tracker.project` (a Linear team key, such as `ENG`). See the [Linear adapter reference](/reference/adapter-linear/#configuration) for per-field semantics.
+
+For the Gitea adapter, the conventions are `$SORTIE_GITEA_TOKEN` for `tracker.api_key` (a Gitea access token, a 40-character hex string with no identifying prefix, sent verbatim in the `Authorization: token <key>` header with no `Bearer` prefix, so surrounding whitespace fails authentication; this is the name `sortie validate` suggests), `$SORTIE_GITEA_ENDPOINT` for `tracker.endpoint` (the instance base URL, required because Gitea is self-hosted and has no default host), and `$SORTIE_GITEA_PROJECT` for `tracker.project` (an `owner/repo` string). See the [Gitea adapter reference](/reference/adapter-gitea/#configuration) for per-field semantics.
 
 ### Behavior when a variable is unset or empty
 

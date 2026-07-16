@@ -22,6 +22,7 @@ Connect Sortie to your issue tracker and walk through a real workflow:
   {{< card link="jira-integration" title="Jira Integration" subtitle="Connect to Jira Cloud, map states, and process tickets." >}}
   {{< card link="github-integration" title="GitHub Integration" subtitle="Connect to GitHub Issues and process labeled issues." >}}
   {{< card link="linear-integration" title="Linear Integration" subtitle="Connect to a Linear team, map states, and process issues." >}}
+  {{< card link="gitea-integration" title="Gitea Integration" subtitle="Run a local Gitea in a container, map states, and process issues." >}}
 {{< /cards >}}
 
 ## End-to-end walkthroughs
@@ -35,4 +36,5 @@ Full tutorials that connect a tracker to an agent and run a complete session:
   {{< card link="jira-opencode-end-to-end" title="Jira + OpenCode" subtitle="Jira polling → OpenCode agent → commit and push." >}}
   {{< card link="github-kiro-end-to-end" title="GitHub + Kiro" subtitle="GitHub Issues → Kiro agent → commit and push." >}}
   {{< card link="linear-codex-end-to-end" title="Linear + Codex" subtitle="Linear polling → Codex agent → commit and push." >}}
+  {{< card link="gitea-opencode-end-to-end" title="Gitea + OpenCode" subtitle="Gitea polling → OpenCode agent → commit and push, fully self-hosted." >}}
 {{< /cards >}}

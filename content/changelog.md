@@ -12,6 +12,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.15.0] - 2026-07-16 { #1.15.0 }
+
+### Added
+
+- Gitea tracker adapter: set `tracker.kind: gitea` to run Sortie against a
+  self-hosted Gitea instance (Forgejo and Codeberg included), with
+  `tracker.endpoint` the instance URL (required; there is no default
+  host), `tracker.api_key` a Gitea access token, and `tracker.project` the
+  target `owner/repo`. It runs the same autonomous workflow as the Jira,
+  GitHub, and Linear adapters: candidate polling, handoff transitions,
+  lifecycle comments, and CI-failure escalation labels. State is
+  label-driven through `active_states`, `terminal_states`, and
+  `handoff_state`; a terminal transition closes the issue and an active
+  transition reopens it, and any missing state or escalation label is
+  created in the repository on demand. `tracker.query_filter` takes a Gitea
+  issue-list query fragment (for example
+  `assigned_by=review-bot&labels=ready`) to scope candidate polling to
+  matching issues; the adapter-owned keys `state`, `type`, `page`, and
+  `limit` are rejected.
+  ([#629](https://github.com/sortie-ai/sortie/issues/629),
+  [#630](https://github.com/sortie-ai/sortie/issues/630),
+  [#632](https://github.com/sortie-ai/sortie/issues/632))
+- `sortie validate` Gitea adapter config validation: emits offline
+  diagnostics for `tracker.kind: gitea` covering `tracker.endpoint`
+  presence and URL shape (required for a self-hosted instance, which has
+  no default host to fall back on), `tracker.project` as `owner/repo`, a
+  `$SORTIE_GITEA_TOKEN` environment-variable hint, empty state labels,
+  and active/terminal state overlap. Errors block dispatch; warnings are
+  advisory.
+  ([#631](https://github.com/sortie-ai/sortie/issues/631))
+
 ## [1.14.1] - 2026-07-13 { #1.14.1 }
 
 ### Fixed
@@ -1162,6 +1193,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   execution via GitHub Actions.
 - Architecture Decision Records (ADR-0001 through ADR-0005).
 
+[1.15.0]: https://github.com/sortie-ai/sortie/compare/1.14.0...1.14.1
 [1.14.1]: https://github.com/sortie-ai/sortie/compare/1.14.0...1.14.1
 [1.14.0]: https://github.com/sortie-ai/sortie/compare/1.13.0...1.14.0
 [1.13.0]: https://github.com/sortie-ai/sortie/compare/1.12.0...1.13.0
