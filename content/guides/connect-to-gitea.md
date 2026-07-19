@@ -1,8 +1,8 @@
 ---
 title: How to connect Sortie to Gitea
 linkTitle: "Connect to Gitea"
-description: "Configure Sortie to poll a self-hosted Gitea repository: create a scoped access token, set the instance endpoint and owner/repo, map label-driven states, scope candidates, and verify the connection."
-keywords: sortie gitea, gitea access token, self-hosted, owner/repo, label states, query_filter, tracker configuration, connect gitea
+description: "Configure Sortie to poll a self-hosted Gitea repository: create a scoped access token, set the instance endpoint and owner/repo, map label-driven states, scope candidates, enable pull-request reactions with auto-merge, and verify the connection."
+keywords: sortie gitea, gitea access token, self-hosted, owner/repo, label states, query_filter, tracker configuration, connect gitea, pull request reactions, auto-merge, review feedback, ci status, bot_usernames, write:repository
 author: Sortie AI
 date: 2026-07-16
 weight: 26
@@ -25,6 +25,8 @@ Create the token in Gitea under **Settings > Applications > Generate New Token**
 - `write:issue` covers every issue operation: reading issues, posting comments, and reading, creating, and applying labels. On Gitea a write scope implies its read, so this one scope carries the whole tracker surface.
 - `read:user` backs the credential check Sortie runs at startup against `GET /user`, which also identifies the automation account.
 - `read:repository` backs the repository preflight against `GET /repos/{owner}/{repo}`.
+
+Those three scopes cover the tracker surface. To enable [pull-request reactions](#react-to-pull-requests) with auto-merge or branch cleanup, also grant `write:repository`; it is Gitea's one coarse scope covering both the merge and the branch-delete routes, and the token's user needs write access to the repository on top of it. A write scope implies its read on Gitea, so the complete set for an auto-merge deployment is `write:issue`, `read:user`, and `write:repository`, with `read:repository` subsumed by its write counterpart.
 
 Generate the token. Gitea shows it once: a 40-character hex string with no identifying prefix (unlike a GitHub `ghp_` or a Linear `lin_api_` key), so copy it right away.
 
@@ -154,9 +156,36 @@ gitea: tracker.query_filter must not contain a reserved key "state"
 
 A key outside Gitea's known issue-list parameters (`labels`, `q`, `milestones`, `since`, `before`, `created_by`, `assigned_by`, and `mentioned_by`) is not rejected but warned about, because Gitea ignores an unrecognized parameter and returns every open issue, widening the candidate set rather than narrowing it. A typo in a key name is a warning worth reading.
 
+## React to pull requests
+
+Once your agents open pull requests, the same `gitea` kind reacts to them: a "Request changes" review or a failing CI check dispatches a fix continuation turn, review-bot comments route back to the agent, and an approved, mergeable, CI-green PR merges automatically with its branch cleaned up. The mechanics are provider-agnostic and live elsewhere: [how to set up PR reactions](/guides/setup-pr-reactions/) covers the shared machinery, including the `.sortie/scm.json` PR metadata your hook writes, and the [reactions reference](/reference/reactions/) documents every kind, field, and default. This section is the Gitea-specific wiring.
+
+Activate a reaction kind by giving it `provider: gitea`. Every active SCM reaction in one workflow must name the same provider. Because the tracker is already `kind: gitea`, the reactions reuse the tracker's `endpoint`, `api_key`, and `project`, so you repeat no credentials; to point them at a different instance or repository, set overrides in a top-level `gitea:` block ([adapter pass-through configuration](/reference/workflow-config/#adapter-pass-through-configuration)).
+
+```yaml
+reactions:
+  review_comments:
+    provider: gitea
+  bot_review:
+    provider: gitea
+    bot_usernames:          # required on Gitea; an empty list matches nothing
+      - reviewdog
+  auto_merge:
+    provider: gitea
+    strategy: squash        # squash (default) | merge | rebase
+    require_ci: true        # never merge on failing or pending CI
+    delete_branch: true     # remove the head branch after the merge
+```
+
+`bot_usernames` is what makes `bot_review` work on Gitea. Gitea users carry no platform bot marker, so the allowlist is the only bot signal: a comment is routed only when its author's login matches an entry, case-insensitively, and an empty or absent list selects nothing. On GitHub, platform-typed bots match without an allowlist; on Gitea, list every review bot's login.
+
+Auto-merge and branch deletion are the two operations the tracker scopes do not cover: grant the token `write:repository` and give the token's user write access to the repository, as described in [Create an access token](#create-an-access-token). The startup preflight checks the user's repository role, not the token's scopes, because Gitea offers no scope introspection. It disables auto-merge when the token's user lacks write access; a wrongly scoped token whose user has write access passes startup and fails on the first merge or branch delete with a 403 that Sortie rewrites to name `write:repository`.
+
+For the routes behind these operations and the full token-scope detail, see the [Gitea adapter reference](/reference/adapter-gitea/#scm-and-ci-surface).
+
 ## Putting it all together
 
-A complete `WORKFLOW.md` that polls a Gitea repository, scopes candidates to the automation account, and hands finished work to a review label:
+A complete `WORKFLOW.md` that polls a Gitea repository, scopes candidates to the automation account, hands finished work to a review label, and reacts to the agent's pull requests:
 
 ```jinja {filename="WORKFLOW.md"}
 ---
@@ -183,6 +212,19 @@ workspace:
 agent:
   kind: claude-code
   max_turns: 3
+
+reactions:
+  review_comments:
+    provider: gitea
+  bot_review:
+    provider: gitea
+    bot_usernames:
+      - reviewdog
+  auto_merge:
+    provider: gitea
+    strategy: squash
+    require_ci: true
+    delete_branch: true
 ---
 
 You are a senior engineer. Your work is tracked by Sortie.
@@ -204,7 +246,7 @@ You are a senior engineer. Your work is tracked by Sortie.
 {{ end }}
 ```
 
-This configuration polls every 60 seconds, picks up issues assigned to `hermes-bot` in `backlog` or `in-progress`, runs up to 3 agent turns per issue, and moves completed issues to the `review` label. Issues reaching `done` or `wontfix` are closed automatically. For every tracker field and its validation rules, see the [Gitea adapter reference](/reference/adapter-gitea/) and the [WORKFLOW.md reference](/reference/workflow-config/). For prompt template syntax, see [How to write a prompt template](/guides/write-prompt-template/).
+This configuration polls every 60 seconds, picks up issues assigned to `hermes-bot` in `backlog` or `in-progress`, runs up to 3 agent turns per issue, and moves completed issues to the `review` label. Once a run opens a PR and records its coordinates, review feedback routes back to the agent and an approved, CI-green PR is squash-merged with its branch deleted. Issues reaching `done` or `wontfix` are closed automatically. For every tracker field and its validation rules, see the [Gitea adapter reference](/reference/adapter-gitea/) and the [WORKFLOW.md reference](/reference/workflow-config/). For prompt template syntax, see [How to write a prompt template](/guides/write-prompt-template/).
 
 ## Verify the connection
 
@@ -215,6 +257,8 @@ sortie validate ./WORKFLOW.md
 ```
 
 `sortie validate` parses the front matter, compiles the prompt template, and runs the offline Gitea checks: `endpoint` is present and shaped like an absolute `http(s)` URL, `project` is `owner/repo` with non-empty halves, no state label is empty, `active_states` and `terminal_states` do not overlap, and `handoff_state` collides with neither list. It also warns on an `http` endpoint, on an `endpoint` that already ends in `/api/v1`, and, when `api_key` is empty, points you at `SORTIE_GITEA_TOKEN`. It does not contact Gitea, so it cannot tell you whether the token works or whether the repository exists. Those are construction-time checks.
+
+With the `reactions` block present, validation also covers the forge configuration offline: an `auto_merge` `strategy` outside `merge`, `squash`, and `rebase`, a `bot_usernames` value that is not a list of strings, and a reaction `provider` that names no registered adapter or differs across the active reactions.
 
 ### Run one read-only poll
 
@@ -246,10 +290,13 @@ sortie ./WORKFLOW.md
 
 A real run dispatches an eligible candidate, and when the agent finishes Sortie transitions the issue to your `handoff_state`. Watch one issue move to the `review` label in Gitea, which Sortie creates if the repository does not carry it yet, and watch the same session appear in the dashboard.
 
+With auto-merge enabled, startup also runs the role preflight. When the token's user lacks repository write access, Sortie logs `auto_merge preflight failed: insufficient token scope` naming `write:repository` and disables auto-merge for the process. A user with write access but a token missing the scope passes that gate and surfaces later, on the first merge or branch delete, as a 403 rewritten to `gitea token missing required scope write:repository`.
+
 ## What we configured
 
 1. **Created a scoped token** with `write:issue`, `read:user`, and `read:repository`, sent verbatim in the `Authorization: token` header.
 2. **Pointed Sortie at the instance and repository** by setting `tracker.endpoint` to the instance base URL, which has no default, and `tracker.project` to `owner/repo`.
 3. **Mapped the label-driven states** with `active_states`, `terminal_states`, and `handoff_state`, repository labels that Sortie creates on demand and that open or close the issue on transition.
 4. **Scoped candidates** with a `query_filter` URL fragment, using `assigned_by` to select the automation account's work.
-5. **Verified the connection** offline with `sortie validate`, then online with `sortie --dry-run`, watching candidates fetch before running Sortie for real.
+5. **Enabled the pull-request reactions** with `provider: gitea` on each kind, reusing the tracker's credentials, listing review bots in `bot_usernames`, and granting the token `write:repository` for auto-merge and branch cleanup.
+6. **Verified the connection** offline with `sortie validate`, then online with `sortie --dry-run`, watching candidates fetch before running Sortie for real.

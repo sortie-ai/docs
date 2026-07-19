@@ -1,7 +1,7 @@
 ---
 title: "Gitea Adapter"
-description: "Gitea tracker adapter reference: self-hosted REST v1 configuration, token authentication, label-driven state, owner/repo scoping, query_filter, Link pagination, error mapping, and Forgejo compatibility."
-keywords: sortie gitea adapter, gitea rest api, self-hosted tracker, tracker adapter, label-driven states, owner/repo, query_filter, link pagination, error mapping, access token, forgejo, codeberg
+description: "Gitea tracker and SCM adapter reference: self-hosted REST v1 configuration, token authentication, label-driven state, owner/repo scoping, query_filter, Link pagination, error mapping, pull request reviews, review decision, mergeability, auto-merge, branch cleanup, CI status, the write:repository scope, and Forgejo compatibility."
+keywords: sortie gitea adapter, gitea rest api, self-hosted tracker, tracker adapter, label-driven states, owner/repo, query_filter, link pagination, error mapping, access token, forgejo, codeberg, scm adapter, pull request reviews, review decision, mergeability, auto-merge, branch cleanup, ci status, bot_usernames, write:repository
 author: Sortie AI
 date: 2026-07-16
 weight: 150
@@ -80,7 +80,7 @@ Gitea also accepts an `?access_token=<key>` query parameter, but the adapter nev
 
 ### Scopes
 
-The minimal verified scope set is `write:issue`, `read:user`, and `read:repository`. A write scope implies its read, so `write:issue` covers every issue, comment, and label operation; `read:user` covers the credential and identity check; `read:repository` covers the project check.
+The minimal verified scope set is `write:issue`, `read:user`, and `read:repository`. A write scope implies its read, so `write:issue` covers every issue, comment, and label operation; `read:user` covers the credential and identity check; `read:repository` covers the project check. Auto-merge and branch cleanup additionally require the `write:repository` scope, and the token's user needs repository write access; see [token scope for merge and branch operations](#token-scope-for-merge-and-branch-operations).
 
 ### Fixed headers
 
@@ -270,9 +270,95 @@ For the full error taxonomy and operator guidance, see the [error reference](/re
 
 ---
 
+## SCM and CI surface
+
+The `gitea` kind also provides an SCM adapter and a CI status provider, so a Gitea-backed deployment drives the same pull-request reactions as a GitHub-backed one: review-comment feedback, CI-failure escalation, auto-merge, and branch cleanup. The reaction kinds and their lifecycle are provider-agnostic and documented in the [reactions reference](/reference/reactions/); `provider: gitea` on a reaction block activates this adapter, and [how to set up PR reactions](/guides/setup-pr-reactions/) covers the operator procedure. This section documents only the Gitea-specific behavior. Gitea exposes no GraphQL API and no aggregate review-decision or check-runs endpoint, so every read below is composed from REST routes under `/api/v1`.
+
+### SCM read operations
+
+The adapter implements the six read methods of the `SCMAdapter` interface. Every route uses the PR index; pull requests share the issue index sequence, so the timeline route lives under `/issues/`.
+
+| Method | Gitea route(s) |
+|---|---|
+| `GetReviewDecision` | `GET /repos/{owner}/{repo}/pulls/{index}/reviews`, `GET .../pulls/{index}` |
+| `GetMergeability` | `GET .../pulls/{index}` |
+| `GetCIStatus` | `GET .../pulls/{index}`, `GET .../commits/{sha}/status` |
+| `FetchPendingReviews` | `GET .../pulls/{index}/reviews`, `GET .../pulls/{index}/reviews/{id}/comments` |
+| `FetchBotReviewComments` | Same routes as `FetchPendingReviews`, filtered by the bot-username allowlist |
+| `ListLabelEvents` | `GET .../issues/{index}/timeline` |
+
+These routes paginate by page number, not by the `Link` header the tracker routes follow. The adapter accumulates fixed-size pages of 50 until a short page arrives, capped at 50 pages with a logged warning.
+
+Reviews carry a `state` enum of `APPROVED`, `PENDING`, `COMMENT`, `REQUEST_CHANGES`, and `REQUEST_REVIEW`. Gitea spells the changes-requested state `REQUEST_CHANGES`, not GitHub's `CHANGES_REQUESTED`; a state filter copied from the GitHub adapter matches nothing. Reviews an operator dismissed are skipped by every read.
+
+`GetReviewDecision` folds the review list in the adapter, since Gitea has no aggregate field to read. Reviews are ordered by `submitted_at` then `id`, and the latest `APPROVED` or `REQUEST_CHANGES` per reviewer supersedes that reviewer's earlier reviews; `COMMENT`, `PENDING`, and `REQUEST_REVIEW` are not decisions. Any standing `REQUEST_CHANGES` yields the changes-requested decision; otherwise any `APPROVED` yields approved; otherwise a non-empty `requested_reviewers` list on the PR yields review-required; otherwise not-required.
+
+Review comments are single-line: the comment object carries `position` but no end-line field. A comment whose anchor a later push removed reports `position: 0`; its line falls back to `original_position` and the comment is marked outdated. A retained review's own body is returned as a PR-level comment alongside its inline comments.
+
+### Bot classification
+
+Gitea users carry no platform bot marker, so bot classification is the [`bot_usernames`](/reference/reactions/#reactionsbot_review) allowlist alone: `FetchBotReviewComments` retains a review or inline comment only when its author's login matches an allowlist entry case-insensitively, and it applies no review-state filter. A nil or empty allowlist selects nothing, so the `bot_review` reaction routes no comments on Gitea until `bot_usernames` names each bot account.
+
+`FetchPendingReviews` passes no allowlist, so unlike the GitHub adapter it cannot exclude a bot-authored `REQUEST_CHANGES` review from the pending-review read.
+
+### Mergeability
+
+The pull request object carries a plain `mergeable` bool: there is no `mergeable_state` string and no tri-state computing field. The mapping to the domain mergeability state is lossy. A draft maps to `blocked`, a mergeable non-draft to `clean`, and every other state to `unknown`. Gitea never yields `dirty` or `unstable`; a merge conflict and an in-progress recheck both collapse to `unknown`, which the auto-merge state machine re-enqueues rather than treating as a hard conflict. The same read supplies `head.sha` (the CI ref), `head.ref` (the head branch), and `base.ref` (the base branch).
+
+### Combined commit status
+
+`GET .../commits/{sha}/status` returns `{state, sha, statuses, total_count}`. The adapter computes the aggregate from the per-status entries and never trusts the top-level `state`: a commit with no CI reports a spurious top-level `state: "pending"`. The route paginates, so the adapter walks every page and a commit with more statuses than one page is read in full.
+
+| Per-status `status` value | Classification |
+|---|---|
+| `success` | Non-failing |
+| `warning` | Non-failing |
+| `pending` | Pending |
+| `failure` | Failing |
+| `error` | Failing |
+
+`GetCIStatus` reports `failing` when any entry is failing, `pending` when no entry is failing but one is pending, and `success` otherwise. A head commit with no statuses reports the empty conclusion, meaning no checks exist. Values are compared case-insensitively.
+
+### CI status provider
+
+The package registers a CI status provider under kind `gitea`, the role the GitHub provider fills for GitHub-backed deployments; it drives the [`ci_failure` reaction](/reference/reactions/#reactionsci_failure). `FetchCIStatus` reads the combined commit status directly by ref (a branch name or SHA, percent-encoded into the route), with no PR fetch or SHA resolution, and normalizes it to the domain CI result.
+
+Each per-status entry becomes a check run: `context` is the check name, `status` maps to the run status and conclusion, and `target_url` is the details URL. `success`, `failure`, `error`, and `warning` count as completed runs; any other value is in progress. The conclusion is `success` for `success`, `failure` for `failure` and `error`, `neutral` for `warning`, and `pending` otherwise. The aggregate is failing when any run concludes failure, passing when every run has completed and none failed, and pending otherwise; a ref with no statuses yields a pending result with an empty, non-nil check-run list.
+
+The failing-run log excerpt is assembled from the first failing entry's `description` and `target_url`, both already present in the authenticated combined-status response; the provider never fetches `target_url`, so a third-party run URL cannot expand the request surface beyond the Gitea API. ANSI escape sequences are stripped and the excerpt keeps the last `max_log_lines` lines. A `max_log_lines` of zero, or a failing entry carrying neither field, omits the excerpt.
+
+### SCM write operations
+
+The write surface is `MergePR`, `DeleteBranch`, and `RemoveLabel`. The supported merge strategies are `merge`, `squash`, and `rebase`, the same set the auto-merge [`strategy` field](/reference/reactions/#reactionsauto_merge) accepts; any other value is rejected before a request is issued.
+
+`MergePR` posts to `.../pulls/{index}/merge` with a body carrying `Do` (the strategy) and `head_commit_id` (the expected head SHA, sent as a stale-merge precondition).
+
+| Merge outcome | Gitea response | Mapping |
+|---|---|---|
+| Merged | HTTP 200, empty body | Success. No merge-commit SHA is returned on this route. |
+| Already merged | HTTP 405 | Conflict error carrying the "already merged" marker; the caller dispatches it as a success. |
+| Stale `head_commit_id` | HTTP 409 | Conflict error; the caller re-reads the merge state and reattempts. |
+| Missing scope | HTTP 403 naming a scope | Auth error rewritten to name `write:repository`. |
+
+The already-merged marker is gated on a PR re-read, not on Gitea's message text: after any 405 or 409 the adapter re-reads the PR and attaches the marker only when the PR is in fact merged, so a stale-head rejection never carries it.
+
+`DeleteBranch` calls `DELETE .../branches/{branch}`; success is HTTP 204. An already-gone branch returns HTTP 404, mapped to a not-found error the caller treats as a successful no-op. The branch name is percent-encoded, so `feature/x` reaches Gitea as `feature%2Fx`.
+
+`RemoveLabel` resolves the label name to its numeric id against the PR's own labels (`GET .../issues/{index}/labels`), then calls `DELETE .../issues/{index}/labels/{id}`; Gitea's label routes are id-based, and a name in the id position returns 404. A name that does not resolve is a no-op, and no request is issued. A delete that races an external removal (HTTP 404) is likewise treated as success.
+
+### Token scope for merge and branch operations
+
+One coarse `write:repository` scope covers both `MergePR` and `DeleteBranch`; Gitea has no separate pull-request and contents scope split. Gitea also exposes no scope-introspection surface: there is no `/rate_limit` endpoint, no `X-OAuth-Scopes` response header, and a token's own scopes appear only inside the body of a 403 rejection. `permissions.push` from `GET /repos/{owner}/{repo}` reflects the token owner's repository role, not the token's scope; a read-only token owned by a repository admin still reports `push: true`.
+
+The startup auto-merge preflight therefore cannot verify the token's scope. It fails open, reporting the scope as unverifiable so auto-merge proceeds, and adds the one gate it can check: when `permissions.push` is `false`, the token's user lacks repository write access, and the failed preflight disables auto-merge for the process lifetime. A missing scope on a token whose user has write access surfaces only at runtime, as a 403 on the first merge or branch delete that the adapter rewrites to name `write:repository`.
+
+Grant the token's user write access to the repository, and grant the token the `write:repository` scope alongside the [tracker scopes](#scopes). [How to connect Sortie to Gitea](/guides/connect-to-gitea/#create-an-access-token) covers token creation.
+
+---
+
 ## Adapter registration
 
-The adapter registers itself under kind `"gitea"` via an `init` function in `internal/scm/gitea`, the combined tracker-and-SCM package. Registration metadata declares:
+The combined tracker-and-SCM package `internal/scm/gitea` registers three kinds under `"gitea"` via `init` functions: the tracker adapter, the SCM adapter, and the CI status provider. Tracker registration metadata declares:
 
 | Property | Value |
 |---|---|
@@ -314,6 +400,11 @@ Gitea and GitHub are both forge platforms with label-driven state and `owner/rep
 | Close reason | `state_reason` field | No equivalent |
 | Error body | Varied shapes | Uniform `{"message", "url"}` |
 | GraphQL | Available | Not available |
+| Review decision | GraphQL review decision, read as one field | No aggregate field; folded from per-review states in the adapter |
+| Changes-requested review state | `CHANGES_REQUESTED` | `REQUEST_CHANGES` |
+| Bot classification | Platform bot marker or `bot_usernames` allowlist | `bot_usernames` allowlist only |
+| Mergeability signal | `mergeable_state` enum | Plain `mergeable` bool; never `dirty` or `unstable` |
+| Merge and branch token scope | `pull_requests:write` plus `contents:write`, or classic `repo` | One coarse `write:repository` |
 
 See the [GitHub adapter reference](/reference/adapter-github/).
 

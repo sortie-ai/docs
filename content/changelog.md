@@ -12,6 +12,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.16.0] - 2026-07-19 { #1.16.0 }
+
+### Added
+
+- Gitea SCM provider: Sortie's pull-request automation now runs against a
+  self-hosted Gitea instance (Forgejo and Codeberg included), at parity with
+  the GitHub SCM provider. Set `provider: gitea` on a `reactions.auto_merge`,
+  `reactions.review_comments`, `reactions.bot_review`,
+  `reactions.merge_conflicts`, `reactions.ci_failure`, or
+  `reactions.label_commands` block to drive it through Gitea: Sortie routes
+  human and bot review comments back into the agent session, reacts to merge
+  conflicts, to a failing CI run on an agent's pull request (surfacing an
+  excerpt of the first failing check when available), and to the
+  `sortie:review` / `sortie:fix` label commands, and, with
+  `reactions.auto_merge`, merges an approved pull request once its review
+  decision, CI status, and mergeability satisfy the configured preconditions
+  (sending the expected head SHA so a moved head aborts the merge rather than
+  merging stale work) and deletes the merged branch. Auto-merge on Gitea
+  requires the configured token's user to hold repository write access; a
+  token that cannot push is reported at startup.
+  ([#656](https://github.com/sortie-ai/sortie/issues/656),
+  [#657](https://github.com/sortie-ai/sortie/issues/657),
+  [#658](https://github.com/sortie-ai/sortie/issues/658))
+- `sortie validate` reaction and CI feedback checks: before dispatch,
+  `sortie validate` now reports a reaction or `ci_feedback` block that
+  names an SCM or CI provider Sortie does not recognize, active reactions
+  that disagree on the SCM provider, a `bot_review` `bot_usernames`
+  allowlist that is not a list of names, and an `auto_merge` `strategy`
+  that is not `merge`, `squash`, or `rebase`. These faults block dispatch,
+  and apply to every SCM provider including the new Gitea one.
+  ([#659](https://github.com/sortie-ai/sortie/issues/659))
+
 ## [1.15.0] - 2026-07-16 { #1.15.0 }
 
 ### Added
@@ -1193,7 +1225,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   execution via GitHub Actions.
 - Architecture Decision Records (ADR-0001 through ADR-0005).
 
-[1.15.0]: https://github.com/sortie-ai/sortie/compare/1.14.0...1.14.1
+[1.16.0]: https://github.com/sortie-ai/sortie/compare/1.15.0...1.16.0
+[1.15.0]: https://github.com/sortie-ai/sortie/compare/1.14.1...1.15.0
 [1.14.1]: https://github.com/sortie-ai/sortie/compare/1.14.0...1.14.1
 [1.14.0]: https://github.com/sortie-ai/sortie/compare/1.13.0...1.14.0
 [1.13.0]: https://github.com/sortie-ai/sortie/compare/1.12.0...1.13.0
