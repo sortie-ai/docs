@@ -73,7 +73,7 @@ When CI-fix retries are exhausted, Sortie escalates. Two strategies are availabl
 
 | Strategy | Behavior |
 |---|---|
-| `label` (default) | Adds `escalation_label` (default `needs-human`) to the issue. The label must already exist in the repository. |
+| `label` (default) | Adds `escalation_label` (default `needs-human`) to the issue. The label is created on demand if the tracker does not already have it. |
 | `comment` | Posts a comment on the issue with failure details: how many CI-fix attempts were made, which checks failed, and links to their detail pages. |
 
 Both strategies release the claim on the issue and cancel any pending retry. The issue won't be re-dispatched until its tracker state changes.
@@ -329,7 +329,7 @@ All `ci_feedback` fields in one place:
 | `max_retries` | integer | `2` | Max CI-fix dispatches per issue before escalation. `0` = escalate immediately. |
 | `max_log_lines` | integer | `50` | Lines to fetch from the first failing check's log. `0` = disable log fetching. |
 | `escalation` | string | `"label"` | Escalation strategy: `"label"` or `"comment"`. |
-| `escalation_label` | string | `"needs-human"` | Label to apply when `escalation` is `"label"`. Must exist in the repo. |
+| `escalation_label` | string | `"needs-human"` | Label to apply when `escalation` is `"label"`. Created on demand if the tracker does not already have it. |
 
 For the full WORKFLOW.md configuration reference including all sections, see [workflow config reference](/reference/workflow-config/).
 

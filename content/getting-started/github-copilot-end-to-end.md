@@ -302,7 +302,7 @@ gh issue view 5 --repo yourorg/yourrepo
 
 Verify three things: the issue is closed, the `backlog` label is gone, and the `done` label is present.
 
-If the label did not change: check that the labels exist on the repository (Sortie does not create them automatically), review the Sortie logs for error messages, and confirm your token has `repo` scope.
+If the label did not change: review the Sortie logs for error messages and confirm your token has `repo` scope. A label missing from the repository is not the cause — GitHub creates one on demand when Sortie applies it.
 
 ### Check the dashboard
 

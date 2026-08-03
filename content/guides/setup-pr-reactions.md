@@ -52,7 +52,7 @@ Every kind shares four fields:
 | `provider` | _(required)_ | SCM or CI adapter that activates the kind. Absent or empty disables it. |
 | `max_retries` | `2` | Fix or merge attempts per issue before escalation. Must be non-negative. |
 | `escalation` | `"label"` | Action on budget exhaustion: `"label"` or `"comment"`. |
-| `escalation_label` | `"needs-human"` | Label applied to the issue when `escalation` is `"label"`. Must already exist in the repo. |
+| `escalation_label` | `"needs-human"` | Label applied to the issue when `escalation` is `"label"`. Created on demand if the tracker does not already have it. |
 
 When a kind exhausts its budget, Sortie applies the escalation action and releases its claim on the issue. With `label`, it adds `escalation_label` to the tracker issue. With `comment`, it posts a plain-text comment naming the PR, the attempt count, and the outstanding signal. Create the label in advance if you use label escalation:
 

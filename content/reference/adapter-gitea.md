@@ -390,8 +390,8 @@ Gitea and GitHub are both forge platforms with label-driven state and `owner/rep
 | Permissions | Fine-grained PAT permissions | `read:`/`write:` scopes; `write:issue` covers the tracker surface |
 | `labels` filter | AND across names, case-insensitive | AND across names, case-sensitive, and an unresolvable name drops the filter |
 | Label removal | By name | By numeric id |
-| Unknown label on attach | HTTP 422, visible | HTTP 200, silently ignored |
-| Label auto-creation | Pre-created labels required | Create-on-missing |
+| Unknown label on attach | HTTP 200, label created by the endpoint | HTTP 200, silently ignored |
+| Label auto-creation | Implicit, performed by the attach endpoint | Explicit, adapter creates the label before attaching |
 | Sort control on lists | `sort` + `direction` | None; fixed newest-first, client-side re-sort |
 | Page-size parameter | `per_page` | `limit`, clamped to `MAX_RESPONSE_ITEMS` |
 | Comments route | Paginated | Unpaginated, complete in one response |

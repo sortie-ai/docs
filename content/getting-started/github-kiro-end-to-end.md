@@ -344,7 +344,7 @@ gh pr list --repo yourorg/yourrepo --head "sortie/7"
 
 You should see one open pull request from `sortie/7` into `main`.
 
-If the label did not change, the `review` label may not exist on the repository (Sortie does not create labels). See the [GitHub integration tutorial](/getting-started/github-integration/#verify-in-github) troubleshooting for the label requirement.
+If the label did not change, check the Sortie logs for the transition error. A missing `review` label is not the cause — GitHub creates one on demand when Sortie applies it. The usual culprit is a token without Issues write permission on the repository.
 
 ### Check the dashboard
 

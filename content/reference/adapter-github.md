@@ -28,7 +28,7 @@ The adapter reads its configuration from the `tracker` section of the [WORKFLOW.
 | `active_states` | list of strings | No | `["backlog", "in-progress", "review"]` | Issue label names that map to active Sortie states. Compared case-insensitively; stored lowercased. |
 | `terminal_states` | list of strings | No | `["done", "wontfix"]` | Issue label names that map to terminal Sortie states. Stored lowercased. |
 | `query_filter` | string | No | `""` | Raw GitHub search qualifier appended to the search query. When set, `FetchCandidateIssues` uses the search endpoint instead of the issues list endpoint. |
-| `handoff_state` | string | No | _(absent)_ | Target label name after a successful agent run. Must exist as a label in the repository. |
+| `handoff_state` | string | No | _(absent)_ | Target label name after a successful agent run. Must appear in neither `active_states` nor `terminal_states`. Created on demand if absent from the repository - see [Pre-creating labels](#pre-creating-labels). |
 | `in_progress_state` | string | No | _(absent)_ | Target label name for dispatch-time transitions. Must appear in `active_states`. |
 | `user_agent` | string | No | `"sortie/dev"` | `User-Agent` header sent on all requests. |
 
@@ -87,7 +87,9 @@ Do not include `repo:` or `type:issue` in the value - they are added automatical
 
 ### Pre-creating labels
 
-The adapter does not create issue labels automatically. All label names referenced in `active_states`, `terminal_states`, `handoff_state`, and `in_progress_state` must exist in the repository before Sortie starts. A `TransitionIssue` call that references a non-existent label produces a `tracker_payload_error` (HTTP 422 from GitHub).
+The adapter never issues an explicit label-creation call. It does not need to: `TransitionIssue` adds the target label through GitHub's add-labels-to-an-issue endpoint, and that endpoint creates a label it does not recognize instead of rejecting it, returning `200` with the label applied. A transition to a label that does not exist yet therefore succeeds rather than producing a `tracker_payload_error`. GitHub does not document this behavior, so treat it as convenient rather than guaranteed.
+
+Pre-creating the labels is still worth doing, for two reasons. An implicitly created label comes out in GitHub's default gray with no description, whereas a label you create yourself carries the color and wording you chose. More importantly, the labels in `active_states` gate dispatch: an issue can only carry a label that already exists, so a `query_filter` such as `label:agent-ready` matches nothing until someone has created `agent-ready` and applied it.
 
 ---
 

@@ -292,7 +292,7 @@ tracker:
     on_failure: true
 ```
 
-GitHub state names are issue label names. They must exist as labels in the repository before Sortie starts. State values are compared case-insensitively and stored lowercased. See the [GitHub adapter reference](/reference/adapter-github/) for state derivation rules.
+GitHub state names are issue label names. Create the `active_states` labels before Sortie starts, since an issue can only carry a label that already exists; labels Sortie applies itself, such as `handoff_state`, are created on demand in default gray. State values are compared case-insensitively and stored lowercased. See the [GitHub adapter reference](/reference/adapter-github/) for state derivation rules.
 
 **Example: Linear**
 
@@ -583,7 +583,7 @@ CI feedback configuration. When activated, Sortie detects CI failures on agent-c
 | `max_retries`      | integer | `2`                              | Maximum CI-fix continuation dispatches per issue before escalation. Zero means escalate immediately on first CI failure. Must be non-negative. |
 | `max_log_lines`    | integer | `50`                             | Lines to fetch from the first failing check run's log. Positive: fetch up to N lines. Zero: disable log fetching. Must be non-negative. |
 | `escalation`       | string  | `"label"`                        | Action when `max_retries` is exceeded. Valid values: `"label"`, `"comment"`.                                         |
-| `escalation_label` | string  | `"needs-human"`                  | Label applied to the issue when `escalation` is `"label"`. The label must exist in the repository. Ignored when `escalation` is `"comment"`. |
+| `escalation_label` | string  | `"needs-human"`                  | Label applied to the issue when `escalation` is `"label"`. Created on demand if the tracker does not already have it. Ignored when `escalation` is `"comment"`. |
 
 CI feedback follows the same activation pattern as other optional Sortie features. Presence of `kind` activates the feature; absence disables it. This is consistent with `worker.ssh_hosts` (absent = local mode). There is no `ci_feedback.enabled` boolean.
 
@@ -598,7 +598,7 @@ Repository coordinates (owner, repo name, API token, endpoint) are not part of t
 
 | Escalation          | Behavior                                                                                                                                                |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `label` (default)   | Adds `escalation_label` (default `needs-human`) to the issue via the tracker adapter's `AddLabel` API. The label must already exist in the repository.  |
+| `label` (default)   | Adds `escalation_label` (default `needs-human`) to the issue via the tracker adapter's `AddLabel` API. The label is created on demand if the tracker does not already have it.  |
 | `comment`           | Posts a plain-text comment on the issue listing the number of CI-fix attempts, which checks failed, their conclusions, and details URLs.                 |
 
 Both escalation actions release the claim on the issue and cancel any pending retry. The issue will not be re-dispatched until its tracker state changes.

@@ -249,7 +249,7 @@ Verify three things:
 - The `backlog` label is **gone**.
 - The `done` label is **present**.
 
-If the label did not change: check that the labels exist on the repository (Sortie does not create them automatically), review the Sortie logs for error messages, and confirm your token has `repo` scope.
+If the label did not change: review the Sortie logs for error messages and confirm your token has `repo` scope. A label missing from the repository is not the cause — GitHub creates one on demand when Sortie applies it.
 
 {{% /steps %}}
 
@@ -257,7 +257,7 @@ If the label did not change: check that the labels exist on the repository (Sort
 
 We connected Sortie to a live GitHub repository and ran the full orchestration cycle against a real issue. Sortie polled GitHub for open issues, matched one by its `backlog` label, dispatched a mock agent session, and transitioned the issue to "done" — removing the old label, adding the new one, and closing the issue.
 
-The key difference from Jira: GitHub has no native workflow states beyond open and closed, so Sortie manages state entirely through labels. More flexible (no workflow configuration in the tracker), but it means you need to pre-create the labels. If the target label does not exist on the repository, the transition fails — by design, not silent fallback.
+The key difference from Jira: GitHub has no native workflow states beyond open and closed, so Sortie manages state entirely through labels. More flexible, because there is no workflow to configure on the tracker side. The `active_states` labels still have to exist first, since an issue can only carry a label someone already created, but labels Sortie applies itself, such as `review`, are created on demand.
 
 The workflow file you wrote here is nearly complete for production. To move from testing to real automation, replace `agent.kind: mock` with `agent.kind: claude-code` and configure the agent section. The tracker configuration stays the same.
 

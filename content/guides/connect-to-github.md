@@ -74,7 +74,7 @@ This is the key difference from Jira. GitHub has no native workflow states beyon
 
 All comparisons are case-insensitive. Config values are lowercased at startup, so `"In-Progress"` and `"in-progress"` behave identically.
 
-**Labels must already exist on the repository.** Sortie doesn't create them. Use the `gh` CLI to create your state labels:
+**Create the `active_states` labels before you start.** An issue can only carry a label that already exists, and those labels are what make an issue eligible for dispatch. Labels Sortie applies itself, such as `handoff_state`, are created on demand in GitHub's default gray, so pre-creating them is only a matter of choosing the color and description. Use the `gh` CLI:
 
 ```bash
 gh label create backlog --repo myorg/myrepo --color "0E8A16"
@@ -260,9 +260,9 @@ level=ERROR msg="poll failed" error="tracker: tracker_not_found: GET /repos/myor
 
 Check that `project` is in `owner/repo` format and that the token has access to the repo. Private repositories require explicit token access — a fine-grained PAT must be scoped to the repo, and a classic PAT must have `repo` scope.
 
-### Label does not exist
+### Transition does not change the label
 
-`TransitionIssue` fails when the target label doesn't exist on the repository. Sortie doesn't auto-create labels. Create them with `gh label create` or through the GitHub UI.
+A missing target label is not the cause. Sortie adds the label through GitHub's add-labels endpoint, which creates a label it does not recognize instead of rejecting it. Check the token instead: applying and removing labels needs write access to issues on the repository. A label named in `active_states` is the one case that still has to exist beforehand, because an issue cannot carry a label nobody created, and an issue without an active-state label never becomes a candidate.
 
 ### Issue is a pull request
 

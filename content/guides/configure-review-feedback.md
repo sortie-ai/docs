@@ -62,7 +62,7 @@ reactions:
 |---|---|---|
 | `max_retries` | `2` | Maximum review-fix continuation turns per issue before escalation. |
 | `escalation` | `"label"` | Action when retries are exhausted: `"label"` or `"comment"`. |
-| `escalation_label` | `"needs-human"` | Label applied when `escalation` is `"label"`. Must exist in the repo. |
+| `escalation_label` | `"needs-human"` | Label applied when `escalation` is `"label"`. Created on demand if the tracker does not already have it. |
 
 `max_retries` counts continuation turns triggered specifically by review comments, independent of the agent's `max_sessions` budget and CI feedback's retry counter. If the agent addresses all comments within this budget, the loop ends. If not, Sortie escalates and releases its claim.
 
@@ -354,7 +354,7 @@ All `reactions.review_comments` fields in one place:
 | `provider` | string | _(required)_ | SCM adapter kind. Currently `"github"`. Presence activates the feature. |
 | `max_retries` | integer | `2` | Max review-fix dispatches per issue before escalation. |
 | `escalation` | string | `"label"` | Escalation strategy: `"label"` or `"comment"`. |
-| `escalation_label` | string | `"needs-human"` | Label applied when `escalation` is `"label"`. Must exist in the repo. |
+| `escalation_label` | string | `"needs-human"` | Label applied when `escalation` is `"label"`. Created on demand if the tracker does not already have it. |
 | `poll_interval_ms` | integer | `120000` | Minimum ms between review polls per issue. Min: `30000`. |
 | `debounce_ms` | integer | `60000` | Ms to wait after newest comment before dispatching. |
 | `max_continuation_turns` | integer | `3` | Hard cap on review-triggered continuation turns. |
