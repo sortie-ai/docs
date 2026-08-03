@@ -185,7 +185,7 @@ Your hook can read the summary and include it in a PR description or comment. Th
 
 A full WORKFLOW.md with self-review, CI feedback, GitHub Issues, branch-per-issue hooks, and a prompt template. Self-review runs tests and linters before exit; the `after_run` hook pushes code, creates a PR, and attaches the review summary when available.
 
-````yaml {hl_lines=["22-30"]}
+````yaml {hl_lines=["23-31"]}
 ---
 tracker:
   kind: github
@@ -249,15 +249,15 @@ hooks:
         REVIEW_SUMMARY=$(cat "${SORTIE_SELF_REVIEW_SUMMARY_PATH}")
         PR_BODY="${PR_BODY}
 
-${REVIEW_SUMMARY}"
+    ${REVIEW_SUMMARY}"
       elif [ "${SORTIE_SELF_REVIEW_STATUS}" = "cap_reached" ] && \
            [ -f "${SORTIE_SELF_REVIEW_SUMMARY_PATH}" ]; then
         REVIEW_SUMMARY=$(cat "${SORTIE_SELF_REVIEW_SUMMARY_PATH}")
         PR_BODY="${PR_BODY}
 
-> **Warning:** Self-review hit the iteration cap without passing.
+    > **Warning:** Self-review hit the iteration cap without passing.
 
-${REVIEW_SUMMARY}"
+    ${REVIEW_SUMMARY}"
       fi
 
       gh pr create \
