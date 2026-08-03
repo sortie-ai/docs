@@ -12,6 +12,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.16.1] - 2026-08-03 { #1.16.1 }
+
+### Fixed
+
+- `sortie validate` no longer reports `unknown template variable` for the
+  reaction continuation variables (`ci_failure`, `review_comments`,
+  `bot_review_comments`, `merge_conflict`, `label_review`, `label_fix`). A
+  mistyped sub-field of one of them is now reported as an unknown field with
+  the valid field list, and a reference to one of them from inside a
+  `{{ range }}` or `{{ with }}` body is now reported as dot-context misuse.
+  ([#696](https://github.com/sortie-ai/sortie/issues/696))
+- `sortie validate` and startup now reject a `tracker.handoff_state` or
+  `tracker.in_progress_state` that collides with the tracker adapter's own
+  fallback state list when the matching workflow list is empty. Leaving
+  `tracker.active_states` or `tracker.terminal_states` out no longer hides the
+  collision, so a workflow that passed validation before this release can now
+  fail: either write the list out or pick a state outside the adapter's
+  fallback. ([#695](https://github.com/sortie-ai/sortie/issues/695))
+
 ## [1.16.0] - 2026-07-19 { #1.16.0 }
 
 ### Added
@@ -1225,6 +1244,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   execution via GitHub Actions.
 - Architecture Decision Records (ADR-0001 through ADR-0005).
 
+[1.16.1]: https://github.com/sortie-ai/sortie/compare/1.16.0...1.16.1
 [1.16.0]: https://github.com/sortie-ai/sortie/compare/1.15.0...1.16.0
 [1.15.0]: https://github.com/sortie-ai/sortie/compare/1.14.1...1.15.0
 [1.14.1]: https://github.com/sortie-ai/sortie/compare/1.14.0...1.14.1
