@@ -32,7 +32,7 @@ The adapter reads its configuration from the `tracker` section of the [WORKFLOW.
 | `active_states` | list of strings | No | `["Backlog", "Selected for Development", "In Progress"]` | Issue states eligible for dispatch. |
 | `terminal_states` | list of strings | No | `[]` | Issue states that trigger workspace cleanup. |
 | `query_filter` | string | No | `""` | Raw JQL fragment appended to candidate and state-fetch queries. |
-| `handoff_state` | string | No | _(absent)_ | Target state for orchestrator-initiated transitions after a successful run. |
+| `handoff_state` | string | No | _(absent)_ | Target state for orchestrator-initiated transitions after a successful run. Must appear in neither `active_states` nor `terminal_states`. |
 | `in_progress_state` | string | No | _(absent)_ | Target state for dispatch-time transitions at the start of each worker attempt. |
 
 ### `endpoint`

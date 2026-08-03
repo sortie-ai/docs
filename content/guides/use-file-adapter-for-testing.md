@@ -66,7 +66,7 @@ Set `tracker.kind` to `file` and point `file.path` at your fixture:
 tracker:
   kind: file
   active_states: ["To Do"]
-  handoff_state: Done
+  handoff_state: In Review
   terminal_states: ["Done"]
 
 file:
@@ -109,7 +109,7 @@ Run `sortie validate ./WORKFLOW.md` to catch syntax errors before starting.
 sortie ./WORKFLOW.md
 ```
 
-Watch the logs. Sortie reads your JSON file, dispatches one mock agent session per active issue, runs two turns each, and transitions them to "Done." The full poll-dispatch-execute-handoff lifecycle runs identically to production — only the data source and agent are swapped.
+Watch the logs. Sortie reads your JSON file, dispatches one mock agent session per active issue, runs two turns each, and hands them off to "In Review." The full poll-dispatch-execute-handoff lifecycle runs identically to production — only the data source and agent are swapped. The handoff target stays outside `active_states` and `terminal_states` here for the same reason it does in production: Sortie rejects a configuration where they overlap.
 
 Press **Ctrl+C** to stop after the cycle completes.
 

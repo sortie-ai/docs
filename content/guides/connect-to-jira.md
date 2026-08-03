@@ -128,9 +128,10 @@ Sortie uses the Jira transitions API: it fetches available transitions for the i
 level=ERROR msg="transition failed" error="tracker: tracker_payload: no transition to state \"Human Review\" available for issue PROJ-42"
 ```
 
-Two constraints:
+Three constraints:
 
-- `handoff_state` must not collide with any value in `terminal_states`. Sortie rejects this at startup.
+- `handoff_state` must not collide with any value in `terminal_states`. A handoff parks the issue for a person; it is not a close. Sortie rejects this at startup.
+- `handoff_state` must not collide with any value in `active_states` either, or the issue would be dispatched again on the next poll. Sortie rejects this at startup too.
 - The transition must be available from the issue's current Jira status. Check your Jira workflow diagram if transitions fail.
 
 ## Configure dispatch-time transitions

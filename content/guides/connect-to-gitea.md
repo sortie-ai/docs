@@ -118,7 +118,7 @@ You do not have to pre-create these labels. When Sortie transitions an issue int
 
 A transition also reconciles the issue's open or closed status. Moving an issue to a terminal state (`done` or `wontfix`) closes it, and moving a closed issue back to an active state reopens it. A handoff to `review` leaves the issue open, because `review` is not a terminal state.
 
-Two rules constrain `handoff_state`: it must not appear in `active_states`, or the issue would be dispatched again on the next poll, and it must not appear in `terminal_states`, because a handoff is not a close. The default active list includes `review`, so once you use `review` as your handoff label, drop it from `active_states` as the snippet above does. `sortie validate` warns on either collision, and on any label shared between `active_states` and `terminal_states`.
+Two rules constrain `handoff_state`: it must not appear in `active_states`, or the issue would be dispatched again on the next poll, and it must not appear in `terminal_states`, because a handoff is not a close. The default active list includes `review`, so once you use `review` as your handoff label, drop it from `active_states` as the snippet above does. Neither rule is advisory: `sortie validate` reports either collision as an error and Sortie refuses to start. A label shared between `active_states` and `terminal_states` is a warning by contrast, and startup continues.
 
 For the full `tracker.*` field contract, types, and validation rules, see the [Gitea adapter reference](/reference/adapter-gitea/) and the [WORKFLOW.md reference](/reference/workflow-config/).
 
@@ -256,7 +256,7 @@ This configuration polls every 60 seconds, picks up issues assigned to `hermes-b
 sortie validate ./WORKFLOW.md
 ```
 
-`sortie validate` parses the front matter, compiles the prompt template, and runs the offline Gitea checks: `endpoint` is present and shaped like an absolute `http(s)` URL, `project` is `owner/repo` with non-empty halves, no state label is empty, `active_states` and `terminal_states` do not overlap, and `handoff_state` collides with neither list. It also warns on an `http` endpoint, on an `endpoint` that already ends in `/api/v1`, and, when `api_key` is empty, points you at `SORTIE_GITEA_TOKEN`. It does not contact Gitea, so it cannot tell you whether the token works or whether the repository exists. Those are construction-time checks.
+`sortie validate` parses the front matter, compiles the prompt template, and runs the offline Gitea checks: `endpoint` is present and shaped like an absolute `http(s)` URL, `project` is `owner/repo` with non-empty halves, no state label is empty, `active_states` and `terminal_states` do not overlap, and `handoff_state` collides with neither list. That last one is an error rather than a warning: Sortie will not start on it. It also warns on an `http` endpoint, on an `endpoint` that already ends in `/api/v1`, and, when `api_key` is empty, points you at `SORTIE_GITEA_TOKEN`. It does not contact Gitea, so it cannot tell you whether the token works or whether the repository exists. Those are construction-time checks.
 
 With the `reactions` block present, validation also covers the forge configuration offline: an `auto_merge` `strategy` outside `merge`, `squash`, and `rebase`, a `bot_usernames` value that is not a list of strings, and a reaction `provider` that names no registered adapter or differs across the active reactions.
 
@@ -296,7 +296,7 @@ With auto-merge enabled, startup also runs the role preflight. When the token's 
 
 1. **Created a scoped token** with `write:issue`, `read:user`, and `read:repository`, sent verbatim in the `Authorization: token` header.
 2. **Pointed Sortie at the instance and repository** by setting `tracker.endpoint` to the instance base URL, which has no default, and `tracker.project` to `owner/repo`.
-3. **Mapped the label-driven states** with `active_states`, `terminal_states`, and `handoff_state`, repository labels that Sortie creates on demand and that open or close the issue on transition.
+3. **Mapped the label-driven states** with `active_states`, `terminal_states`, and `handoff_state`, repository labels that Sortie creates on demand. A terminal target closes the issue, an active target reopens it, and a handoff target leaves it open for a reviewer.
 4. **Scoped candidates** with a `query_filter` URL fragment, using `assigned_by` to select the automation account's work.
 5. **Enabled the pull-request reactions** with `provider: gitea` on each kind, reusing the tracker's credentials, listing review bots in `bot_usernames`, and granting the token `write:repository` for auto-merge and branch cleanup.
 6. **Verified the connection** offline with `sortie validate`, then online with `sortie --dry-run`, watching candidates fetch before running Sortie for real.

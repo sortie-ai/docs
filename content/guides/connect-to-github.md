@@ -86,7 +86,7 @@ gh label create wontfix --repo myorg/myrepo --color "E4E669"
 
 ### How state derivation works
 
-When Sortie reads an issue, it scans the issue's labels against `active_states` first, then `terminal_states`, in config order. The first match wins. If no label matches, Sortie falls back: open issues default to the first entry in `active_states` (`backlog` with the defaults above), and closed issues default to the first entry in `terminal_states` (`done`). This means unlabeled open issues show up as candidates — label them explicitly if you want tighter control.
+When Sortie reads an issue, it scans the issue's labels against `active_states` first, then `terminal_states`, then `handoff_state`, in config order. The first match wins. Because the handoff label is part of that scan, an issue parked in handoff keeps its own state rather than looking unlabeled. If no label matches at all, Sortie falls back: open issues default to the first entry in `active_states` (`backlog` with the defaults above), and closed issues default to the first entry in `terminal_states` (`done`). This means unlabeled open issues show up as candidates — label them explicitly if you want tighter control.
 
 When Sortie transitions an issue, it removes the old state label, adds the new state label, and closes or reopens the issue as needed. Moving to a terminal state closes the issue. Moving to an active state from a closed issue reopens it. All label operations are idempotent — retrying a failed transition converges to the correct state.
 
@@ -140,12 +140,13 @@ tracker:
 
 Sortie removes the current state label (e.g., `in-progress`), adds the `review` label, and keeps the issue open — because `review` is not in `terminal_states`.
 
-If `handoff_state` is a terminal state (e.g., `done`), Sortie also closes the issue.
-
 Constraints:
 
-- `handoff_state` must not collide with any value in `terminal_states` if you want the issue to stay open after handoff.
-- The label must exist on the repository.
+- `handoff_state` must not appear in `terminal_states`. A handoff parks the issue for a person; it is not a close. Sortie rejects the configuration at load time.
+- `handoff_state` must not appear in `active_states` either, or the issue would be dispatched again on the next poll. The GitHub adapter's default active list includes `review`, so once you use `review` as the handoff label, set `active_states` explicitly and leave it out, as the snippet above does.
+- Sortie creates the label on demand the first time an issue transitions into it.
+
+Closing stays a human decision. Move the issue to a terminal state once you have read the work, and Sortie cleans up its workspace on the next sweep.
 
 ## Configure dispatch-time transitions
 
@@ -191,7 +192,7 @@ Check your configuration without making API calls:
 sortie validate ./WORKFLOW.md
 ```
 
-This parses front matter, compiles the prompt template, and runs preflight checks. It catches missing fields, bad `owner/repo` format, env vars that resolve to empty strings, empty state labels, and state overlap between `active_states` and `terminal_states`. When `GITHUB_TOKEN` is set but `api_key` is empty, it hints at the available token. See [validate-time checks](/reference/adapter-github/#validate-time-checks) for the full list of GitHub-specific diagnostics.
+This parses front matter, compiles the prompt template, and runs preflight checks. It catches missing fields, bad `owner/repo` format, env vars that resolve to empty strings, empty state labels, state overlap between `active_states` and `terminal_states`, and a `handoff_state` that appears in either list. When `GITHUB_TOKEN` is set but `api_key` is empty, it hints at the available token. See [validate-time checks](/reference/adapter-github/#validate-time-checks) for the full list of GitHub-specific diagnostics.
 
 ### Test connectivity
 
@@ -284,7 +285,6 @@ tracker:
   active_states:
     - backlog
     - in-progress
-    - review
   in_progress_state: in-progress
   handoff_state: review
   terminal_states:

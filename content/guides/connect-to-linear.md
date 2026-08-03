@@ -98,7 +98,7 @@ What Sortie does not tolerate is a name no state on the team carries. That fails
 level=ERROR msg="failed to construct tracker adapter" error="state \"In Review\" not found in team \"ENG\""
 ```
 
-`In Review` is not one of a new team's default states, so add it to the team in Linear before you reference it here. Two more rules hold for `handoff_state`: it must not also appear in `active_states`, or the issue would be picked up again on the next poll, and it must not appear in `terminal_states`, because a handoff is not a close. `sortie validate` warns on either collision.
+`In Review` is not one of a new team's default states, so add it to the team in Linear before you reference it here. Two more rules hold for `handoff_state`: it must not also appear in `active_states`, or the issue would be picked up again on the next poll, and it must not appear in `terminal_states`, because a handoff is not a close. Neither rule is advisory: `sortie validate` reports either collision as an error and Sortie refuses to start.
 
 For the full `tracker.*` field contract, types, and validation rules, see the [Linear adapter reference](/reference/adapter-linear/) and the [WORKFLOW.md reference](/reference/workflow-config/).
 
@@ -195,7 +195,7 @@ This configuration polls every 60 seconds, picks up issues labeled `agent-ready`
 sortie validate ./WORKFLOW.md
 ```
 
-`sortie validate` parses the front matter, compiles the prompt template, and runs the offline Linear checks: an `api_key` is present, `project` has no whitespace or stray `/`, state names are neither empty nor padded with whitespace, `active_states` and `terminal_states` do not overlap, and `handoff_state` collides with neither list. It does not contact Linear. It cannot tell you whether the key works or whether the team and state names exist, because those are construction-time checks.
+`sortie validate` parses the front matter, compiles the prompt template, and runs the offline Linear checks: an `api_key` is present, `project` has no whitespace or stray `/`, state names are neither empty nor padded with whitespace, `active_states` and `terminal_states` do not overlap, and `handoff_state` collides with neither list. That last one is an error rather than a warning: Sortie will not start on it. It does not contact Linear. It cannot tell you whether the key works or whether the team and state names exist, because those are construction-time checks.
 
 ### Run one read-only poll
 

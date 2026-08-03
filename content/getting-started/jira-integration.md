@@ -81,7 +81,7 @@ tracker:
   query_filter: "labels = 'agent-ready'"
   active_states:
     - To Do
-  handoff_state: Done
+  handoff_state: In Review
   terminal_states:
     - Done
 
@@ -106,10 +106,13 @@ A few things to notice:
 - `$SORTIE_JIRA_ENDPOINT` and `$SORTIE_JIRA_API_KEY` resolve from the environment variables we set earlier.
 - `query_filter: "labels = 'agent-ready'"` appends an `AND (labels = 'agent-ready')` clause to the JQL query, so Sortie only fetches issues with that label.
 - `active_states` lists the Jira statuses that qualify an issue for dispatch. We use `To Do` to match the issue we created. State comparison is case-insensitive, so `to do` works too.
-- `handoff_state: Done` tells Sortie to transition the issue to "Done" after the agent finishes.
+- `handoff_state: In Review` tells Sortie to transition the issue to "In Review" after the agent finishes. A handoff parks the issue for a person to look at, so the target has to sit outside both `active_states` and `terminal_states`. (See the [state constraints reference](/reference/workflow-config/#constraints) for the rule.)
 - `agent.kind: mock` uses the built-in mock agent. It simulates a session without launching any subprocess or modifying files.
 - `max_turns: 1` limits each mock session to a single turn. Enough to prove the flow works.
 - `polling.interval_ms: 30000` sets the poll interval to 30 seconds. After each cycle, Sortie waits this long before checking Jira again.
+
+> [!WARNING]
+> `In Review` has to exist in your project's workflow, and a transition to it has to be reachable from `To Do`. Not every Jira project template ships an `In Review` status, so check under **Project settings → Workflows** before you run Sortie. If the status is missing or unreachable, the agent still runs, but the handoff fails and Sortie retries it on every poll cycle. Any status name works here as long as it appears in neither `active_states` nor `terminal_states`.
 
 ### Validate the configuration
 
@@ -194,7 +197,7 @@ level=INFO msg="agent session started" issue_id=12345 issue_identifier=PROJ-42 s
 level=INFO msg="turn started" issue_id=12345 issue_identifier=PROJ-42 turn_number=1 max_turns=1
 level=INFO msg="turn completed" issue_id=12345 issue_identifier=PROJ-42 turn_number=1 max_turns=1
 level=INFO msg="worker exiting" issue_id=12345 issue_identifier=PROJ-42 exit_kind=normal turns_completed=1
-level=INFO msg="handoff transition succeeded, releasing claim" issue_id=12345 issue_identifier=PROJ-42 handoff_state=Done
+level=INFO msg="handoff transition succeeded, releasing claim" issue_id=12345 issue_identifier=PROJ-42 handoff_state="In Review"
 level=INFO msg="tick completed" candidates=0 dispatched=0 running=0 retrying=0
 ```
 
@@ -204,36 +207,36 @@ Here is what happened, step by step:
 2. The first poll found one candidate: your labeled issue in "To Do" state.
 3. Sortie created a workspace directory and started a mock agent session.
 4. The mock agent ran one turn and exited normally.
-5. Sortie called the Jira transitions API to move the issue from "To Do" to "Done."
+5. Sortie called the Jira transitions API to move the issue from "To Do" to "In Review."
 6. The next poll found zero candidates (the issue is no longer in an active state) and Sortie went idle.
 
-Notice the second `tick completed` line: `candidates=0`. The issue moved to "Done" and no longer matches our `active_states`, so Sortie has nothing left to process.
+Notice the second `tick completed` line: `candidates=0`. The issue moved to "In Review" and no longer matches our `active_states`, so Sortie has nothing left to process. Notice too that the issue is not closed: the handoff put it in front of a person, and whether it reaches "Done" is their call.
 
 Press **Ctrl+C** to stop Sortie.
 
 ### Verify in Jira
 
-Open your issue in the browser. The status should now read "Done." If you use a project board, the issue card will have moved to the Done column.
+Open your issue in the browser. The status should now read "In Review." If you use a project board, the issue card will have moved to the In Review column. The issue is still open, which is the point: the handoff hands work to a person, it does not finish it.
 
 If the status did not change and you see this in the logs:
 
 ```
-level=WARN msg="handoff transition failed, scheduling continuation retry" handoff_state=Done error="tracker: tracker_payload: no transition to state \"Done\" available for issue PROJ-42"
+level=WARN msg="handoff transition failed, scheduling continuation retry" handoff_state="In Review" error="tracker: tracker_payload: no transition to state \"In Review\" available for issue PROJ-42"
 ```
 
-This means the Jira workflow does not allow a direct transition from the issue's current status to "Done." Sortie uses the Jira transitions API, which respects your project's workflow rules. The target status must be reachable from the issue's current position in the workflow.
+This means the Jira workflow does not allow a direct transition from the issue's current status to "In Review." Sortie uses the Jira transitions API, which respects your project's workflow rules. The target status must exist and be reachable from the issue's current position in the workflow.
 
 To fix this:
 
 1. Open your Jira project settings and check the workflow diagram.
-2. Confirm that a transition exists from "To Do" (or your issue's current status) to "Done."
-3. If the transition path requires an intermediate status (e.g., "To Do" to "In Progress" to "Done"), set `handoff_state` to a status that is directly reachable, such as "In Progress," or add a direct transition in the Jira workflow editor.
+2. Confirm that "In Review" exists and that a transition reaches it from "To Do" (or your issue's current status).
+3. If neither holds, add the status and transition in the Jira workflow editor, or point `handoff_state` at a status that is already reachable. Whichever you pick, keep it out of `active_states` and `terminal_states` — Sortie refuses to start when the handoff target appears in either list.
 
 {{% /steps %}}
 
 ## What we built
 
-We connected Sortie to a live Jira Cloud instance and ran the full orchestration cycle against a real issue. Sortie polled Jira for issues matching our label filter, dispatched a mock agent session, and transitioned the issue to "Done" via the Jira API. The mock agent stood in for a real coding agent so we could verify the tracker integration in isolation.
+We connected Sortie to a live Jira Cloud instance and ran the full orchestration cycle against a real issue. Sortie polled Jira for issues matching our label filter, dispatched a mock agent session, and handed the issue off to "In Review" via the Jira API. The mock agent stood in for a real coding agent so we could verify the tracker integration in isolation.
 
 The production workflow file you wrote here is nearly complete. To move from testing to real automation, replace `agent.kind: mock` with `agent.kind: claude-code` and configure the agent section for your environment. The tracker configuration stays the same.
 

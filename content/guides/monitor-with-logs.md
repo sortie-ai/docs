@@ -132,10 +132,10 @@ The worker finished its loop. `exit_kind=normal` means the agent completed its t
 ### Handoff transition
 
 ```
-time=2026-03-26T14:35:21.500+00:00 level=INFO msg="handoff transition succeeded, releasing claim" issue_id=abc123 issue_identifier=MT-649 session_id=session-abc-001 handoff_state=Done
+time=2026-03-26T14:35:21.500+00:00 level=INFO msg="handoff transition succeeded, releasing claim" issue_id=abc123 issue_identifier=MT-649 session_id=session-abc-001 handoff_state="In Review"
 ```
 
-Sortie transitioned the issue to the configured `handoff_state` in the tracker and released its claim. The issue is done.
+Sortie transitioned the issue to the configured `handoff_state` in the tracker and released its claim. Sortie is done with the issue; the issue itself is now waiting on a person.
 
 ### Tracker comments
 

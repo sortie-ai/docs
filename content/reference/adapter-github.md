@@ -115,12 +115,10 @@ Empty `tracker.project` is caught by the generic preflight check (`tracker.proje
 | `tracker.active_states.empty_element` | An element in `active_states` is empty or whitespace-only | `tracker.active_states[{i}]: empty state label will never match any issue` |
 | `tracker.terminal_states.empty_element` | An element in `terminal_states` is empty or whitespace-only | `tracker.terminal_states[{i}]: empty state label will never match any issue` |
 | `tracker.states.overlap` | A label appears in both `active_states` and `terminal_states` (case-insensitive) | `tracker.active_states and tracker.terminal_states overlap on "{label}"; an issue in state "{label}" would match both sets` |
-| `tracker.handoff_state.collision` | `handoff_state` appears in `active_states` | `tracker.handoff_state "{state}" must not appear in active_states (would cause immediate re-dispatch after handoff)` |
-| `tracker.handoff_state.collision` | `handoff_state` appears in `terminal_states` | `tracker.handoff_state "{state}" must not appear in terminal_states (handoff is not terminal)` |
-| `tracker.in_progress_state.collision` | `in_progress_state` appears in `terminal_states` | `tracker.in_progress_state "{state}" must not appear in terminal_states` |
-| `tracker.in_progress_state.collision` | `in_progress_state` collides with `handoff_state` | `tracker.in_progress_state must not collide with tracker.handoff_state ("{state}")` |
 
 The `api_key` warnings are supplementary hints. The generic preflight check already reports an **error** when `tracker.api_key` is empty - the adapter-specific warnings provide actionable remediation guidance alongside that error.
+
+State collisions are not adapter diagnostics. A `handoff_state` that appears in `active_states` or `terminal_states`, and an `in_progress_state` that appears in `terminal_states`, is absent from `active_states`, or equals `handoff_state`, are all rejected by the generic configuration layer before adapter validation runs. They surface as errors under the `config.tracker.handoff_state` and `config.tracker.in_progress_state` fields, and they apply to every `tracker.kind`. See [startup and configuration errors](/reference/errors/#startup-and-configuration-errors).
 
 ---
 
@@ -146,20 +144,25 @@ The HTTP client has a 30-second per-request timeout. Context cancellation is pro
 
 ## State derivation
 
-GitHub issues have two native states: `open` and `closed`. Sortie states are derived from issue labels using a four-priority algorithm.
+GitHub issues have two native states: `open` and `closed`. Sortie states are derived from issue labels using a five-priority algorithm.
 
 ### Priority order
 
 1. **Active states, config order.** Issue labels are scanned against `active_states` in configuration order. The first match is returned.
 2. **Terminal states, config order.** If no active state matched, labels are scanned against `terminal_states` in configuration order. The first match is returned.
-3. **Native-state fallback.** If no label matched either list:
+3. **Handoff state.** If neither list matched and `handoff_state` is configured, the labels are scanned for it. A match returns `handoff_state`.
+4. **Native-state fallback.** If no label matched any of the above:
    - `open` issue → `active_states[0]` (first configured active state, e.g., `"backlog"`).
    - `closed` issue → `terminal_states[0]` (first configured terminal state, e.g., `"done"`).
-4. **Native state passthrough.** When both `active_states` and `terminal_states` are empty (not recommended), returns `"open"` or `"closed"` directly.
+5. **Native state passthrough.** When both `active_states` and `terminal_states` are empty (not recommended), returns `"open"` or `"closed"` directly.
 
 ### Multi-label conflicts
 
 When an issue carries multiple state labels, the first configured active state wins (priority 1). Configuration order is deterministic; label display order on the issue is irrelevant.
+
+### Handoff-labeled issues
+
+An open issue carrying the `handoff_state` label resolves to `handoff_state`, not to `active_states[0]`. `handoff_state` is rejected at load time when it appears in `active_states` or `terminal_states`, so priority 3 is the only rule that matches the label.
 
 ### Unlabeled issues
 

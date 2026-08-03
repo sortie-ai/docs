@@ -25,7 +25,7 @@ The adapter reads its configuration from the `tracker` section of the [WORKFLOW.
 | `project` | string | Yes | - | Repository in `owner/repo` form. See [identifiers and project scoping](#identifiers-and-project-scoping). |
 | `active_states` | list of strings | No | `["backlog", "in-progress", "review"]` | Repository label names whose issues are eligible for dispatch. Stored lowercased. |
 | `terminal_states` | list of strings | No | `["done", "wontfix"]` | Repository label names that mark completed issues. Stored lowercased. |
-| `handoff_state` | string | No | _(absent)_ | Repository label name set after a successful agent run. Absent disables handoff. |
+| `handoff_state` | string | No | _(absent)_ | Repository label name set after a successful agent run. Must appear in neither `active_states` nor `terminal_states`. Absent disables handoff. |
 | `in_progress_state` | string | No | _(absent)_ | Repository label set at dispatch, before the agent runs. Must appear in `active_states`. Absent disables the dispatch-time transition. |
 | `query_filter` | string | No | `""` | URL query fragment merged into the repository issue-list request. See [query filter](#query-filter). |
 | `user_agent` | string | No | `"sortie/dev"` | `User-Agent` header sent on all requests. |

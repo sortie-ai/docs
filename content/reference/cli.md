@@ -399,8 +399,8 @@ The GitHub adapter (`tracker.kind: github`) produces these warning checks:
 | `tracker.active_states.empty_element` | An element in `active_states` is empty or whitespace-only. |
 | `tracker.terminal_states.empty_element` | An element in `terminal_states` is empty or whitespace-only. |
 | `tracker.states.overlap` | A label appears in both `active_states` and `terminal_states` (case-insensitive). |
-| `tracker.handoff_state.collision` | `handoff_state` collides with `active_states` or `terminal_states`. |
-| `tracker.in_progress_state.collision` | `in_progress_state` collides with `terminal_states` or `handoff_state`. |
+
+State collisions involving `handoff_state` or `in_progress_state` are not warnings. The generic configuration layer rejects them for every `tracker.kind` before adapter validation runs, and they are reported under the `config.tracker.handoff_state` and `config.tracker.in_progress_state` check values with exit code `1`.
 
 For details on each check, see [GitHub adapter validate-time checks](/reference/adapter-github/#validate-time-checks).
 

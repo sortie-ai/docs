@@ -282,7 +282,7 @@ tracker:
   api_key: $SORTIE_GITHUB_TOKEN
   project: myorg/myrepo
   query_filter: "label:agent-ready"
-  active_states: [backlog, in-progress, review]
+  active_states: [backlog, in-progress]
   terminal_states: [done, wontfix]
   handoff_state: review
   in_progress_state: in-progress

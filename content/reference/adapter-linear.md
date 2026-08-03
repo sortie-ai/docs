@@ -25,7 +25,7 @@ The adapter reads its configuration from the `tracker` section of the [WORKFLOW.
 | `endpoint` | string | No | `https://api.linear.app/graphql` | GraphQL endpoint URL. There is no self-hosted Linear; overriding serves tests and mocks. |
 | `active_states` | list of strings | No | `["Backlog", "Todo", "In Progress"]` | Workflow-state names eligible for dispatch. |
 | `terminal_states` | list of strings | No | `["Done", "Canceled", "Duplicate"]` | Workflow-state names that trigger workspace cleanup. |
-| `handoff_state` | string | No | _(absent)_ | Workflow-state name set after a successful agent run. Absent disables handoff. |
+| `handoff_state` | string | No | _(absent)_ | Workflow-state name set after a successful agent run. Must appear in neither `active_states` nor `terminal_states`. Absent disables handoff. |
 | `query_filter` | string | No | `""` | Raw Linear `IssueFilter` JSON fragment, ANDed with the team and state constraints. See [query filter](#query-filter). |
 | `user_agent` | string | No | `"sortie/dev"` | `User-Agent` header sent on all requests. |
 

@@ -1,13 +1,13 @@
 ---
 title: Run the Full Cycle with OpenCode CLI
 linkTitle: "Jira + OpenCode End-to-End"
-description: "Tutorial: connect Sortie to Jira and the OpenCode CLI, clone a repo, let the agent write code, push to a branch, and watch the issue move to Done."
+description: "Tutorial: connect Sortie to Jira and the OpenCode CLI, clone a repo, let the agent write code, push to a branch, and watch the issue move to In Review."
 keywords: sortie tutorial, opencode cli, end to end, jira, workspace hooks, git push, autonomous coding agent, agent session, sst opencode, opencode-ai
 author: Sortie AI
 date: 2026-04-26
 weight: 80
 ---
-In this tutorial, we will connect Sortie to Jira and the OpenCode CLI, then watch the full unattended cycle: Jira offers an `agent-ready` issue, Sortie clones your repository, OpenCode writes and commits code, Sortie pushes a branch, and Jira moves the issue to Done. This builds on the [Jira integration tutorial](/getting-started/jira-integration/) and adds three pieces: the OpenCode CLI adapter, workspace hooks for git operations, and a prompt template. The tracker stays the same as in the [Claude Code tutorial](/getting-started/jira-claude-end-to-end/) and the [Codex tutorial](/getting-started/jira-codex-end-to-end/). Only the agent changes.
+In this tutorial, we will connect Sortie to Jira and the OpenCode CLI, then watch the full unattended cycle: Jira offers an `agent-ready` issue, Sortie clones your repository, OpenCode writes and commits code, Sortie pushes a branch, and Jira moves the issue to In Review. This builds on the [Jira integration tutorial](/getting-started/jira-integration/) and adds three pieces: the OpenCode CLI adapter, workspace hooks for git operations, and a prompt template. The tracker stays the same as in the [Claude Code tutorial](/getting-started/jira-claude-end-to-end/) and the [Codex tutorial](/getting-started/jira-codex-end-to-end/). Only the agent changes.
 
 > **Jira Server and Data Center:** This tutorial uses Jira Cloud. If you are connecting to a self-hosted Jira Server or Data Center instance, see the [Jira adapter reference](/reference/adapter-jira/#api_version) for the `api_version: "2"` field and Server / Data Center configuration before continuing.
 
@@ -82,7 +82,7 @@ tracker:
   query_filter: "labels = 'agent-ready'"
   active_states:
     - To Do
-  handoff_state: Done
+  handoff_state: In Review
   terminal_states:
     - Done
 
@@ -167,6 +167,9 @@ making changes. Do not repeat the same approach that failed.
 
 This file should feel familiar if you finished the Claude tutorial. The tracker, polling, workspace, hooks, server, and prompt body stay in the same shape. The OpenCode-specific work is concentrated in the `agent` block and the `opencode` block.
 
+> [!WARNING]
+> The `tracker` section is the one you already validated, so `In Review` should exist in your workflow and be reachable from `To Do`. If you changed projects since then, check **Project settings → Workflows** again. A handoff target that Jira cannot reach leaves the issue where it is and Sortie retries the transition on every poll cycle.
+
 If you compare this tutorial workflow with the repository sample, you will notice that the sample adds production-oriented settings like `in_progress_state`, `before_remove`, `disable_autocompact`, and an explicit `allowed_tools` policy. We leave those out here so the first run stays focused and easy to verify.
 
 ### Workspace and hooks
@@ -240,7 +243,7 @@ level=INFO msg="turn completed" issue_id=10042 issue_identifier=PROJ-55 turn_num
 level=INFO msg="hook started" hook=after_run issue_identifier=PROJ-55
 level=INFO msg="hook completed" hook=after_run issue_identifier=PROJ-55
 level=INFO msg="worker exiting" issue_id=10042 issue_identifier=PROJ-55 exit_kind=normal turns_completed=1
-level=INFO msg="handoff transition succeeded, releasing claim" issue_id=10042 issue_identifier=PROJ-55 handoff_state=Done
+level=INFO msg="handoff transition succeeded, releasing claim" issue_id=10042 issue_identifier=PROJ-55 handoff_state="In Review"
 level=INFO msg="tick completed" candidates=0 dispatched=0 running=0 retrying=0
 ```
 
@@ -252,7 +255,7 @@ Here is the full lifecycle, step by step:
 4. Sortie launched OpenCode and passed it the rendered prompt for the Jira issue.
 5. OpenCode read the codebase, wrote the change, and completed the turn.
 6. `after_run` committed the changes and pushed the branch.
-7. Sortie transitioned the Jira issue from "To Do" to "Done."
+7. Sortie transitioned the Jira issue from "To Do" to "In Review."
 8. The next poll found zero candidates and went idle.
 
 Press **Ctrl+C** to stop Sortie.
@@ -297,9 +300,9 @@ You should see a commit hash. The `sortie/PROJ-55` branch is on your remote, rea
 
 ### Check Jira
 
-Open the issue in your browser. The status should read "Done." If you use a board view, the card has moved to the Done column.
+Open the issue in your browser. The status should read "In Review." If you use a board view, the card has moved to the In Review column. The issue stays open, waiting for you to read the branch and decide what happens next.
 
-If the status did not change and you see a handoff warning in the logs, the Jira workflow does not allow a direct transition from "To Do" to "Done." Check the [Jira integration tutorial](/getting-started/jira-integration/#verify-in-jira) troubleshooting section for how to resolve this.
+If the status did not change and you see a handoff warning in the logs, the Jira workflow does not allow a direct transition from "To Do" to "In Review." Check the [Jira integration tutorial](/getting-started/jira-integration/#verify-in-jira) troubleshooting section for how to resolve this.
 
 ### Check the dashboard
 
@@ -316,7 +319,7 @@ We ran the complete Sortie lifecycle with the OpenCode CLI on top of the same Ji
 - **Branch** - The `before_run` hook created a clean feature branch.
 - **Code** - OpenCode read the codebase, wrote an implementation, and ran tests.
 - **Push** - The `after_run` hook committed and pushed the changes.
-- **Handoff** - Sortie transitioned the Jira issue to Done.
+- **Handoff** - Sortie transitioned the Jira issue to In Review.
 
 This is the same loop that powers the [Claude Code tutorial](/getting-started/jira-claude-end-to-end/), the [Copilot CLI tutorial](/getting-started/github-copilot-end-to-end/), and the [Codex tutorial](/getting-started/jira-codex-end-to-end/), with one config change.
 

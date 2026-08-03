@@ -1,13 +1,13 @@
 ---
 title: "Run the Full Cycle with Copilot CLI"
 linkTitle: "GitHub + Copilot End-to-End"
-description: "Tutorial: connect Sortie to GitHub Issues and Copilot CLI, clone a repo, let the agent write code, push to a branch, and watch the issue transition to Done."
+description: "Tutorial: connect Sortie to GitHub Issues and Copilot CLI, clone a repo, let the agent write code, push to a branch, and watch the issue move to review."
 keywords: sortie tutorial, copilot cli, end to end, github issues, workspace hooks, git push, autonomous coding agent, agent session, github native
 author: Sortie AI
 date: 2026-03-31
 weight: 60
 ---
-In this tutorial, we will wire Sortie to GitHub Issues and the Copilot CLI, clone a repository, let the agent write and commit code, push the result to a branch, and transition the issue to Done. The entire stack is GitHub-native. No Jira, no Claude Code, no Anthropic API key.
+In this tutorial, we will wire Sortie to GitHub Issues and the Copilot CLI, clone a repository, let the agent write and commit code, push the result to a branch, and move the issue to review. The entire stack is GitHub-native. No Jira, no Claude Code, no Anthropic API key.
 
 The GitHub integration tutorial proved that Sortie can talk to your issue tracker. This tutorial adds three new pieces: a real agent (Copilot CLI), workspace hooks for git operations, and a prompt template that guides the agent through the task.
 
@@ -67,7 +67,7 @@ mkdir sortie-github-e2e && cd sortie-github-e2e
 
 Create `WORKFLOW.md` with the full configuration. Replace `yourorg/yourrepo` with your actual repository:
 
-```jinja {filename="WORKFLOW.md",hl_lines=[3,4,"34-35","40-42"]}
+```jinja {filename="WORKFLOW.md",hl_lines=[3,4,"33-34","39-41"]}
 ---
 tracker:
   kind: github
@@ -76,8 +76,7 @@ tracker:
   active_states:
     - backlog
     - in-progress
-    - review
-  handoff_state: done
+  handoff_state: review
   terminal_states:
     - done
 
@@ -237,7 +236,7 @@ level=INFO msg="turn completed" issue_id=5 issue_identifier=5 turn_number=1 max_
 level=INFO msg="hook started" hook=after_run issue_identifier=5
 level=INFO msg="hook completed" hook=after_run issue_identifier=5
 level=INFO msg="worker exiting" issue_id=5 issue_identifier=5 exit_kind=normal turns_completed=1
-level=INFO msg="handoff transition succeeded, releasing claim" issue_id=5 issue_identifier=5 handoff_state=done
+level=INFO msg="handoff transition succeeded, releasing claim" issue_id=5 issue_identifier=5 handoff_state=review
 level=INFO msg="tick completed" candidates=0 dispatched=0 running=0 retrying=0
 ```
 
@@ -249,7 +248,7 @@ Here is the full lifecycle, step by step:
 4. Copilot CLI started a session and worked on the task.
 5. The agent completed the turn and exited.
 6. `after_run` committed the changes and pushed the branch.
-7. Sortie removed the `backlog` label, added `done`, and closed the issue.
+7. Sortie removed the `backlog` label and added `review`, leaving the issue open for a human.
 8. The next poll found zero candidates and went idle.
 
 Press **Ctrl+C** to stop Sortie.
@@ -300,7 +299,7 @@ Open the issue in the browser, or check from the command line:
 gh issue view 5 --repo yourorg/yourrepo
 ```
 
-Verify three things: the issue is closed, the `backlog` label is gone, and the `done` label is present.
+Verify three things: the issue is still open, the `backlog` label is gone, and the `review` label is present. Handoff parks the issue for a human rather than finishing it, so closing it is a call you make after reading the branch.
 
 If the label did not change: review the Sortie logs for error messages and confirm your token has `repo` scope. A label missing from the repository is not the cause — GitHub creates one on demand when Sortie applies it.
 
@@ -312,7 +311,7 @@ Open `http://127.0.0.1:8888/` in a browser while Sortie is running. You will see
 
 ## What we built
 
-We ran the complete Sortie lifecycle with Copilot CLI on GitHub Issues — entirely GitHub-native. One token authenticates both the tracker and the agent. Sortie polled GitHub, cloned the repository, launched the Copilot CLI, let it write and test code, pushed the result to a branch, and closed the issue.
+We ran the complete Sortie lifecycle with Copilot CLI on GitHub Issues — entirely GitHub-native. One token authenticates both the tracker and the agent. Sortie polled GitHub, cloned the repository, launched the Copilot CLI, let it write and test code, pushed the result to a branch, and moved the issue to review.
 
 The same orchestration loop powers the [Claude Code end-to-end tutorial](/getting-started/jira-claude-end-to-end/) and the [Codex end-to-end tutorial](/getting-started/jira-codex-end-to-end/) with different agents and trackers. Sortie's adapter-agnostic design means swapping `copilot-cli` for `claude-code` or `codex` is a config change — the prompt template, hooks, and overall flow carry over.
 

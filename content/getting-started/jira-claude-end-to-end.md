@@ -1,13 +1,13 @@
 ---
 title: Run the Full Cycle with Claude Code
 linkTitle: "Jira + Claude End-to-End"
-description: "Tutorial: connect Sortie to Jira and Claude Code, clone a repo, let the agent write code, push to a branch, and watch the issue move to Done."
+description: "Tutorial: connect Sortie to Jira and Claude Code, clone a repo, let the agent write code, push to a branch, and watch the issue move to In Review."
 keywords: sortie tutorial, claude code, end to end, jira, workspace hooks, git push, autonomous coding agent, agent session
 author: Sortie AI
 date: 2026-03-23
 weight: 50
 ---
-In this tutorial, we will wire Sortie to a real coding agent. By the end, you will have watched Sortie pick up a Jira issue, clone your repository, launch Claude Code, let it write and commit code, push the result to a branch, and transition the issue to Done — hands off.
+In this tutorial, we will wire Sortie to a real coding agent. By the end, you will have watched Sortie pick up a Jira issue, clone your repository, launch Claude Code, let it write and commit code, push the result to a branch, and transition the issue to In Review — hands off.
 
 The Jira integration tutorial proved that Sortie can talk to your tracker. This tutorial completes the Claude Code automation setup with three new pieces: a real agent, workspace hooks for git operations, and a prompt template that guides the agent through the task.
 
@@ -81,7 +81,7 @@ tracker:
   query_filter: "labels = 'agent-ready'"
   active_states:
     - To Do
-  handoff_state: Done
+  handoff_state: In Review
   terminal_states:
     - Done
 
@@ -166,6 +166,9 @@ making changes. Do not repeat the same approach that failed.
 ```
 
 This is a lot of configuration in one file. Let's walk through the new pieces — the parts that were not in the Jira integration tutorial.
+
+> [!WARNING]
+> The `tracker` section is the one you already validated, so `In Review` should exist in your workflow and be reachable from `To Do`. If you changed projects since then, check **Project settings → Workflows** again. A handoff target that Jira cannot reach leaves the issue where it is and Sortie retries the transition on every poll cycle.
 
 ### Workspace and hooks
 
@@ -271,7 +274,7 @@ level=INFO msg="turn completed" issue_id=10042 issue_identifier=PROJ-55 turn_num
 level=INFO msg="hook started" hook=after_run issue_identifier=PROJ-55
 level=INFO msg="hook completed" hook=after_run issue_identifier=PROJ-55
 level=INFO msg="worker exiting" issue_id=10042 issue_identifier=PROJ-55 exit_kind=normal turns_completed=1
-level=INFO msg="handoff transition succeeded, releasing claim" issue_id=10042 issue_identifier=PROJ-55 handoff_state=Done
+level=INFO msg="handoff transition succeeded, releasing claim" issue_id=10042 issue_identifier=PROJ-55 handoff_state="In Review"
 level=INFO msg="tick completed" candidates=0 dispatched=0 running=0 retrying=0
 ```
 
@@ -283,7 +286,7 @@ Here is the full lifecycle, step by step:
 4. Claude Code started a session and worked on the task.
 5. The agent completed the turn and exited.
 6. `after_run` committed the changes and pushed the branch.
-7. Sortie transitioned the Jira issue from "To Do" to "Done."
+7. Sortie transitioned the Jira issue from "To Do" to "In Review."
 8. The next poll found zero candidates and went idle.
 
 Press **Ctrl+C** to stop Sortie.
@@ -328,9 +331,9 @@ You should see a commit hash. Open your repository on GitHub or GitLab — the `
 
 ### Check Jira
 
-Open the issue in your browser. The status should read "Done." If you use a board view, the card has moved to the Done column.
+Open the issue in your browser. The status should read "In Review." If you use a board view, the card has moved to the In Review column. The issue stays open, waiting for you to read the branch and decide what happens next.
 
-If the status did not change and you see a handoff warning in the logs, the Jira workflow does not allow a direct transition from "To Do" to "Done." Check the [Jira integration tutorial](/getting-started/jira-integration/#verify-in-jira) troubleshooting section for how to resolve this.
+If the status did not change and you see a handoff warning in the logs, the Jira workflow does not allow a direct transition from "To Do" to "In Review." Check the [Jira integration tutorial](/getting-started/jira-integration/#verify-in-jira) troubleshooting section for how to resolve this.
 
 ### Check the dashboard
 
@@ -352,7 +355,7 @@ We ran the complete Sortie lifecycle with a real agent:
 - **Branch** — The `before_run` hook created a clean feature branch.
 - **Code** — Claude Code read the codebase, wrote an implementation, and ran tests.
 - **Push** — The `after_run` hook committed and pushed the changes.
-- **Handoff** — Sortie transitioned the Jira issue to Done.
+- **Handoff** — Sortie transitioned the Jira issue to In Review.
 
 This is the same loop that runs in production. Increase `agent.max_turns` and `max_concurrent_agents`, point at more issues, and Sortie scales the pattern across your backlog. Swapping the agent is a config change — the same hooks, prompt template, and orchestration flow work with any supported adapter. To see this loop with a different agent, try the [Codex tutorial](/getting-started/jira-codex-end-to-end/) or the [Copilot CLI tutorial](/getting-started/github-copilot-end-to-end/).
 
