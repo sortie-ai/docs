@@ -55,7 +55,7 @@ These fields are adapter-specific. The orchestrator forwards them to the adapter
 | `model` | `--model` | string | _(CLI default)_ | LLM model identifier (e.g., `claude-sonnet-4-20250514`). |
 | `fallback_model` | `--fallback-model` | string | _(none)_ | Fallback model used when the primary model is unavailable. |
 | `max_turns` | `--max-turns` | integer | _(CLI default)_ | Claude Code's internal agentic turn budget per invocation. |
-| `max_budget_usd` | `--max-budget-usd` | number | _(none)_ | Per-session cost cap in USD. Claude Code stops when the cumulative API cost reaches this amount. |
+| `max_budget_usd` | `--max-budget-usd` | number | _(none)_ | Per-invocation cost cap in USD. Claude Code stops when the API cost accumulated within that one invocation reaches this amount. The counter starts at zero on every turn, including resumed ones, so the per-session ceiling is this value times `agent.max_turns`. |
 | `effort` | `--effort` | string | _(CLI default)_ | Inference effort level. Values: `low`, `medium`, `high`. |
 | `allowed_tools` | `--allowedTools` | string | _(none)_ | Comma-separated list of tools the agent is allowed to use. |
 | `disallowed_tools` | `--disallowedTools` | string | _(none)_ | Comma-separated list of tools the agent is blocked from using. |

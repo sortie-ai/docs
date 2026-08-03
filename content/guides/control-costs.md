@@ -188,7 +188,7 @@ The maximum spend per poll cycle (all concurrent agents hitting their budget sim
 
 `max_tokens` adds a second, independent bound on the same issue: with `max_tokens: 1500000`, cumulative spend across all of an issue's sessions stops at roughly 1.5M tokens. The two bounds are complementary. The per-turn dollar cap bounds each session from inside; the token budget bounds the issue across sessions. Because the token check runs between sessions, the final session can overshoot the ceiling, and the per-turn budget and turn limit bound that overshoot.
 
-These are true worst cases — the maximum the system can spend before it stops itself. Real costs will be lower because most turns don't exhaust the budget, most sessions succeed early, and `max_budget_usd` is a ceiling, not a target.
+These are worst cases in the sense that the system stops itself once it reaches them. Treat them as close bounds rather than hard ceilings: Claude Code checks the dollar cap at a turn boundary, not mid-turn, so an individual turn can finish slightly over its own budget. Real costs will be well below the table because most turns don't exhaust the budget, most sessions succeed early, and `max_budget_usd` is a ceiling, not a target.
 
 ## Monitor spending
 

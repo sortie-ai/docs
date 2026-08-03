@@ -144,7 +144,7 @@ claude-code:
   permission_mode: bypassPermissions  # Auto-approve tool calls
   model: claude-sonnet-4-20250514
   max_turns: 50                       # CLI --max-turns (not agent.max_turns)
-  max_budget_usd: 5                   # Per-session cost cap
+  max_budget_usd: 5                   # Per-invocation cost cap (x agent.max_turns per session)
 
 # --- Server -----------------------------------------------------------
 server:
@@ -837,7 +837,7 @@ Each adapter reads additional settings from a top-level block named after its `k
 | `permission_mode` | string  | Claude Code permission mode (e.g., `bypassPermissions`). |
 | `model`           | string  | Model for agent sessions.                                |
 | `max_turns`       | integer | CLI `--max-turns` flag.                                  |
-| `max_budget_usd`  | number  | Per-session cost cap.                                    |
+| `max_budget_usd`  | number  | Per-invocation cost cap. Resets each turn.               |
 
 > [!WARNING]
 > `agent.max_turns` (orchestrator turn-loop limit) and `claude-code.max_turns` (CLI internal turn budget) are distinct values with different semantics. The orchestrator limit controls how many turns the worker runs before exiting. The adapter limit controls the Claude Code CLI's internal turn budget per invocation.
