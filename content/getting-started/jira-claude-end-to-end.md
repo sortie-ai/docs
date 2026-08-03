@@ -204,7 +204,7 @@ The **`agent`** section configures the orchestrator's scheduling behavior:
 
 The **`claude-code`** section is a pass-through to the Claude Code CLI:
 
-- `permission_mode: bypassPermissions` — auto-approve all tool calls. Required for unattended operation. Without this, Claude Code prompts for confirmation on file edits and command execution, which stalls the session.
+- `permission_mode: bypassPermissions` — auto-approve all tool calls. This is the value to use for unattended operation. Leaving the field out does not make the session interactive: the adapter falls back to the deprecated `--dangerously-skip-permissions`, which bypasses the same checks. What does stall the session is setting `permission_mode: default`, because Claude Code then prompts for confirmation on file edits and command execution and waits until the stall timeout kills it.
 - `model: claude-sonnet-4-20250514` — the model Claude Code uses.
 - `max_turns: 30` — Claude Code's internal turn budget. This is how many steps Claude Code takes *within a single Sortie turn*. The agent might read files, write code, run tests, and fix errors — each step counts as one Claude Code turn.
 
