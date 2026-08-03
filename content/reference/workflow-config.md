@@ -436,7 +436,7 @@ Coding agent adapter, concurrency, timeouts, and retry behavior. These fields co
 
 | Field                            | Type    | Default         | Description                                                                           |
 | -------------------------------- | ------- | --------------- | ------------------------------------------------------------------------------------- |
-| `kind`                           | string  | `claude-code`   | Agent adapter identifier. Built-in adapters: `claude-code`, `copilot-cli`, `codex`, `opencode`, `kiro`.   |
+| `kind`                           | string  | `claude-code`   | Agent adapter identifier. Built-in adapters: `claude-code`, `copilot-cli`, `codex`, `opencode`, `kiro`, `mock`.   |
 | `command`                        | string  | adapter-defined | Shell command to launch the agent. Required for local-process adapters.               |
 | `max_turns`                      | integer | `20`            | Maximum turns per worker session. The worker re-checks tracker state after each turn. |
 | `max_sessions`                   | integer | `0` (unlimited) | Maximum completed sessions per issue before the orchestrator stops retrying. Must be non-negative. |

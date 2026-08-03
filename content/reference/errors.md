@@ -21,12 +21,12 @@ These errors prevent Sortie from starting. They appear immediately on launch and
 |---|---|---|
 | `workflow_load` | `workflow file cannot be loaded: <details>` | Provide the correct path as argument, or create `./WORKFLOW.md`. If the file exists, fix YAML front matter syntax. |
 | `tracker.kind` | `tracker.kind is required` | Add `tracker.kind` to your WORKFLOW.md front matter. |
-| `tracker_adapter` | `unknown tracker kind "<kind>"` | Use a registered adapter: `jira`, `file`, or `github`. |
+| `tracker_adapter` | `unknown tracker adapter kind "<kind>"; registered: [<list>]` | Set `tracker.kind` to one of the kinds the message lists. |
 | `tracker.api_key` | `tracker.api_key is required for tracker kind "<kind>" (value may be empty after environment variable expansion)` | Set the environment variable referenced by `tracker.api_key` (e.g., `$SORTIE_JIRA_API_KEY`). |
 | `tracker.project` | `tracker.project is required for tracker kind "<kind>"` | Add the `project` field to the `tracker` section. |
 | `tracker.project.format` | `tracker.project must be in owner/repo format (e.g. "sortie-ai/sortie")` | Use `owner/repo` format with exactly one `/` and no whitespace in either segment. GitHub adapter only. |
 | `agent.kind` | `agent.kind is required` | Add `agent.kind` to your WORKFLOW.md front matter. |
-| `agent_adapter` | `unknown agent kind "<kind>"` | Use a registered adapter: `claude-code` or `mock`. |
+| `agent_adapter` | `unknown agent adapter kind "<kind>"; registered: [<list>]` | Set `agent.kind` to one of the kinds the message lists. |
 | `agent.command` | `agent.command is required for agent kind "<kind>"` | Set `agent.command` or install the agent binary so it's in `PATH`. |
 | `tracker.handoff_state` | `tracker.handoff_state: "<val>" collides with active state "<state>"` / `collides with terminal state "<state>"` | Use a state that appears in neither `active_states` nor `terminal_states`. A handoff parks the issue for a person, so it is neither dispatchable nor terminal. Applies to every `tracker.kind`. |
 | `tracker.in_progress_state` | `tracker.in_progress_state: "<val>" is not in active_states` / `collides with terminal state` / `collides with handoff_state` | `in_progress_state` must be in `active_states`, must not be in `terminal_states`, and must not equal `handoff_state`. |
@@ -49,7 +49,7 @@ Three are configuration errors (before any API calls). Six occur at runtime duri
 
 | Error kind | Description | Retryable | Operator action |
 |---|---|---|---|
-| `unsupported_tracker_kind` | The `tracker.kind` value has no registered adapter. | No | Use `jira`, `file`, or `github`. |
+| `unsupported_tracker_kind` | The `tracker.kind` value has no registered adapter. | No | Set `tracker.kind` to a registered kind. The startup error names every kind the binary registers. |
 | `missing_tracker_api_key` | The `tracker.api_key` field resolved to empty after environment variable expansion. | No | Set the environment variable (e.g., `SORTIE_JIRA_API_KEY`). |
 | `missing_tracker_project` | The `tracker.project` field is absent and the adapter requires it. | No | Add `project` to the `tracker` section in WORKFLOW.md. |
 
