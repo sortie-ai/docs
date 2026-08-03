@@ -61,6 +61,7 @@ tracker:
 
 agent:
   kind: claude-code
+  command: claude
   max_concurrent_agents: 2
   max_turns: 3
 
@@ -95,6 +96,7 @@ tracker:
 
 agent:
   kind: claude-code
+  command: claude
   max_concurrent_agents: 6
   max_turns: 5
 

@@ -197,6 +197,7 @@ tracker:
 
 agent:
   kind: claude-code
+  command: claude
   max_turns: 5
   max_sessions: 3
   max_concurrent_agents: 2

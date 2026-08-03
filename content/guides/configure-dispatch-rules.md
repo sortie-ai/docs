@@ -33,6 +33,7 @@ tracker:
 
 agent:
   kind: claude-code          # default agent kind
+  command: claude
   max_turns: 5
 
 claude-code:

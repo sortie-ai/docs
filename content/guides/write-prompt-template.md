@@ -28,6 +28,7 @@ tracker:
   terminal_states: [Done]
 agent:
   kind: claude-code
+  command: claude
 ---
 
 Fix {{ .issue.identifier }}: {{ .issue.title }}
