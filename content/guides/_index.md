@@ -14,6 +14,7 @@ Step-by-step instructions for configuring, operating, and extending Sortie.
   {{< card link="connect-to-github" title="Connect to GitHub" subtitle="Token setup, label filters, and state mapping." >}}
   {{< card link="connect-to-linear" title="Connect to Linear" subtitle="API-key authentication, state mapping, and IssueFilter scoping." >}}
   {{< card link="connect-to-gitea" title="Connect to Gitea" subtitle="Token setup, self-hosted endpoint, and label-driven state mapping." >}}
+  {{< card link="connect-to-gitlab" title="Connect to GitLab" subtitle="Token setup, namespace-path scoping, and label-driven state mapping." >}}
   {{< card link="use-file-adapter-for-testing" title="File Adapter for Testing" subtitle="Test workflows without a real tracker." >}}
   {{< card link="write-prompt-template" title="Write a Prompt Template" subtitle="Go text/template with issue fields and helpers." >}}
   {{< card link="setup-workspace-hooks" title="Workspace Hooks" subtitle="Run scripts before and after agent sessions." >}}

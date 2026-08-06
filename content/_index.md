@@ -1,6 +1,6 @@
 ---
 title: Sortie
-description: "Sortie turns Jira and GitHub issues into autonomous coding agent sessions. A single Go binary with adapters for Claude Code, Codex, Copilot, and more."
+description: "Sortie turns issue tracker tickets into autonomous coding agent sessions. A single Go binary with adapters for Jira, GitHub, GitLab, Claude Code, Codex, and more."
 keywords: sortie, autonomous coding agent, orchestrator, issue tracker, AI coding, agent sessions, automation
 author: Sortie AI
 breadcrumbs: false

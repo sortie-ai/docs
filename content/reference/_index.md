@@ -40,4 +40,5 @@ Comprehensive reference for every CLI flag, configuration field, API endpoint, a
   {{< card link="adapter-github" title="GitHub Issues" subtitle="Token auth, label filters, state mapping, and webhooks." >}}
   {{< card link="adapter-linear" title="Linear" subtitle="API-key auth, GraphQL field mapping, and IssueFilter scoping." >}}
   {{< card link="adapter-gitea" title="Gitea" subtitle="Self-hosted REST, token auth, label-driven states, and owner/repo scoping." >}}
+  {{< card link="adapter-gitlab" title="GitLab" subtitle="REST v4, PRIVATE-TOKEN auth, label-driven states, and namespace-path scoping." >}}
 {{< /cards >}}

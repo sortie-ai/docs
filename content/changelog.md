@@ -12,6 +12,49 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.17.0] - 2026-08-06 { #1.17.0 }
+
+### Added
+
+- GitLab tracker adapter: set `tracker.kind: gitlab` to run Sortie
+  against GitLab.com or a self-managed instance, with `tracker.project`
+  the target project as a `group/project` path or numeric project ID,
+  `tracker.api_key` a GitLab access token, and `tracker.endpoint` the
+  instance base URL (optional; defaults to `https://gitlab.com`, and
+  `/api/v4` is appended when absent). It runs the same autonomous
+  workflow as the Jira, GitHub, Linear, and Gitea adapters: candidate
+  polling, handoff transitions, lifecycle comments, and CI-failure
+  escalation labels. State is label-driven through `active_states`,
+  `terminal_states`, and `handoff_state`; a transition to a terminal
+  state closes the issue and a transition back to an active state
+  reopens it, escalation labels are attached without disturbing the
+  issue's other labels, and a state label the project does not yet hold
+  is created on first use. At startup the adapter checks the project and
+  reads its label catalog, so a bad token, a wrong project, or an
+  unreachable instance fails before the first poll. Because GitLab
+  issues carry no priority field and Community Edition has no blocking
+  relationship, `issue.priority` and `issue.blocked_by` are always empty
+  in prompt templates. `tracker.query_filter` takes a GitLab issue-list
+  query fragment (for example
+  `assignee_username=review-bot&labels=ready`, `not[...]` negation
+  included) to scope candidate polling to matching issues; the
+  adapter-owned keys `state`, `issue_type`, `order_by`, `sort`, `page`,
+  `per_page`, `pagination`, and `with_labels_details` are rejected, as
+  is any key GitLab's issue list does not support, so a typo fails at
+  startup instead of being silently ignored.
+  ([#676](https://github.com/sortie-ai/sortie/issues/676),
+  [#677](https://github.com/sortie-ai/sortie/issues/677),
+  [#679](https://github.com/sortie-ai/sortie/issues/679))
+- `sortie validate` GitLab adapter config validation: emits offline
+  diagnostics for `tracker.kind: gitlab` covering `tracker.endpoint` URL
+  shape (flagging a cleartext `http` scheme and a base URL that already
+  ends in `/api/v4`), `tracker.project` as a `group/project` path or a
+  numeric project ID, a `$SORTIE_GITLAB_TOKEN` environment-variable
+  hint, `tracker.query_filter` syntax and adapter-owned keys, and empty,
+  untrimmed, or overlapping active/terminal state labels. Errors block
+  dispatch; warnings are advisory.
+  ([#678](https://github.com/sortie-ai/sortie/issues/678))
+
 ## [1.16.1] - 2026-08-03 { #1.16.1 }
 
 ### Fixed
@@ -1244,6 +1287,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   execution via GitHub Actions.
 - Architecture Decision Records (ADR-0001 through ADR-0005).
 
+[1.17.0]: https://github.com/sortie-ai/sortie/compare/1.16.1...1.17.0
 [1.16.1]: https://github.com/sortie-ai/sortie/compare/1.16.0...1.16.1
 [1.16.0]: https://github.com/sortie-ai/sortie/compare/1.15.0...1.16.0
 [1.15.0]: https://github.com/sortie-ai/sortie/compare/1.14.1...1.15.0

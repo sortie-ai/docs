@@ -80,7 +80,7 @@ Go has a plugin system: `plugin.Open` loads shared objects at runtime. It was co
 
 **Platform limitations.** Go plugins work on Linux and macOS. No Windows, no other targets. Sortie's pure-Go, CGo-free build compiles for any platform Go targets.
 
-**Overkill for the scale.** Sortie will never have hundreds of adapters. The realistic count is a handful of trackers (Jira, GitHub Issues, Linear, maybe GitLab and a file-based adapter for testing) and a handful of agents (Claude Code, Copilot, Codex, OpenCode, Gemini, a mock for testing). For that count, compile-time interfaces with additive packages are the right level of abstraction — type-safe, simple to test, zero operational overhead.
+**Overkill for the scale.** Sortie will never have hundreds of adapters. The realistic count is a handful of trackers and a handful of agents: the issue trackers and coding-agent CLIs teams actually use, plus a file-based tracker and a mock agent for testing. For that count, compile-time interfaces with additive packages are the right level of abstraction — type-safe, simple to test, zero operational overhead.
 
 The trade-off is real: adding an adapter requires recompiling Sortie. For an open-source project where adapters are merged upstream, this works naturally — contributors submit pull requests, CI builds, releases include the new adapter. For organizations that want private adapters, the architecture supports forking with minimal merge conflict risk because adapter packages are isolated. Your internal `internal/tracker/yourtracker/` package touches nothing outside its directory.
 
@@ -96,7 +96,7 @@ This means adapter selection is a configuration decision, not a code decision. Y
 
 The question behind this document: if you adopt Sortie today, does that investment survive the next twelve months of agent and tracker churn?
 
-Today, Sortie ships with three tracker adapters (Jira, GitHub Issues, and a file-based adapter for testing) and six agent adapters (Claude Code, Copilot CLI, Codex, OpenCode, Kiro, and a mock for testing). The roadmap includes Linear and Gemini — each a new package implementing an existing interface.
+Today, Sortie ships adapters for the mainstream issue trackers and coding-agent CLIs, alongside a file-based tracker and a mock agent for testing. The [reference section](/reference/) lists the current set. Each one is a self-contained package implementing an existing interface, and the next one lands the same way — additively, with no change to the orchestration core.
 
 Consider two scenarios that play out regularly in engineering organizations:
 

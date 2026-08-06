@@ -1,7 +1,7 @@
 ---
 title: "Environment Variables"
 description: "Every environment variable Sortie reads, injects, or filters: SORTIE_* overrides, .env support, agent passthrough, hook env, and install vars."
-keywords: sortie environment variables, configuration, .env, overrides, hooks, install, MCP server, gitea
+keywords: sortie environment variables, configuration, .env, overrides, hooks, install, MCP server, gitea, gitlab
 author: Sortie AI
 date: 2026-04-26
 weight: 30
@@ -181,6 +181,20 @@ SORTIE_POLLING_INTERVAL_MS=30000
 SORTIE_WORKSPACE_ROOT=~/workspace/sortie
 ```
 
+GitLab adapter equivalent:
+
+```sh
+# /etc/sortie/gitlab.env
+SORTIE_TRACKER_KIND=gitlab
+# Omit the endpoint on GitLab.com, which the adapter defaults to.
+# Set it only to reach a self-managed instance.
+SORTIE_TRACKER_ENDPOINT=https://gitlab.example.com
+SORTIE_TRACKER_API_KEY="your_gitlab_access_token"
+SORTIE_TRACKER_PROJECT=platform/backend/api-gateway
+SORTIE_POLLING_INTERVAL_MS=30000
+SORTIE_WORKSPACE_ROOT=~/workspace/sortie
+```
+
 Rules:
 
 - One `KEY=VALUE` per line. No multiline values.
@@ -310,6 +324,8 @@ The variable names in the table are user-defined conventions, not Sortie-interna
 For the Linear adapter, the conventions are `$SORTIE_LINEAR_API_KEY` for `tracker.api_key` (a Linear personal API key carrying the `lin_api_` prefix, sent verbatim in the `Authorization` header with no `Bearer` prefix; this is the name `sortie validate` suggests), and `$SORTIE_LINEAR_TEAM_KEY` for `tracker.project` (a Linear team key, such as `ENG`). See the [Linear adapter reference](/reference/adapter-linear/#configuration) for per-field semantics.
 
 For the Gitea adapter, the conventions are `$SORTIE_GITEA_TOKEN` for `tracker.api_key` (a Gitea access token, a 40-character hex string with no identifying prefix, sent verbatim in the `Authorization: token <key>` header with no `Bearer` prefix, so surrounding whitespace fails authentication; this is the name `sortie validate` suggests), `$SORTIE_GITEA_ENDPOINT` for `tracker.endpoint` (the instance base URL, required because Gitea is self-hosted and has no default host), and `$SORTIE_GITEA_PROJECT` for `tracker.project` (an `owner/repo` string). See the [Gitea adapter reference](/reference/adapter-gitea/#configuration) for per-field semantics.
+
+For the GitLab adapter, the conventions are `$SORTIE_GITLAB_TOKEN` for `tracker.api_key` (a GitLab access token, sent verbatim in the `PRIVATE-TOKEN` header, neither `Authorization: Bearer` nor `Authorization: token`, so surrounding whitespace fails authentication; the adapter checks neither prefix nor length, because a GitLab administrator can change the access-token prefix through an application setting and a shape check would reject valid tokens on a customized instance; this is the name `sortie validate` suggests, and it is the tracker credential, not the `GITLAB_TOKEN` OpenCode provider credential listed under [agent runtime variables](#agent-runtime-variables)), `$SORTIE_GITLAB_ENDPOINT` for `tracker.endpoint` (the instance base URL, optional because the adapter defaults to `https://gitlab.com`, so set it only to reach a self-managed instance), and `$SORTIE_GITLAB_PROJECT` for `tracker.project` (the project's namespace path, which nests to any depth, such as `group/project` or `group/subgroup/project`, or its numeric project ID). See the [GitLab adapter reference](/reference/adapter-gitlab/#configuration) for per-field semantics.
 
 ### Behavior when a variable is unset or empty
 

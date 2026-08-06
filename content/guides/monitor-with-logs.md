@@ -169,10 +169,10 @@ ERROR — Sortie gave up. This issue won't be retried. Fix the underlying proble
 ### Dispatch preflight failures
 
 ```
-time=2026-03-26T14:30:01.300+00:00 level=ERROR msg="dispatch preflight failed" error="dispatch preflight failed: unsupported tracker kind: \"gitlab\""
+time=2026-03-26T14:30:01.300+00:00 level=ERROR msg="dispatch preflight failed" error="dispatch preflight failed: unknown tracker adapter kind \"jra\"; registered: [file, gitea, github, gitlab, jira, linear]"
 ```
 
-This fires before any work is dispatched. It means your workflow configuration is invalid. Sortie can't dispatch anything until you fix the config and restart.
+This fires before any work is dispatched. It means your workflow configuration is invalid. Sortie can't dispatch anything until you fix the config and restart. Here a typo in `tracker.kind` is the cause, and the bracketed list is every kind the binary actually has registered, so it names the correction. Your own list grows as adapters are added.
 
 ## Common grep patterns
 
