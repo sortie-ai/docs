@@ -2,7 +2,6 @@
 title: "Run the Full Cycle with Kiro CLI"
 linkTitle: "GitHub + Kiro End-to-End"
 description: "Tutorial: connect Sortie to GitHub Issues and the Kiro CLI, clone a repo, let the agent write code, push to a branch, open a pull request, and watch the issue transition."
-keywords: sortie tutorial, kiro cli, kiro-cli, amazon q developer cli, end to end, github issues, workspace hooks, git push, autonomous coding agent, agent session, KIRO_API_KEY
 author: Sortie AI
 date: 2026-05-29
 weight: 90

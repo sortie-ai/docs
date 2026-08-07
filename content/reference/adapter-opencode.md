@@ -1,7 +1,6 @@
 ---
 title: "OpenCode CLI Adapter"
 description: "Complete reference for the OpenCode CLI agent adapter: configuration, session lifecycle, CLI argument mapping, event stream, token accounting via export subprocess, error handling, SSH remote execution, and multi-provider authentication."
-keywords: sortie opencode adapter, opencode, opencode-ai, agent adapter, session lifecycle, token usage, SSH, multi-provider, ANTHROPIC_API_KEY, OPENAI_API_KEY
 author: Sortie AI
 date: 2026-04-26
 weight: 130

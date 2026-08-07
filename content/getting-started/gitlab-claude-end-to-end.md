@@ -2,7 +2,6 @@
 title: Run the Full Cycle with GitLab and Claude Code
 linkTitle: "GitLab + Claude Code End-to-End"
 description: "Tutorial: connect Sortie to GitLab and the Claude Code CLI, clone a repository, let the agent write code, push a branch, and watch the issue move to a done state."
-keywords: sortie tutorial, claude code cli, end to end, gitlab, workspace hooks, git push, autonomous coding agent, agent session, label states, private-token
 author: Sortie AI
 date: 2026-08-06
 weight: 120

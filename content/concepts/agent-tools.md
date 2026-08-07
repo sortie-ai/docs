@@ -1,7 +1,6 @@
 ---
 title: "Agent Tools"
 description: "Why Sortie segments agent tools into two tiers: local read-only state versus external dependencies, what each tier guarantees, and how the built-in tools map onto the model."
-keywords: sortie agent tools, tool tiers, tier 1, tier 2, tool registry, MCP tools, sortie_status, workspace_history, cost_budget, tracker_api, notify_operator, least privilege, graceful degradation
 author: Sortie AI
 date: 2026-06-11
 weight: 55

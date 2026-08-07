@@ -1,7 +1,6 @@
 ---
 title: "Errors"
 description: "Reference for all Sortie error kinds: tracker errors, agent errors, workspace failures, worker exit types, retry behavior, and operator actions."
-keywords: sortie errors, troubleshooting, retry behavior, tracker_auth_error, agent_not_found, error kinds, diagnostics
 author: Sortie AI
 date: 2026-03-26
 weight: 80

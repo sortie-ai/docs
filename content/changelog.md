@@ -1,7 +1,6 @@
 ---
 title: Changelog
 description: Release history for Sortie. All notable changes, new features, bug fixes, and breaking changes by version.
-keywords: sortie changelog, release notes, version history, updates
 author: Sortie AI
 date: 2026-03-24
 weight: 5

@@ -2,7 +2,6 @@
 title: "How to Control Agent Costs"
 linkTitle: "Control Agent Costs"
 description: "Configure per-session budgets, session limits, per-issue token budgets, turn caps, concurrency, and model selection to keep agent API spending predictable."
-keywords: sortie costs, cost control, token budget, autonomous coding agent, concurrency limits, agent spending, max_sessions, max_turns, max_concurrent_agents, max_tokens, cost_budget
 author: Sortie AI
 date: 2026-04-26
 weight: 110

@@ -2,7 +2,6 @@
 title: Connect Sortie to GitLab
 linkTitle: "GitLab Integration"
 description: "Tutorial: connect Sortie to a GitLab project on GitLab.com or a self-managed instance, poll for issues, process them with a mock agent, and watch Sortie update the label-driven state automatically."
-keywords: sortie gitlab tutorial, gitlab access token, private-token header, namespace path, self-managed gitlab, community edition, mock agent, tracker integration, getting started, label states
 author: Sortie AI
 date: 2026-08-06
 weight: 48

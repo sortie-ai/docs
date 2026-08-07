@@ -1,7 +1,6 @@
 ---
 title: "Label commands"
 description: "Reference for Sortie's PR label commands: the one-shot sortie:review and sortie:fix labels an operator applies to a Sortie-managed pull request to dispatch a read-only review session or a read-write fix session."
-keywords: sortie label commands, sortie:review, sortie:fix, label_commands, review_label, fix_label, PR review, label-review, label-fix, one-shot label
 author: Sortie AI
 date: 2026-07-10
 weight: 76

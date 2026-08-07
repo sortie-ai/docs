@@ -2,7 +2,6 @@
 title: "How to Orchestrate Agents Across Multiple Repositories"
 linkTitle: "Multi-Repo Orchestration"
 description: "Run one Sortie per repo for cross-service features: per-repo git hooks, tracker filters for subtasks, and parent-issue coordination via blockers."
-keywords: sortie multi-repo, cross-service, multiple repositories, microservices, subtasks, query filter, workspace hooks, git clone, cross-repo orchestration
 author: Sortie AI
 date: 2026-03-30
 weight: 90

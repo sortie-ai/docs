@@ -1,7 +1,6 @@
 ---
 title: Quick Start
 description: "End-to-end tutorial: poll for issues, spin up workspaces, and run autonomous coding agent sessions locally. No Jira or external APIs required."
-keywords: sortie quickstart, tutorial, getting started, autonomous coding agent, mock agent, file tracker, first run
 author: Sortie AI
 date: 2026-03-23
 weight: 20

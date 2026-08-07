@@ -1,7 +1,6 @@
 ---
 title: "Agent Extensions"
 description: "Reference for Sortie agent extensions: .sortie/status file protocol, tracker_api, sortie_status, workspace_history, cost_budget, and notify_operator tools with schemas and errors."
-keywords: sortie agent tools, tracker_api, sortie_status, workspace_history, cost_budget, token budget, notify_operator, operator notifications, .sortie/status, agent extensions, MCP, tool calling
 author: Sortie AI
 date: 2026-03-26
 weight: 90

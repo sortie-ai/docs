@@ -2,7 +2,6 @@
 title: Connect Sortie to Jira Cloud
 linkTitle: "Jira Integration"
 description: "Tutorial: connect Sortie to a real Jira Cloud project, poll for issues, process them with a mock agent, and see Sortie update Jira status automatically."
-keywords: sortie jira tutorial, jira cloud, jira api token, mock agent, tracker integration, getting started
 author: Sortie AI
 date: 2026-03-23
 weight: 30

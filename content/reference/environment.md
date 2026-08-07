@@ -1,7 +1,6 @@
 ---
 title: "Environment Variables"
 description: "Every environment variable Sortie reads, injects, or filters: SORTIE_* overrides, .env support, agent passthrough, hook env, and install vars."
-keywords: sortie environment variables, configuration, .env, overrides, hooks, install, MCP server, gitea, gitlab
 author: Sortie AI
 date: 2026-04-26
 weight: 30

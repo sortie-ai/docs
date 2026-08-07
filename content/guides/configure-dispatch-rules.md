@@ -2,7 +2,6 @@
 title: "How to Configure Dispatch Rules | Sortie"
 linkTitle: "Configure Dispatch Rules"
 description: "Route issues to different agents and prompt templates by label, type, priority, identifier, or assignee using first-match-wins dispatch rules in WORKFLOW.md."
-keywords: sortie dispatch rules, rule-based dispatch, routing, agent selection, prompt template routing, first-match-wins, labels, issue type, priority, dispatch.rules, dispatch.default
 author: Sortie AI
 date: 2026-05-27
 weight: 95

@@ -1,7 +1,6 @@
 ---
 title: "Persistence"
 description: "Why SQLite persistence is a defining characteristic of Sortie: what survives restarts, warm start vs cold start, and what durable state enables."
-keywords: sortie persistence, SQLite, warm start, retry state, run history, autonomous coding agent, agent orchestration, stateful orchestrator
 author: Sortie AI
 date: 2026-03-30
 weight: 30

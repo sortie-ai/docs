@@ -2,7 +2,6 @@
 title: "How to Configure CI Feedback"
 linkTitle: "Configure CI Feedback"
 description: "Configure CI feedback in Sortie: detect CI failures on agent branches, inject context into prompts, tune retries and log fetching, and set escalation."
-keywords: sortie ci feedback, ci failure, github actions, ci retry, agent orchestration, ci_feedback, max_retries, escalation, log fetching
 author: Sortie AI
 date: 2026-04-04
 weight: 150

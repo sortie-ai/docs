@@ -2,7 +2,6 @@
 title: "How to Write a Custom Agent Adapter"
 linkTitle: "Write a Custom Agent Adapter"
 description: "Write a custom agent adapter for Sortie: implement the AgentAdapter interface, register it, handle structured or plain-transcript output, classify outcomes, test it, and ship it end to end."
-keywords: sortie custom agent adapter, AgentAdapter interface, agent adapter, fork-per-turn, agentcore, adapter registration, agent.kind, integration tests, Go development, extensibility
 author: Sortie AI
 date: 2026-05-29
 weight: 230

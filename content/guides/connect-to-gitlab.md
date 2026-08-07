@@ -2,7 +2,6 @@
 title: How to connect Sortie to GitLab
 linkTitle: "Connect to GitLab"
 description: "Configure Sortie to poll a GitLab project: create a scoped access token, set the endpoint for a self-managed instance, set the namespace path, map label-driven states, scope candidates with query_filter, and verify the connection."
-keywords: sortie gitlab, gitlab access token, private-token header, project access token, namespace path, self-managed gitlab, label states, query_filter, tracker configuration, connect gitlab
 author: Sortie AI
 date: 2026-08-06
 weight: 27

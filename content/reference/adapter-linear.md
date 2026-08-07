@@ -1,7 +1,6 @@
 ---
 title: "Linear Adapter"
 description: "Linear tracker adapter reference: GraphQL configuration, API-key authentication, workflow-state mapping, identifiers and team scoping, query_filter, pagination, rate limits, and body-first error mapping."
-keywords: sortie linear adapter, linear graphql api, tracker adapter, workflow states, team key, query_filter, IssueFilter, pagination, rate limiting, error mapping, personal api key
 author: Sortie AI
 date: 2026-06-15
 weight: 140

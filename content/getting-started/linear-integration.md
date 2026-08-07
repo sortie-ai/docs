@@ -2,7 +2,6 @@
 title: Connect Sortie to Linear
 linkTitle: "Linear Integration"
 description: "Tutorial: connect Sortie to a live Linear team, poll for issues, process them with a mock agent, and watch Sortie update the workflow state automatically."
-keywords: sortie linear tutorial, linear api key, team key, mock agent, tracker integration, getting started, workflow states
 author: Sortie AI
 date: 2026-06-15
 weight: 45

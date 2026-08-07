@@ -1,7 +1,6 @@
 ---
 title: "State Machine"
 description: "Reference for Sortie's internal orchestration states, run attempt phases, transition triggers, retry backoff, and reconciliation behavior."
-keywords: sortie state machine, orchestration states, issue lifecycle, run attempt phases, retry backoff, reconciliation, dispatch, worker exit
 author: Sortie AI
 date: 2026-03-28
 weight: 70

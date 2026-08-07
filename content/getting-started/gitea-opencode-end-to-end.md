@@ -2,7 +2,6 @@
 title: Run the Full Cycle with Gitea and OpenCode CLI
 linkTitle: "Gitea + OpenCode End-to-End"
 description: "Tutorial: connect Sortie to Gitea and the OpenCode CLI, clone a repo, let the agent write code, push to a branch, and hand the issue off to a review state on a fully self-hosted stack."
-keywords: sortie tutorial, opencode cli, end to end, gitea, self-hosted, workspace hooks, git push, autonomous coding agent, agent session, local model backend
 author: Sortie AI
 date: 2026-07-16
 weight: 110

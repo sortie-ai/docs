@@ -2,7 +2,6 @@
 title: How to Scale Agents with SSH
 linkTitle: "Scale Agents with SSH"
 description: "Distribute autonomous coding agent sessions across remote build machines using SSH. Configure host pools, update hooks, and monitor utilization."
-keywords: sortie ssh, remote agents, scale agents, autonomous coding agent, ssh workers, host pool, distributed agents, build machines, concurrent agents
 author: Sortie AI
 date: 2026-03-26
 weight: 140

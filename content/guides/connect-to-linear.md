@@ -2,7 +2,6 @@
 title: How to connect Sortie to Linear
 linkTitle: "Connect to Linear"
 description: "Configure Sortie to poll a Linear team: set up API-key authentication, map workflow states, scope candidates with an IssueFilter, and verify the connection."
-keywords: sortie linear, linear api key, team key, workflow states, query_filter, IssueFilter, tracker configuration, connect linear
 author: Sortie AI
 date: 2026-06-15
 weight: 25

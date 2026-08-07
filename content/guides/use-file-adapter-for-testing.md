@@ -2,7 +2,6 @@
 title: How to Use the File Adapter for Local Testing
 linkTitle: "Use File Adapter for Testing"
 description: "Test Sortie workflows without Jira: create a JSON fixture, configure the file adapter, iterate on prompts and hooks, then graduate to production."
-keywords: sortie file adapter, local testing, file tracker, mock agent, JSON fixture, test workflow, no Jira, CI testing, prompt iteration
 author: Sortie AI
 date: 2026-03-28
 weight: 30

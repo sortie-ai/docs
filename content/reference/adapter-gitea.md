@@ -1,7 +1,6 @@
 ---
 title: "Gitea Adapter"
 description: "Gitea tracker and SCM adapter reference: self-hosted REST v1 configuration, token authentication, label-driven state, owner/repo scoping, query_filter, Link pagination, error mapping, pull request reviews, review decision, mergeability, auto-merge, branch cleanup, CI status, the write:repository scope, and Forgejo compatibility."
-keywords: sortie gitea adapter, gitea rest api, self-hosted tracker, tracker adapter, label-driven states, owner/repo, query_filter, link pagination, error mapping, access token, forgejo, codeberg, scm adapter, pull request reviews, review decision, mergeability, auto-merge, branch cleanup, ci status, bot_usernames, write:repository
 author: Sortie AI
 date: 2026-07-16
 weight: 150

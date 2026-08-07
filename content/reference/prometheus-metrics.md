@@ -1,7 +1,6 @@
 ---
 title: "Prometheus Metrics"
 description: "Complete reference for all Prometheus metrics exposed by Sortie: gauges, counters, histograms, labels, PromQL examples, and Grafana dashboard."
-keywords: sortie prometheus, metrics reference, PromQL, grafana dashboard, observability, monitoring
 author: Sortie AI
 date: 2026-03-26
 weight: 60

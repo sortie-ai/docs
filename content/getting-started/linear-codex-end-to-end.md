@@ -2,7 +2,6 @@
 title: Run the Full Cycle with Linear and Codex CLI
 linkTitle: "Linear + Codex End-to-End"
 description: "Tutorial: connect Sortie to Linear and the Codex CLI, clone a repo, let the agent write code, push to a branch, and watch the issue move to Done."
-keywords: sortie tutorial, codex cli, end to end, linear, workspace hooks, git push, autonomous coding agent, agent session, openai codex
 author: Sortie AI
 date: 2026-06-15
 weight: 100

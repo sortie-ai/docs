@@ -2,7 +2,6 @@
 title: "How to Monitor with Prometheus"
 linkTitle: "Monitor with Prometheus"
 description: "Configure Prometheus to scrape Sortie metrics, import the Grafana dashboard, and set up alerting queries for operational monitoring."
-keywords: sortie prometheus, grafana dashboard, monitoring, PromQL, alerting, scrape config, observability
 author: Sortie AI
 date: 2026-03-26
 weight: 170

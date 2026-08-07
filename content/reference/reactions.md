@@ -1,7 +1,6 @@
 ---
 title: "Reactions"
 description: "Reference for Sortie's reaction framework: the shared poll, fingerprint, deduplicate, dispatch, and escalate lifecycle, plus the ci_failure, review_comments, bot_review, merge_conflicts, and auto_merge kinds with every field, default, and safety rule."
-keywords: sortie reactions, reactions framework, ci_failure, review_comments, bot_review, bot-review, bot review comments, automated review tools, bot_usernames, merge_conflicts, merge-conflict, merge conflict, rebase, base branch, auto_merge, auto-merge, escalation, fingerprint, continuation turns, max_retries, merge strategy, require_ci, delete_branch, post-PR feedback
 author: Sortie AI
 date: 2026-05-27
 weight: 75

@@ -2,7 +2,6 @@
 title: "How to Resume Agent Sessions Across Restarts"
 linkTitle: "Resume Sessions Across Restarts"
 description: "Understand what Sortie preserves across process restarts, how in-flight sessions recover, and how to verify that no work is lost on shutdown or crash."
-keywords: sortie restart, session resume, persistence, SQLite, workspace reuse, crash recovery, retry recovery, production restart
 author: Sortie AI
 date: 2026-03-29
 weight: 100

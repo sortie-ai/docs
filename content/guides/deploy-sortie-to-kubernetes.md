@@ -2,7 +2,6 @@
 title: "How to Deploy Sortie to Kubernetes"
 linkTitle: "Deploy to Kubernetes"
 description: "Deploy Sortie to Kubernetes with plain manifests: Deployment, PVC, ConfigMap, Service, Secrets, health probes, storage, and production hardening."
-keywords: sortie kubernetes, k8s, deploy, deployment, pod, PVC, SQLite, configmap, service, health probes, readiness, liveness, production, container orchestration
 author: Sortie AI
 date: 2026-04-07
 weight: 190

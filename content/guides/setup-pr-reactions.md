@@ -2,7 +2,6 @@
 title: "How to Set Up PR Reactions | Sortie"
 linkTitle: "Set Up PR Reactions"
 description: "Set up Sortie's PR reaction framework: enable the reactions block, share PR metadata via .sortie/scm.json, configure auto-merge safely, and verify the loop."
-keywords: sortie reactions, pr reactions, auto-merge, auto_merge, reactions block, ci_failure, review_comments, scm.json, merge strategy, require_ci, branch protection, escalation, needs-human
 author: Sortie AI
 date: 2026-05-27
 weight: 145

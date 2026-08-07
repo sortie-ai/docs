@@ -2,7 +2,6 @@
 title: "How to Run Multiple Workflows"
 linkTitle: "Run Multiple Workflows"
 description: "Run separate Sortie processes for different projects, teams, or issue types using isolated workflow files, databases, and workspace roots."
-keywords: sortie multiple workflows, multiple processes, parallel workflows, multi-project, workflow isolation, db_path, workspace root
 author: Sortie AI
 date: 2026-03-28
 weight: 80

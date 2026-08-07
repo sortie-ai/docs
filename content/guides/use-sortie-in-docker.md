@@ -2,7 +2,6 @@
 title: "How to Use Sortie in Docker"
 linkTitle: "Use Sortie in Docker"
 description: "Run Sortie in Docker: build the distroless image, compose Claude Code, Copilot, Codex, or OpenCode agent images with COPY --from, and configure volumes, health checks, and process reaping."
-keywords: sortie docker, container, distroless, dockerfile, docker image, claude code docker, copilot docker, codex docker, opencode docker, COPY --from, non-root, healthcheck
 author: Sortie AI
 date: 2026-04-26
 weight: 180

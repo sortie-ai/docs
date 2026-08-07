@@ -2,7 +2,6 @@
 title: Workflow Configuration
 linkTitle: "Workflow File"
 description: "Reference for every WORKFLOW.md field: tracker, polling, workspace, hooks, agent, notifications, database, prompt template, server, logging, and SSH worker."
-keywords: sortie configuration, WORKFLOW.md, YAML, tracker, api_version, linear, gitea, gitlab, team key, namespace path, IssueFilter, query_filter allowlist, agent, max_tokens, dispatch, dispatch rules, rule-based routing, ci_feedback, self_review, reactions, review_comments, label_commands, sortie:review, sortie:fix, review_label, fix_label, label commands, notifications, notify_operator, max_per_session, hooks, workspace, server, worker, SSH, token_rates, cost estimation, config reference
 author: Sortie AI
 date: 2026-04-26
 weight: 20

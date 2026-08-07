@@ -2,7 +2,6 @@
 title: "How to Use PR Label Commands | Sortie"
 linkTitle: "Use PR Label Commands"
 description: "Request an agent code review with sortie:review or an agent fix with sortie:fix by applying the label to a Sortie-managed pull request, which Sortie consumes on acceptance."
-keywords: sortie label commands, sortie:review, sortie:fix, review by label, label_commands, review_label, fix_label, PR review, request changes fix
 author: Sortie AI
 date: 2026-07-10
 weight: 165

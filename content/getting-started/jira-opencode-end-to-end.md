@@ -2,7 +2,6 @@
 title: Run the Full Cycle with OpenCode CLI
 linkTitle: "Jira + OpenCode End-to-End"
 description: "Tutorial: connect Sortie to Jira and the OpenCode CLI, clone a repo, let the agent write code, push to a branch, and watch the issue move to In Review."
-keywords: sortie tutorial, opencode cli, end to end, jira, workspace hooks, git push, autonomous coding agent, agent session, sst opencode, opencode-ai
 author: Sortie AI
 date: 2026-04-26
 weight: 80

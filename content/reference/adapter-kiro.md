@@ -1,7 +1,6 @@
 ---
 title: "Kiro CLI Adapter"
 description: "Complete reference for the Kiro CLI agent adapter: configuration, session lifecycle, plain-transcript headless output, credential preflight, time-based budgeting, error handling, cwd-scoped resume, and SSH remote execution."
-keywords: sortie kiro adapter, kiro, kiro-cli, amazon q developer cli, agent adapter, session lifecycle, headless mode, KIRO_API_KEY, time-based budget, SSH
 author: Sortie AI
 date: 2026-05-29
 weight: 140

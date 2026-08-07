@@ -2,7 +2,6 @@
 title: How to connect Sortie to Gitea
 linkTitle: "Connect to Gitea"
 description: "Configure Sortie to poll a self-hosted Gitea repository: create a scoped access token, set the instance endpoint and owner/repo, map label-driven states, scope candidates, enable pull-request reactions with auto-merge, and verify the connection."
-keywords: sortie gitea, gitea access token, self-hosted, owner/repo, label states, query_filter, tracker configuration, connect gitea, pull request reactions, auto-merge, review feedback, ci status, bot_usernames, write:repository
 author: Sortie AI
 date: 2026-07-16
 weight: 26

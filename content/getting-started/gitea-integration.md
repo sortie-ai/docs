@@ -2,7 +2,6 @@
 title: Connect Sortie to Gitea
 linkTitle: "Gitea Integration"
 description: "Tutorial: stand up a local Gitea in a container, connect Sortie to it, poll for issues, process them with a mock agent, and watch Sortie update the label-driven state automatically."
-keywords: sortie gitea tutorial, gitea access token, self-hosted, owner/repo, mock agent, tracker integration, getting started, label states, docker
 author: Sortie AI
 date: 2026-07-16
 weight: 47

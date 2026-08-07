@@ -2,7 +2,6 @@
 title: "How to Use Agent Tools in Prompts"
 linkTitle: "Use Agent Tools in Prompts"
 description: "Use Sortie's agent tools in prompts: sortie_status for turn budget, cost_budget for token budget, workspace_history for retry context, tracker_api for issues, notify_operator for escalation, .sortie/status for blocks."
-keywords: sortie agent tools, prompt template, sortie_status, workspace_history, tracker_api, cost_budget, token budget, notify_operator, escalation, blocked status, MCP tools, prompt engineering
 author: Sortie AI
 date: 2026-04-03
 weight: 200

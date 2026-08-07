@@ -1,7 +1,6 @@
 ---
 title: "Jira Adapter"
 description: "Jira tracker adapter reference: configuration, authentication, API operations, field mapping, ADF flattening, pagination, rate limits, and error mapping. Covers both Jira Cloud (REST API v3) and Jira Server / Data Center (REST API v2)."
-keywords: sortie jira adapter, jira cloud, jira server, jira data center, REST API v2, REST API v3, tracker adapter, JQL, field mapping, normalization, ADF, wiki markup, pagination, error mapping, rate limiting, PAT, bearer auth
 author: Sortie AI
 date: 2026-03-28
 weight: 120

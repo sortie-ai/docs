@@ -2,7 +2,6 @@
 title: "How to Run Sortie as a systemd Service"
 linkTitle: "Run as a Systemd Service"
 description: "Configure Sortie as a persistent systemd service on Linux with a dedicated user, hardened unit file, journald logging, and zero-downtime upgrades."
-keywords: sortie systemd, linux service, unit file, journald, daemonize, production deploy, systemctl, hardening
 author: Sortie AI
 date: 2026-03-28
 weight: 120

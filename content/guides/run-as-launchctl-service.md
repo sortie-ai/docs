@@ -2,7 +2,6 @@
 title: "How to Run Sortie as a launchctl Service"
 linkTitle: "Run as a Launchctl Service"
 description: "Configure Sortie as a persistent launchd service on macOS with a property list, environment variables, log files, and automatic restarts."
-keywords: sortie launchd, launchctl, macOS service, plist, daemon, macos deploy, launch agent
 author: Sortie AI
 date: 2026-03-29
 weight: 130

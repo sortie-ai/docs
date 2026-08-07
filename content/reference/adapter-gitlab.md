@@ -1,7 +1,6 @@
 ---
 title: "GitLab Adapter"
 description: "GitLab tracker adapter reference: REST v4 configuration, PRIVATE-TOKEN authentication, label-driven state, namespace-path or numeric project scoping, the query_filter allowlist, Link pagination, error mapping, and Community Edition compatibility."
-keywords: sortie gitlab adapter, gitlab rest api v4, private-token header, tracker adapter, label-driven states, namespace path, project access token, query_filter, link pagination, error mapping, community edition, self-managed gitlab
 author: Sortie AI
 date: 2026-08-06
 weight: 160

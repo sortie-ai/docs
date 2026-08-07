@@ -1,6 +1,3 @@
-{{- with .Params.keywords -}}
-<meta name="keywords" content="{{ if reflect.IsSlice . }}{{ range $i, $k := . }}{{ if $i }}, {{ end }}{{ $k | strings.TrimRight "," }}{{ end }}{{ else }}{{ . }}{{ end }}" />
-{{- end -}}
 {{- with .Params.author -}}
 <meta name="author" content="{{ . }}" />
 {{- else -}}

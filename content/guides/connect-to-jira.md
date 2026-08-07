@@ -2,7 +2,6 @@
 title: How to connect Sortie to Jira
 linkTitle: "Connect to Jira"
 description: "Configure Sortie to poll a Jira project: set up API authentication, map workflow states, scope queries with JQL filters, and verify the connection. Covers Jira Cloud and Jira Server / Data Center."
-keywords: sortie jira, jira cloud, jira server, jira data center, jira adapter, api token, jql, workflow states, tracker configuration, connect jira
 author: Sortie AI
 date: 2026-03-28
 weight: 10

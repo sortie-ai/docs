@@ -1,7 +1,6 @@
 ---
 title: "HTTP API"
 description: "Complete reference for Sortie's embedded HTTP server: JSON API endpoints, request/response shapes, error codes, and curl examples."
-keywords: sortie HTTP API, REST API, JSON API, dashboard, endpoints, curl, observability, cost estimation, token rates
 author: Sortie AI
 date: 2026-04-13
 weight: 40

@@ -2,7 +2,6 @@
 title: "How to Monitor with Logs"
 linkTitle: "Monitor with Logs"
 description: "Read, filter, and aggregate Sortie's structured logs in text or JSON format. Grep and jq patterns, lifecycle messages, log verbosity, and log persistence."
-keywords: sortie logs, structured logging, slog, grep, jq, json logs, debugging, monitoring, log format, troubleshooting
 author: Sortie AI
 date: 2026-03-26
 weight: 160

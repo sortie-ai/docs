@@ -2,7 +2,6 @@
 title: "How to Configure Retry Behavior"
 linkTitle: "Configure Retry Behavior"
 description: "Control how Sortie retries failed agents with session budgets, backoff tuning, stall detection, and timeout settings for production reliability."
-keywords: sortie retry, max_sessions, max_tokens, backoff, stall detection, turn timeout, retry configuration, agent failure, max_retry_backoff_ms
 author: Sortie AI
 date: 2026-03-28
 weight: 60

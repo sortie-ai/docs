@@ -1,7 +1,6 @@
 ---
 title: "Adapter Model"
 description: "How Sortie's adapter architecture makes agent and tracker integrations disposable while keeping the orchestration core stable."
-keywords: sortie adapters, agent agnostic, tracker agnostic, adapter pattern, extensibility, autonomous coding agent orchestration, Go interfaces
 author: Sortie AI
 date: 2026-04-26
 weight: 20

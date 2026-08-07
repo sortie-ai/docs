@@ -2,7 +2,6 @@
 title: How to Write a Prompt Template for WORKFLOW.md
 linkTitle: "Write a Prompt Template"
 description: "Write the Go text/template prompt body in WORKFLOW.md: use issue fields, branch on retries and continuations, render blockers, and avoid common mistakes."
-keywords: sortie prompt template, WORKFLOW.md prompt, text/template, issue variables, continuation prompt, retry prompt, template functions
 author: Sortie AI
 date: 2026-03-28
 weight: 40
