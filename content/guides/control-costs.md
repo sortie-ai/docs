@@ -191,9 +191,9 @@ These are worst cases in the sense that the system stops itself once it reaches 
 
 ## Monitor spending
 
-Four tools give you cost visibility without any extra infrastructure.
+Five tools give you cost visibility without any extra infrastructure.
 
-**Dashboard.** When `token_rates` is configured in WORKFLOW.md, the dashboard shows estimated cost per running session and an aggregate cost card across all active sessions. The run history table shows `total_cost_usd` for each completed session. The HTTP server runs by default on `http://localhost:7678`. See the [dashboard reference](/reference/dashboard/#cost-estimation) for details.
+**Dashboard.** When `token_rates` is configured in WORKFLOW.md, each running session gets an `Est. Cost` field in its expandable detail panel, and an `Active Est. Cost (USD)` card aggregates across all active sessions. The run history table is a different surface: its columns are `Identifier`, `Status`, `Started`, and `Duration`, and expanding a row adds attempt, turns, workflow, and error. No cost or token figure appears there for a completed session, because the cost figures the dashboard renders describe live and aggregate state. For spend against runs that have already finished, reach for [`sortie stats`](/reference/cli/#stats) below. The HTTP server runs by default on `http://localhost:7678`. See the [dashboard reference](/reference/dashboard/#cost-estimation) for details.
 
 Configure token rates to see cost estimates on the dashboard:
 
@@ -215,7 +215,15 @@ rate(sortie_tokens_total{type="input"}[1h])
 
 Set up alerting when token burn exceeds your budget threshold. The [Prometheus guide](/guides/monitor-with-prometheus/) walks through scrape config and alert rules.
 
-**Logs.** Every completed turn emits a `result` event containing `total_cost_usd`, `duration_ms`, `num_turns`, and a `usage` object with `input_tokens`, `output_tokens`, and `cache_read_input_tokens`. Grep for these to build a cost audit trail. The [logging guide](/guides/monitor-with-logs/) covers structured log access.
+**Logs.** Sortie's structured logs record what ran, not what it cost. No log line carries a dollar figure. One carries a token count: when `agent.max_tokens` is set and an issue exhausts it, Sortie logs `token budget exhausted, blocking re-dispatch` with `used_tokens`, the issue's cumulative tokens across every session, and `budget_tokens`, the ceiling it hit. Grep for that message to find the issues that reached the ceiling. For the spend figures themselves, reach for `sortie stats` or the `sortie_tokens_total` counter above. The [logging guide](/guides/monitor-with-logs/) covers structured log access.
+
+**`sortie stats`.** The `stats` subcommand reports what finished work actually cost, aggregated from the local database over a range you choose and broken down by outcome, coding agent, dispatch rule, and prompt template. It is the only one of these surfaces that reports historical spend against completed runs rather than live or per-event figures, which makes it the one to reach for when the question is which dispatch rule or prompt template is burning the budget. Cost figures need `token_rates`, exactly as the dashboard does; without it you get token counts and no dollars.
+
+```sh
+sortie stats --since 24h WORKFLOW.md
+```
+
+See the [`stats` subcommand reference](/reference/cli/#stats) for the flags, the range grammar, and every field it reports.
 
 **The agent itself.** Mid-session, an agent can call the `cost_budget` tool to read cumulative spend and remaining budget for its issue, the same numbers the orchestrator enforces at the ceiling. Prompt patterns live in [how to use agent tools in prompts](/guides/use-agent-tools-in-prompts/); the response schema is in the [agent extensions reference](/reference/agent-extensions/).
 

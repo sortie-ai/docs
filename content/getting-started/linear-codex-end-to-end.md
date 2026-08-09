@@ -303,7 +303,7 @@ git ls-remote git@github.com:yourorg/yourrepo.git "refs/heads/sortie/ENG-42"
 
 You should see a commit hash. The `sortie/ENG-42` branch is on your remote, ready for a pull request.
 
-Open the issue in Linear in your browser. The status reads `Done`. On a board view, the card has moved to the Done column. Then open the dashboard at [http://127.0.0.1:8642/](http://127.0.0.1:8642/). You will see summary cards (running sessions, retry queue, free slots, total tokens consumed) and a run history table showing the completed session with its issue identifier, turn count, duration, exit status, and token usage.
+Open the issue in Linear in your browser. The status reads `Done`. On a board view, the card has moved to the Done column. Then open the dashboard at [http://127.0.0.1:8642/](http://127.0.0.1:8642/). You will see summary cards (running sessions, retry queue, free slots, total tokens consumed) and a run history table showing the completed session with its issue identifier, turn count, duration, and exit status.
 
 {{% /steps %}}
 

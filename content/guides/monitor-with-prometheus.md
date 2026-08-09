@@ -169,3 +169,5 @@ Pair this with a `for: 30m` duration so a single escalation does not page you. A
 ## What we configured
 
 Sortie metrics are now flowing into Prometheus, you have a Grafana dashboard for at-a-glance monitoring, and you have alerting queries for the failure modes that matter. For the complete list of every metric, label, and bucket boundary, see the [Prometheus metrics reference](/reference/prometheus-metrics/). For per-issue debugging through the JSON API, see the [HTTP API reference](/reference/http-api/). For the built-in HTML dashboard, see the [dashboard reference](/reference/dashboard/).
+
+Running more than one Sortie instance? Add each one as a scrape target under the same job and Prometheus already gives you a per-instance and fleet-wide view with no change to Sortie — see [how to aggregate metrics across instances](/guides/aggregate-metrics-across-instances/) for the multi-target config, the caveat on the shipped dashboard, and the `sortie stats` alternative for a point-in-time rollup instead of a live one.

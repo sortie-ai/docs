@@ -62,6 +62,7 @@ A real env var always beats a `.env` value for the same key. Both beat whatever 
 | Env var | Overrides | Type |
 |---|---|---|
 | `SORTIE_WORKSPACE_ROOT` | [`workspace.root`](/reference/workflow-config/#workspace) | string (path - `~` expanded) |
+| `SORTIE_WORKSPACE_RETENTION_DAYS` | [`workspace.retention_days`](/reference/workflow-config/#workspace) | int (days) |
 
 ### Agent variables
 
@@ -110,6 +111,12 @@ When [`--env-file`](/reference/cli/#-env-file) is provided, the CLI resolves the
 | `hooks.*` (all hook scripts) | Multiline shell scripts do not fit in a single env var |
 | `hooks.timeout_ms` | Grouped with hooks for consistency |
 | `agent.max_concurrent_agents_by_state` | Complex map structure (`{"in progress": 3, "to do": 1}`) |
+| `tracker.api_version` | No override variable exists; set directly in WORKFLOW.md or via `$VAR` indirection |
+| `ci_feedback.*` | No override variables exist; must be set in WORKFLOW.md |
+| `self_review.*` | No override variables exist; verification commands are security-sensitive and must come from version-controlled WORKFLOW.md |
+| `reactions.*` (including `reactions.label_commands`) | No override variables exist; reaction configuration must come from WORKFLOW.md |
+| `dispatch.*` | No override variables exist; rule definitions and template paths must come from WORKFLOW.md |
+| `notifications` | No override variables exist; backend configuration must come from WORKFLOW.md, though `$VAR` references inside an entry still resolve |
 | Extension sections (`server`, `worker`, `claude-code`, etc.) | Plugin-owned configuration; overrides belong to the adapter |
 | `logging.level` | Controlled by the [`--log-level`](/reference/cli/#-log-level) CLI flag |
 | `logging.format` | Controlled by the [`--log-format`](/reference/cli/#-log-format) CLI flag |
@@ -316,7 +323,9 @@ Two expansion functions exist. The mode depends on the field.
 | `workspace.root` | `expandPath` | `~/workspace/sortie` | `/home/deploy/workspace/sortie` |
 | `db_path` | `expandPath` | `$SORTIE_DB_DIR/sortie.db` | `/var/lib/sortie/sortie.db` |
 
-All other fields (including `agent.kind`, `agent.max_turns`, hook scripts, etc.) are treated as literal strings with no expansion.
+Fields in the core schema outside this table - `agent.kind`, `agent.max_turns`, hook scripts, `ci_feedback`, `self_review`, `reactions`, and `dispatch` - are treated as literal strings with no expansion.
+
+[Adapter pass-through blocks](/reference/workflow-config/#adapter-pass-through-configuration) (`claude-code`, `worker`, `github`, and similar top-level blocks named after a `kind`) and each [`notifications`](/reference/workflow-config/#notifications) entry are the exception: every string leaf in those blocks is resolved with the same anywhere-in-string semantics as `resolveEnv`, independently of the table above.
 
 The variable names in the table are user-defined conventions, not Sortie-internal identifiers. For the GitHub adapter, common conventions are `$SORTIE_GITHUB_TOKEN` or `$GITHUB_TOKEN` for `tracker.api_key` (a plain personal access token, **not** `email:token` format) and `$SORTIE_GITHUB_PROJECT` for `tracker.project` (an `owner/repo` string). See the [GitHub adapter reference](/reference/adapter-github/#configuration) for per-field semantics.
 
@@ -453,7 +462,7 @@ Per-session variables always win. A stale `SORTIE_ISSUE_ID` in the process envir
 
 ### Credential delivery
 
-Tier 2 tools (like `tracker_api`) need tracker API credentials. These reach the MCP server through the `env` block: the worker's process environment contains credential variables (e.g., `SORTIE_TRACKER_API_KEY`), the `SORTIE_*` prefix scan collects them, and the worker writes them into `.sortie/mcp.json`. The MCP server's config parser (`applyEnvOverrides`) resolves `$VAR` indirection in the workflow file against these variables.
+Tier 2 tools (like `tracker_api`) need tracker API credentials. These reach the MCP server through the `env` block: the worker's process environment contains credential variables (e.g., `SORTIE_JIRA_API_KEY` referenced by `tracker.api_key: $SORTIE_JIRA_API_KEY`), the `SORTIE_*` prefix scan collects them, and the worker writes them into `.sortie/mcp.json`. The MCP server parses the workflow file with the same config loader the orchestrator uses, so its `$VAR` resolution (`resolveEnv` / `resolveEnvRef`, see [`$VAR` indirection in WORKFLOW.md](#var-indirection-in-workflowmd)) expands references against these variables.
 
 When the operator uses [`--env-file`](/reference/cli/#-env-file), the CLI exports the resolved absolute path as `SORTIE_ENV_FILE` in the process environment. The prefix scan captures this variable, so the MCP server receives the `.env` file path and can load it through its own `applyEnvOverrides` mechanism.
 

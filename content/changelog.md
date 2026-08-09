@@ -11,6 +11,94 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.18.0] - 2026-08-09 { #1.18.0 }
+
+### Added
+
+- `sortie stats` subcommand: summarizes how past runs went and what they
+  cost, opening the database read-only so it never blocks a running
+  orchestrator. `--format text|json` selects the output; `--since` and
+  `--until` bound the report by when a run finished, accepting an exact
+  timestamp, a `YYYY-MM-DD` date, or an age such as `24h`. The report
+  breaks runs down by outcome, by coding agent, by dispatch rule, and by
+  prompt template, with run counts, success rate, p50/p95/mean duration,
+  mean turns, and token totals for each. When the workflow configures
+  `token_rates`, USD cost is derived through the same formula and
+  renderers the dashboard uses, reported as total spend and as spend per
+  succeeded run; without `token_rates` the report shows token counts and
+  no cost figures rather than zeros. Against a database written by an
+  older binary the command still works: it reports the figures that
+  database can supply and warns which ones are missing, rather than
+  failing outright.
+  ([#274](https://github.com/sortie-ai/sortie/issues/274))
+- `workspace.retention_days`: an opt-in age bound that removes a swept
+  workspace whose latest recorded activity is older than the configured
+  window, independently of tracker state. Off by default (`0`); the
+  smallest permitted non-zero value is 30 days, matching the window
+  pending-reaction recovery honors after a restart, so a workspace the
+  bound removes is always one recovery would already treat as stale. The
+  periodic sweep now emits one summary record per pass, whether or not
+  it removed anything, reporting how many workspaces were excluded as
+  in-flight, removed as terminal, removed by age, retained inside the
+  window, retained for want of an activity record, or not yet evaluated.
+  ([#706](https://github.com/sortie-ai/sortie/issues/706))
+- `reactions.merge_completion`: an opt-in, default-off reaction that
+  observes the merge of a Sortie-managed pull request, whether performed
+  by the orchestrator, by a human, or by a forge automation rule, and
+  transitions the linked issue to a single configured terminal state
+  exactly once. Requires `tracker.handoff_state` and a written
+  `tracker.terminal_states` list; `sortie validate` reports a
+  misconfigured target state, an unset prerequisite, or a poll interval
+  below the floor before a run begins.
+  ([#707](https://github.com/sortie-ai/sortie/issues/707))
+
+### Fixed
+
+- `reactions.ci_failure` and `reactions.review_comments` escalation now
+  clears only its own kind's pending entry, attempt counter, and
+  fingerprint instead of every reaction on the issue, so an unrelated
+  escalation no longer silently ends `reactions.merge_completion`
+  observation (or any other sibling reaction) for that issue.
+  ([#707](https://github.com/sortie-ai/sortie/issues/707))
+- An issue reaching a terminal tracker state now stops all of its
+  reaction polling immediately, including for a `sortie:review` or
+  `sortie:fix` label-command entry, which previously kept polling the
+  pull request's label journal for the life of the orchestrator process
+  even after the issue closed. This applies whether or not a worker is
+  still running for the issue, and it releases the issue for a fresh
+  dispatch as soon as it is reopened into an active state, rather than
+  after a pending retry happens to fire.
+  ([#741](https://github.com/sortie-ai/sortie/issues/741))
+- An issue moved to a state in `tracker.terminal_states` while its worker
+  is finishing its last turn is no longer overwritten with
+  `tracker.handoff_state`. Cancelling a running task by relabelling the
+  issue took effect before only when a reconcile tick observed the new
+  state ahead of the worker exit; otherwise the exit applied the handoff
+  state from the state read at dispatch, leaving a closed, cancelled
+  issue marked as awaiting review. Sortie now decides from the freshest
+  state it has observed and re-reads the issue immediately before the
+  transition, and a terminal state suppresses the handoff transition, the
+  continuation retry, and every pending reaction for that run - so
+  `reactions.auto_merge` can no longer merge the pull request of an issue
+  the operator cancelled. The suppression is logged and counted on
+  `sortie_handoff_transitions_total{result="skipped"}`; a failed
+  pre-transition read proceeds with the handoff as before. The same
+  applies without `tracker.handoff_state` configured, where a terminal
+  state now ends the run instead of scheduling a continuation retry.
+  ([#749](https://github.com/sortie-ai/sortie/issues/749))
+
+### Changed
+
+- A terminal issue whose pull request still carries a pending
+  `sortie:review` or `sortie:fix` label-command entry is now cleaned up
+  by the periodic workspace sweep like any other terminal issue, instead
+  of being retained forever. This reaches every deployment on upgrade
+  without an opt-in: previously, a pending label-command entry excluded
+  its workspace from cleanup even after the linked issue reached a
+  terminal tracker state; the label-command detection loop is unaffected
+  by the change, since it reads nothing from the workspace directory.
+  ([#706](https://github.com/sortie-ai/sortie/issues/706))
+
 ## [1.17.0] - 2026-08-06 { #1.17.0 }
 
 ### Added
@@ -1286,6 +1374,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   execution via GitHub Actions.
 - Architecture Decision Records (ADR-0001 through ADR-0005).
 
+[1.18.0]: https://github.com/sortie-ai/sortie/compare/1.17.0...1.18.0
 [1.17.0]: https://github.com/sortie-ai/sortie/compare/1.16.1...1.17.0
 [1.16.1]: https://github.com/sortie-ai/sortie/compare/1.16.0...1.16.1
 [1.16.0]: https://github.com/sortie-ai/sortie/compare/1.15.0...1.16.0

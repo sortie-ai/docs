@@ -29,7 +29,7 @@ Sortie is that infrastructure.
 2. Sortie polls the tracker for issues in active states, creates an isolated workspace per issue, and runs lifecycle hooks (clone, branch, commit).
 3. The orchestrator dispatches coding agent sessions with bounded concurrency, rendering the prompt template with issue data.
 4. Failed runs retry with exponential backoff. Stalled sessions are detected and terminated. State is reconciled with the tracker each poll cycle.
-5. When an issue reaches a terminal state, Sortie cleans up the workspace. All session metadata, retry queues, and run history persist in SQLite across restarts.
+5. When an issue reaches a terminal state, Sortie cleans up the workspace, and an opt-in age bound covers the workspaces whose issues never get there. All session metadata, retry queues, and run history persist in SQLite across restarts.
 
 ## Minimal example
 
@@ -62,7 +62,7 @@ Sortie watches this file, polls Jira for matching issues, creates an isolated
 workspace for each, and launches the configured coding agent with the rendered prompt. It handles
 the rest: stall detection, timeout enforcement, retries with backoff, state
 reconciliation with the tracker, and workspace cleanup when issues reach terminal
-states. Swap `agent.kind: claude-code` for [`codex`](/reference/adapter-codex/), [`copilot-cli`](/reference/adapter-copilot/), or [`opencode`](/reference/adapter-opencode/) and the rest of the file stays the same. Changes to the workflow are applied without restart.
+states, plus an opt-in age bound for the workspaces that never do. Swap `agent.kind: claude-code` for [`codex`](/reference/adapter-codex/), [`copilot-cli`](/reference/adapter-copilot/), or [`opencode`](/reference/adapter-opencode/) and the rest of the file stays the same. Changes to the workflow are applied without restart.
 
 ## Links
 

@@ -1,7 +1,7 @@
 ---
 title: Workflow Configuration
 linkTitle: "Workflow File"
-description: "Reference for every WORKFLOW.md field: tracker, polling, workspace, hooks, agent, notifications, database, prompt template, server, logging, and SSH worker."
+description: "Reference for every WORKFLOW.md field: tracker, polling, workspace root and retention, hooks, agent, notifications, database, prompt template, server, logging, and SSH worker."
 author: Sortie AI
 date: 2026-04-26
 weight: 20
@@ -198,7 +198,7 @@ Issue tracker connection and query settings.
 | `api_key`         | string          | _(required for Jira)_ | API authentication token.                                               |
 | `project`         | string          | _(required for Jira)_ | Project identifier, adapter-defined: Jira project key (e.g., `PLATFORM`), GitHub or Gitea `owner/repo` (e.g., `sortie-ai/sortie`), or Linear team key (e.g., `ENG`, the prefix in `ENG-123`; not a Linear project). For GitLab: the project's namespace path (e.g., `group/project`) or its numeric project ID. GitLab nests subgroups to any depth, so `group/subgroup/project` is equally valid and no single-slash rule applies; write the path unencoded, since the adapter percent-encodes it. |
 | `active_states`   | list of strings | `[]`                  | Issue states eligible for dispatch.                                     |
-| `terminal_states` | list of strings | `[]`                  | Issue states that trigger workspace cleanup.                            |
+| `terminal_states` | list of strings | `[]`                  | Issue states that trigger workspace cleanup. This is the primary removal ground and is always on; the opt-in age bound in [`workspace.retention_days`](#workspace) is the second. |
 | `query_filter`    | string          | `""`                  | Query fragment that narrows candidate and terminal-state queries. For Jira: a JQL expression appended to the query. For Linear: an `IssueFilter` JSON object merged into the query (see the Linear example below). For Gitea: a URL query fragment merged into the repository issue-list query (see the Gitea example below). For GitLab: a URL query fragment merged into the project issue-list query, key-checked against a closed allowlist (see the GitLab example below). |
 | `handoff_state`   | string          | _(absent)_            | Target state after a successful agent run. Absent disables handoff.     |
 | `in_progress_state` | string        | _(absent)_            | Target state for dispatch-time transition at the start of each worker attempt. Absent disables dispatch-time transitions. |
@@ -224,7 +224,7 @@ At least one of `active_states` or `terminal_states` must be non-empty. When bot
 `in_progress_state`, when set, must appear in `active_states` (otherwise reconciliation would immediately cancel the worker after the transition). It must not appear in `terminal_states` or collide with `handoff_state`. If the issue is already in the target state at dispatch time, the transition call is skipped (debug log only). Other transition failures at runtime are non-fatal: the worker logs a warning and continues to workspace preparation. Requires the same write permissions as `handoff_state`.
 
 > [!NOTE]
-> Workspace cleanup for issues that reach a terminal state while no worker is running is handled by a periodic sweep, not by an instant event. The sweep runs every 60 poll cycles - with the default 30-second `polling.interval_ms`, cleanup occurs within approximately 30 minutes; with a 60-second interval, within approximately 60 minutes. When a worker is still running and reconciliation detects a terminal state, cleanup happens on the current poll tick. Sortie also runs a full cleanup sweep on startup.
+> Workspace cleanup for issues that reach a terminal state while no worker is running is handled by a periodic sweep, not by an instant event. The sweep runs every 60 poll cycles - with the default 30-second `polling.interval_ms`, cleanup occurs within approximately 30 minutes; with a 60-second interval, within approximately 60 minutes. When a worker is still running and reconciliation detects a terminal state, cleanup happens on the current poll tick. On the same pass, and only after that terminal check, the sweep applies a second removal ground based on workspace age; it is opt-in and off by default (see [`workspace.retention_days`](#workspace)). At startup Sortie runs the terminal check alone: it queries the tracker for the states of the workspace directories it finds and removes those reported terminal, and it cleans nothing on that pass if the listing or the tracker read fails.
 
 ### Tracker comments
 
@@ -367,20 +367,57 @@ polling:
 
 ## `workspace`
 
-Base directory for per-issue workspaces.
+Base directory for per-issue workspaces, and the optional age bound on how long they survive.
 
-| Field  | Type | Default                           | Description                                                          |
-| ------ | ---- | --------------------------------- | -------------------------------------------------------------------- |
-| `root` | path | `<system-temp>/sortie_workspaces` | Base directory. Per-issue subdirectories are created under this path. |
+| Field            | Type    | Default                           | Description                                                          |
+| ---------------- | ------- | --------------------------------- | -------------------------------------------------------------------- |
+| `root`           | path    | `<system-temp>/sortie_workspaces` | Base directory. Per-issue subdirectories are created under this path. |
+| `retention_days` | integer | `0`                               | Maximum age in days of a workspace's latest recorded activity before the periodic sweep removes it. `0` disables the bound. |
 
 `~` expands to the home directory via `os.UserHomeDir()`. All `$VAR` and `${VAR}` references are expanded via `os.ExpandEnv` at any position. Issue identifiers are sanitized to `[A-Za-z0-9._-]` for subdirectory names; other characters become `_`.
+
+### Age-based retention
+
+`retention_days` bounds how long a workspace survives when its issue never reaches a terminal state. It is opt-in and off by default: a deployment that does not set the field behaves exactly as it did before, in every observable respect, with no run-history read and no age comparison on any pass. Terminal-state cleanup stays the primary mechanism and is always on. The age bound is a backstop for what the terminal gate cannot reach: an issue parked in the handoff state with no automation to advance it, an issue moved to a state the configuration does not name, an issue abandoned in an active state after a permanent failure, and an issue deleted from the tracker, which reports no state at all.
+
+Accepted values are `0`, which disables the bound, and any integer of `30` or greater, which enables it. A value between `1` and `29` is rejected outright, neither clamped nor rounded up:
+
+```
+config: workspace.retention_days: must be 0 to disable or at least 30 days
+```
+
+A negative value is rejected as well:
+
+```
+config: workspace.retention_days: must not be negative
+```
+
+Both are configuration-shape checks that need no network access, so `sortie validate` reports them offline, at `error` severity, before a run starts.
+
+The window is counted in days while every other duration in this file is counted in milliseconds. The departure is deliberate. The millisecond fields are poll intervals, timeouts, debounces, and backoff caps, all sub-hour timings where the unit is proportionate to the value. A retention window runs on the order of weeks, and thirty days written in milliseconds is `2592000000`, a figure no operator can read back or check. Drop three digits from it and an intended thirty days becomes forty-three minutes. Days keep a misconfiguration visible on the line where it is written.
+
+The floor of `30` is fixed by a second window rather than chosen for taste. Pending reaction recovery rebuilds runtime reaction entries after a restart by reading `.sortie/scm.json` out of the workspace directory, and it considers a candidate only when that workspace's latest activity falls inside a thirty-day lookback. The retention window may not be set below the window reaction recovery honors, which makes one invariant true by construction: any workspace the bound may remove is one recovery would already have skipped as stale.
+
+Age is measured from the later of two recorded timestamps: the most recent run completion recorded for that workspace's identifier, and the `pushed_at` value in the workspace's `.sortie/scm.json`. A workspace is removable when that anchor is older than the window. Directory modification time is not used, and was rejected deliberately: lifecycle hooks, agent processes, and background tooling inside the checkout all move it, so it reports filesystem activity rather than work. A workspace with neither timestamp is retained, never removed. Absence of a record is not evidence of age, and that case covers a run that never completed, a directory produced by an operator or a hook, and a directory Sortie did not create.
+
+Two exclusions are absolute. A workspace whose issue holds an entry in the running map or the retry map is never removed, whatever its age and however large the directory. A workspace pinned by an unexpired pending reaction is excluded until that entry expires, which takes at most 30 minutes; see the [reactions reference](/reference/reactions/#retry-budgets) for which reaction kinds pin a workspace and which do not. Everything else on disk is a candidate.
+
+The bound removes directories and does nothing else. It performs no tracker write, no source-control write, and no change to reaction state, so a workspace removed by age leaves every reaction latch exactly as it found it. Removal runs through the same path as terminal cleanup, so workspace key sanitization, containment under `root`, and the [`before_remove` hook](/guides/setup-workspace-hooks/) all apply unchanged.
+
+`retention_days` reloads dynamically. A change applies on the next sweep pass, with no restart.
+
+The bound never removes a workspace whose latest activity is inside the window, so a deployment that processes many issues quickly still holds every workspace produced during the last window. Size the disk for that, not for the steady state.
 
 > [!WARNING]
 > Changing `workspace.root` and restarting leaves old workspace directories on disk. Sortie scans only the currently configured root during startup cleanup. Remove old directory contents manually before switching roots.
 
+> [!WARNING]
+> Removal by `retention_days` is irreversible. A workspace holds a source checkout, any uncommitted work in it, and the `.sortie/scm.json` metadata that is the only durable record of a pull request's coordinates. Nothing restores it. Set the field to a window longer than any workspace you expect to keep aside for inspection.
+
 ```yaml
 workspace:
   root: ~/workspace/sortie
+  retention_days: 30        # max age in days of latest recorded activity; 0 disables the bound
 ```
 
 ---
@@ -706,7 +743,7 @@ For operational guidance on setting up self-review, choosing verification comman
 
 The `reactions` block configures post-PR feedback loops. Each key is a reaction kind (e.g. `review_comments`) with its own provider, retry budget, and escalation policy. Reactions are opt-in: omit the block entirely to disable all reaction types. The `label_commands` key is configured in the same block but is human-triggered rather than event-driven, and it carries no retry budget or escalation.
 
-For the shared reaction lifecycle and every kind (`ci_failure`, `review_comments`, and `auto_merge`) with field tables and safety rules, see the [reactions reference](/reference/reactions/).
+For the shared reaction lifecycle and every kind Sortie ships, with field tables and safety rules, see the [reactions reference](/reference/reactions/).
 
 ### `reactions.review_comments`
 
@@ -729,7 +766,7 @@ Review feedback requires `.sortie/scm.json` in the workspace to contain `pr_numb
 > [!NOTE]
 > Environment variable overrides for `reactions` fields are not supported. Reaction configuration must come from WORKFLOW.md.
 
-`reactions.review_comments` fields take effect on future dispatches. A currently polling reaction uses the config snapshot from the most recent reconcile tick. Adding or removing the `reactions.review_comments` block via dynamic reload activates or deactivates review polling on the next tick.
+`reactions.review_comments` is captured once when the orchestrator starts and is not rebuilt on a dynamic reload. Changing any field here, and adding or removing the block itself, takes effect only on the next restart. This holds for every reaction kind except `ci_failure`, which is folded into the CI feedback configuration and re-read on every tick.
 
 **Minimal:**
 
@@ -756,6 +793,50 @@ reactions:
 When a review-fix continuation dispatches, the prompt receives a `review_comments` template variable: a list of maps with keys `id`, `file`, `start_line`, `end_line`, `reviewer`, `body`. Templates should guard with `{{ if .review_comments }}`. See the [`.review_comments`](#review_comments) template variable reference below for the full schema, and [how to write a prompt template](/guides/write-prompt-template/) for syntax.
 
 For operational guidance on setting up review feedback, see [how to configure PR review feedback](/guides/configure-review-feedback/).
+
+### `reactions.merge_completion`
+
+Observes the merge state of Sortie-managed PRs and transitions the linked tracker issue to one configured terminal state once the PR merges, whoever performed the merge. This is the only reaction kind whose action is a tracker write; it performs no SCM write and dispatches no continuation turn. It is off by default, and a deployment that omits the block is unaffected. The runtime kind value is `merge-completion`.
+
+| Field              | Type    | Default         | Description                                                                                          |
+| ------------------ | ------- | --------------- | ------------------------------------------------------------------------------------------------------ |
+| `provider`         | string  | _(required)_    | SCM adapter kind (e.g. `"github"`). Activates the kind, and must match the provider of every other active SCM reaction. |
+| `target_state`     | string  | _(required)_    | The terminal state the linked issue moves to. No default; never inferred from `tracker.terminal_states`. |
+| `poll_interval_ms` | integer | `60000`         | Minimum interval between merge-state polls per issue. Minimum: `30000`.                              |
+| `max_retries`      | integer | `2`             | Retryable transition attempts before escalation. `0` escalates on the first failed attempt.          |
+| `escalation`       | string  | `"label"`       | Action on escalation: `"label"` or `"comment"`.                                                  |
+| `escalation_label` | string  | `"needs-human"` | Label applied when `escalation` is `"label"`.                                                    |
+
+Two `tracker` fields are required whenever `provider` is set, each reported as its own configuration error when absent: `tracker.handoff_state` must be non-empty, and `tracker.terminal_states` must be written out in front matter rather than left to the adapter's default list. `target_state` is required, and compared case-insensitively it must not equal `tracker.handoff_state`, must not be a member of `tracker.active_states` (falling back to the adapter's default active list only when that list is empty), and must be a member of `tracker.terminal_states` as written. `poll_interval_ms` below `30000` is rejected, not clamped. `sortie validate` reports all of these offline, before a run.
+
+Every field here, `target_state` included, is captured once at orchestrator construction, as the other reaction kinds are; changing any of them, or either tracker prerequisite, requires a restart. Review feedback's `.sortie/scm.json` requirements apply with one exception: this kind reads `pr_number`, `owner`, and `repo`, and needs no `branch`, because it performs no checkout.
+
+**Minimal:**
+
+```yaml
+reactions:
+  merge_completion:
+    provider: github
+    target_state: done
+```
+
+**Full:**
+
+```yaml
+reactions:
+  merge_completion:
+    provider: github                    # required; registered SCM adapter
+    target_state: done                  # required; member of tracker.terminal_states
+    poll_interval_ms: 60000             # 60s between merge-state polls
+    max_retries: 2                      # transition attempts before escalation
+    escalation: label                   # "label" or "comment"
+    escalation_label: needs-human       # label applied on escalation
+```
+
+> [!WARNING]
+> The transition is irreversible by the orchestrator, and no validator can tell you that a valid `target_state` is the wrong one: a terminal list usually mixes a completion state with abandonment states. Enabling this block also requires the tracker credential to hold write authority sufficient to transition an issue, which nothing checks in advance.
+
+For the lifecycle, the idempotency latch, and the failure matrix, see the [merge-completion reference](/reference/reactions/#reactionsmerge_completion). For setup guidance, see [how to set up PR reactions](/guides/setup-pr-reactions/).
 
 ### `reactions.label_commands`
 
@@ -1266,13 +1347,7 @@ Sortie watches `WORKFLOW.md` for filesystem changes and re-applies configuration
 | `ci_feedback.escalation`, `ci_feedback.escalation_label` | Next reconcile tick.   |
 | `ci_feedback.kind`, `ci_feedback.max_log_lines` | Requires restart.              |
 | `self_review.*`                        | Next dispatch. Running workers use the snapshot captured at review-phase entry. |
-| `reactions.review_comments.provider`   | Next reconcile tick. Adding/removing the block activates/deactivates polling. |
-| `reactions.review_comments.max_retries` | Future dispatches.                    |
-| `reactions.review_comments.escalation`, `reactions.review_comments.escalation_label` | Future dispatches. |
-| `reactions.review_comments.poll_interval_ms` | Next reconcile tick.             |
-| `reactions.review_comments.debounce_ms` | Next reconcile tick.                 |
-| `reactions.review_comments.max_continuation_turns` | Future dispatches.          |
-| `reactions.label_commands.*`           | Requires restart.                      |
+| `reactions.*`, every kind except `ci_failure` | Requires restart. The whole block is captured once at construction, including whether each kind is active, so adding or removing a kind's block changes nothing until the process restarts. |
 | `notifications`                        | Next agent session. Each session's MCP sidecar reads the workflow file at startup; in-flight sessions are unaffected. |
 | `db_path`                              | Requires restart.                      |
 | `server.port`                          | Requires restart.                      |

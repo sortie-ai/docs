@@ -114,7 +114,7 @@ The `|| true` after `make fmt` prevents a formatter failure from producing noisy
 
 ## Clean up on workspace removal
 
-`before_remove` fires when Sortie deletes a workspace directory — typically after the issue reaches a terminal state. Use it to clean up remote resources:
+`before_remove` fires whenever Sortie deletes a workspace directory, on either of the two grounds it removes one: the issue reached a terminal tracker state, or the workspace outlived the opt-in [`workspace.retention_days`](/reference/workflow-config/#workspace) window. Use it to clean up remote resources:
 
 ```yaml
 hooks:
@@ -125,7 +125,7 @@ hooks:
 The `2>/dev/null || true` suppresses errors when the branch doesn't exist remotely (for example, if the run never pushed). `before_remove` failures are logged and ignored — cleanup still proceeds.
 
 > [!NOTE]
-> Workspace removal does not happen instantly when an issue reaches a terminal state. If the worker has already exited, Sortie detects the terminal state through a periodic sweep that runs every 60 poll ticks — with the default `polling.interval_ms: 30000`, cleanup happens within approximately 30 minutes; with `polling.interval_ms: 60000`, within approximately 60 minutes. Sortie always runs a full sweep on startup, so any workspaces left behind by a previous run are cleaned up immediately when the process restarts.
+> Workspace removal does not happen instantly when an issue reaches a terminal state. If the worker has already exited, Sortie detects the terminal state through a periodic sweep that runs every 60 poll ticks — with the default `polling.interval_ms: 30000`, cleanup happens within approximately 30 minutes; with `polling.interval_ms: 60000`, within approximately 60 minutes. On startup Sortie runs the terminal check alone, so a restart clears the workspaces of issues the tracker reports terminal and leaves everything else in place. A startup pass that cannot read tracker state removes nothing, and the age bound is evaluated only by the periodic sweep, never at startup.
 
 ## Use hook environment variables
 

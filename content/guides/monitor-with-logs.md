@@ -128,6 +128,35 @@ time=2026-03-26T14:35:20.100+00:00 level=INFO msg="worker exiting" issue_id=abc1
 
 The worker finished its loop. `exit_kind=normal` means the agent completed its turns without error.
 
+### Workspace sweep
+
+```
+time=2026-03-26T14:30:02.100+00:00 level=INFO msg="sweep: removed expired workspace" workspace_key=MT-512 last_activity=2026-02-14T09:12:44Z age_days=40
+time=2026-03-26T14:30:02.140+00:00 level=INFO msg="sweep: pass complete" candidates=7 excluded_running=1 excluded_retry=0 excluded_reaction=1 removed_terminal=2 removed_age=1 retained_in_window=1 retained_no_activity=1 retained_not_evaluated=0 failed=0 retention_days=30 age_pass=on tracker_read=ok
+```
+
+`sweep: pass complete` is emitted once per sweep pass, whether or not anything was removed. That is the point of it: a bound that removes nothing looks identical to a bound that is switched off, so the record reports why every candidate survived rather than only what it deleted.
+
+Read it as three questions.
+
+**Is the age bound on at all?** `age_pass` and `retention_days` answer that. `age_pass=on` means the window shown in `retention_days` was evaluated. `age_pass=off` means `retention_days` is unset or below the floor of 30, so no age evaluation ran. `age_pass=unavailable` means the pass could not run: the persistence store was absent, or the run-history query failed.
+
+**Did the tracker answer this pass?** `tracker_read=ok` or `tracker_read=failed`. On a failed read nothing is removed as terminal, but the age pass still evaluates, because it reads no tracker state.
+
+**Why did each candidate survive?** The `excluded_*` and `retained_*` counters, one reason each:
+
+- `excluded_running`: a worker is processing that issue. Not a fault.
+- `excluded_retry`: a retry is scheduled for that issue. Not a fault.
+- `excluded_reaction`: a pending reaction whose kind carries an expiry pins the workspace. It resolves itself within 30 minutes. Not a fault.
+- `retained_in_window`: the workspace's latest recorded activity is newer than `retention_days`. Not a fault; the bound is working as configured.
+- `retained_no_activity`: no run completion and no recorded push exist for that key, so there is no anchor to measure age from and the workspace is kept. This is the reason operators are least likely to guess. It covers a run that never completed and any directory Sortie did not create.
+- `retained_not_evaluated`: the age pass did not evaluate these candidates. Read `age_pass` for the reason.
+- `failed`: a removal or a path resolution failed, under either mechanism. Look for the adjacent WARN line naming the key.
+
+The nine counters after `candidates` partition the candidate set, so they always sum to `candidates`. In the pass above, `1 + 0 + 1 + 2 + 1 + 1 + 1 + 0 + 0 = 7`. `removed_terminal` counts the other mechanism, workspaces removed because the tracker reported their issues in a terminal state; it runs first on the same pass, so `removed_age` never counts a workspace the terminal check would have taken.
+
+Each age removal also emits `sweep: removed expired workspace`, carrying the `workspace_key` that was removed, `last_activity` (the RFC3339 anchor that was measured), and `age_days`. Configure the window itself through [`workspace.retention_days`](/reference/workflow-config/#workspace).
+
 ### Handoff transition
 
 ```
@@ -135,6 +164,20 @@ time=2026-03-26T14:35:21.500+00:00 level=INFO msg="handoff transition succeeded,
 ```
 
 Sortie transitioned the issue to the configured `handoff_state` in the tracker and released its claim. Sortie is done with the issue; the issue itself is now waiting on a person.
+
+If the issue had already reached a terminal state by the time the worker exited, you get this instead and no transition happens:
+
+```
+time=2026-03-26T14:35:21.480+00:00 level=INFO msg="handoff suppressed for terminal issue" issue_id=abc123 issue_identifier=MT-649 state=Done state_source=verified handoff_state="In Review"
+```
+
+This is the line to look for when an issue you closed mid-run did not get overwritten, and the line to look for when you expected a handoff and did not get one. `state` is the state Sortie saw, and `state_source` tells you where it saw it: `reconcile` from a reconciliation pass, `worker` from the worker's own per-turn refresh, `snapshot` from the state recorded at dispatch, or `verified` from the extra read Sortie performs immediately before the write. The claim is released and no retry is scheduled. Each of these also increments `sortie_handoff_transitions_total` with `result="skipped"`.
+
+That extra read can fail on its own, and Sortie proceeds with the handoff rather than assuming the issue is closed:
+
+```
+time=2026-03-26T14:35:21.470+00:00 level=WARN msg="handoff verification read failed, proceeding with handoff" issue_id=abc123 issue_identifier=MT-649 error="tracker request timeout" state_source=worker
+```
 
 ### Tracker comments
 
@@ -164,6 +207,22 @@ time=2026-03-26T14:35:22.500+00:00 level=ERROR msg="worker run failed, non-retry
 ```
 
 ERROR — Sortie gave up. This issue won't be retried. Fix the underlying problem (in this case, install the agent binary) and Sortie will pick the issue up on the next poll.
+
+### Token budget exhaustion
+
+```
+time=2026-03-26T14:35:22.000+00:00 level=WARN msg="token budget exhausted, blocking re-dispatch" issue_id=abc123 issue_identifier=MT-649 reason=token_budget used_tokens=52000 budget_tokens=50000 used_sessions=3 budget_sessions=5
+```
+
+This fires when `agent.max_tokens` is set and an issue's cumulative tokens across every completed session reach the configured ceiling. The check runs on the pre-dispatch path, before a scheduled retry fires, so it blocks the next dispatch rather than interrupting a session already running. `used_tokens` is the issue's running total; `budget_tokens` is the ceiling it hit. `used_sessions` and `budget_sessions` report the same comparison for the session-count budget, in case the issue is close to both ceilings at once.
+
+If Sortie can't read the token total, it fails open rather than blocking a retry on a persistence error:
+
+```
+time=2026-03-26T14:35:21.900+00:00 level=WARN msg="token budget check failed, proceeding with dispatch" issue_id=abc123 issue_identifier=MT-649 error="database is locked"
+```
+
+WARN either way, but the outcome differs: dispatch proceeds here, where the ceiling message above blocks it.
 
 ### Dispatch preflight failures
 
@@ -195,6 +254,12 @@ Find retries (to see which issues are struggling):
 grep 'scheduling retry' sortie.log
 ```
 
+Find issues blocked by a token budget:
+
+```bash
+grep 'token budget exhausted' sortie.log
+```
+
 Watch dispatches in real time:
 
 ```bash
@@ -211,6 +276,18 @@ Follow a specific agent session across turns and tool calls:
 
 ```bash
 grep 'session_id=session-abc-001' sortie.log
+```
+
+Review every workspace sweep pass, including the ones that removed nothing:
+
+```bash
+grep 'sweep: pass complete' sortie.log
+```
+
+Find workspaces removed by the age bound:
+
+```bash
+grep 'sweep: removed expired workspace' sortie.log
 ```
 
 ## Switch to JSON format
@@ -252,6 +329,12 @@ Find retries with their delay:
 jq 'select(.msg | contains("scheduling retry")) | {issue: .issue_identifier, next_attempt, delay_ms}' sortie.log
 ```
 
+Find issues blocked by a token budget:
+
+```bash
+jq 'select(.msg | contains("token budget exhausted")) | {issue: .issue_identifier, used_tokens, budget_tokens}' sortie.log
+```
+
 Watch dispatches in real time:
 
 ```bash
@@ -268,6 +351,12 @@ Extract a timeline for a specific session:
 
 ```bash
 jq 'select(.session_id == "session-abc-001") | {time, msg, level}' sortie.log
+```
+
+Find sweep passes that removed at least one workspace on age:
+
+```bash
+jq 'select(.msg == "sweep: pass complete" and .removed_age > 0)' sortie.log
 ```
 
 ## Redirect logs to a file

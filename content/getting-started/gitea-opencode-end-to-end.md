@@ -282,7 +282,7 @@ You should see a commit hash. The `sortie/3` branch is on your Gitea instance, r
 
 Open the issue in Gitea. It now carries the `review` label instead of `backlog`, and it is still open, because `review` is not a terminal state. A reviewer can open a pull request from `sortie/3`, merge it, and close the issue. That last step is intentionally human: the handoff hands work to a person, it does not close it.
 
-Open [http://127.0.0.1:8080/](http://127.0.0.1:8080/). The workflow sets `server.port: 8080`, so the dashboard is served there. You will see summary cards and a run history row for the completed session, with its issue identifier, turn count, duration, exit status, and token usage.
+Open [http://127.0.0.1:8080/](http://127.0.0.1:8080/). The workflow sets `server.port: 8080`, so the dashboard is served there. You will see summary cards and a run history row for the completed session, with its issue identifier, turn count, duration, and exit status.
 
 {{% /steps %}}
 

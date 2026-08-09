@@ -138,18 +138,41 @@ A single worker attempt can execute multiple agent turns. After each turn:
 
 ---
 
+## Tracker states the orchestrator writes
+
+The orchestrator writes tracker state at exactly three points in an issue's life, each one a single named state drawn from configuration.
+
+| Write | Trigger | Configured by |
+|---|---|---|
+| In-progress state | At dispatch, before workspace preparation. | `tracker.in_progress_state` |
+| Handoff state | On a normal worker exit, with the issue still in an active state, not a blocked soft stop, and not already reported terminal. | `tracker.handoff_state` |
+| Terminal state | When a Sortie-managed pull request merges while the linked issue is still parked in the handoff state. | `reactions.merge_completion.target_state` |
+
+There are no other orchestrator-initiated tracker writes. What the orchestrator does besides these three carries no state semantics: the dispatch comment, the completion and failure comments, the auto-merge success comment, and a reaction's escalation label or comment are not transitions. The governing boundary is not between reading and writing, it is between a write that reports an event the orchestrator observed and a write that expresses a judgment about the work; the orchestrator makes only the first kind, so a case that turns on judgment, such as choosing between a completion state and an abandonment state for a pull request closed unmerged, is left to you or to the coding agent.
+
+The coding agent has a path of its own, separate from these three: the [`tracker_api` tool](/reference/agent-extensions/#tracker_api) performs a `transition_issue` the agent asked for, within the configured project scope.
+
+Each write stays off until its field is configured. The third is the newest and needs `reactions.merge_completion.provider` on top of its target state; a deployment that does not configure it sees no terminal write from the orchestrator at all.
+
+The handoff write carries one extra guard, because it is the write most likely to race a person. If you close or cancel an issue while its final turn is still finishing, the handoff write would otherwise overwrite your decision with `handoff_state`. So the exit path tests the issue against `terminal_states` using the freshest observation it has, preferring one made by reconciliation, then one made by the worker's own per-turn refresh, then the state recorded at dispatch. A terminal observation suppresses the write, releases the claim, and cancels any pending retry. Because that observation can itself go stale while the worker tears down, Sortie performs one more state read immediately before the write and applies the same test. If that read fails, the write proceeds: an unreachable tracker is not evidence that the issue is closed. The read is skipped entirely when `terminal_states` is empty, since with no terminal state configured no value could classify as one and the call would cost a tracker request without ever suppressing anything. Only a terminal state suppresses. Any other state, including `handoff_state` itself when the agent already applied it through the `tracker_api` tool, leaves the write and everything downstream of it unchanged.
+
+A continuation turn dispatched by a reaction runs as an ordinary agent session and so performs the same in-progress and handoff writes, while a session dispatched by a label command performs neither.
+
+---
+
 ## Transition triggers
 
-Six external events drive state transitions. Each is handled by the orchestrator's single-writer event loop.
+Seven external events drive state transitions. Each is handled by the orchestrator's single-writer event loop.
 
 | Trigger | What happens |
 |---|---|
 | **Poll tick** | Reconcile running issues (stall detection + tracker state refresh). Run preflight validation. Fetch candidates. Sort by priority. Dispatch eligible issues until slots are exhausted. Dispatched workers perform the optional in-progress transition (via `tracker.in_progress_state`) and optional dispatch comment (via `tracker.comments.on_dispatch`) as their first steps. |
-| **Worker exit (normal)** | Remove `running` entry. Persist run history to SQLite. Update token totals. Three outcome paths: (1) no soft-stop, issue active -- schedule continuation retry or perform handoff transition (retry on handoff failure); (2) soft-stop `blocked` -- release claim, no handoff, no retry; (3) soft-stop `needs-human-review` -- perform handoff transition (if configured and issue active), release claim (no retry on handoff failure). Post completion comment if [`tracker.comments.on_completion`](/reference/workflow-config/) is enabled (detached goroutine, non-blocking). |
+| **Worker exit (normal)** | Remove `running` entry. Persist run history to SQLite. Update token totals. Four outcome paths: (1) no soft-stop, issue active -- schedule continuation retry or perform handoff transition (retry on handoff failure); (2) soft-stop `blocked` -- release claim, no handoff, no retry; (3) soft-stop `needs-human-review` -- perform handoff transition (if configured and issue active), release claim (no retry on handoff failure); (4) issue already reported terminal -- no handoff, release claim, no retry, no reactions enqueued. Path 4 is tested ahead of paths 1 and 3 and overrides them; path 2 is tested first of all. Post completion comment if [`tracker.comments.on_completion`](/reference/workflow-config/) is enabled (detached goroutine, non-blocking). |
 | **Worker exit (error)** | Remove `running` entry. Persist run history. Classify error. If retryable, schedule exponential backoff retry. If not, release claim. Post failure comment if [`tracker.comments.on_failure`](/reference/workflow-config/) is enabled (detached goroutine, non-blocking). |
 | **Agent update event** | Update live session fields: token counters, session ID, thread ID, agent PID, rate limits, last activity timestamp. |
 | **Retry timer fired** | Re-fetch candidates. If the issue is still eligible and slots are available, dispatch. If no slots, reschedule. If the issue is gone or inactive, release claim. |
-| **Reconciliation: tracker state refresh** | For each running issue: terminal state → cancel worker, clean workspace. Still active → update snapshot. Neither active nor terminal → cancel worker, no cleanup. |
+| **Reconciliation: tracker state refresh** | For each running issue: terminal state → cancel worker, clean workspace. Still active → update snapshot. Neither active nor terminal → cancel worker, no cleanup here; the [periodic sweep](#reconciliation) may still remove that workspace later on age. |
+| **Reaction: managed PR observed as merged** | When [`reactions.merge_completion`](/reference/workflow-config/#reactionsmerge_completion) is configured, transition the linked issue to the configured terminal state, once per merge commit. No workspace or source-control side effect. |
 
 ---
 
@@ -211,8 +234,10 @@ Reconciliation runs at the start of every poll tick, before dispatch. It has two
 |---|---|
 | Terminal state | Cancel worker. Mark workspace for cleanup after worker exits. |
 | Still active | Update the in-memory issue snapshot. Worker continues. |
-| Neither active nor terminal | Cancel worker. No workspace cleanup. |
+| Neither active nor terminal | Cancel worker. No workspace cleanup here; the periodic sweep may remove that workspace later on age. |
 | Fetch fails | Keep all workers running. Retry on next tick. |
+
+**Periodic workspace sweep.** Separately from the per-tick reconciliation above, a sweep runs once every 60 poll ticks and applies two grounds in one pass. The terminal check runs first: it asks the tracker for the state of every workspace key on disk that does not belong to in-flight work, and removes those reported terminal. Whatever it leaves is then evaluated against [`workspace.retention_days`](/reference/workflow-config/#workspace), an opt-in age bound that is off by default and needs no answer from the tracker, so it still removes on a pass where the tracker read failed.
 
 ---
 
@@ -223,8 +248,8 @@ When Sortie starts (or restarts after a crash), it reconstructs orchestration st
 1. Open SQLite database and apply schema migrations.
 2. Load persisted retry entries. Reconstruct retry timers from stored `due_at` timestamps.
 3. Enumerate workspace directories on disk and map directory names to issue identifiers.
-4. Query the tracker for terminal-state issues among those with existing workspaces. Remove stale workspace directories.
+4. Query the tracker for the states of those identifiers and remove the workspace directories of issues reported terminal. Only keys whose state is both known and terminal are removed, so a workspace whose issue is missing from the response or sits in a non-active, non-terminal state survives the pass. No age-based removal runs at startup.
 5. Query the tracker for active issues. Reconcile with persisted state.
 6. Begin the normal poll loop.
 
-If the terminal-issue query fails at startup, Sortie logs a warning and continues - workspace cleanup is deferred to the next successful reconciliation.
+If the workspace listing or the terminal-state query fails at startup, Sortie logs a warning, cleans nothing on that pass, and continues. For an issue with no running worker, terminal cleanup then waits for the [periodic sweep](#reconciliation), which is also where the opt-in age bound in [`workspace.retention_days`](/reference/workflow-config/#workspace) applies.

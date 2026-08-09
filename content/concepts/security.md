@@ -1,6 +1,6 @@
 ---
 title: "Security Model"
-description: "Sortie's trust model: workspace isolation invariants, prompt injection surface, secret handling, hook safety, and bounded failure as a security property."
+description: "Sortie's trust model: workspace isolation invariants, prompt injection surface, secret handling, hook safety, outbound data posture, and bounded failure as a security property."
 author: Sortie AI
 date: 2026-03-29
 weight: 60
@@ -79,6 +79,16 @@ Three things bound the risk once you enable it. The SCM token must carry write s
 
 The operator's responsibility mirrors the rest of this model. Scope the token to the repositories Sortie should touch, and treat enabling auto-merge as the same class of decision as granting a CI system merge rights, because that is precisely what it is.
 
+## Outbound data posture
+
+Sortie transmits no usage data. There is no telemetry client, no analytics client, and no update check anywhere in the codebase — this is a property you can confirm by searching the source, not an inference from watching network traffic. The only destinations a running instance reaches are the tracker, forge, and coding-agent endpoints its own configuration names; the endpoint literals compiled into the binary are limited to the public defaults for those integrations (`api.github.com`, `api.linear.app`, and the like), never a Sortie-operated collection point. The embedded HTTP server itself — dashboard, JSON API, and Prometheus metrics alike — binds to `127.0.0.1` on port `7678` by default, so none of it is reachable from elsewhere unless you deliberately pass `--host 0.0.0.0` or put a reverse proxy in front of it.
+
+One boundary needs stating precisely, because it is easy to misread. Sortie launches your coding agent as a subprocess and passes its own process environment through to it unfiltered. That agent is a separate program with its own vendor relationship and its own telemetry posture — Claude Code, Codex, and the others each make their own decisions about what they report home and to whom. Sortie sets no environment variable that turns that reporting on, and none that turns it off. The claim in this section is about Sortie's own network behavior; it says nothing about the program Sortie hands your workspace to. Consult that agent's own documentation for its posture.
+
+If a future release adds an outbound feature of its own — sending aggregates, crash reports, or anything else off the host on Sortie's own initiative — it is bound by constraints fixed in advance rather than decided later: collection is opt-in and never opt-out, nothing blocks an unattended daemon or CI job on a consent prompt, and either `DO_NOT_TRACK=1` or a `SORTIE_`-prefixed disable variable turns it off regardless of whether the workflow file is present or valid. Neither variable exists today, because there is nothing yet for either one to disable.
+
+This is a stated property, not a default that can drift silently. [ADR-0019](https://github.com/sortie-ai/sortie/blob/main/docs/decisions/0019-keep-usage-data-on-the-host.md) records the full reasoning, including why cross-instance rollups are pulled by something outside Sortie rather than pushed by the orchestrator. See [how to aggregate metrics across instances](/guides/aggregate-metrics-across-instances/) for that mechanism in practice.
+
 ## Outbound notifications
 
 With a `notifications` list configured in WORKFLOW.md, the MCP sidecar gains a new kind of egress: during agent sessions, the `notify_operator` tool posts JSON to operator-supplied URLs. Other tool traffic goes to a known external API behind an adapter; this is the first surface that reaches whatever URL the configuration names, so it deserves the same scrutiny as hooks.
@@ -113,3 +123,5 @@ Bounded failure also limits blast radius from bugs. An agent caught in an infini
 - [Codex adapter reference](/reference/adapter-codex/) for agent-specific approval and sandbox settings
 - [Error reference](/reference/errors/) for non-retryable error classification
 - [Harness hardening guidance](https://github.com/sortie-ai/sortie/blob/main/docs/architecture.md#15-security-and-operational-safety) in the architecture spec for the full hardening checklist
+- [How to aggregate metrics across instances](/guides/aggregate-metrics-across-instances/) for pulling figures from multiple Sortie processes without any outbound feature
+- [Keep usage data on the host](https://github.com/sortie-ai/sortie/blob/main/docs/decisions/0019-keep-usage-data-on-the-host.md) decision record for the full reasoning behind the outbound-data posture

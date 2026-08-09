@@ -36,10 +36,10 @@ Monotonically increasing. Apply `rate()` or `increase()` to extract per-second o
 | `sortie_dispatches_total` | `outcome` | Dispatch attempts. `outcome` is `success` (worker spawned) or `error` (spawn failed). | Coordination |
 | `sortie_worker_exits_total` | `exit_type` | Worker session completions. `exit_type` is `normal` (agent finished), `error` (agent or infrastructure failure), or `cancelled` (reconciliation or shutdown). | Coordination |
 | `sortie_retries_total` | `trigger` | Retry scheduling events. `trigger` is `error` (failed attempt), `continuation` (successful turn, more work remains), `timer` (retry timer fired), or `stall` (stall timeout detected). | Coordination |
-| `sortie_reconciliation_actions_total` | `action` | Reconciliation outcomes per issue checked. `action` is `stop` (issue state no longer active), `cleanup` (terminal state, workspace removed), or `keep` (still active, no action). | Coordination |
+| `sortie_reconciliation_actions_total` | `action` | Reconciliation outcomes per issue checked. `action` is `stop` (issue state no longer active), `cleanup` (terminal state, workspace removed), `keep` (still active, no action), `sweep_cleanup` (terminal state, workspace removed by the periodic sweep), or `sweep_expired` (workspace removed by the sweep's age-based retention bound). | Coordination |
 | `sortie_poll_cycles_total` | `result` | Poll tick outcomes. `result` is `success` (fetched and dispatched), `error` (tracker fetch failed), or `skipped` (preflight validation failed, dispatch skipped). | Coordination |
 | `sortie_tracker_requests_total` | `operation`, `result` | Tracker adapter API calls. Each adapter method increments this independently - the orchestrator never touches it. `operation` is `fetch_candidates`, `fetch_issue`, `fetch_comments`, `transition`, or `comment`. `result` is `success` or `error`. | Integration |
-| `sortie_handoff_transitions_total` | `result` | Handoff state transition outcomes. `result` is `success` (issue transitioned), `error` (transition API failed, retry scheduled as fallback), or `skipped` (no `handoff_state` configured). | Coordination |
+| `sortie_handoff_transitions_total` | `result` | Handoff state transition outcomes. `result` is `success` (issue transitioned), `error` (transition API failed, retry scheduled as fallback), or `skipped` (a handoff state is configured but no transition was performed, because the issue had already reached a terminal state or had left the active set). Never recorded when `handoff_state` is unset. | Coordination |
 | `sortie_dispatch_transitions_total` | `result` | Dispatch-time in-progress transition outcomes. `result` is `success` (issue transitioned at dispatch), `error` (transition API failed; worker continues to workspace preparation), or `skipped` (issue was already in the target state). Only recorded when [`tracker.in_progress_state`](/reference/workflow-config/) is configured. | Coordination |
 | `sortie_tracker_comments_total` | `lifecycle`, `result` | Tracker comment attempts. `lifecycle` is `dispatch`, `completion`, or `failure`. `result` is `success` or `error`. Only recorded when [`tracker.comments.*`](/reference/workflow-config/) flags are enabled. Comment failures are non-fatal - they increment the `error` result but never block the orchestrator. | Coordination |
 | `sortie_tool_calls_total` | `tool`, `result` | Agent tool call completions. `tool` is the tool name (e.g., `Bash`, `tracker_api`). `result` is `success` or `error`. | Coordination |
@@ -93,6 +93,8 @@ You will not find `issue_id` or `issue_identifier` as Prometheus labels. This is
 Sortie's concurrency is O(10) agents, not O(10,000) microservice endpoints - but issue identifiers are unbounded over time. Adding them as labels would create an ever-growing number of time series that degrades Prometheus storage and query performance for no operational benefit.
 
 Prometheus answers aggregate questions: "How many sessions are running?", "What is the token burn rate?", "Are dispatches failing?" The [JSON API](http-api.md) answers per-issue questions: "What is PROJ-42 doing right now?", "How many tokens has this session consumed?" Use both.
+
+None of the labels above name the Sortie instance itself, because Sortie's metrics registry has no concept of one. Prometheus supplies that separation on the scrape side instead: every series gets an `instance` label (the scraped `host:port`) and a `job` label (the `job_name` from `scrape_configs`), regardless of what the exporter emits. Point one Prometheus at several Sortie processes and those two labels are what let you view each instance separately or sum across all of them — see [how to aggregate metrics across instances](/guides/aggregate-metrics-across-instances/).
 
 ## PromQL examples
 
@@ -262,6 +264,8 @@ scrape_configs:
 ```
 
 Replace `localhost:7678` with the host and port where Sortie's HTTP server is running. Sortie binds to `127.0.0.1` by default - if Prometheus runs on a different machine, pass `--host 0.0.0.0` to Sortie or configure a reverse proxy to make the port reachable.
+
+To scrape more than one Sortie instance, add more entries to `targets`. See [how to aggregate metrics across instances](/guides/aggregate-metrics-across-instances/) for the full multi-instance pattern and its limits.
 
 The endpoint also serves `promhttp_metric_handler_requests_total` and `promhttp_metric_handler_errors_total` for scrape self-instrumentation, plus Go runtime metrics (`go_goroutines`, `go_memstats_*`, `process_*`) from the standard process and Go collectors.
 

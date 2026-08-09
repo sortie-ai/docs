@@ -293,7 +293,7 @@ print(f'Running: {c[\"running\"]}, Retrying: {c[\"retrying\"]}')
 done
 ```
 
-All instances expose `/metrics` on their respective ports. A single Prometheus scrape config with multiple targets collects from all of them. See [monitor with Prometheus](/guides/monitor-with-prometheus/) for the multi-target configuration.
+All instances expose `/metrics` on their respective ports, and Prometheus labels every series it scrapes with `instance` and `job`, so one Prometheus watching all of them already holds every figure broken out per instance and rolled up across the fleet. See [how to aggregate metrics across instances](/guides/aggregate-metrics-across-instances/) for the scrape config, its limits, and the `sortie stats` alternative for a point-in-time cost rollup instead of a live dashboard.
 
 Logs are per-instance. Tail all of them at once during initial setup:
 

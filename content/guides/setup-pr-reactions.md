@@ -25,8 +25,9 @@ Reactions are opt-in. A kind stays inactive until you give it a `provider`, and 
 | `ci_failure` | A failing CI check on the pushed branch | Dispatches a fix continuation turn with the failure context | [Configure CI feedback](/guides/configure-ci-feedback/) |
 | `review_comments` | A human "Request changes" review on the PR | Dispatches a fix continuation turn with the review comments | [Configure review feedback](/guides/configure-review-feedback/) |
 | `auto_merge` | An approved, mergeable, CI-green PR | Merges the PR directly through the SCM adapter | This guide, below |
+| `merge_completion` | A managed PR that has merged, whoever merged it | Transitions the linked tracker issue to a terminal state. The one kind that writes to the tracker | This guide, below |
 
-The kinds are independent. You can enable one, two, or all three, each with its own retry budget, escalation policy, and state. The rest of this guide covers the setup common to all kinds, then the `auto_merge` specifics.
+The kinds are independent. You can enable one, two, or all of them, each with its own retry budget, escalation policy, and state. The rest of this guide covers the setup common to all kinds, then the `auto_merge` specifics.
 
 ## Enable the reactions block
 
@@ -59,7 +60,7 @@ When a kind exhausts its budget, Sortie applies the escalation action and releas
 gh label create needs-human --repo myorg/myrepo --color "D93F0B"
 ```
 
-Reaction configuration comes from WORKFLOW.md only. Environment variable overrides for `reactions` fields are not supported. The `provider` value takes effect at startup; the other fields take effect on the next dispatch after a dynamic reload. For the full field tables and validation rules, see the [reactions reference](/reference/reactions/).
+Reaction configuration comes from WORKFLOW.md only. Environment variable overrides for `reactions` fields are not supported. The whole block is read once at startup: changing a field, or adding or removing a kind, takes effect on the next restart, not on a dynamic reload. The one exception is `ci_failure`, whose fields are re-read on every tick. For the full field tables and validation rules, see the [reactions reference](/reference/reactions/).
 
 ## Provide PR metadata in `.sortie/scm.json`
 
@@ -81,6 +82,7 @@ Which fields each kind reads:
 - `ci_failure` uses `branch` and `sha` to poll CI status. The SHA is preferred; the branch is the fallback.
 - `review_comments` uses `pr_number`, `owner`, and `repo`. When any is missing or zero, review polling is skipped for that workspace with no error.
 - `auto_merge` uses `pr_number`, `owner`, `repo`, and `branch`. The `branch` field is required because branch deletion after merge needs it.
+- `merge_completion` uses `pr_number`, `owner`, and `repo`. It needs no `branch`, because it performs no checkout.
 
 The optional `pushed_at` timestamp (RFC 3339 UTC) lets Sortie reconstruct pending reactions for an open PR after a restart, so feedback survives a process bounce instead of waiting for the next push. Write it from the same hook that pushes. See [Resume sessions across restarts](/guides/resume-sessions-across-restarts/) for the recovery model.
 
@@ -200,6 +202,63 @@ reactions:
 
 This relies on a branch-protection rule (above) to supply the human approval gate. With the rule in place, the sequence is: agent opens the PR, a reviewer requests changes (routed back through `review_comments`), the reviewer approves, CI goes green, and auto-merge merges and deletes the branch.
 
+## Close the issue after merge
+
+Auto-merge lands the PR but leaves the tracker issue sitting in `handoff_state`. The `merge_completion` kind closes that loop: it watches the merge state of a managed PR and, once the PR merges, transitions the linked issue to one terminal state you name. It is opt-in and off by default, and a deployment that omits the block is unaffected.
+
+It fires for a merge by anyone. A person clicking merge in the GitHub UI, a forge automation rule, and Sortie's own auto-merge all reach the same transition, because the reaction reads the PR's merge state live rather than remembering a merge Sortie performed. That makes it useful in a deployment that never enables `auto_merge`.
+
+### Configure the transition
+
+The kind needs a provider, a target state, and two `tracker` fields it depends on:
+
+```yaml
+tracker:
+  handoff_state: review        # required: the state a merge waits in
+  terminal_states:             # required: written out, not left to the adapter default
+    - done
+    - wontfix
+
+reactions:
+  merge_completion:
+    provider: github
+    target_state: done         # required: no default, never inferred
+```
+
+Both tracker fields are enforced offline, and each missing one is its own configuration error.
+
+### Choose the target state carefully
+
+`target_state` is applied verbatim. Sortie never picks it out of `terminal_states` for you, because a terminal list usually mixes a completion state with one or more abandonment states, as `done` and `wontfix` do above, and nothing in the ordering or the wording says which is which.
+
+`sortie validate` checks that your value is not the handoff state, is not an active state, and is a member of `terminal_states`, all case-insensitively. It cannot check that you picked the right one. Naming `wontfix` where you meant `done` is valid configuration that closes finished work under the wrong label, and the orchestrator does not reverse the transition. Read the value back against your tracker's own vocabulary before you enable the block.
+
+### Grant the tracker credential write authority
+
+Enabling this block asks the tracker credential to do something it did not do before: move an issue to a terminal state. On the forges, that closes the native issue. A credential that was sufficient for reading issues and adding labels may not be sufficient for this.
+
+Nothing checks it in advance. There is no startup preflight and no validator check for the tracker credential's scope, unlike the SCM token preflight auto-merge runs. An insufficient scope surfaces on the first real merge, as an authentication failure that escalates immediately with no earlier warning. If your first merged PR escalates instead of closing its issue, check the credential before anything else.
+
+### Restart to apply
+
+This block is read once at startup. A change to `provider`, `target_state`, `poll_interval_ms`, or either tracker prerequisite takes effect only after you restart Sortie; a dynamic reload does not pick it up.
+
+### Confirm it worked
+
+Merge a managed PR and look for two things. The transition log line names the target state and the merge commit:
+
+```bash
+grep "merge_completion transitioned issue to terminal state" sortie.log
+```
+
+And the latch row appears under the `merge-completion` kind:
+
+```bash
+sqlite3 sortie.db "SELECT issue_id, kind, dispatched FROM reaction_fingerprints WHERE kind='merge-completion'"
+```
+
+A row with `dispatched` set means that merge has already been acted on. The row stays after a successful transition, which is what stops the next tick from treating the same merge as new. For the full field table, the failure matrix, and the idempotency rules, see the [merge-completion reference](/reference/reactions/#reactionsmerge_completion).
+
 ## Reactions run during handoff
 
 Reactions are useful precisely because they fire while the issue waits for a human. After a successful first run, Sortie transitions the issue to your `handoff_state` (for example, `review`) and releases the worker. Reaction continuations dispatch even while the issue sits in `handoff_state`.
@@ -220,7 +279,7 @@ Catch configuration errors before dispatch:
 sortie validate
 ```
 
-This reports invalid reaction keys, a negative `max_retries`, a bad `escalation` value, a `poll_interval_ms` below `30000`, an invalid `strategy`, or a `provider` mismatch between `review_comments` and `auto_merge`. See the [CLI reference](/reference/cli/) for the `validate` subcommand.
+This reports invalid reaction keys, a negative `max_retries`, a bad `escalation` value, a `poll_interval_ms` below `30000`, an invalid `strategy`, or a `provider` mismatch between `review_comments` and `auto_merge`. With `merge_completion` configured, it also reports a missing `target_state`, a `target_state` that is the handoff state, an active state, or absent from `terminal_states`, and a missing `tracker.handoff_state` or `tracker.terminal_states`. See the [CLI reference](/reference/cli/) for the `validate` subcommand.
 
 ### Logs
 
@@ -244,7 +303,9 @@ The `auto_merge deferred:` messages name the unmet precondition (`review decisio
 
 ### Dashboard and status API
 
-When the HTTP server is running, the runtime snapshot lists `PendingReactions` entries. The kind value is `ci` for CI failure, `review` for review comments, and `merge` for auto-merge. An open PR awaiting merge appears with kind `merge` and its current attempt count. See the [dashboard reference](/reference/dashboard/).
+Pending reactions are runtime state and are not published. The dashboard and the status API expose running sessions, the retry queue, agent totals, rate limits, and budget exhaustion; neither surfaces a reaction entry, its kind, or its attempt count. Do not expect to watch a reaction poll from either.
+
+What you do see is the result. When a reaction dispatches a continuation turn, the issue reappears as a running session for the duration of that turn, exactly like any other dispatch. Auto-merge and post-merge closure dispatch no turn at all, so they leave no trace on either surface; for those, read the logs, the fingerprint rows below, or the counters above. See the [dashboard reference](/reference/dashboard/) for what each surface does carry.
 
 ### Prometheus metrics
 
@@ -258,13 +319,15 @@ A healthy setup shows `result="merged"` climbing as PRs land, with `error` flat.
 
 ### SQLite fingerprints
 
-`review_comments` and `auto_merge` store a fingerprint so they don't act twice on the same state across ticks or restarts. Inspect the merge fingerprints:
+Every reaction kind stores a fingerprint so it doesn't act twice on the same state across ticks or restarts. Each row is keyed by issue and kind, and what the fingerprint holds differs per kind. Inspect the merge fingerprints:
 
 ```bash
 sqlite3 sortie.db "SELECT issue_id, kind, dispatched FROM reaction_fingerprints WHERE kind='merge'"
 ```
 
 The merge fingerprint combines the PR head SHA and the review decision, so a new push or a change in review decision allows a fresh attempt.
+
+`merge_completion` writes a row too, under kind `merge-completion`, holding the merge commit identifier. That row is retained after a successful transition rather than deleted, so do not expect it to disappear once the issue closes: keeping it is what prevents the same merge from being observed again on the next tick.
 
 ## Troubleshooting
 

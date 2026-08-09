@@ -45,6 +45,7 @@ Step-by-step instructions for configuring, operating, and extending Sortie.
 {{< cards >}}
   {{< card link="monitor-with-logs" title="Structured Logs" subtitle="Read, filter, and aggregate text or JSON logs." >}}
   {{< card link="monitor-with-prometheus" title="Prometheus & Grafana" subtitle="Scrape metrics and import the dashboard." >}}
+  {{< card link="aggregate-metrics-across-instances" title="Aggregate Across Instances" subtitle="See figures across multiple Sortie processes via Prometheus federation or the stats export pipe." >}}
 {{< /cards >}}
 
 ## Deployment
