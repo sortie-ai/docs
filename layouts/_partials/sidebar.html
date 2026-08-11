@@ -1,35 +1,3 @@
-{{- /* Verbatim copy of Hextra v0.12.2's _partials/sidebar.html, with exactly
-       one line changed. Diff it against the vendored original before and after
-       any theme upgrade:
-
-           diff layouts/_partials/sidebar.html \
-                _vendor/github.com/imfing/hextra/layouts/_partials/sidebar.html
-
-       The expected diff is this comment plus the rel= line marked REL below.
-       If upstream switches to noopener, delete this file rather than merging —
-       nothing else here is ours.
-
-       WHY THE FORK. The mobile menu renders [[menu.main]] through the
-       "sidebar-item-link" template defined at the bottom of this file, which
-       pairs target="_blank" with rel="noreferrer" for any external entry. That
-       is the second of the two "Sortie Home" anchors every page carries (the
-       first comes from _partials/navbar-link.html, which is forked for an
-       unrelated defect), and it is the one a phone visitor actually clicks,
-       since the list above is hx:md:hidden. Left as upstream wrote it, half of
-       the docs → apex clicks would arrive with no Referer and be filed as
-       direct traffic. The full argument for noopener over noreferrer is in
-       _partials/navbar-link.html; it is not repeated here.
-
-       WHAT THIS COSTS, HONESTLY. This is a 329-line fork for one token, and
-       the file it freezes is the theme's most intricate: the whole sidebar
-       tree, the mobile main-menu projection, the per-page TOC and the
-       collapsible groups all live here. It will drift, and unlike a missing
-       rel= the drift will be visible as broken navigation. Hugo offers no
-       narrower seam — a Hugo Module's partial can only be replaced whole, and
-       redefining "sidebar-item-link" from another file relies on Go template
-       parse order, which Hugo does not specify. If the diff above ever stops
-       applying cleanly, the right move is to send the one-token change
-       upstream and drop this file, not to re-merge 329 lines by hand. */ -}}
 {{- $context := .context -}}
 
 {{- $disableSidebar := .disableSidebar | default false -}}

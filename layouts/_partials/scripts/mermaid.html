@@ -1,51 +1,3 @@
-{{- /* Override of Hextra's _partials/scripts/mermaid.html.
-
-       Hextra's scripts.html includes this partial only when the page set
-       hasMermaid, which layouts/_markup/render-codeblock-mermaid.html does.
-       That gate is the point of this file existing: the two tags below used to
-       sit unconditionally in _partials/custom/head-end.html, so all 83 pages
-       downloaded and parsed Mermaid for the sake of the 2 that draw a diagram.
-
-       Why override the upstream partial instead of using it: upstream ships
-       its own initialiser, which would fight with /js/mermaid-init.js over
-       mermaid.initialize() and over a MutationObserver on the same element.
-       This site needs its own because its render hook emits a bare
-       <pre class="mermaid"> whose body Goldmark may wrap in <code>, and
-       because the diagrams need transparent edge labels to look right in both
-       themes. Upstream would also resolve mermaid@latest.
-
-       PROVENANCE — the library is committed to this repository.
-
-           file      assets/js/vendor/mermaid-11.16.1.min.js
-           version   11.16.1
-           source    https://cdn.jsdelivr.net/npm/mermaid@11.16.1/dist/mermaid.min.js
-           sha256    18327bef70d96fb505fe7287d9f6a7362ebf07ff6576ddfaffb1a06f3e1a2954
-           SRI       sha256-GDJ773DZb7UF/nKH2fanNi6/B/9ldt36/7Ggbz4aKVQ=
-
-       Verify with:
-
-           curl -fsSL https://cdn.jsdelivr.net/npm/mermaid@11.16.1/dist/mermaid.min.js \
-             | sha256sum
-
-       This is the third and last position on this dependency, and the reasons
-       for each move are worth keeping. It began as a <script src> pointing at
-       mermaid@11 on jsDelivr: a floating major, so the bytes executing on the
-       property that carries all of Sortie's search traffic could change with no
-       commit here, and Subresource Integrity was impossible by construction.
-       It then became resources.GetRemote of one exact version, which fixed the
-       version and let fingerprint emit an integrity digest — but only moved the
-       third-party fetch from the visitor's browser to the build machine, where
-       a compromised or unavailable CDN still decides what ships. Committing the
-       file pins the *bytes*. The build no longer talks to jsDelivr at all, and
-       an upgrade is a deliberate act: replace the file, update the four lines
-       above, and the fingerprint changes in the same commit as the content.
-
-       3.5 MB in the repository is the price, and it is accepted.
-
-       resources.Get + fingerprint is deliberately kept over a plain static/
-       file: it is what produces the cache-busting filename and the integrity
-       attribute, exactly as the remote-fetch version did, so the published URL
-       and the SRI digest are unchanged by this move. */ -}}
 {{- $mermaidPath := "js/vendor/mermaid-11.16.1.min.js" -}}
 {{- with resources.Get $mermaidPath -}}
   {{- $mermaid := . | fingerprint -}}
@@ -53,7 +5,4 @@
 {{- else -}}
   {{- errorf "scripts/mermaid.html: assets/%s is missing. It is committed to this repository; see the provenance comment in this file." $mermaidPath -}}
 {{- end -}}
-{{- /* Theme-aware initialisation; must run after the library, which it does
-       because both are deferred and deferred scripts execute in document
-       order. */ -}}
 <script defer src="/js/mermaid-init.js"></script>

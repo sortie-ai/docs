@@ -1,0 +1,39 @@
+name: star-count
+
+on:
+  schedule:
+    - cron: '37 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: star-count
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Fetch the star count
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/update-star-count.sh
+
+      # No commit when the number has not moved: an unchanged file would
+      # otherwise redeploy the whole site every week for nothing.
+      - name: Commit if the count changed
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add data/github.yaml
+          if git diff --staged --quiet; then
+            echo 'star count unchanged - nothing to commit'
+          else
+            git commit -m "chore: refresh the GitHub star count"
+            git push
+          fi

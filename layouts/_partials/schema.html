@@ -1,80 +1,9 @@
-{{- /* Structured data for the documentation host.
-
-       READ THIS BEFORE CHANGING AN @id.
-
-       An Organization and a SoftwareApplication are *global* identifiers, not
-       per-site URLs. Sortie publishes from two hosts — sortie-ai.com and this
-       one — and both describe the same company and the same program. Two @id
-       values for one entity is exactly how a graph consumer concludes there
-       are two companies and two products with the same name, which is what
-       this site shipped until now: it minted #organization and #software from
-       its own baseURL.
-
-       So the two identifiers below are hard-coded to the apex forms and must
-       stay byte-identical to the ones emitted by the landing page's
-       layouts/_partials/schema.html. Do NOT "improve" them by deriving them
-       from site.BaseURL the way the landing page does — that construction is
-       only correct there because there site.BaseURL *is* the apex. Copying it
-       here is the bug.
-
-       A WebSite is genuinely per-host: these are two websites. Its @id
-       therefore stays derived from site.BaseURL, but its publisher points at
-       the apex Organization.
-
-       inLanguage comes from site.Language.Locale, which is the supported way to
-       read it on Hugo 0.159.2. The two older spellings — .Language.LanguageCode
-       and .Site.LanguageCode — were deprecated in Hugo 0.158.0 and still log a
-       deprecation notice at INFO today; they will be removed. Measured on this
-       site, with hugo.toml's root-level locale = "en-US":
-
-           site.Language.Locale        -> "en-US"   <- used here
-           site.Language.LanguageCode  -> "en-US"   (deprecated)
-           site.LanguageCode           -> "en-US"   (deprecated)
-           site.Language.Lang          -> "en"      (the content language, not
-                                                     the locale — wrong value)
-
-       It was briefly hard-coded to the literal "en-US" out of caution, on the
-       theory that the value has to agree with the apex's and so should not be
-       allowed to drift. That was the wrong instinct: unlike the @id values, an
-       inLanguage that disagreed would be a *correct* statement about a site
-       that had genuinely changed language, whereas a stale literal would be a
-       false one. Deriving it also keeps this file honest if hugo.toml's locale
-       is ever edited. Note that site.Language.Lang would NOT do — it resolves
-       to the bare "en" this file used to emit, which is what the audit
-       flagged. */ -}}
 {{- $siteURL := site.BaseURL -}}
 {{- $apexURL := "https://sortie-ai.com/" -}}
 {{- $orgID := "https://sortie-ai.com/#organization" -}}
 {{- $appID := "https://sortie-ai.com/#software" -}}
 {{- $webID := printf "%s#website" $siteURL -}}
 {{- $inLanguage := site.Language.Locale -}}
-{{- /* The apex, not this host — for the same reason "url" above is the apex.
-
-       The previous value, "%simg/apple-touch-icon.png" off site.BaseURL,
-       resolved to https://docs.sortie-ai.com/img/apple-touch-icon.png, which
-       has never existed: static/img/ holds logo-dark.png, logo-light.png,
-       og-image.jpg and screenshots, and no touch icon. Every page on this host
-       therefore shipped an Organization.logo pointing at a 404. Crawlers do
-       follow it — the only requests for that path in the measurement window
-       were graded verified_bot — and unlike a favicon probe, nothing falls
-       back for them.
-
-       Deriving the corrected path from site.BaseURL would have swapped one
-       defect for a subtler one. This node's @id is the apex form, so it merges
-       with the node the landing page emits; a consumer that merged
-       docs.sortie-ai.com/android-chrome-512x512.png with the landing page's
-       sortie-ai.com/android-chrome-512x512.png would see one Organization
-       claiming two logos, even though both URLs resolve and both render the
-       same mark. Pinning to $apexURL makes the two hosts emit the identical
-       string.
-
-       512x512 rather than the 180px touch icon: this is a logo for a
-       knowledge-graph consumer, not a home-screen tile, it is the largest
-       square raster the icon pipeline emits, and it is the file the landing
-       page's Organization node already names.
-
-       The width and height on the ImageObject below are part of this choice
-       and must keep matching the asset named here. */ -}}
 {{- $orgLogo := printf "%sandroid-chrome-512x512.png" $apexURL -}}
 {{- $ogImage := .Params.image | default (printf "%simg/og-image.jpg" $siteURL) -}}
 {{- $title := .Params.title | default .Title -}}
@@ -88,45 +17,10 @@
 {{- if not .Lastmod.IsZero -}}
   {{- $modifiedISO = .Lastmod.Format "2006-01-02" -}}
 {{- end -}}
-{{- /* url is the apex, not this host. An Organization's url is the URL of the
-       organisation itself, and Sortie AI as an organisation lives at
-       sortie-ai.com; this documentation site is one of the things it publishes.
-       Emitting url: https://docs.sortie-ai.com/ under an @id that the apex also
-       claims would put two different url values on one merged node, which is
-       the sort of contradiction that makes a consumer pick one arbitrarily. The
-       relationship between the two hosts is already stated, in the properties
-       meant for it: sameAs below, and WebSite.publisher on the home page, which
-       points this host's WebSite node at the Organization's @id. Nothing is
-       lost by dropping this host from url.
-
-       sameAs is what states, in the machine-readable direction, that this host
-       and the apex are one organisation. The apex declares the mirror image of
-       this list; neither side is complete on its own. */ -}}
 {{- $orgNode := dict "@type" "Organization" "@id" $orgID "name" "Sortie AI" "url" $apexURL "logo" (dict "@type" "ImageObject" "url" $orgLogo "width" 512 "height" 512) "sameAs" (slice $apexURL "https://github.com/sortie-ai") -}}
 {{ if .IsHome -}}
 {{- $websiteName := printf "%s Documentation" site.Title -}}
 {{- $websiteNode := dict "@type" "WebSite" "@id" $webID "url" $siteURL "name" $websiteName "description" site.Params.description "publisher" (dict "@id" $orgID) "inLanguage" $inLanguage "potentialAction" (dict "@type" "SearchAction" "target" (dict "@type" "EntryPoint" "urlTemplate" (printf "%s?q={search_term_string}" $siteURL)) "query-input" "required name=search_term_string") -}}
-{{- /* No "url" key here on purpose. It used to point at the GitHub repository,
-       which directly contradicted the apex node carrying this same @id, whose
-       url is the apex itself. The repository is a sameAs — the same statement
-       the apex makes — not the canonical URL of the software.
-
-       offers.price is the string "0", not the number 0, so that the two hosts
-       serialise this node identically; Google's own SoftwareApplication
-       examples use a string.
-
-       description is pinned to the apex's literal for the same reason "@id",
-       "url" and "logo" are pinned, and it is NOT $desc. This node's @id is the
-       apex form, so it merges with the node the landing page emits; $desc is
-       this *page's* description, which since the home page was rewritten reads
-       "Documentation for Sortie: quick start, ...". Deriving it would make the
-       merged graph carry one SoftwareApplication whose description says the
-       program is a documentation site — a statement of the wrong kind about
-       the wrong entity. The string below must stay byte-identical to the one
-       in the landing page's layouts/_partials/schema.html. Do NOT "simplify"
-       it back to $desc: $desc is correct for WebPage and TechArticle below,
-       and wrong here, precisely because those @ids are per-page and this one
-       is not. */ -}}
 {{- $appDesc := "Open-source coding agent orchestrator that turns issue tracker tickets into autonomous agent sessions." -}}
 {{- $softwareNode := dict "@type" "SoftwareApplication" "@id" $appID "name" site.Title "description" $appDesc "applicationCategory" "DeveloperApplication" "operatingSystem" "macOS, Linux, Windows" "sameAs" (slice "https://github.com/sortie-ai/sortie") "author" (dict "@id" $orgID) "offers" (dict "@type" "Offer" "price" "0" "priceCurrency" "USD") "softwareHelp" (dict "@type" "CreativeWork" "url" $siteURL) -}}
 {{- $homeSchema := dict "@context" "https://schema.org" "@graph" (slice $orgNode $websiteNode $softwareNode) -}}

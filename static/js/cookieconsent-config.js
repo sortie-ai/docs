@@ -29,38 +29,6 @@ CookieConsent.run({
       readOnly: true,
     },
     analytics: {
-      // The `domain` field is load-bearing. Without it this block did nothing.
-      //
-      // GA4 writes _ga and _ga_58VR448EJK on the registrable domain
-      // .sortie-ai.com, because gtag's cookie_domain defaults to "auto".
-      // This library erases against cookie.domain, and run() hard-sets that to
-      // location.hostname — "docs.sortie-ai.com". The two strings differ, so
-      // the erase missed silently. Measured on the live site before the fix:
-      // after "Accept all" → reload → "Reject all", both _ga and
-      // _ga_58VR448EJK were still present with 182-day expiries. With the
-      // domain added, both are gone in the same state.
-      //
-      // Use the per-cookie `domain` here, NOT the top-level cookie.domain
-      // option — cookie.domain is also the domain cc_cookie itself is written
-      // on. Setting it to .sortie-ai.com was measured and it corrupts consent
-      // for returning visitors: their existing .docs.sortie-ai.com cc_cookie
-      // stays readable, the library writes a *second* record on
-      // .sortie-ai.com, and document.cookie then carries two cc_cookie
-      // entries. RFC 6265 §5.4 lists the older one first and the library's
-      // read regex takes the first match, so a returning visitor's withdrawal
-      // of consent silently reverted on the next page load and GA4 resumed
-      // writing. The banner never reappeared — the failure is invisible.
-      // This form leaves cc_cookie exactly where it is, so no existing
-      // visitor is touched at all.
-      //
-      // /^_ga/ covers _ga and _ga_58VR448EJK both. The former { name: "_gid" }
-      // entry is dropped: _gid is a Universal Analytics cookie, GA4 does not
-      // set it, and it was never observed in any measured state.
-      //
-      // One asymmetry to know about: when `domain` is given the library erases
-      // only that domain and skips the host-only variant. That is correct
-      // while analytics.js leaves cookie_domain at "auto". If it is ever
-      // pinned to "none", add a second entry with no domain field.
       autoClear: {
         cookies: [{ name: /^_ga/, domain: ".sortie-ai.com" }],
       },
@@ -74,7 +42,7 @@ CookieConsent.run({
         consentModal: {
           title: "Cookie consent",
           description:
-            "We use cookies to recognize your repeated visits and preferences, as well as to measure the effectiveness of our documentation and whether users find what they're searching for. With your consent, you're helping us make our documentation better.",
+            'Sortie AI, LLC uses Google Analytics to see how the documentation is used — but only if you accept. <strong>Your choice here covers both sortie-ai.com and docs.sortie-ai.com.</strong> The data is pseudonymous rather than anonymous, and is sent to Google in the United States. You can change or withdraw your choice at any time, and declining changes nothing about how the documentation works. See our <a href="https://sortie-ai.com/privacy/" target="_blank" rel="noopener">privacy policy</a> and <a href="https://sortie-ai.com/cookies/" target="_blank" rel="noopener">cookie policy</a>.',
           acceptAllBtn: "Accept all",
           acceptNecessaryBtn: "Reject all",
           showPreferencesBtn: "Manage preferences",
@@ -122,7 +90,7 @@ CookieConsent.run({
             {
               title: "Analytics",
               description:
-                "Analytics cookies help us understand how visitors interact with our documentation. All data is anonymized.",
+                "Analytics cookies help us understand how visitors interact with our documentation. The data is pseudonymous, not anonymous: it is tied to a random identifier stored in your browser, and Google receives your IP address. Declining stops the cookie and the measurement, but your browser still contacts Google to load the analytics script.",
               linkedCategory: "analytics",
               cookieTable: {
                 headers: {
@@ -131,20 +99,6 @@ CookieConsent.run({
                   description: "Description",
                   expiration: "Expiration",
                 },
-                // This table is a disclosure to the visitor, so it lists the
-                // cookies GA4 actually sets here — verified by loading the
-                // live site and accepting: _ga and _ga_58VR448EJK, both on
-                // .sortie-ai.com, both measured at 182 days.
-                //
-                // It previously listed _gid, which GA4 never sets (it is a
-                // Universal Analytics cookie), and omitted _ga_58VR448EJK,
-                // which it does. Expiration is 6 months rather than the GA4
-                // default of 2 years because analytics.js passes
-                // cookie_expires: 182 * 24 * 60 * 60.
-                //
-                // The measurement-id suffix is not a placeholder: GA4 names
-                // this cookie _ga_<container-id>, so it changes if
-                // MEASUREMENT_ID in analytics.js ever changes.
                 body: [
                   {
                     name: "_ga",
@@ -164,14 +118,22 @@ CookieConsent.run({
             {
               title: "More information",
               description:
-                'For any questions about our cookie policy, please <a href="https://github.com/sortie-ai/sortie/issues/new" target="_blank" rel="noopener">open an issue</a> on GitHub.',
+                'Full detail is in our <a href="https://sortie-ai.com/cookies/" target="_blank" rel="noopener">cookie policy</a> and <a href="https://sortie-ai.com/privacy/" target="_blank" rel="noopener">privacy policy</a>. Privacy requests go to <a href="mailto:privacy@sortie-ai.com">privacy@sortie-ai.com</a>. Google explains what it does with data from sites that use its services in <a href="https://www.google.com/policies/privacy/partners/" target="_blank" rel="noopener">How Google uses information from sites or apps that use our services</a>.',
             },
           ],
         },
       },
     },
   },
-});
+}).then(revealPreferencesControls);
+
+function revealPreferencesControls() {
+  document
+    .querySelectorAll('[data-cc="show-preferencesModal"][aria-haspopup="dialog"]')
+    .forEach((el) => {
+      el.hidden = false;
+    });
+}
 
 function updateGtagConsent() {
   gtag("consent", "update", {

@@ -1,38 +1,3 @@
-{{- /*
-  Version-aware announcement banner.
-
-  Configuration (hugo.toml):
-    # Disable entirely:
-    [params]
-    banner = false
-
-    # Enable with a custom message:
-    [params.banner]
-    message = "Custom announcement text here."
-
-    # Enable with default message (no config needed — omitting params.banner
-    # also enables the banner with the default text):
-    # (nothing required)
-
-  Behaviour:
-  - At build time, Hugo extracts the latest release version from the changelog
-    page (first `[x.y.z]` heading in the raw Markdown) and embeds it as the
-    `data-version` attribute.  The element starts as [hidden].
-  - version-banner.js (deferred) compares `data-version` against the
-    `sortie_version_seen` cookie and reveals the banner only when a newer
-    release has shipped.  The cookie is written when the user closes the banner
-    or clicks the "what's new" link, suppressing the banner on subsequent visits
-    for the same version.
-  - GA4 events are fired on impression, link click, and dismissal.
-
-  Hextra integration:
-  - We override assets/js/head/banner.js and assets/js/core/banner.js so that
-    Hextra's localStorage-based close mechanism does not interfere with our
-    per-version cookie logic.
-  - The class `hextra-banner` is retained so that Hextra's prose CSS rules
-    (link underline, paragraph line-height) apply inside the banner.
-*/ -}}
-
 {{- /* Respect params.banner = false as an explicit opt-out. */ -}}
 {{- $bannerCfg := site.Params.banner -}}
 {{- $bannerDisabled := eq $bannerCfg false -}}

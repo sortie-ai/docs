@@ -1,17 +1,3 @@
-{{/*
-  Override of Hextra's components/page-context-menu.html.
-
-  Upstream renders this menu only inside `with .OutputFormats.Get "markdown"`,
-  i.e. only when the page publishes a static /page/index.md mirror. We removed
-  those mirrors for SEO, so this fork drops that gate and points every action at
-  the canonical page URL. The Markdown rendering is produced on demand by
-  Cloudflare content negotiation (Accept: text/markdown); the matching override
-  in assets/js/core/page-context-menu.js sends that header when copying.
-
-  The upstream "View as Markdown" item is intentionally omitted: it opens the URL
-  via browser navigation, which always sends Accept: text/html and therefore
-  cannot negotiate Markdown. Restore a static .md output format if it is needed.
-*/}}
 {{- $enableGlobal := site.Params.page.contextMenu.enable | default false -}}
 {{- $enablePage := .Params.contextMenu -}}
 {{- $enable := cond (ne $enablePage nil) $enablePage $enableGlobal -}}
@@ -70,10 +56,6 @@
           <a
             href="{{ $linkURL }}"
             target="_blank"
-            {{/* noopener alone; upstream adds noreferrer. Suppressing the
-                 referrer here protects nothing: the page URL these links are
-                 about is already spelled out in their own query string. See
-                 _partials/navbar-link.html for the rest of the reasoning. */}}
             rel="noopener"
             role="menuitem"
             class="hx:flex hx:w-full hx:cursor-pointer hx:select-none hx:items-center hx:gap-2 hx:whitespace-nowrap hx:rounded-sm hx:px-2 hx:py-1.5 hx:text-sm hx:text-gray-700 hx:outline-none hx:transition-colors hx:hover:bg-gray-100 hx:hover:text-gray-900 hx:dark:text-gray-300 hx:dark:hover:bg-neutral-800 hx:dark:hover:text-gray-100"

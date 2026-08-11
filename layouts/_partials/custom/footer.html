@@ -1,31 +1,10 @@
-{{- /* Override of Hextra's empty _partials/custom/footer.html, rendered by
-       _partials/footer.html inside .hextra-custom-footer (which already
-       supplies the max width and the horizontal safe-area padding).
-
-       Its whole job is the anchor below. Until this file existed the footer
-       rendered no anchors at all, and this site — 83 pages, the only Sortie
-       property Google has indexed — linked to sortie-ai.com zero times, while
-       the landing page linked here 49 times. The apex therefore had no inbound
-       links from anything Sortie controls, which is not a thing any amount of
-       on-page work on the apex can compensate for.
-
-       The anchor text names the product and what it does on purpose. "Home",
-       "Website" or "Here" would pass the same link with none of the meaning;
-       anchor text is one of the few signals a link carries about its target,
-       and this link is repeated on every page of the site.
-
-       Disabled 2026-08-11: the anchor is commented out, not deleted, because
-       the footer read as sparse with it. The copyright block is rendered
-       separately by _partials/footer.html and is unaffected. While the anchor
-       is off, every page still links to the apex twice from the navbar and the
-       mobile menu, but with the anchor text "Sortie Home" and target=_blank
-       rel=noreferrer. Uncomment the markup below to restore it. */ -}}
-{{/*
-<div class="hx:mx-auto hx:flex hx:w-full hx:flex-col hx:items-center hx:pt-10 hx:text-sm hx:sm:items-start">
-  <a
-    class="hx:text-current hx:underline hx:underline-offset-2 hx:decoration-from-font hx:hover:text-gray-800 hx:dark:hover:text-gray-200"
-    href="https://sortie-ai.com/"
-    >Sortie — autonomous coding agent orchestrator</a
+<div class="hx:mx-auto hx:flex hx:w-full hx:flex-col hx:items-center hx:pt-6 hx:text-sm hx:sm:items-start">
+  <button
+    type="button"
+    data-cc="show-preferencesModal"
+    hidden
+    class="hx:cursor-pointer hx:text-current hx:underline hx:underline-offset-2 hx:decoration-from-font hx:hover:text-gray-800 hx:dark:hover:text-gray-200"
   >
+    Manage cookies
+  </button>
 </div>
-*/}}
