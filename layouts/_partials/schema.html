@@ -48,7 +48,34 @@
 {{- $appID := "https://sortie-ai.com/#software" -}}
 {{- $webID := printf "%s#website" $siteURL -}}
 {{- $inLanguage := site.Language.Locale -}}
-{{- $orgLogo := printf "%simg/apple-touch-icon.png" $siteURL -}}
+{{- /* The apex, not this host — for the same reason "url" above is the apex.
+
+       The previous value, "%simg/apple-touch-icon.png" off site.BaseURL,
+       resolved to https://docs.sortie-ai.com/img/apple-touch-icon.png, which
+       has never existed: static/img/ holds logo-dark.png, logo-light.png,
+       og-image.jpg and screenshots, and no touch icon. Every page on this host
+       therefore shipped an Organization.logo pointing at a 404. Crawlers do
+       follow it — the only requests for that path in the measurement window
+       were graded verified_bot — and unlike a favicon probe, nothing falls
+       back for them.
+
+       Deriving the corrected path from site.BaseURL would have swapped one
+       defect for a subtler one. This node's @id is the apex form, so it merges
+       with the node the landing page emits; a consumer that merged
+       docs.sortie-ai.com/android-chrome-512x512.png with the landing page's
+       sortie-ai.com/android-chrome-512x512.png would see one Organization
+       claiming two logos, even though both URLs resolve and both render the
+       same mark. Pinning to $apexURL makes the two hosts emit the identical
+       string.
+
+       512x512 rather than the 180px touch icon: this is a logo for a
+       knowledge-graph consumer, not a home-screen tile, it is the largest
+       square raster the icon pipeline emits, and it is the file the landing
+       page's Organization node already names.
+
+       The width and height on the ImageObject below are part of this choice
+       and must keep matching the asset named here. */ -}}
+{{- $orgLogo := printf "%sandroid-chrome-512x512.png" $apexURL -}}
 {{- $ogImage := .Params.image | default (printf "%simg/og-image.jpg" $siteURL) -}}
 {{- $title := .Params.title | default .Title -}}
 {{- $desc := .Params.description | default .Description -}}
@@ -75,7 +102,7 @@
        sameAs is what states, in the machine-readable direction, that this host
        and the apex are one organisation. The apex declares the mirror image of
        this list; neither side is complete on its own. */ -}}
-{{- $orgNode := dict "@type" "Organization" "@id" $orgID "name" "Sortie AI" "url" $apexURL "logo" (dict "@type" "ImageObject" "url" $orgLogo "width" 180 "height" 180) "sameAs" (slice $apexURL "https://github.com/sortie-ai") -}}
+{{- $orgNode := dict "@type" "Organization" "@id" $orgID "name" "Sortie AI" "url" $apexURL "logo" (dict "@type" "ImageObject" "url" $orgLogo "width" 512 "height" 512) "sameAs" (slice $apexURL "https://github.com/sortie-ai") -}}
 {{ if .IsHome -}}
 {{- $websiteName := printf "%s Documentation" site.Title -}}
 {{- $websiteNode := dict "@type" "WebSite" "@id" $webID "url" $siteURL "name" $websiteName "description" site.Params.description "publisher" (dict "@id" $orgID) "inLanguage" $inLanguage "potentialAction" (dict "@type" "SearchAction" "target" (dict "@type" "EntryPoint" "urlTemplate" (printf "%s?q={search_term_string}" $siteURL)) "query-input" "required name=search_term_string") -}}

@@ -1,5 +1,30 @@
 <!doctype html>
 <html lang="{{ .Site.Language.Lang | default "en" }}" dir="{{ .Site.Language.Direction | default "ltr" }}">
+  {{- /* This page had no <head> at all — it went straight from <html> to
+         <body> — which is why it is worth one here.
+
+         Apple's Safari Web Content Guide documents root-directory icon probing
+         as what happens "if no icons are specified using a link element". This
+         page is the one page on the host that specified none, and Cloudflare
+         serves it for every unmatched path (wrangler.toml sets
+         not_found_handling = "404-page"). The probe shows up in the edge logs
+         as requests for /apple-touch-icon-precomposed.png and friends. The
+         favicons partial ends it.
+
+         robots is not redundant with the 404 status. Cloudflare rewrites
+         /404.html to /404 with a 307, and /404 answers 200 with no
+         X-Robots-Tag — verified against production — so this page is reachable
+         and indexable at a stable URL that no status code protects.
+
+         The <title> is new too: a page with none makes the browser tab and the
+         screen-reader announcement fall back to the raw URL. */ -}}
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>404 | {{ .Site.Title }}</title>
+    {{ partialCached "favicons.html" . }}
+  </head>
   <body
     style='font-family:system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif,"Apple Color Emoji","Segoe UI Emoji"; height:100vh; text-align:center; display:flex; flex-direction:column; align-items:center; justify-content:center'
   >
