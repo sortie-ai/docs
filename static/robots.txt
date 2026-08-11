@@ -1,5 +1,54 @@
+# AI crawlers are allowed on purpose. This is the property that carries the
+# citable content; blocking the crawlers that feed answer engines would remove
+# it from exactly the surfaces its audience uses. Measured over the week to
+# 2026-08-11, AI bots outnumbered classic search-engine crawlers on this host
+# by roughly 1.6 to 1.
+#
+# HAZARD, per RFC 9309 section 2.2.1: a crawler obeys exactly one group -- the
+# most specific one matching its product token -- and ignores the `*` group
+# entirely. Every named group below shadows `User-agent: *` for that crawler.
+# If you ever add a `Disallow` to the `*` group, you MUST add it to all named
+# groups too, or those crawlers will keep fetching the path you just closed.
+#
+# The named groups change nothing functionally: an unlisted crawler is already
+# allowed by default. They exist to state the intent explicitly.
+#
+# A previous `Disallow: /search/` was removed. It guarded nothing -- that path
+# returns 404, the search is client-side FlexSearch, and the path appears in no
+# sitemap -- and under the shadowing rule above it would have applied to the
+# `*` group only, which is worse than not having it at all.
 User-agent: *
 Allow: /
-Disallow: /search/
+Content-Signal: search=yes, ai-input=yes, ai-train=yes
+
+# OpenAI
+User-agent: GPTBot
+Allow: /
+User-agent: OAI-SearchBot
+Allow: /
+User-agent: ChatGPT-User
+Allow: /
+
+# Anthropic
+User-agent: ClaudeBot
+Allow: /
+User-agent: Claude-SearchBot
+Allow: /
+User-agent: Claude-User
+Allow: /
+
+# Perplexity
+User-agent: PerplexityBot
+Allow: /
+User-agent: Perplexity-User
+Allow: /
+
+# Common Crawl
+User-agent: CCBot
+Allow: /
+
+# Google's generative-AI opt-in, separate from Googlebot
+User-agent: Google-Extended
+Allow: /
 
 Sitemap: https://docs.sortie-ai.com/sitemap.xml
