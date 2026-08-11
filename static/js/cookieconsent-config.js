@@ -29,8 +29,40 @@ CookieConsent.run({
       readOnly: true,
     },
     analytics: {
+      // The `domain` field is load-bearing. Without it this block did nothing.
+      //
+      // GA4 writes _ga and _ga_58VR448EJK on the registrable domain
+      // .sortie-ai.com, because gtag's cookie_domain defaults to "auto".
+      // This library erases against cookie.domain, and run() hard-sets that to
+      // location.hostname — "docs.sortie-ai.com". The two strings differ, so
+      // the erase missed silently. Measured on the live site before the fix:
+      // after "Accept all" → reload → "Reject all", both _ga and
+      // _ga_58VR448EJK were still present with 182-day expiries. With the
+      // domain added, both are gone in the same state.
+      //
+      // Use the per-cookie `domain` here, NOT the top-level cookie.domain
+      // option — cookie.domain is also the domain cc_cookie itself is written
+      // on. Setting it to .sortie-ai.com was measured and it corrupts consent
+      // for returning visitors: their existing .docs.sortie-ai.com cc_cookie
+      // stays readable, the library writes a *second* record on
+      // .sortie-ai.com, and document.cookie then carries two cc_cookie
+      // entries. RFC 6265 §5.4 lists the older one first and the library's
+      // read regex takes the first match, so a returning visitor's withdrawal
+      // of consent silently reverted on the next page load and GA4 resumed
+      // writing. The banner never reappeared — the failure is invisible.
+      // This form leaves cc_cookie exactly where it is, so no existing
+      // visitor is touched at all.
+      //
+      // /^_ga/ covers _ga and _ga_58VR448EJK both. The former { name: "_gid" }
+      // entry is dropped: _gid is a Universal Analytics cookie, GA4 does not
+      // set it, and it was never observed in any measured state.
+      //
+      // One asymmetry to know about: when `domain` is given the library erases
+      // only that domain and skips the host-only variant. That is correct
+      // while analytics.js leaves cookie_domain at "auto". If it is ever
+      // pinned to "none", add a second entry with no domain field.
       autoClear: {
-        cookies: [{ name: /^_ga/ }, { name: "_gid" }],
+        cookies: [{ name: /^_ga/, domain: ".sortie-ai.com" }],
       },
     },
   },
@@ -99,18 +131,32 @@ CookieConsent.run({
                   description: "Description",
                   expiration: "Expiration",
                 },
+                // This table is a disclosure to the visitor, so it lists the
+                // cookies GA4 actually sets here — verified by loading the
+                // live site and accepting: _ga and _ga_58VR448EJK, both on
+                // .sortie-ai.com, both measured at 182 days.
+                //
+                // It previously listed _gid, which GA4 never sets (it is a
+                // Universal Analytics cookie), and omitted _ga_58VR448EJK,
+                // which it does. Expiration is 6 months rather than the GA4
+                // default of 2 years because analytics.js passes
+                // cookie_expires: 182 * 24 * 60 * 60.
+                //
+                // The measurement-id suffix is not a placeholder: GA4 names
+                // this cookie _ga_<container-id>, so it changes if
+                // MEASUREMENT_ID in analytics.js ever changes.
                 body: [
                   {
                     name: "_ga",
                     domain: "Google Analytics",
                     description: "Used to distinguish users.",
-                    expiration: "2 years",
+                    expiration: "6 months",
                   },
                   {
-                    name: "_gid",
+                    name: "_ga_58VR448EJK",
                     domain: "Google Analytics",
-                    description: "Used to distinguish users.",
-                    expiration: "24 hours",
+                    description: "Used to persist session state.",
+                    expiration: "6 months",
                   },
                 ],
               },
