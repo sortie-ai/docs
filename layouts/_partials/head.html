@@ -10,7 +10,7 @@
   {{ partialCached "favicons.html" . -}}
   <title>
     {{- if .IsHome -}}
-      {{ .Site.Title }} | Autonomous Coding Agent Orchestrator
+      {{ .Title -}}
     {{- else -}}
       {{ with .Title }}{{ . }} | {{ end -}}
       {{ .Site.Title -}}

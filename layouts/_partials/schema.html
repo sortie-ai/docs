@@ -113,8 +113,22 @@
 
        offers.price is the string "0", not the number 0, so that the two hosts
        serialise this node identically; Google's own SoftwareApplication
-       examples use a string. */ -}}
-{{- $softwareNode := dict "@type" "SoftwareApplication" "@id" $appID "name" site.Title "description" $desc "applicationCategory" "DeveloperApplication" "operatingSystem" "macOS, Linux, Windows" "sameAs" (slice "https://github.com/sortie-ai/sortie") "author" (dict "@id" $orgID) "offers" (dict "@type" "Offer" "price" "0" "priceCurrency" "USD") "softwareHelp" (dict "@type" "CreativeWork" "url" $siteURL) -}}
+       examples use a string.
+
+       description is pinned to the apex's literal for the same reason "@id",
+       "url" and "logo" are pinned, and it is NOT $desc. This node's @id is the
+       apex form, so it merges with the node the landing page emits; $desc is
+       this *page's* description, which since the home page was rewritten reads
+       "Documentation for Sortie: quick start, ...". Deriving it would make the
+       merged graph carry one SoftwareApplication whose description says the
+       program is a documentation site — a statement of the wrong kind about
+       the wrong entity. The string below must stay byte-identical to the one
+       in the landing page's layouts/_partials/schema.html. Do NOT "simplify"
+       it back to $desc: $desc is correct for WebPage and TechArticle below,
+       and wrong here, precisely because those @ids are per-page and this one
+       is not. */ -}}
+{{- $appDesc := "Open-source coding agent orchestrator that turns issue tracker tickets into autonomous agent sessions." -}}
+{{- $softwareNode := dict "@type" "SoftwareApplication" "@id" $appID "name" site.Title "description" $appDesc "applicationCategory" "DeveloperApplication" "operatingSystem" "macOS, Linux, Windows" "sameAs" (slice "https://github.com/sortie-ai/sortie") "author" (dict "@id" $orgID) "offers" (dict "@type" "Offer" "price" "0" "priceCurrency" "USD") "softwareHelp" (dict "@type" "CreativeWork" "url" $siteURL) -}}
 {{- $homeSchema := dict "@context" "https://schema.org" "@graph" (slice $orgNode $websiteNode $softwareNode) -}}
 <script type="application/ld+json">
   {{ $homeSchema | jsonify (dict "indent" "  ") | safeJS }}
