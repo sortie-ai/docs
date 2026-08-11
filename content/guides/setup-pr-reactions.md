@@ -1,5 +1,5 @@
 ---
-title: "How to Set Up PR Reactions | Sortie"
+title: "How to Set Up PR Reactions"
 linkTitle: "Set Up PR Reactions"
 description: "Set up Sortie's PR reaction framework: enable the reactions block, share PR metadata via .sortie/scm.json, configure auto-merge safely, and verify the loop."
 author: Sortie AI

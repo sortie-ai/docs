@@ -1,5 +1,5 @@
 ---
-title: "How to Configure PR Review Feedback | Sortie"
+title: "How to Configure PR Review Feedback"
 linkTitle: "Configure Review Feedback"
 description: "Configure PR review feedback in Sortie: detect Request changes comments, route them to the agent, tune debounce and retries, and set escalation."
 author: Sortie AI

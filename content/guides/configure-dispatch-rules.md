@@ -1,5 +1,5 @@
 ---
-title: "How to Configure Dispatch Rules | Sortie"
+title: "How to Configure Dispatch Rules"
 linkTitle: "Configure Dispatch Rules"
 description: "Route issues to different agents and prompt templates by label, type, priority, identifier, or assignee using first-match-wins dispatch rules in WORKFLOW.md."
 author: Sortie AI
