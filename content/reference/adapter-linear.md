@@ -26,7 +26,8 @@ The adapter reads its configuration from the `tracker` section of the [WORKFLOW.
 | `terminal_states` | list of strings | No | `["Done", "Canceled", "Duplicate"]` | Workflow-state names that trigger workspace cleanup. |
 | `handoff_state` | string | No | _(absent)_ | Workflow-state name set after a successful agent run. Must appear in neither `active_states` nor `terminal_states`. Absent disables handoff. |
 | `query_filter` | string | No | `""` | Raw Linear `IssueFilter` JSON fragment, ANDed with the team and state constraints. See [query filter](#query-filter). |
-| `user_agent` | string | No | `"sortie/dev"` | `User-Agent` header sent on all requests. |
+
+`user_agent` is not a Linear adapter config key an operator can set. Sortie sets the tracker role's value to its own version string, and `linear` fills no SCM or CI role, so a value supplied in a top-level `linear:` block is ignored.
 
 The adapter does not define an `in_progress_state` key. Dispatch-time transitions are a Jira and GitHub feature; the Linear config validation has no `in_progress_state` arm.
 
@@ -71,7 +72,7 @@ Fixed headers on every request:
 |---|---|
 | `Authorization` | The `api_key` value, verbatim. |
 | `Content-Type` | `application/json` |
-| `User-Agent` | Configured `user_agent` value. |
+| `User-Agent` | `sortie/<version>`, set by Sortie. |
 
 The HTTP client has a 30-second per-request timeout. Context cancellation propagates; a cancelled context aborts the in-flight request.
 
@@ -290,7 +291,7 @@ The adapter registers itself under kind `"linear"` via an `init` function in `in
 | `RequiresAPIKey` | `true` |
 | `ValidateTrackerConfig` | Offline config diagnostics for `sortie validate`. |
 
-The orchestrator's preflight validation uses `RequiresProject` and `RequiresAPIKey` to produce specific error messages before adapter construction. `ValidateTrackerConfig` runs the Linear-specific offline checks (team-key format, `SORTIE_LINEAR_API_KEY` hint, empty or whitespace state names, state overlap, and `handoff_state` collisions) without making network calls.
+The orchestrator's preflight validation uses `RequiresProject` and `RequiresAPIKey` to produce specific error messages before adapter construction. `ValidateTrackerConfig` runs the Linear-specific offline checks without making network calls: team-key format, the `SORTIE_LINEAR_API_KEY` hint, a key carrying surrounding whitespace or lacking the `lin_api_` prefix, empty or padded state names, and active-terminal state overlap. An empty or padded state name is an error here, not a warning as on the sibling forge adapters, because the adapter matches a configured name against the team's workflow states exactly. State collisions involving `handoff_state` or `in_progress_state` are rejected by the generic configuration layer before adapter validation runs, for every `tracker.kind`.
 
 ---
 

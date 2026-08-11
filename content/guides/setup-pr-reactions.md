@@ -7,14 +7,14 @@ date: 2026-05-27
 weight: 145
 url: /guides/setup-pr-reactions/
 ---
-Reactions are feedback loops that act on a Sortie-created pull request after the agent's first run hands off for human review. Each reaction kind watches one signal on the PR and responds: a CI failure or a "Request changes" review dispatches a fix continuation turn, and an approved, mergeable, green PR can be merged automatically. This guide sets up the shared machinery every reaction needs (the `reactions` block, PR metadata, and a GitHub token), then walks through `auto_merge` in full, since it's the one kind that performs an irreversible action. For the two fix-dispatch kinds, it points you to their dedicated guides.
+Reactions are feedback loops that act on a Sortie-created pull request after the agent's first run hands off for human review. Each reaction kind watches one signal on the PR and responds: a CI failure or a "Request changes" review dispatches a fix continuation turn, and an approved, mergeable, green PR can be merged automatically. This guide sets up the shared machinery every reaction needs (the `reactions` block, PR metadata, and a forge token), then walks through `auto_merge` in full, since it's the one kind that performs an irreversible action. For the two fix-dispatch kinds, it points you to their dedicated guides.
 
 ## Prerequisites
 
-- Sortie running with the GitHub tracker adapter (`tracker.kind: github`) or a GitHub-compatible SCM provider, see [Connect to GitHub](/guides/connect-to-github/)
+- Sortie running with the GitHub, Gitea, or GitLab tracker adapter, or a registered SCM provider of one of those kinds, see [Connect to GitHub](/guides/connect-to-github/), [Connect to Gitea](/guides/connect-to-gitea/), or [Connect to GitLab](/guides/connect-to-gitlab/)
 - A `handoff_state` configured on the tracker, so issues wait in a human-review state after the first run instead of going straight to terminal
 - An agent or `after_run` hook that opens a PR and writes PR coordinates to `.sortie/scm.json`, see [Setup workspace hooks](/guides/setup-workspace-hooks/)
-- A GitHub personal access token with `repo` scope (auto-merge needs more, covered below)
+- A token the SCM adapter can write with: `repo` on GitHub, `write:repository` on Gitea, or `api` on GitLab (auto-merge needs more on a fine-grained GitHub token, covered below)
 
 ## Choose which reactions to enable
 
@@ -134,7 +134,7 @@ Auto-merge merges only when all of these hold at the same time. While any one is
 
 - **Ownership.** The PR is Sortie-created, identified by `.sortie/scm.json`.
 - **Not a draft.** Draft PRs are never merged.
-- **Mergeable.** GitHub reports the PR as `clean` or `unstable` (no conflicts).
+- **Mergeable.** The normalized mergeability state is `clean` or `unstable` (no conflicts). Only GitHub ever reports `unstable`, so on Gitea and GitLab this precondition is effectively `clean`. See [normalized mergeability states](/reference/reactions/#normalized-mergeability-states).
 - **Review.** The review decision is `APPROVED`, or reviews are not required (`NOT_REQUIRED`).
 - **CI.** The CI conclusion is `success` when `require_ci` is `true`. CI is ignored when `require_ci` is `false`.
 
@@ -180,7 +180,7 @@ Auto-merge needs more than read access. At startup Sortie runs a one-shot prefli
 | Merge the PR | `repo` | `pull_requests:write` |
 | Delete the branch (`delete_branch: true`) | `repo` | `contents:write` |
 
-A classic `repo` token covers both. If the preflight finds the token is missing a required scope (an auth-class failure), Sortie disables auto-merge for the lifetime of the process and logs the reason. A transport-class failure (network or rate limit) schedules one retry on the next tick before disabling. Some fine-grained tokens don't report their scopes through the API; Sortie logs that it skipped the scope check and proceeds, so confirm the token's permissions yourself in that case. For token creation, see [Connect to GitHub](/guides/connect-to-github/).
+A classic `repo` token covers both. Those names are GitHub's: Gitea has one coarse `write:repository` scope and GitLab has one coarse `api` scope covering the same two operations, and the three preflights differ in how much each can verify; see the [Gitea adapter reference](/reference/adapter-gitea/#token-scope-for-merge-and-branch-operations) and the [GitLab adapter reference](/reference/adapter-gitlab/#token-scope-for-the-write-path). When the preflight reads the token's scopes and finds a required one missing (an auth-class failure), Sortie disables auto-merge for the lifetime of the process and logs the reason. A transport-class failure (network or rate limit) schedules one retry on the next tick before disabling. When it cannot read the scopes at all, it logs `auto_merge preflight scope verification skipped` and proceeds, so a genuine gap surfaces only as an auth failure on the first merge. That is the common outcome for a fine-grained GitHub token, and the only possible one on Gitea, which exposes no way to read a token's scope. Confirm the token's permissions yourself in those cases. For token creation, see [Connect to GitHub](/guides/connect-to-github/).
 
 ### A conservative opt-in
 
@@ -331,13 +331,13 @@ The merge fingerprint combines the PR head SHA and the review decision, so a new
 
 ## Troubleshooting
 
-**Auto-merge never merges, even with an approved green PR.** Check the preflight. A token missing `pull_requests:write` (or `contents:write` when `delete_branch` is on) disables auto-merge for the process; look for `auto_merge skipped: preflight failed`. A classic `repo` token covers both scopes. If you use a fine-grained token, confirm its permissions directly, since some don't report scopes for the preflight to check.
+**Auto-merge never merges, even with an approved green PR.** Check the preflight. A failed preflight disables auto-merge for the process; look for `auto_merge skipped: preflight failed`. On GitHub it fails when the token's scopes lack `pull_requests:write` or `contents:write`, and a classic `repo` token covers both; on GitLab it fails when a classic token lacks `api`. On Gitea the preflight cannot read a token's scope at all, so it fails only when the token's user has no write access to the repository, and it names `write:repository` in that message even though the fix is the user's repository role. If the preflight instead logged that it skipped the scope check, it could not classify the token and blocked nothing; confirm the token's permissions directly, and look for an auth failure on the first merge attempt.
 
 **The PR merged without anyone approving it.** The repository has no branch-protection rule requiring review, so Sortie reported the review decision as `NOT_REQUIRED` and merged on CI and mergeability alone. Add a branch-protection rule requiring at least one approval (see [Require a human approval with branch protection](#require-a-human-approval-with-branch-protection)). The decision then stays `REVIEW_REQUIRED` until a human approves.
 
-**Auto-merge is deferred forever.** Raise the log level to `debug` and read the `auto_merge deferred:` messages. They name the unmet precondition: CI is still pending or red, the review decision isn't `APPROVED`, GitHub reports a conflict, or the PR is a draft. Resolve the named condition and the next tick proceeds.
+**Auto-merge is deferred forever.** Raise the log level to `debug` and read the `auto_merge deferred:` messages. They name the unmet precondition: CI is still pending or red, the review decision isn't `APPROVED`, the PR is not in a mergeable state, or the PR is a draft. Resolve the named condition and the next tick proceeds.
 
-**Startup fails with a provider mismatch.** When both `review_comments` and `auto_merge` are present, they must declare the same `provider`. Align them, or remove one.
+**Startup fails with a provider mismatch.** Every active SCM reaction must declare the same `provider`, not just `review_comments` and `auto_merge`. Align them, or remove one. `sortie validate` catches this offline and names the disagreeing kinds.
 
 **Review or merge reactions never start.** Confirm `.sortie/scm.json` carries the fields each kind needs: `pr_number`, `owner`, and `repo` for both, plus `branch` for auto-merge. A missing or zero-valued field skips the kind silently. Verify your `after_run` hook writes the file after opening the PR.
 

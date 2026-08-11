@@ -255,24 +255,23 @@ Any other non-JSON line becomes `malformed`. Before the first JSON envelope arri
 
 ## Token accounting
 
-The adapter does not trust `step_finish.part.tokens` as the final turn total. It recovers authoritative usage from a second subprocess after the main turn exits.
+The adapter does not trust `step_finish.part.tokens` as the final turn total. It recovers authoritative usage from a second subprocess after the main turn exits. Reported counts are cumulative over the whole session the orchestrator opened, across every turn of it, and never decrease.
 
 ### Accumulation logic
 
-1. After the main `opencode run` subprocess exits, `finalizeExitedTurn` calls `queryExportUsage` when a session ID is known.
-2. `queryExportUsage` launches a second subprocess with `opencode export --sanitize <sessionID>` in the same workspace.
-3. The export subprocess runs with the same managed environment as the turn subprocess: `OPENCODE_AUTO_SHARE=false`, `OPENCODE_DISABLE_AUTOCOMPACT=<bool>`, `OPENCODE_DISABLE_AUTOUPDATE=true`, `OPENCODE_DISABLE_LSP_DOWNLOAD=true`, and optional `OPENCODE_PERMISSION=<json>`.
-4. The export subprocess timeout is `min(2 * read_timeout_ms, 30s)`. With the workflow default `read_timeout_ms: 5000`, the export timeout is 10 seconds.
-5. The parser unmarshals the export JSON, scans `messages` in reverse order, and selects the most recent `assistant` message whose `info.sessionID` matches the current session.
-6. It reads `info.tokens.input`, `info.tokens.output`, optional `info.tokens.total`, and optional `info.tokens.cache.read`.
-7. `total_tokens` defaults to `input + output` when `tokens.total` is absent.
-8. If export setup fails, the subprocess exits non-zero, the JSON is malformed, or no matching assistant message with tokens exists, usage falls back to zero. The adapter logs a warning and emits no `token_usage` event.
+1. After the main `opencode run` subprocess exits, the adapter launches a second subprocess with `opencode export --sanitize <sessionID>` in the same workspace, when a session ID is known.
+2. The export subprocess runs with the same managed environment as the turn subprocess: `OPENCODE_AUTO_SHARE=false`, `OPENCODE_DISABLE_AUTOCOMPACT=<bool>`, `OPENCODE_DISABLE_AUTOUPDATE=true`, `OPENCODE_DISABLE_LSP_DOWNLOAD=true`, and optional `OPENCODE_PERMISSION=<json>`.
+3. The export subprocess timeout is `min(2 * read_timeout_ms, 30s)`. With the workflow default `read_timeout_ms: 5000`, the export timeout is 10 seconds.
+4. The parser unmarshals the export JSON and sums **every** `assistant` message whose `info.sessionID` matches the current session, not just the most recent one. When the run resumed an existing session, messages created before the run started are excluded, so a resumed session's earlier spend never lands in this run's total.
+5. From each message it reads `info.tokens.input`, `info.tokens.output`, and the optional `info.tokens.reasoning`, `info.tokens.cache.read`, and `info.tokens.cache.write`. A message with no `tokens` object, or without both `input` and `output`, is skipped.
+6. `input_tokens` is `input + cache.read + cache.write`; `output_tokens` is `output + reasoning`; `cache_read_tokens` carries `cache.read` separately as a subset of input; `total_tokens` is computed as `input_tokens + output_tokens` rather than read from `tokens.total`, which counts cache and reasoning tokens on a different basis.
+7. If export setup fails, the subprocess exits non-zero, the JSON is malformed, or no matching assistant message with tokens exists, the adapter logs a warning, emits no `token_usage` event, and leaves the previously reported snapshot in place rather than lowering it to zero.
 
-The adapter emits at most one `token_usage` event per turn, after the export subprocess succeeds. It does not emit any token event when every recovered token counter is zero.
+The adapter emits at most one `token_usage` event per turn, after the export subprocess succeeds. It emits no token event when every recovered counter is zero, and a session for which no export ever produced a figure is recorded as unmeasured rather than as having spent zero.
 
 ### Model tracking
 
-The main stdout stream does not supply a stable final model identifier. The adapter reconstructs `Model` only from the export payload, using `info.providerID + "/" + info.modelID` when both fields are present.
+The main stdout stream does not supply a stable final model identifier. The adapter reconstructs `Model` only from the export payload, using `info.providerID + "/" + info.modelID` from the last counted assistant message, when both fields are present.
 
 Per-model attribution works only when the export payload includes both values. The adapter parses `info.cost` from the export payload but does not surface cost on normalized domain events.
 
@@ -311,9 +310,10 @@ Permission rejections surface as OpenCode reports them, for example: `The user r
 |---|---|---|---|
 | Stdout `error` envelope observed, process exits `0` | `turn_failed` | _(none)_ | Structured logical failure. Compensates for OpenCode returning exit code `0` on failure. |
 | Stdout `error` envelope observed, process exits non-zero | `turn_failed` | _(none)_ | Structured error still takes precedence over the process exit status. |
-| No `error` envelope, clean exit `0` after the first JSON envelope | `turn_completed` | _(none)_ | Normal completion. |
-| No `error` envelope, non-zero exit after the first JSON envelope | `turn_ended_with_error` | `port_exit` | Process-level failure. Message is `opencode exited with code N` or the wait error text. |
-| Process exits before the first JSON envelope | `turn_ended_with_error` | `port_exit` | Startup or protocol failure before session establishment. |
+| No `error` envelope, clean exit `0`, at least one `text`, `reasoning`, or `tool_use` part parsed | `turn_completed` | _(none)_ | Normal completion. |
+| No `error` envelope, clean exit `0`, no such part parsed | `turn_failed` | `turn_failed` | The model produced nothing this turn. Message is `agent exited without producing output: no assistant output on the run stream`. |
+| No `error` envelope, non-zero exit after the first JSON envelope | `turn_failed` | `port_exit` | Process-level failure. Message is `exit code N`. |
+| Process exits before the first JSON envelope | `turn_failed` | `port_exit` | Startup or protocol failure before session establishment. |
 | Turn context cancelled | `turn_cancelled` | _(none)_ | Cancellation wins over process-exit classification. |
 | Session stopped via `StopSession` | `turn_cancelled` | _(none)_ | Closed-session teardown path. |
 
@@ -323,7 +323,7 @@ The adapter never trusts exit code `0` as sufficient proof of success. A termina
 
 If the stdout scanner returns an error while the turn is still active, the adapter:
 
-1. Emits `turn_ended_with_error` with message `stdout read error`.
+1. Emits `turn_failed` with message `stdout read error`.
 2. Stops the reader loop and kills the process group.
 3. Re-emits collected stderr lines at WARN level.
 4. Returns an `AgentError` with kind `response_error`.
@@ -350,7 +350,7 @@ OpenCode continuation is flag-based. The adapter persists the OpenCode session I
 
 The adapter never uses `--continue` or `--fork`.
 
-If a resumed turn emits a different `sessionID` from the one already stored, the adapter aborts the turn with `response_error` and emits `turn_ended_with_error`. `session_started` is emitted only once per session, on the first accepted JSON envelope.
+If a resumed turn emits a different `sessionID` from the one already stored, the adapter aborts the turn with `response_error` and emits `turn_failed`. `session_started` is emitted only once per session, on the first accepted JSON envelope.
 
 ---
 
@@ -444,9 +444,9 @@ The orchestrator's preflight validation uses this metadata to require a non-empt
 | Output format flag | `--output-format stream-json` | `--output-format json` | JSON-RPC notifications | `--format json` |
 | Session ID source | UUID generated by adapter | Discovered from `result` event | Thread ID from `thread/start` response | Discovered from the first JSON envelope, or resumed via `--session` |
 | Resume mechanism | `--resume <UUID>` | `--resume <sessionId>` or `--continue` fallback | `thread/resume` or automatic within session | `--session <sessionID>` only |
-| Input token reporting | Per-request cumulative | Not available (always 0) | Per-turn from `turn/completed` | Recovered from `opencode export --sanitize` |
+| Input token reporting | Per-request, from the result event's per-model breakdown | Recovered from the runtime's session-state journal after exit | From `thread/tokenUsage/updated`, baseline-subtracted | Recovered from `opencode export --sanitize` |
 | Model reporting | From `assistant` events | Not available | Not available | Recovered from export `providerID/modelID` only |
-| Token accounting source | Event stream, with `result` fallback | Event stream output tokens only | `turn/completed` usage object | Separate `export` subprocess after main turn exit |
+| Token accounting source | Result event `modelUsage`, with top-level `usage` fallback | Session-state journal on disk, with stream output tokens as the in-turn estimate | `thread/tokenUsage/updated` notification | Separate `export` subprocess after main turn exit |
 | Permission control | `--permission-mode` or `--dangerously-skip-permissions` | `--autopilot` + `--no-ask-user` + explicit tool scoping | `approvalPolicy` and sandbox policy in JSON-RPC | `--dangerously-skip-permissions` plus synthesized `OPENCODE_PERMISSION` JSON |
 | Sandbox enforcement | None at adapter level | None at adapter level | OS-level sandbox plus configurable policy | No adapter-level sandbox; permission policy only |
 | Dynamic tools | MCP sidecar via `--mcp-config` | MCP sidecar via `--additional-mcp-config` | `dynamicTools` on `thread/start` | None injected by this adapter |

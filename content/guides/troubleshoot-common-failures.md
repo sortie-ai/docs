@@ -64,7 +64,7 @@ level=WARN msg="agent exited without producing output, treating as failure"
 level=ERROR msg="worker run failed, scheduling retry" error="agent: turn_failed: agent exited without producing output"
 ```
 
-The agent subprocess exited with code 0 but produced zero output tokens — no LLM response was generated. Sortie treats this as `turn_failed` and retries with exponential backoff. Common causes:
+The agent subprocess exited with code 0 without reporting a turn outcome, and the adapter found no evidence the model produced anything. What counts as evidence depends on the agent: output tokens for Claude Code and Copilot CLI, assistant output on the run stream for OpenCode, a credits trailer on stderr for Kiro. When the adapter names the signal it looked for, the error line carries it after a colon. Sortie treats every one of these as `turn_failed` and retries with exponential backoff. Common causes:
 
 1. **MCP config parsing failure.** The agent failed to parse `--additional-mcp-config` or `--mcp-config` and exited silently. Check the WARN-level log lines immediately above the error — Sortie emits the agent's stderr content, which contains the parse error.
 

@@ -27,7 +27,7 @@ sortie --version
 You should see output like:
 
 ```
-sortie v0.x.x
+sortie 1.19.0 (commit: 0651d1f, built: 2026-07-11, go1.26.1, linux/amd64)
 ```
 
 {{% steps %}}
@@ -127,7 +127,7 @@ sortie ./WORKFLOW.md
 You should see output similar to:
 
 ```text {hl_lines=[4,"13-14",15]}
-level=INFO msg="sortie starting" version=0.x.x workflow_path=/home/you/sortie-demo/WORKFLOW.md
+level=INFO msg="sortie starting" version=1.19.0 workflow_path=/home/you/sortie-demo/WORKFLOW.md
 level=INFO msg="database path resolved" db_path=/home/you/sortie-demo/.sortie.db
 level=INFO msg="sortie started"
 level=INFO msg="tick completed" candidates=2 dispatched=2 running=2 retrying=0
@@ -174,8 +174,12 @@ You should see:
 ```
 
 The `.sortie.db` file contains session metadata, turn history, and metrics for
-every run. Open `issues.json` again and notice that both issues now have
-`"state": "Done"` — the file tracker updated them in place.
+every run.
+
+Open `issues.json` again and notice that it is unchanged. The file tracker
+holds each transition in memory for the life of the process rather than
+rewriting the fixture, so both issues still read `"state": "To Do"` on disk and
+the next `sortie ./WORKFLOW.md` runs the same demo again.
 
 {{% /steps %}}
 

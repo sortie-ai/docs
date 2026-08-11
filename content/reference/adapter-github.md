@@ -29,7 +29,7 @@ The adapter reads its configuration from the `tracker` section of the [WORKFLOW.
 | `query_filter` | string | No | `""` | Raw GitHub search qualifier appended to the search query. When set, `FetchCandidateIssues` uses the search endpoint instead of the issues list endpoint. |
 | `handoff_state` | string | No | _(absent)_ | Target label name after a successful agent run. Must appear in neither `active_states` nor `terminal_states`. Created on demand if absent from the repository - see [Pre-creating labels](#pre-creating-labels). |
 | `in_progress_state` | string | No | _(absent)_ | Target label name for dispatch-time transitions. Must appear in `active_states`. |
-| `user_agent` | string | No | `"sortie/dev"` | `User-Agent` header sent on all requests. |
+| `user_agent` | string | No | `sortie/<version>` | `User-Agent` header sent on all requests. Sortie sets the tracker role's value to its own version string, so only the SCM and CI roles honor an override, set in a top-level `github:` block. |
 
 ### `endpoint`
 
@@ -111,8 +111,10 @@ Empty `tracker.project` is caught by the generic preflight check (`tracker.proje
 |---|---|---|
 | `tracker.api_key.github_token_hint` | `tracker.api_key` is empty after env expansion, but `GITHUB_TOKEN` env var is set | `tracker.api_key is empty but GITHUB_TOKEN environment variable is set; consider using api_key: $GITHUB_TOKEN` |
 | `tracker.api_key.github_token_missing` | `tracker.api_key` is empty and `GITHUB_TOKEN` is not set | `tracker.api_key is empty and GITHUB_TOKEN environment variable is not set` |
-| `tracker.active_states.empty_element` | An element in `active_states` is empty or whitespace-only | `tracker.active_states[{i}]: empty state label will never match any issue` |
-| `tracker.terminal_states.empty_element` | An element in `terminal_states` is empty or whitespace-only | `tracker.terminal_states[{i}]: empty state label will never match any issue` |
+| `tracker.active_states.empty_element` | An element in `active_states` is empty or whitespace-only | `tracker.active_states[{i}]: empty state value never matches an issue state` |
+| `tracker.terminal_states.empty_element` | An element in `terminal_states` is empty or whitespace-only | `tracker.terminal_states[{i}]: empty state value never matches an issue state` |
+| `tracker.active_states.untrimmed_element` | An element in `active_states` has leading or trailing whitespace | `tracker.active_states[{i}]: state value has leading or trailing whitespace and never matches an issue state` |
+| `tracker.terminal_states.untrimmed_element` | An element in `terminal_states` has leading or trailing whitespace | `tracker.terminal_states[{i}]: state value has leading or trailing whitespace and never matches an issue state` |
 | `tracker.states.overlap` | A label appears in both `active_states` and `terminal_states` (case-insensitive) | `tracker.active_states and tracker.terminal_states overlap on "{label}"; an issue in state "{label}" would match both sets` |
 
 The `api_key` warnings are supplementary hints. The generic preflight check already reports an **error** when `tracker.api_key` is empty - the adapter-specific warnings provide actionable remediation guidance alongside that error.
@@ -135,7 +137,7 @@ Additional fixed headers on all requests:
 |---|---|
 | `Accept` | `application/vnd.github+json` |
 | `X-GitHub-Api-Version` | `2026-03-10` |
-| `User-Agent` | Configured `user_agent` value |
+| `User-Agent` | `sortie/<version>` on tracker requests; the configured `user_agent` value on SCM and CI requests, defaulting to `sortie/dev` |
 
 The HTTP client has a 30-second per-request timeout. Context cancellation is propagated - a cancelled context causes the in-flight request to return immediately with `context.Canceled`.
 
@@ -367,6 +369,30 @@ GitHub enforces two independent rate limit buckets.
 At the default 30-second poll interval with `max_concurrent_agents: 10`, typical usage is well within the primary rate limit. The search budget applies only when `query_filter` is configured or during the one-time startup terminal-state cleanup.
 
 Rate limit violations return HTTP 429 or HTTP 403. Both are mapped to `tracker_api_error`. The orchestrator logs the error and waits for the next poll interval.
+
+---
+
+## SCM and CI surface
+
+The `github` kind also provides an SCM adapter and a CI status provider, so a GitHub-backed deployment drives the pull-request reactions: review-comment feedback, CI-failure escalation, auto-merge, branch cleanup, and post-merge issue closure. The reaction kinds and their lifecycle are provider-agnostic and documented in the [reactions reference](/reference/reactions/); `provider: github` on a reaction block activates this adapter, and [how to set up PR reactions](/guides/setup-pr-reactions/) covers the operator procedure. This section documents only the GitHub-specific behavior.
+
+### Mergeability
+
+The pull request read supplies the draft flag, the head SHA (the CI ref), the head branch, the base branch, and the merged flag. Its `mergeable_state` string maps onto the [normalized mergeability states](/reference/reactions/#normalized-mergeability-states). The comparison ignores case and surrounding whitespace.
+
+| `mergeable_state` | Mergeability |
+|---|---|
+| `clean` | `clean` |
+| `unstable` | `unstable` |
+| `blocked`, `behind`, `draft` | `blocked` |
+| `dirty` | `dirty` |
+| Any other value | `unknown` |
+
+### Merge commit identifier
+
+The merge commit identifier comes from a second read, `PullRequest.mergeCommit.oid` on the GraphQL API. The pinned REST API version no longer carries `merge_commit_sha` on the pull request payload. The GraphQL read is issued only for a pull request the REST payload reports as merged, and a pull request GitHub reports with no merge commit yields an empty identifier rather than an error.
+
+The GraphQL endpoint is `/graphql` on the configured host, or `/api/graphql` when `endpoint` ends in the GitHub Enterprise Server `/api/v3` suffix. A deployment that configures the [`merge_completion` reaction](/reference/reactions/#reactionsmerge_completion) needs a credential that can reach it, since that kind latches on the merge commit identifier and re-enqueues while the identifier is empty.
 
 ---
 

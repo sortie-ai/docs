@@ -1,6 +1,6 @@
 ---
 title: "GitLab Adapter"
-description: "GitLab tracker adapter reference: REST v4 configuration, PRIVATE-TOKEN authentication, label-driven state, namespace-path or numeric project scoping, the query_filter allowlist, Link pagination, error mapping, and Community Edition compatibility."
+description: "GitLab tracker, SCM, and CI adapter reference: REST v4 configuration, PRIVATE-TOKEN authentication, label-driven state, namespace-path or numeric project scoping, the query_filter allowlist, Link pagination, error mapping, merge request reviews, review decision, mergeability, auto-merge, branch cleanup, CI status, the api write scope, and Community Edition compatibility."
 author: Sortie AI
 date: 2026-08-06
 weight: 160
@@ -26,7 +26,7 @@ The adapter reads its configuration from the `tracker` section of the [WORKFLOW.
 | `terminal_states` | list of strings | No | `["done", "wontfix"]` | Project or group label names that mark completed issues. Stored lowercased. |
 | `handoff_state` | string | No | _(absent)_ | Label name set after a successful agent run. Must appear in neither `active_states` nor `terminal_states`. Absent disables handoff. |
 | `query_filter` | string | No | `""` | URL query fragment merged into the issue-list request. Validated against a closed allowlist at construction. See [query filter](#query-filter). |
-| `user_agent` | string | No | `"sortie/dev"` | `User-Agent` header sent on all requests. |
+| `user_agent` | string | No | `sortie/<version>` | `User-Agent` header sent on all requests. Sortie sets the tracker role's value to its own version string, so only the SCM and CI roles honor an override, set in a top-level `gitlab:` block. |
 
 `in_progress_state` is **not** a GitLab adapter config key. The adapter never reads it. The orchestrator consumes it and routes the resulting move through the same [transition](#transitions) path, so its collision rules (must appear in `active_states`, must not collide with `terminal_states` or `handoff_state`) are enforced by the generic config validation and the GitLab validate hook carries no arm for it.
 
@@ -108,7 +108,7 @@ Project and group access tokens are created with an `access_level` that must per
 |---|---|
 | `PRIVATE-TOKEN` | `<api_key>`, verbatim. |
 | `Accept` | `application/json` |
-| `User-Agent` | Configured `user_agent` value. |
+| `User-Agent` | `sortie/<version>` on tracker requests; the configured `user_agent` value on SCM and CI requests, defaulting to `sortie/dev`. |
 | `Content-Type` | `application/json`, on requests with a body. |
 
 The HTTP client has a 30-second per-request timeout. Context cancellation propagates; a cancelled context aborts the in-flight request. There is no API version header: behavior is pinned by the instance version.
@@ -149,7 +149,7 @@ The adapter collects every configured label present on the issue, scanning in th
 2. `terminal_states`, in configuration order.
 3. `handoff_state`, if set.
 
-When more than one matches, the adapter logs a WARN naming the issue's `iid` and every matched label, then keeps the first. When none matches, a natively `opened` issue maps to the first `active_states` entry and a natively `closed` issue maps to the first `terminal_states` entry. With the corresponding list empty, the native `opened` or `closed` value passes through unchanged. All comparisons are case-insensitive.
+When more than one matches, the adapter logs a WARN naming every matched label, carrying the issue's `iid` in the `issue_identifier` log attribute, then keeps the first. When none matches, a natively `opened` issue maps to the first `active_states` entry and a natively `closed` issue maps to the first `terminal_states` entry. With the corresponding list empty, the native `opened` or `closed` value passes through unchanged. All comparisons are case-insensitive.
 
 ### Transitions
 
@@ -458,6 +458,146 @@ For the full error taxonomy and operator guidance, see the [error reference](/re
 
 ---
 
+## SCM and CI surface
+
+The `gitlab` kind also provides an SCM adapter and a CI status provider, so a GitLab-backed deployment drives the same pull-request reactions as a GitHub-backed one: review-comment feedback, CI-failure escalation, auto-merge, and branch cleanup. The reaction kinds and their lifecycle are provider-agnostic and documented in the [reactions reference](/reference/reactions/); `provider: gitlab` on a reaction block activates this adapter, and [how to set up PR reactions](/guides/setup-pr-reactions/) covers the operator procedure. This section documents only the GitLab-specific behavior.
+
+Both roles take `api_key` and `endpoint` from a top-level `gitlab:` block ([adapter pass-through configuration](/reference/workflow-config/#adapter-pass-through-configuration)), falling back to the `tracker` block's values for any key that block omits when `tracker.kind` is also `gitlab`. `endpoint` behaves exactly as it does for the tracker, defaulting to `https://gitlab.com` and taking the instance root rather than the API path. The CI status provider also requires `project`; the SCM adapter ignores it, because owner and repo arrive with each call. Neither role makes a network call at construction.
+
+### SCM read operations
+
+The adapter implements the six read methods of the `SCMAdapter` interface, plus `VerifyAutoMergeScopes`. Every merge-request route addresses the same project-scoped `iid` the tracker adapter uses.
+
+| Method | GitLab route(s) |
+|---|---|
+| `GetReviewDecision` | `GET /projects/{project}/merge_requests/{iid}/reviewers`, then `GET .../merge_requests/{iid}/approvals` |
+| `GetMergeability` | `GET /projects/{project}/merge_requests/{iid}` |
+| `GetCIStatus` | `GET /projects/{project}/merge_requests/{iid}`; reads the embedded `head_pipeline`, no second request |
+| `FetchPendingReviews` | `GET .../merge_requests/{iid}/reviewers`, `GET .../merge_requests/{iid}/notes`, and `GET /users/{id}` per unresolved reviewer |
+| `FetchBotReviewComments` | `GET .../merge_requests/{iid}/notes`, and `GET /users/{id}` per unresolved author |
+| `ListLabelEvents` | `GET .../merge_requests/{iid}/resource_label_events` |
+| `VerifyAutoMergeScopes` | `GET /personal_access_tokens/self` |
+
+The project half of every route above is built from the caller's `owner` and `repo`, joined with a slash and percent-encoded once. The two values together must reconstruct the project's full namespace path, and a project nested in subgroups may carry its intermediate groups on either side of the split. A half that arrives already percent-encoded reaches GitLab double-encoded and returns 404.
+
+The reviewers, notes, and label-event routes all paginate through the same `Link` header walk the tracker adapter uses, requesting `per_page=100` and stopping at a 200-page guard. When a returned comment carries a diff position, normalizing it into a review comment costs one further `GET /projects/{project}/merge_requests/{iid}` read, to compare the comment's recorded head SHA against the merge request's current head and set the outdated flag; a general, non-diff comment costs no extra read.
+
+### Mergeability
+
+GitLab exposes mergeability as a single `detailed_merge_status` string rather than GitHub's `mergeable_state` enum. The adapter maps four arms and treats everything else as blocked:
+
+| `detailed_merge_status` | Mergeability |
+|---|---|
+| `mergeable` | Clean |
+| `conflict` | Dirty |
+| `unchecked`, `checking`, `preparing`, `approvals_syncing` | Unknown |
+| Any other value, including one the adapter does not recognize | Blocked, logged at WARN when unrecognized |
+
+The adapter never reports [`unstable`](/reference/reactions/#normalized-mergeability-states). A pipeline whose only failing job carries `allow_failure: true` reports `success`, so its merge request reports `mergeable` and maps to clean; the warning survives only in the pipeline's own detailed status, which no merge read consults.
+
+`detailed_merge_status` recomputes: approving a merge request has been observed to flip the value from `mergeable` to `checking` and back within the same second. A single read can land mid-recompute, so the auto-merge precondition check treats that window as unknown rather than clean, and the reconcile loop re-enqueues for the next poll instead of merging on a stale computation. Expect the check to cost an extra poll tick right after an approval or a push, not a stuck state.
+
+### Review decision
+
+Community Edition carries no `approvals_required` and no `approvals_left` on the merge request object, and the richer `approval_state` route that would answer "is review required" is Enterprise Edition only, returning 404 on Community Edition. The approvals payload alone can say only whether a merge request has been approved, never whether approval is required, so `GetReviewDecision` folds the decision from two reads, the per-reviewer states and the approvals payload, evaluated in this order:
+
+1. Any reviewer's state is `requested_changes` → `CHANGES_REQUESTED`, decided before the approvals read.
+2. The approvals payload reports `approved: true` → `APPROVED`.
+3. The merge request has at least one reviewer → `REVIEW_REQUIRED`.
+4. No reviewers and no approval → `NOT_REQUIRED`.
+
+The changes-requested arm is checked first and returns unconditionally, so a later approval from a second reviewer can never clear an outstanding change request. The last arm is the one Community Edition operators should read closely: Community Edition has no approval rules, so it can never *require* an approval, and a merge request with no reviewer assigned is genuinely unreviewed rather than pending. `NOT_REQUIRED` lets auto-merge proceed on such a merge request. An operator who wants review enforced on Community Edition must assign a reviewer; the platform offers no server-side alternative.
+
+### Bot classification
+
+A note's embedded author carries no platform bot marker on GitLab; only `GET /users/{id}` reports one. `FetchBotReviewComments` selects a comment when its author matches the [`bot_usernames`](/reference/reactions/#reactionsbot_review) allowlist with no lookup, and otherwise resolves the platform marker through that route; a lookup failure aborts the whole read, because the lookup only ever widens the selected comment set, and silently dropping a bot's comments there is worse than failing the call. `FetchPendingReviews` excludes a `requested_changes` reviewer whose account resolves as a platform bot, but applies no `bot_usernames` allowlist of its own: a review tool that comments under a regular user identity still counts as a blocking reviewer there. A lookup failure in `FetchPendingReviews` logs a WARN and treats the reviewer as not a bot rather than aborting.
+
+Resolved bot flags are cached for the adapter's lifetime, so a given author costs one `GET /users/{id}` call at most once per process. This differs from GitHub, whose embedded comment author carries its own account-type marker with no extra request, and from Gitea, which exposes no platform marker at all and relies solely on the `bot_usernames` allowlist.
+
+### Label events
+
+`ListLabelEvents` reads the merge request's resource label-event journal and normalizes add and remove events to the same `domain.LabelEvent` shape the [label commands](/reference/label-commands/) reactions consume, sorted ascending by event time and then by event id. An event whose label was later deleted from the project carries no name and is skipped.
+
+### Pipeline status
+
+`GetCIStatus` maps the merge request's `head_pipeline.status` onto the merge-gate conclusion the [auto-merge CI precondition](/reference/reactions/#reactionsauto_merge) reads. The platform folds an externally reported commit status into the head pipeline, so the pipeline's own status already accounts for one and no second request is issued.
+
+| `head_pipeline.status` | CI conclusion |
+|---|---|
+| `head_pipeline` absent | Empty, meaning no checks exist on the head |
+| `success`, `skipped` | `success` |
+| `failed`, `canceled` | `failing` |
+| `created`, `waiting_for_resource`, `preparing`, `waiting_for_callback`, `pending`, `running`, `canceling`, `scheduled`, `manual` | `pending` |
+| Any other value | `pending`, logged at WARN naming the observed value |
+
+A `skipped` pipeline is merge-eligible. GitLab reports that status only for a pipeline whose every job is skipped or an untriggered manual job, so its job set cannot carry a failing conclusion.
+
+A `manual` pipeline holds at `pending` even though it has settled, because GitLab also reports `manual` for a pipeline carrying a blocking manual job alongside a job that failed. With `require_ci: true`, an auto-merge entry on such a head defers on every tick rather than merging.
+
+### CI status provider
+
+The package registers a CI status provider under kind `gitlab`, the role that drives the [`ci_failure` reaction](/reference/reactions/#reactionsci_failure). `FetchCIStatus` resolves the given ref to a commit SHA and the pipeline GitLab reports as that commit's current one, then reads that pipeline's commit-status list to exhaustion and normalizes each entry to a check run. A commit with no pipeline yields an empty, non-nil check-run list and a pending result, the same convention the GitHub and Gitea providers use.
+
+The commit-status read scopes to one pipeline twice: on the wire, through the `pipeline_id` query parameter, and again after decoding, by discarding any entry whose own `pipeline_id` differs, across every page the read walks. The second check is what keeps the scope correct against a deployment that ignores the query parameter, whether the mismatched entries land on the first page or a later one.
+
+Each status entry's `status` and `allow_failure` fields decide its check conclusion and run status:
+
+| Entry `status` | Conclusion | Run status |
+|---|---|---|
+| `success` | `success` | Completed |
+| `failed` with `allow_failure: false` | `failure` | Completed |
+| `failed` with `allow_failure: true` | `neutral` | Completed |
+| `canceled` | `cancelled` | Completed |
+| `skipped` | `skipped` | Completed |
+| `manual` | `neutral` | Completed |
+| `created`, `pending`, `waiting_for_resource`, `waiting_for_callback`, `preparing`, `scheduled` | `pending` | Queued |
+| `running`, `canceling` | `pending` | In progress |
+| Any other value | `pending` | In progress, logged at WARN naming the observed value and the count |
+
+An allowed-to-fail job therefore never turns the aggregate red and is never counted as failing. The aggregate status and failing count come from the same shared rule the GitHub and Gitea providers use. A pipeline reporting `manual` is the one shape on which the two CI readers differ: every untriggered manual job is a completed, non-failing run here, so the aggregate is passing, while the [merge gate](#pipeline-status) holds at `pending`.
+
+On a failing verdict, the log excerpt is the sanitized tail of the first failing job's trace, capped by the `max_log_lines` budget; a `max_log_lines` of zero or less disables it. GitLab ignores the `Range` header on the trace route, so a trace larger than 1 MiB yields the tail of that first megabyte rather than the true tail. `Ref` in the returned result always echoes the caller's input ref, never the resolved SHA.
+
+### The write surface
+
+The write methods are `MergePR`, `DeleteBranch`, and `RemoveLabel`. The supported merge strategies are `merge`, `squash`, and `rebase`, the same set the auto-merge [`strategy` field](/reference/reactions/#reactionsauto_merge) accepts.
+
+`MergePR` calls `PUT /projects/{project}/merge_requests/{iid}/merge` and always sends the expected head SHA as a stale-head precondition; a call with no expected SHA is rejected before any request. GitLab expresses rebase-on-merge as the target project's own merge-method setting rather than a per-call parameter, so a `rebase` request issues the same call as `merge` and logs one WARN naming that governance.
+
+| Merge outcome | GitLab response | Mapping |
+|---|---|---|
+| Merged | HTTP 200, decoded state `merged` | Success, carrying the merge commit SHA. |
+| Already merged, draft, or conflicting | HTTP 405, a constant body naming no reason | Conflict error. A re-read of the merge request confirms whether it landed; only then does the error carry the "already merged" marker. |
+| Stale expected head SHA | HTTP 409 | Conflict error, same re-read disposition as the 405 case. |
+| Branch protection refuses the merge, or the credential is invalid | HTTP 401 or 403 | Auth error, rewritten to name both possible causes, since GitLab answers a branch-protection refusal on this route with 401 rather than the 403 a plain permission failure returns elsewhere in the API. |
+| HTTP 200 with a decoded state other than `merged` | n/a | Conflict error directly, with no "already merged" marker. |
+
+The already-merged marker is never read from GitLab's rejection text: the 405 body is byte-identical across the already-merged, draft, and conflicting cases, so the adapter re-reads the merge request after any 405 or 409 and attaches the marker only when that re-read shows the merge landed.
+
+`DeleteBranch` calls `DELETE /projects/{project}/repository/branches/{branch}`, with the branch name percent-encoded. An already-gone branch, HTTP 404, is returned as a not-found error, which the caller treats as a successful no-op.
+
+`RemoveLabel` reads the merge request's own labels, matches the target name case-insensitively, and sends every matching case variant in one `PUT /projects/{project}/merge_requests/{iid}` carrying `remove_labels`, because GitLab matches label names case-sensitively and a project can accumulate case-duplicate labels (see [label creation is server-side](#label-creation-is-server-side)). No match is a no-op; a 404 reading or writing the merge request maps to a no-op too, since on GitLab that status can only mean the merge request or the project is gone, never an absent label.
+
+### Token scope for the write path
+
+`api` is the only classic scope that can perform `MergePR`, `DeleteBranch`, or `RemoveLabel`; `read_api` performs every read this section documents and is refused on every write with `403 {"error":"insufficient_scope"}`. This is the same [scopes](#scopes) table the tracker surface uses; GitLab has one coarse write scope covering both surfaces, not a separate contents-and-pull-request split.
+
+The startup auto-merge preflight calls `GET /personal_access_tokens/self` once. A classic token reporting `api` in its scopes passes; one that omits it fails closed, blocking auto-merge for the process lifetime. A token whose scopes report as the opaque `["granular"]` value, an empty scopes array, an unreadable introspection response, or an instance whose introspection route answers 404, all fail open instead: the preflight cannot verify anything from them, so it lets auto-merge proceed rather than blocking a credential it cannot classify. A fine-grained ("granular") GitLab token is the practical case this covers, because its scopes carry no permission detail for the preflight to read; confirm a granular token's permissions directly rather than relying on this check.
+
+### Key differences from the GitHub adapter
+
+| Aspect | GitHub | GitLab |
+|---|---|---|
+| Mergeability signal | `mergeable_state` enum with several concrete blocking states | Single `detailed_merge_status` value that recomputes and can mask a second blocker |
+| Review decision | GraphQL aggregate field, read directly | No aggregate on Community Edition; folded from per-reviewer states plus the approvals payload |
+| Bot classification | Account-type marker on the embedded comment author, no extra request | No marker on the embedded author; resolved per user through a separate, cached request |
+| Merge and branch token scope | `pull_requests:write` plus `contents:write`, or classic `repo` | One coarse `api` scope covers merge, branch delete, and label removal |
+| Rebase-on-merge | A per-call merge strategy | The target project's own merge-method setting; a per-call rebase request logs a WARN and merges the same way as `merge` |
+
+See the [GitHub adapter reference](/reference/adapter-github/).
+
+---
+
 ## Adapter registration
 
 The adapter registers itself under kind `"gitlab"` via an `init` function in `internal/scm/gitlab`. Registration metadata declares:
@@ -472,7 +612,7 @@ The adapter registers itself under kind `"gitlab"` via an `init` function in `in
 
 The orchestrator's preflight validation uses `RequiresProject` and `RequiresAPIKey` to produce specific error messages before adapter construction, and resolves the adapter through the registry rather than by importing the package.
 
-The package sits under the source-control adapter family rather than at `internal/tracker/gitlab`, because forge integrations live in one package per forge and GitLab's issue and merge-request halves share their authentication, project addressing, pagination, error envelopes, and comment entity. This package registers the **tracker** role only; the source-control and CI roles are not implemented for this forge.
+The package sits under the source-control adapter family rather than in a tracker-only package, because forge integrations live in one package per forge and GitLab's issue and merge-request halves share their authentication, project addressing, pagination, error envelopes, and comment entity. This package also registers the **source-control** and **CI status provider** roles, documented in [SCM and CI surface](#scm-and-ci-surface).
 
 ---
 
@@ -516,8 +656,6 @@ The project checks are evaluated in that order and report the first fault that a
 | An empty `endpoint` | No diagnostic. The constructor substitutes `https://gitlab.com`. |
 | A one-slash rule on `project` | GitLab subgroups nest to any depth. |
 | Token prefix or length | The prefix is an administrator-writable application setting. |
-
-The untrimmed-state-label warning exists here and not in the sibling GitHub and Gitea validators, because this adapter lowercases configured states without trimming them: a padded label can never match a normalized issue label, and a write would create a padded label.
 
 ---
 

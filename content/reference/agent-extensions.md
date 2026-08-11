@@ -530,7 +530,9 @@ No parameters. The agent sends an empty JSON object:
 
 The tool sums `total_tokens` across the issue's `run_history` rows (one per completed session) and adds the running session's recorded total from `session_metadata`. The orchestrator updates `session_metadata` incrementally during the session, throttled to at most one write per issue every two seconds and driven by token usage events, so the running number stays current. That total is added only when the stored session ID matches `SORTIE_SESSION_ID`, so a stale row from an earlier session is never counted. Nothing is counted twice: a running session reaches `run_history` only when it ends.
 
-Run-history rows written before the token columns existed (migration 011) read as zero, so spend recorded before the upgrade is invisible to the budget.
+A session whose coding agent reported no token usage is recorded as unmeasured: its token figures are zero, that zero carries no information, and the session is counted in `unmeasured_sessions` instead of contributing to `used_tokens`.
+
+Run-history rows written before the token columns existed (migration 011) read as zero, so spend recorded before the upgrade is invisible to the budget. Rows written before the measurement flag existed (migration 012) count as measured, because their provenance is not recoverable.
 
 ### Response fields
 
@@ -541,8 +543,10 @@ The fields below are returned under `data` in the standard success envelope:
 | `used_tokens` | integer | Cumulative `total_tokens` across the issue's completed sessions, plus the running session's recorded spend. |
 | `budget_tokens` | integer | The configured [`agent.max_tokens`](/reference/workflow-config/#agent). `0` means unlimited. |
 | `remaining_tokens` | integer or null | `budget_tokens - used_tokens`, floored at 0. `null` when the budget is unlimited, so the agent can tell "no limit" from "nothing left". |
-| `used_sessions` | integer | Completed sessions for the issue. The running session is not counted. |
+| `used_sessions` | integer | Completed sessions for the issue. The running session is not counted. Unmeasured sessions still count here, because [`agent.max_sessions`](/reference/workflow-config/#agent) counts sessions rather than spend. |
 | `budget_sessions` | integer | The configured [`agent.max_sessions`](/reference/workflow-config/#agent). `0` means unlimited. |
+| `unmeasured_sessions` | integer | Completed sessions whose coding agent reported no token usage. `used_tokens` excludes them rather than counting them as zero spend. |
+| `used_tokens_complete` | boolean | `false` when `unmeasured_sessions` is above `0`, or when a running session ID was supplied and no matching session record was found for it. `true` otherwise. On `false`, treat `used_tokens` as a lower bound and `remaining_tokens` as an upper bound. |
 
 `used_tokens` includes the running session while `used_sessions` excludes it. The asymmetry is deliberate: a session is either finished or not, tokens accrue continuously, and a reading that ignored in-flight spend would be useless at exactly the moment the agent consults it.
 
@@ -560,7 +564,9 @@ The orchestrator enforces the same numbers. When `used_tokens` reaches a non-zer
     "budget_tokens": 1000000,
     "remaining_tokens": 616000,
     "used_sessions": 2,
-    "budget_sessions": 5
+    "budget_sessions": 5,
+    "unmeasured_sessions": 0,
+    "used_tokens_complete": true
   }
 }
 ```
@@ -575,7 +581,26 @@ The orchestrator enforces the same numbers. When `used_tokens` reaches a non-zer
     "budget_tokens": 0,
     "remaining_tokens": null,
     "used_sessions": 2,
-    "budget_sessions": 5
+    "budget_sessions": 5,
+    "unmeasured_sessions": 0,
+    "used_tokens_complete": true
+  }
+}
+```
+
+**Success with an incomplete reading:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "used_tokens": 384000,
+    "budget_tokens": 1000000,
+    "remaining_tokens": 616000,
+    "used_sessions": 3,
+    "budget_sessions": 5,
+    "unmeasured_sessions": 1,
+    "used_tokens_complete": false
   }
 }
 ```

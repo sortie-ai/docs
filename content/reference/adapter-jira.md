@@ -38,7 +38,7 @@ The adapter reads its configuration from the `tracker` section of the [WORKFLOW.
 
 The base URL of the Jira instance, without a trailing slash and without any `/rest/api/...` path. The adapter appends API paths internally.
 
-Accepts [`$VAR` indirection](/reference/environment/#var-indirection-in-workflowmd) via `resolveEnvRef` - the entire value must be a variable reference for expansion to apply.
+Accepts [`$VAR` indirection](/reference/environment/#var-indirection-in-workflowmd) in its targeted form: the entire value must be a variable reference for expansion to apply.
 
 ```yaml
 # Jira Cloud
@@ -53,7 +53,7 @@ endpoint: $SORTIE_JIRA_ENDPOINT
 
 The adapter rejects values that contain `/rest/api/` with a `tracker_payload_error`.
 
-**Construction-time host/version guard:** A `.atlassian.net` endpoint combined with `api_version: "2"` is rejected at startup (`tracker_payload_error`). A non-`.atlassian.net` endpoint combined with `api_version: "3"` emits a warning and proceeds (the combination will produce 404s on a real Server or Data Center instance because v3 does not exist there).
+**Construction-time host/version guard:** A `.atlassian.net` endpoint combined with `api_version: "2"` is rejected at startup (`tracker_payload_error`), and [`sortie validate`](#offline-validation) reports the same rejection offline. A non-`.atlassian.net` endpoint combined with `api_version: "3"` emits a warning and proceeds (the combination will produce 404s on a real Server or Data Center instance because v3 does not exist there).
 
 ### `api_version`
 
@@ -72,7 +72,7 @@ tracker:
   # api_version: 2   # draws a type_mismatch advisory from sortie validate
 ```
 
-When absent or empty, the adapter defaults to `"3"`. A value other than `"2"` or `"3"` is rejected at startup.
+When absent or empty, the adapter defaults to `"3"`. Surrounding whitespace is trimmed before the value is read. A value other than `"2"` or `"3"` is rejected at startup, and [`sortie validate`](#offline-validation) reports the same rejection offline.
 
 Accepts [`$VAR` indirection](/reference/environment/#var-indirection-in-workflowmd).
 
@@ -104,7 +104,7 @@ api_key: $SORTIE_JIRA_PAT
 
 Generate a PAT in your Jira instance under your user profile: Profile menu > Personal Access Tokens.
 
-Accepts [`$VAR` indirection](/reference/environment/#var-indirection-in-workflowmd) via `resolveEnv` - variable references are expanded anywhere in the string.
+Accepts [`$VAR` indirection](/reference/environment/#var-indirection-in-workflowmd) in its full form: variable references are expanded anywhere in the string.
 
 ### `project`
 
@@ -159,6 +159,39 @@ Constraints enforced at startup:
 - Must not collide with `handoff_state`.
 
 Requires the same write permissions as `handoff_state`.
+
+---
+
+## Offline validation
+
+`sortie validate` runs the Jira-specific checks below without constructing an adapter or making network calls. Each reuses the rule the constructor enforces, so the offline verdict does not drift from the startup verdict.
+
+### Errors
+
+| Check | Condition |
+|---|---|
+| `tracker.endpoint.missing` | `endpoint` is empty. |
+| `tracker.endpoint.api_suffix` | `endpoint` carries a `/rest/api/` path. |
+| `tracker.endpoint.invalid` | `endpoint` does not parse as a URL with a scheme and a host. |
+| `tracker.api_version.invalid` | `api_version`, after trimming, is neither `"2"` nor `"3"`. |
+| `tracker.api_version.cloud_conflict` | `api_version` is `"2"` and `endpoint` is an `.atlassian.net` host, which serves v3 only. |
+| `tracker.api_key.jira_format` | `api_key` carries a colon at its first or last character, which can never form a `user:secret` pair. |
+| `tracker.api_key.jira_cloud_format` | `api_key` has no colon and `endpoint` is an `.atlassian.net` host, which requires an `email:token` key. |
+| `tracker.api_key.jira_v3_format` | `api_key` has no colon, `endpoint` is a classifiable non-Cloud host, and `api_version` resolves to `"3"` - the default when the field is unset. A Server or Data Center personal access token needs either an `email:token` key or `api_version: "2"`. |
+
+The three endpoint checks are evaluated in that order and report the first fault that applies. An invalid `api_version` suppresses the Cloud-conflict check, because the constructor never reaches the host/version guard for a version it rejects. On a Cloud host, `tracker.api_key.jira_cloud_format` reports instead of `tracker.api_key.jira_v3_format`.
+
+An empty `api_key` draws no adapter diagnostic: the generic preflight already reports it as a missing required field.
+
+### Warnings
+
+| Check | Condition |
+|---|---|
+| `tracker.active_states.empty_element`, `tracker.terminal_states.empty_element` | A state list element is empty or whitespace only. |
+| `tracker.active_states.untrimmed_element`, `tracker.terminal_states.untrimmed_element` | A state list element has leading or trailing whitespace. |
+| `tracker.states.overlap` | A name appears in both `active_states` and `terminal_states`, compared case-insensitively. |
+
+State collisions involving `handoff_state` or `in_progress_state` are not adapter diagnostics. The generic configuration layer rejects them before adapter validation runs, for every `tracker.kind`. See [startup and configuration errors](/reference/errors/#startup-and-configuration-errors).
 
 ---
 
@@ -650,8 +683,9 @@ The adapter registers itself under kind `"jira"` via an `init` function in `inte
 |---|---|
 | `RequiresProject` | `true` |
 | `RequiresAPIKey` | `true` |
+| `ValidateTrackerConfig` | Offline config diagnostics for `sortie validate`. |
 
-The orchestrator's preflight validation uses these declarations to produce specific error messages (`tracker.project is required for tracker kind "jira"`) before attempting adapter construction.
+The orchestrator's preflight validation uses `RequiresProject` and `RequiresAPIKey` to produce specific error messages (`tracker.project is required for tracker kind "jira"`) before attempting adapter construction. `ValidateTrackerConfig` runs the [offline validation](#offline-validation) checks without making network calls.
 
 ---
 

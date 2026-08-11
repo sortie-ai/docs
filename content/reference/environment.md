@@ -93,7 +93,7 @@ These are not config field overrides. They control how overrides are loaded.
 |---|---|---|
 | `SORTIE_ENV_FILE` | Path to a `.env` file containing `SORTIE_*` overrides | string |
 
-When [`--env-file`](/reference/cli/#-env-file) is provided, the CLI resolves the path to absolute and exports it as `SORTIE_ENV_FILE` in the process environment. This ensures the value is captured by `CollectSortieEnv` and propagated to the MCP server, which runs in a different working directory and needs the absolute path to locate the `.env` file. When both `SORTIE_ENV_FILE` and `--env-file` are set, the CLI flag wins.
+When [`--env-file`](/reference/cli/#-env-file) is provided, the CLI resolves the path to absolute and exports it as `SORTIE_ENV_FILE` in the process environment. This ensures the value is captured by the `SORTIE_*` prefix scan and propagated to the MCP server, which runs in a different working directory and needs the absolute path to locate the `.env` file. When both `SORTIE_ENV_FILE` and `--env-file` are set, the CLI flag wins.
 
 ### Type coercion
 
@@ -234,7 +234,7 @@ Path fields (`workspace.root`, `db_path`) still receive `~` expansion even when 
 
 ## Agent runtime variables
 
-Agent adapters spawn subprocesses that inherit the **full** parent process environment. Sortie itself does not read or validate these variables - they pass straight through. If one is missing, the agent subprocess fails, not Sortie.
+Agent adapters spawn subprocesses that inherit the **full** parent process environment. Sortie validates none of these variables - they pass straight through, and if one is missing, the agent subprocess fails, not Sortie. `COPILOT_HOME` is the one Sortie reads for itself, to locate a file the runtime writes.
 
 | Variable | Required by | Description |
 |---|---|---|
@@ -250,6 +250,7 @@ Agent adapters spawn subprocesses that inherit the **full** parent process envir
 | `COPILOT_GITHUB_TOKEN` | `copilot-cli` adapter | GitHub token dedicated to Copilot CLI. Highest priority among the three token variables the CLI checks. |
 | `GH_TOKEN` | `copilot-cli` adapter | GitHub token shared with the `gh` CLI. Second priority for Copilot CLI authentication. Also used by many GitHub tooling integrations. |
 | `GITHUB_TOKEN` | `copilot-cli` adapter | GitHub token common in CI environments. Third priority for Copilot CLI authentication. |
+| `COPILOT_HOME` | `copilot-cli` adapter (optional) | Root directory the Copilot CLI writes its per-session state under. Default: `~/.copilot`. Sortie reads it too: the adapter resolves `<COPILOT_HOME>/session-state/<session id>/events.jsonl`, the [session-state journal](/reference/adapter-copilot/#session-state-journal) that supplies the run's token counts. An empty or unset value resolves to the default. |
 | `CODEX_API_KEY` | `codex` adapter | OpenAI API key for the Codex CLI. The `codex app-server` subprocess reads this on startup. If the variable is unset, the adapter falls back to cached credentials in `~/.codex/auth.json` on the target host. |
 | `KIRO_API_KEY` | `kiro` adapter | API key the Kiro CLI reads on the headless path; requires a Kiro Pro, Pro+, or Power subscription. The adapter preflights it at session start (presence plus a usability check), so a missing or invalid credential surfaces as a startup error rather than a hang or a silent empty turn. |
 
@@ -301,31 +302,31 @@ Selected [WORKFLOW.md configuration](/reference/workflow-config/) fields resolve
 
 ### Expansion modes
 
-Two expansion functions exist. The mode depends on the field.
+Three expansion modes exist. The mode depends on the field.
 
-**`resolveEnvRef`** - Expands only when the **entire** trimmed value is a variable reference (`$VAR` or `${VAR}`). Mixed content like `https://example.com/$VAR` is returned unchanged, preventing destructive rewriting of URIs and paths.
+**Reference only** - Expands only when the **entire** trimmed value is a variable reference (`$VAR` or `${VAR}`). Mixed content like `https://example.com/$VAR` is returned unchanged, preventing destructive rewriting of URIs and paths.
 
-**`resolveEnv`** - Full `os.ExpandEnv` semantics. Expands `$VAR` and `${VAR}` references **anywhere** in the string, including within larger values.
+**Anywhere in string** - Full `os.ExpandEnv` semantics. Expands `$VAR` and `${VAR}` references **anywhere** in the string, including within larger values.
 
-**`expandPath`** - Expands `~` or `~/` at the start of the value to the user's home directory, then applies full `os.ExpandEnv`.
+**Path** - Expands `~` or `~/` at the start of the value to the user's home directory, then applies full `os.ExpandEnv`.
 
 ### Fields with `$VAR` support
 
 | Field | Expansion mode | Example value | Resolves to |
 |---|---|---|---|
-| `tracker.endpoint` | `resolveEnvRef` | `$SORTIE_JIRA_ENDPOINT` | `https://myco.atlassian.net` |
-| `tracker.api_key` | `resolveEnv` | `user@example.com:$SORTIE_JIRA_API_KEY` | `user@example.com:xyztoken123` |
-| `tracker.project` | `resolveEnvRef` | `$SORTIE_JIRA_PROJECT` | `PLATFORM` |
-| `tracker.query_filter` | `resolveEnvRef` | `$SORTIE_JIRA_QUERY_FILTER` | `labels = 'agent-ready'` |
-| `tracker.handoff_state` | `resolveEnvRef` | `$SORTIE_HANDOFF_STATE` | `Human Review` |
-| `tracker.in_progress_state` | `resolveEnvRef` | `$SORTIE_IN_PROGRESS_STATE` | `In Progress` |
-| `tracker.api_version` | `resolveEnvRef` | `$SORTIE_JIRA_API_VERSION` | `2` |
-| `workspace.root` | `expandPath` | `~/workspace/sortie` | `/home/deploy/workspace/sortie` |
-| `db_path` | `expandPath` | `$SORTIE_DB_DIR/sortie.db` | `/var/lib/sortie/sortie.db` |
+| `tracker.endpoint` | Reference only | `$SORTIE_JIRA_ENDPOINT` | `https://myco.atlassian.net` |
+| `tracker.api_key` | Anywhere in string | `user@example.com:$SORTIE_JIRA_API_KEY` | `user@example.com:xyztoken123` |
+| `tracker.project` | Reference only | `$SORTIE_JIRA_PROJECT` | `PLATFORM` |
+| `tracker.query_filter` | Reference only | `$SORTIE_JIRA_QUERY_FILTER` | `labels = 'agent-ready'` |
+| `tracker.handoff_state` | Reference only | `$SORTIE_HANDOFF_STATE` | `Human Review` |
+| `tracker.in_progress_state` | Reference only | `$SORTIE_IN_PROGRESS_STATE` | `In Progress` |
+| `tracker.api_version` | Reference only | `$SORTIE_JIRA_API_VERSION` | `2` |
+| `workspace.root` | Path | `~/workspace/sortie` | `/home/deploy/workspace/sortie` |
+| `db_path` | Path | `$SORTIE_DB_DIR/sortie.db` | `/var/lib/sortie/sortie.db` |
 
 Fields in the core schema outside this table - `agent.kind`, `agent.max_turns`, hook scripts, `ci_feedback`, `self_review`, `reactions`, and `dispatch` - are treated as literal strings with no expansion.
 
-[Adapter pass-through blocks](/reference/workflow-config/#adapter-pass-through-configuration) (`claude-code`, `worker`, `github`, and similar top-level blocks named after a `kind`) and each [`notifications`](/reference/workflow-config/#notifications) entry are the exception: every string leaf in those blocks is resolved with the same anywhere-in-string semantics as `resolveEnv`, independently of the table above.
+[Adapter pass-through blocks](/reference/workflow-config/#adapter-pass-through-configuration) (`claude-code`, `worker`, `github`, and similar top-level blocks named after a `kind`) and each [`notifications`](/reference/workflow-config/#notifications) entry are the exception: every string leaf in those blocks is resolved with the same anywhere-in-string semantics, independently of the table above.
 
 The variable names in the table are user-defined conventions, not Sortie-internal identifiers. For the GitHub adapter, common conventions are `$SORTIE_GITHUB_TOKEN` or `$GITHUB_TOKEN` for `tracker.api_key` (a plain personal access token, **not** `email:token` format) and `$SORTIE_GITHUB_PROJECT` for `tracker.project` (an `owner/repo` string). See the [GitHub adapter reference](/reference/adapter-github/#configuration) for per-field semantics.
 
@@ -462,9 +463,9 @@ Per-session variables always win. A stale `SORTIE_ISSUE_ID` in the process envir
 
 ### Credential delivery
 
-Tier 2 tools (like `tracker_api`) need tracker API credentials. These reach the MCP server through the `env` block: the worker's process environment contains credential variables (e.g., `SORTIE_JIRA_API_KEY` referenced by `tracker.api_key: $SORTIE_JIRA_API_KEY`), the `SORTIE_*` prefix scan collects them, and the worker writes them into `.sortie/mcp.json`. The MCP server parses the workflow file with the same config loader the orchestrator uses, so its `$VAR` resolution (`resolveEnv` / `resolveEnvRef`, see [`$VAR` indirection in WORKFLOW.md](#var-indirection-in-workflowmd)) expands references against these variables.
+Tier 2 tools (like `tracker_api`) need tracker API credentials. These reach the MCP server through the `env` block: the worker's process environment contains credential variables (e.g., `SORTIE_JIRA_API_KEY` referenced by `tracker.api_key: $SORTIE_JIRA_API_KEY`), the `SORTIE_*` prefix scan collects them, and the worker writes them into `.sortie/mcp.json`. The MCP server parses the workflow file with the same config loader the orchestrator uses, so its `$VAR` resolution (see [`$VAR` indirection in WORKFLOW.md](#var-indirection-in-workflowmd)) expands references against these variables.
 
-When the operator uses [`--env-file`](/reference/cli/#-env-file), the CLI exports the resolved absolute path as `SORTIE_ENV_FILE` in the process environment. The prefix scan captures this variable, so the MCP server receives the `.env` file path and can load it through its own `applyEnvOverrides` mechanism.
+When the operator uses [`--env-file`](/reference/cli/#-env-file), the CLI exports the resolved absolute path as `SORTIE_ENV_FILE` in the process environment. The prefix scan captures this variable, so the MCP server receives the `.env` file path and applies the overrides in it through the same loader.
 
 The `.sortie/mcp.json` file is written with `0o600` permissions (owner read/write only) and resides within the per-issue workspace directory. The credential is already available to the agent subprocess via `os.Environ()` - writing it to the config file does not expand the agent's access.
 
@@ -484,14 +485,14 @@ The [`install.sh`](https://get.sortie-ai.com/install.sh) script accepts three en
 
 | Variable | Default | Description |
 |---|---|---|
-| `SORTIE_VERSION` | Latest GitHub release | Pin a specific release tag (e.g., `1.14.0`). When set, the script skips the GitHub API call to discover the latest version. |
+| `SORTIE_VERSION` | Latest GitHub release | Pin a specific release tag (e.g., `1.19.0`). When set, the script skips the GitHub API call to discover the latest version. |
 | `SORTIE_INSTALL_DIR` | `/usr/local/bin` (root) or `~/.local/bin` (non-root) | Override the directory where the `sortie` binary is placed. |
 | `SORTIE_NO_VERIFY` | `0` | Set to `1` to skip SHA-256 checksum verification of the downloaded binary. |
 
 Example:
 
 ```sh
-SORTIE_VERSION=1.14.0 SORTIE_INSTALL_DIR=/opt/bin \
+SORTIE_VERSION=1.19.0 SORTIE_INSTALL_DIR=/opt/bin \
   curl -sSL https://get.sortie-ai.com/install.sh | sh
 ```
 

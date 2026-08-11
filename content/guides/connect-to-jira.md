@@ -187,7 +187,7 @@ Check your configuration without making API calls:
 sortie validate ./WORKFLOW.md
 ```
 
-This parses front matter, compiles the prompt template, and runs preflight checks. It catches missing fields, bad `email:token` format, and env vars that resolve to empty strings.
+This parses front matter, compiles the prompt template, and runs preflight checks. It catches missing fields, bad `email:token` format, and env vars that resolve to empty strings. It also runs the offline Jira checks: an `endpoint` that carries a `/rest/api/` path or is not a URL with a scheme and host, an `api_version` outside `"2"` and `"3"`, `api_version: "2"` pointed at an `.atlassian.net` host, and a colon-free `api_key` where the effective version is `"3"`. It does not contact Jira, so it cannot tell you whether the credential works or whether the project exists. See [offline validation](/reference/adapter-jira/#offline-validation) for the full list.
 
 ### Test connectivity
 

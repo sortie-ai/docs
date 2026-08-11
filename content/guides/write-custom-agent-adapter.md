@@ -48,7 +48,7 @@ The orchestrator reacts to a normalized event vocabulary, not to your CLI's nati
 | `tool_result` | `EventToolResult` | A tool call completed. Carries `ToolName` and `ToolDurationMS`. |
 | `malformed` | `EventMalformed` | An unparseable line from the agent. |
 
-The data flows like this. `StartSession` receives `StartSessionParams` (the workspace path, an `AgentConfig`, an optional `ResumeSessionID`, SSH fields, and an MCP config path) and returns a `Session` whose `Internal any` field carries your adapter state opaquely. `RunTurn` receives that `Session` plus `RunTurnParams` (the rendered `Prompt`, the `Issue`, and the `OnEvent` callback) and returns a `TurnResult` (`SessionID`, `ExitReason`, `Usage`). The orchestrator copies `SessionID` and token deltas out of the events and the result; it never reads `Session.Internal`.
+The data flows like this. `StartSession` receives `StartSessionParams` (the workspace path, an `AgentConfig`, an optional `ResumeSessionID`, SSH fields, and an MCP config path) and returns a `Session` whose `Internal any` field carries your adapter state opaquely. `RunTurn` receives that `Session` plus `RunTurnParams` (the rendered `Prompt`, the `Issue`, and the `OnEvent` callback) and returns a `TurnResult` (`SessionID`, `ExitReason`, `Usage`, `UsageMeasured`). The orchestrator copies `SessionID` and token deltas out of the events and the result; it never reads `Session.Internal`. Set `UsageMeasured` only once the runtime has reported a usage figure for the session: a `false` value with zero `Usage` records the spend as unknown rather than as nothing, which is what keeps a token budget from silently treating an unmeasurable agent as free.
 
 **Verify:** you can state, for your agent, whether it delivers events synchronously (return `nil` from `EventStream`) and which `AgentEventType` values its output maps to.
 
@@ -299,38 +299,53 @@ In both modes, `GetSessionID` returns your current session id and `GetUsage` ret
 
 ### Classify the outcome and pick the right error kind
 
-`OnFinalize` decides the turn outcome. It receives `emit`, `lastParsed` (the last non-nil value `ParseLine` returned), `exitCode`, and `stderrLines`. It must emit the terminal event (`EventTurnCompleted` or `EventTurnFailed`) and return a `(domain.TurnResult, *domain.AgentError)`. It must not call `EmitWarnLines`: the skeleton does that for you when you return a non-nil error.
+`OnFinalize` reports what it observed; it does not decide the turn. It receives `emit`, `lastParsed` (the last non-nil value `ParseLine` returned), `exitCode`, and `stderrLines`, fills in an `agentcore.TurnEvidence`, and returns `agentcore.FinalizeTurn(emit, logger, ev, meta)`. `FinalizeTurn` applies the disposition rule every adapter shares, emits the terminal event, and builds the paired `(domain.TurnResult, *domain.AgentError)`.
+
+That indirection is enforced, not advisory. Constructing a `domain.AgentEvent` or a `domain.AgentError` for your own turn outcome, or calling `agentcore.EmitTurnCompleted`, `EmitTurnFailed`, or `EmitTurnCancelled` directly, breaks the shared decision; a test in `agentcore` walks every adapter package and fails on it. `OnFinalize` must not call `EmitWarnLines` either: the skeleton does that for you when `FinalizeTurn` returns a non-nil error.
 
 The skeleton handles the hard cases before `OnFinalize` ever runs. It owns context cancellation, the stdout scan-error path, exit code 127 (binary not found, mapped to `ErrAgentNotFound`), and signal kills (`SIGTERM` / `SIGKILL`, mapped to `ErrTurnCancelled`). `OnFinalize` covers only what remains: a normal process exit. Do not try to detect 127 or signals here.
 
-For a structured agent, read `lastParsed`: a success result returns `EventTurnCompleted` with no error, a failure result returns `EventTurnFailed` with `ErrTurnFailed`. For an unstructured agent, derive everything from the exit status and stderr. Kiro is the worked example, and its exit-0 case is ambiguous: the process exits 0 whether or not a turn actually ran, so the only reliable success signal is a credits trailer on stderr.
+Three fields carry the evidence.
+
+| Field | What you set it to |
+|---|---|
+| `Terminal` | What the runtime reported: `TerminalSuccess`, `TerminalFailure`, `TerminalCancelled`, or `TerminalAbsent` when it reported nothing. Pair a failure with `TerminalErrorKind` and `TerminalMessage`. |
+| `ExitObserved`, `ExitCode` | The turn's own process exit. A persistent-subprocess adapter leaves `ExitObserved` false, because its process outlives the turn. |
+| `Work` | Per-turn evidence that the model produced something: `WorkPresent`, `WorkAbsent`, or `WorkUnobservable` when the runtime exposes no such signal. `WorkDetail` names the signal you looked for, and must be a compile-time constant string. |
+
+The rule reads those fields in order and stops at the first match: a terminal report wins outright, then a missing process exit, then a non-zero exit, then the work evidence. A positive report from the runtime is never second-guessed by counting output, and exit code zero is never a success signal on its own, so an adapter with nothing positive to report gets a failed turn.
+
+For a structured agent, read `lastParsed` and set `Terminal` from the result line. For an unstructured agent, derive it from the exit status and stderr. Kiro is the worked example, and its exit-0 case is ambiguous: the process exits 0 whether or not a turn actually ran, so the only reliable success signal is a credits trailer on stderr.
 
 ```go
 OnFinalize: func(emit func(domain.AgentEvent), _ any, exitCode int, stderrLines []string) (domain.TurnResult, *domain.AgentError) {
 	creditsSeen, authFailed := classifyStderr(stderrLines)
 
-	if exitCode == 0 && creditsSeen {
+	// Headless Kiro reports no per-turn token count, so the credits
+	// trailer is the success signal rather than the work evidence.
+	ev := agentcore.TurnEvidence{
+		ExitObserved: true,
+		ExitCode:     exitCode,
+		Work:         agentcore.WorkUnobservable,
+		WorkDetail:   "no credits trailer on stderr",
+	}
+
+	switch {
+	case exitCode == 0 && creditsSeen:
+		ev.Terminal = agentcore.TerminalSuccess
 		state.resumeRequested = true
-		agentcore.EmitTurnCompleted(emit, "", 0)
-		return domain.TurnResult{SessionID: state.sessionID, ExitReason: domain.EventTurnCompleted}, nil
+	case exitCode == 0 && authFailed && state.turnStdout.Len() == 0:
+		ev.Terminal = agentcore.TerminalFailure
+		ev.TerminalErrorKind = domain.ErrResponseError
+		ev.TerminalMessage = "kiro authentication failed"
 	}
-	if exitCode == 0 && authFailed && state.turnStdout.Len() == 0 {
-		agentcore.EmitTurnFailed(emit, "authentication failed", 0)
-		return domain.TurnResult{SessionID: state.sessionID, ExitReason: domain.EventTurnFailed},
-			&domain.AgentError{Kind: domain.ErrResponseError, Message: "authentication failed"}
-	}
-	if exitCode == 0 {
-		agentcore.EmitTurnFailed(emit, "no credits trailer", 0)
-		return domain.TurnResult{SessionID: state.sessionID, ExitReason: domain.EventTurnFailed},
-			&domain.AgentError{Kind: domain.ErrTurnFailed, Message: "no credits trailer"}
-	}
-	agentcore.EmitTurnFailed(emit, "non-zero exit", 0)
-	return domain.TurnResult{SessionID: state.sessionID, ExitReason: domain.EventTurnFailed},
-		&domain.AgentError{Kind: domain.ErrPortExit, Message: "non-zero exit"}
+
+	return agentcore.FinalizeTurn(emit, state.logger(), ev,
+		agentcore.TurnMeta{SessionID: state.sessionID})
 },
 ```
 
-The error kind is a control-flow decision, not a label. The orchestrator reads it to decide whether to retry. Here is Kiro's mapping.
+The error kind is a control-flow decision, not a label. The orchestrator reads it to decide whether to retry. Here is what the rule produces for Kiro's four cases.
 
 | Evidence | `ExitReason` | Error kind | Retry behavior |
 |---|---|---|---|
@@ -339,9 +354,9 @@ The error kind is a control-flow decision, not a label. The orchestrator reads i
 | exit 0, no credits trailer | `EventTurnFailed` | `ErrTurnFailed` | retryable, exponential backoff |
 | any non-zero exit | `EventTurnFailed` | `ErrPortExit` | retryable, exponential backoff |
 
-All three failure kinds Kiro chooses are retryable. Other kinds are not: `ErrAgentNotFound`, `ErrInvalidWorkspaceCwd`, `ErrTurnInputRequired`, and `ErrTurnCancelled` are non-retryable, so the orchestrator releases the claim instead of scheduling another attempt. Choose the kind that reflects what the orchestrator should do next, and confirm its retry semantics in the [agent errors reference](/reference/errors/#agent-errors).
+Only the first two rows come from evidence Kiro sets itself. The last two are what the shared rule assigns to a zero exit with no work and to a non-zero exit, and every adapter gets them for free. All three failure kinds here are retryable. Other kinds are not: `ErrAgentNotFound`, `ErrInvalidWorkspaceCwd`, `ErrTurnInputRequired`, and `ErrTurnCancelled` are non-retryable, so the orchestrator releases the claim instead of scheduling another attempt. Choose the kind that reflects what the orchestrator should do next, and confirm its retry semantics in the [agent errors reference](/reference/errors/#agent-errors).
 
-**Verify:** a table test feeds exit codes and stderr fixtures to your classifier and asserts both `ExitReason` and the error kind with `errors.As`.
+**Verify:** a table test feeds exit codes and stderr fixtures to your adapter and asserts both `ExitReason` and the error kind with `errors.As`. `dispositiontest.AssertDispositionContract` pins each case against the shared rule for you.
 
 ### Wire session continuity
 
@@ -448,7 +463,7 @@ A finished adapter is more than the package. Split the work by who can do it: a 
 - The env-gated `integration_test.go` (external `<kind>_test` package, blank import, `SORTIE_<AGENT>_TEST` gate, a test name containing `Integration`, no build tag).
 - An agent Dockerfile `examples/docker/<agent>.Dockerfile`, if the agent is containerized.
 - A sample `examples/WORKFLOW.<agent>.md`, verified with `sortie validate`.
-- In-repo docs: the agent-adapters section of `docs/architecture.md`, `docs/architecture-digest.md` kept current, and `docs/workflow-reference.md` for the kind, the extension block, and the env vars.
+- In-repo docs: the agent adapter contract section under `docs/architecture/`, its entry in the `docs/architecture.md` index, and `docs/workflow-reference.md` for the kind, the extension block, and the env vars.
 - Docs-site pages: `concepts/adapter-model.md`, `reference/environment.md`, `reference/workflow-config.md`, a dedicated `reference/adapter-<agent>.md`, a `getting-started/<tracker>-<agent>-end-to-end.md` tutorial, and `guides/use-sortie-in-docker.md` if you added a Dockerfile.
 - A `README.md` mention.
 - A release-pipeline job in `.github/workflows/release.yml` following the `test-integration-<agent>` pattern, wired into the final `release` job's `needs:` list. The job stays inert until the secret it reads is provisioned.
@@ -475,6 +490,8 @@ These steps need repository access an outside contributor does not have. Make th
 **Calling `EmitWarnLines` inside `OnFinalize`.** The skeleton calls it for you when `OnFinalize` returns a non-nil error. Calling it yourself double-logs the stderr.
 
 **Handling cancellation, exit 127, or signal kills inside `OnFinalize`.** The skeleton owns those arms. `OnFinalize` sees only a normal process exit; trying to detect a signal there is dead code.
+
+**Deciding the turn disposition yourself.** Report evidence through `TurnEvidence` and let `FinalizeTurn` decide. Emitting a terminal event or building a `domain.AgentError` for your own outcome fails the conformance test in `agentcore` and re-forks a rule every other adapter shares.
 
 **Inventing a structured stream or fabricating token usage where the CLI provides neither.** If there is no token data, `GetUsage` returns the zero `TokenUsage` and you emit no `token_usage` event. Do not synthesize numbers.
 

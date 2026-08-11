@@ -23,19 +23,51 @@ By default the binary is installed to `/usr/local/bin` when running as root,
 or `~/.local/bin` otherwise. If the install directory is not already on your
 `PATH`, the script prints the exact command to add it.
 
+Re-running the script is safe. When the requested release is already installed
+in the target directory, the script says so and exits without downloading
+anything.
+
 ### Script Options
 
-| Variable | Effect |
-|---|---|
-| `SORTIE_VERSION` | Pin a specific release (e.g. `1.14.0`). Without it, the latest release is used. |
-| `SORTIE_INSTALL_DIR` | Override the install directory. |
-| `SORTIE_NO_VERIFY=1` | Skip SHA-256 checksum verification (not recommended). |
+Each option is available as a flag and as an environment variable; the flag
+wins when both are set. To pass flags through the pipe, add `sh -s --`:
+
+```bash
+curl -sSL https://get.sortie-ai.com/install.sh | sh -s -- --help
+```
+
+| Flag | Variable | Effect |
+|---|---|---|
+| `-v`, `--version <version>` | `SORTIE_VERSION` | Pin a specific release (e.g. `1.19.0`). Without it, the latest release is used. |
+| `-d`, `--install-dir <dir>` | `SORTIE_INSTALL_DIR` | Override the install directory. |
+| `--no-verify` | `SORTIE_NO_VERIFY=1` | Skip SHA-256 checksum verification (not recommended). |
+| `-b`, `--binary <path>` | — | Install a binary already on disk instead of downloading one. |
+| `-h`, `--help` | — | Print the option list and exit. |
 
 Example — install a specific version to a custom directory:
 
 ```bash
-SORTIE_VERSION=1.14.0 SORTIE_INSTALL_DIR=/opt/bin \
+curl -sSL https://get.sortie-ai.com/install.sh | sh -s -- \
+  --version 1.19.0 --install-dir /opt/bin
+```
+
+The same thing with environment variables, which is the only form available
+when you cannot pass arguments:
+
+```bash
+SORTIE_VERSION=1.19.0 SORTIE_INSTALL_DIR=/opt/bin \
   curl -sSL https://get.sortie-ai.com/install.sh | sh
+```
+
+### GitHub Actions
+
+On a GitHub Actions runner the script appends the install directory to
+`$GITHUB_PATH`, so `sortie` is on the `PATH` of every later step without any
+extra wiring:
+
+```yaml
+- run: curl -sSL https://get.sortie-ai.com/install.sh | sh
+- run: sortie --version
 ```
 
 ## Install Script (Windows)
@@ -62,14 +94,14 @@ Set these as environment variables before running the one-liner:
 
 | Variable | Effect |
 |---|---|
-| `SORTIE_VERSION` | Pin a specific release (e.g. `1.14.0`). Without it, the latest release is used. |
+| `SORTIE_VERSION` | Pin a specific release (e.g. `1.19.0`). Without it, the latest release is used. |
 | `SORTIE_INSTALL_DIR` | Override the install directory. |
 | `SORTIE_NO_VERIFY` | Set to `1` to skip SHA-256 checksum verification (not recommended). |
 
 Example — install a specific version to a custom directory:
 
 ```powershell
-$env:SORTIE_VERSION = '1.14.0'
+$env:SORTIE_VERSION = '1.19.0'
 $env:SORTIE_INSTALL_DIR = 'C:\tools\sortie'
 irm 'https://get.sortie-ai.com/install.ps1' | iex
 ```
@@ -237,7 +269,7 @@ sortie --version
 You should see output like:
 
 ```
-sortie v0.x.x
+sortie 1.19.0 (commit: 0651d1f, built: 2026-07-11, go1.26.1, linux/amd64)
 ```
 
 ## Troubleshooting

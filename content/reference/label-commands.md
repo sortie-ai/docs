@@ -34,7 +34,7 @@ Label commands are configured in a single `reactions.label_commands` block in `W
 
 | Field              | Type    | Default         | Description                                                                                                                                                     |
 | ------------------ | ------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `provider`         | string  | _(required)_    | SCM adapter kind that activates label commands (e.g. `github`). Must match a registered adapter. Absent or empty disables the feature, and no journal read happens for either command. |
+| `provider`         | string  | _(required)_    | SCM adapter kind that activates label commands: `github`, `gitea`, or `gitlab`. Must match a registered adapter. Absent or empty disables the feature, and no journal read happens for either command. |
 | `review_label`     | string  | `sortie:review` | Label that triggers the read-only review command. An explicit empty string disables the review command.                                                         |
 | `fix_label`        | string  | `sortie:fix`    | Label that triggers the fix command. An explicit empty string disables the fix command.                                                                         |
 | `poll_interval_ms` | integer | `60000`         | Interval between label-journal polls per PR. A value below `30000` is clamped up to `30000` with a logged warning, not rejected.                                 |
@@ -47,7 +47,7 @@ Label commands are configured in a single `reactions.label_commands` block in `W
 
 **No escalation machinery.** The block carries no `max_retries`, `escalation`, or `escalation_label`, and detection has no retry budget. A human is in the loop; when nothing visibly happens, the operator re-applies the label.
 
-**Validation.** Setting `provider` while both `review_label` and `fix_label` are empty strings is a configuration error, a loud misconfiguration rather than a silently inert block. Because this is a config-shape check, it surfaces offline through `sortie validate`. A `provider` naming an unregistered SCM adapter is not a validate error; it fails at construction when the orchestrator resolves the adapter. When more than one SCM reaction kind is active (label commands, `review_comments`, `bot_review`, `merge_conflicts`, or `auto_merge`), every active kind must name the same `provider`; a mismatch is fatal at startup.
+**Validation.** Setting `provider` while both `review_label` and `fix_label` are empty strings is a configuration error, a loud misconfiguration rather than a silently inert block. Because this is a config-shape check, it surfaces offline through `sortie validate`. A `provider` naming an unregistered SCM adapter is also a validate error, reported under the check name `scm_adapter`. When more than one SCM reaction kind is active (label commands, `review_comments`, `bot_review`, `merge_conflicts`, `auto_merge`, or `merge_completion`), every active kind must name the same `provider`; a mismatch is fatal at startup and `sortie validate` reports it offline under `reactions.scm_provider_conflict`.
 
 **Example** (defaults):
 
@@ -64,7 +64,7 @@ reactions:
 
 ## How detection works
 
-A snapshot of the current labels cannot see a label applied and removed between two ticks, cannot tell a removed-and-reapplied label from an unchanged one, and names no actor. Sortie polls the PR's label-event journal instead. On GitHub the journal is the per-issue events API (pull requests are issues for that API family), whose `labeled` and `unlabeled` entries each carry a unique id, the label name, the acting user, and a timestamp. Each labeling gesture is a durable journal record, so a missed tick loses nothing: the record is re-readable on the next poll. Label names compare lowercased.
+A snapshot of the current labels cannot see a label applied and removed between two ticks, cannot tell a removed-and-reapplied label from an unchanged one, and names no actor. Sortie polls the PR's label-event journal instead. On GitHub the journal is the per-issue events API (pull requests are issues for that API family), whose `labeled` and `unlabeled` entries each carry a unique id, the label name, the acting user, and a timestamp. Gitea serves the same journal from the issue timeline route and GitLab from the merge request's resource label-event route; each adapter normalizes its own shape into the same entry. Each labeling gesture is a durable journal record, so a missed tick loses nothing: the record is re-readable on the next poll. Label names compare lowercased.
 
 Deduplication is a persisted per-PR position, a high-water mark over the journal, stored in the `reaction_fingerprints` table under the command's kind (`label-review` or `label-fix`). Each due tick reads the journal and considers only events that sort strictly after the stored mark, then advances the mark past every examined event, including foreign labels and `unlabeled` entries. The mark tracks journal position, not command history.
 
@@ -80,6 +80,8 @@ The command semantics follow from that model:
 - **No cancel after dispatch.** Once a dispatch is scheduled, removing the label does not cancel the running session. The retraction window closes at detection time.
 
 The journal read is bounded. On an event-heavy PR the adapter pages from the newest entries backward under a fixed cap of 20 pages and logs a warning naming the PR when the journal exceeds the cap, so a real command is never silently dropped.
+
+A journal entry the adapter retains but cannot read fails the whole poll. An entry whose timestamp is absent or is not a valid RFC 3339 value is never assigned a substituted time, because the timestamp is half of the stored position and a substituted value would sort the entry behind the mark and drop the command it carries. Sortie logs a warning naming the PR and the error, backs the PR off, and re-reads on the next due tick; no command on that PR dispatches while the forge keeps serving that entry. The retry carries no budget and escalates nothing. It ends when the forge serves a parseable value, or when the linked issue reaches a terminal state and the pending entry is discarded.
 
 ---
 

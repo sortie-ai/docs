@@ -7,13 +7,13 @@ date: 2026-04-10
 weight: 160
 url: /guides/configure-review-feedback/
 ---
-Review feedback routing closes the outer loop of agent-driven development. When a human reviewer leaves inline comments on a Sortie-created PR and submits the review with the "Request changes" verdict (the submit button in GitHub's review UI), Sortie detects those comments, assembles structured context (file paths, line ranges, reviewer names, comment bodies), and dispatches a continuation turn so the agent can address the feedback and push fixes. Without it, review comments sit on the PR until someone manually re-assigns the issue. With it, turnaround drops from hours to minutes.
+Review feedback routing closes the outer loop of agent-driven development. When a human reviewer leaves inline comments on a Sortie-created PR and submits the review with the "Request changes" verdict in the forge's review UI, Sortie detects those comments, assembles structured context (file paths, line ranges, reviewer names, comment bodies), and dispatches a continuation turn so the agent can address the feedback and push fixes. Without it, review comments sit on the PR until someone manually re-assigns the issue. With it, turnaround drops from hours to minutes.
 
 ## Prerequisites
 
-- Sortie running with the GitHub tracker adapter (`tracker.kind: github`) or a GitHub-compatible SCM provider
+- Sortie running with the GitHub, Gitea, or GitLab tracker adapter, or a registered SCM provider of one of those kinds
 - An agent adapter that creates PRs and writes `pr_number`, `owner`, and `repo` to `.sortie/scm.json` (see [Setup workspace hooks](/guides/setup-workspace-hooks/))
-- A GitHub personal access token with `repo` scope
+- An access token with the scope the SCM adapter needs to read reviews: GitHub needs `repo`; see the [Gitea adapter reference](/reference/adapter-gitea/#scopes) and the [GitLab adapter reference](/reference/adapter-gitlab/#scopes) for theirs
 
 ## Activate review feedback
 
@@ -27,7 +27,7 @@ reactions:
 
 There is no `enabled` flag. Presence of the `reactions.review_comments` block with a `provider` activates the feature; absence disables it.
 
-Once activated, review polling kicks in after each normal worker exit where the workspace's `.sortie/scm.json` contains `pr_number`, `owner`, and `repo`. Sortie only reacts to reviews submitted with the "Request changes" verdict in GitHub's UI. Reviews submitted as "Comment" or "Approve" are ignored. All three `scm.json` fields are required. If any is missing or zero-valued, Sortie skips review polling for that workspace silently. Existing workspaces that predate the feature are unaffected.
+Once activated, review polling kicks in after each normal worker exit where the workspace's `.sortie/scm.json` contains `pr_number`, `owner`, and `repo`. Sortie only reacts to reviews submitted with the "Request changes" verdict in the forge's review UI, whatever each one calls that state internally. Reviews submitted as "Comment" or "Approve" are ignored. All three `scm.json` fields are required. If any is missing or zero-valued, Sortie skips review polling for that workspace silently. Existing workspaces that predate the feature are unaffected.
 
 Your `after_run` hook or agent workflow writes these fields. Here's what `.sortie/scm.json` looks like:
 
@@ -100,9 +100,9 @@ Debounce prevents premature dispatch while a reviewer is still commenting. A rev
 
 1. The agent completes coding and pushes a PR. The `after_run` hook writes `pr_number`, `owner`, and `repo` to `.sortie/scm.json`.
 2. On normal worker exit, the orchestrator reads this metadata and creates a pending review reaction. Polling begins on the next reconcile tick.
-3. A reviewer submits a "Request changes" review (GitHub API state `CHANGES_REQUESTED`) with inline comments. Reviews submitted as "Comment" or "Approve" do not trigger the loop.
+3. A reviewer requests changes and leaves inline comments. Each forge spells that state differently, and each adapter selects against its own spelling. Comment-only and approving reviews do not trigger the loop.
 4. Sortie detects the comments on its next poll after the debounce window expires.
-5. Outdated comments (on lines the agent already changed) and bot comments (`user.type == "Bot"`) are filtered out.
+5. Outdated comments (on lines the agent already changed) are filtered out, as are comments whose author the forge marks as a bot account. Gitea carries no bot marker, so nothing is excluded there; see the [Gitea adapter reference](/reference/adapter-gitea/#bot-classification).
 6. Sortie builds a fingerprint from the remaining comment IDs. If this fingerprint was already dispatched, it skips (deduplication).
 7. Sortie dispatches a continuation turn with the review comments as structured prompt context.
 8. The agent addresses the comments, commits, and pushes fixes.
@@ -351,7 +351,7 @@ All `reactions.review_comments` fields in one place:
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `provider` | string | _(required)_ | SCM adapter kind. Currently `"github"`. Presence activates the feature. |
+| `provider` | string | _(required)_ | SCM adapter kind. One of `"github"`, `"gitea"`, or `"gitlab"`. Presence activates the feature. |
 | `max_retries` | integer | `2` | Max review-fix dispatches per issue before escalation. |
 | `escalation` | string | `"label"` | Escalation strategy: `"label"` or `"comment"`. |
 | `escalation_label` | string | `"needs-human"` | Label applied when `escalation` is `"label"`. Created on demand if the tracker does not already have it. |

@@ -62,9 +62,11 @@ agent:
   max_tokens: 1500000
 ```
 
-This cap is adapter-independent. It reads the token counts every adapter already reports, so it works whether or not your agent has a native budget field. It is also the only orchestrator-level cap denominated in actual consumption: `max_sessions` bounds how many attempts an issue gets, `max_tokens` bounds what those attempts may consume in total. The two ceilings are independent, and whichever fills first wins.
+This cap lives in the orchestrator, not in the agent's own budget field, so it applies whether or not your agent has one. It enforces against what your agent runtime actually reports: an adapter that never reports token counts produces a sum that never reaches the ceiling, and `agent.turn_timeout_ms` is the backstop for that case. It is also the only orchestrator-level cap denominated in actual consumption: `max_sessions` bounds how many attempts an issue gets, `max_tokens` bounds what those attempts may consume in total. The two ceilings are independent, and whichever fills first wins.
 
 The check runs before re-dispatch, not during a session. A running session is never killed by the token budget, so cumulative spend can overshoot the ceiling by at most one session's worth, which is exactly what the per-session and per-turn caps bound.
+
+A run whose agent reported no token usage is recorded unmeasured and contributes nothing to the sum. A measured sum that reaches the ceiling still blocks, unmeasured runs or not. When the measured sum is below the ceiling but the issue has unmeasured runs, Sortie dispatches and logs `token budget cannot be fully evaluated, allowing dispatch` naming the issue, the sum, the ceiling, and the unmeasured count. A failed token-sum query also allows the dispatch, under a warning of its own. Grep your logs for `token budget` to catch both, and check `used_tokens_complete` on the `cost_budget` tool to see whether the current figure is trustworthy.
 
 Agents can read this budget themselves. The `cost_budget` tool returns cumulative spend and remaining budget mid-session, the same numbers the orchestrator enforces, so a well-prompted agent wraps up before the ceiling lands. See [how to use agent tools in prompts](/guides/use-agent-tools-in-prompts/) for the prompt pattern and the [agent extensions reference](/reference/agent-extensions/) for the response schema. For field-level details (validation, env override, reload), see the [`agent` section reference](/reference/workflow-config/#agent).
 
@@ -215,7 +217,7 @@ rate(sortie_tokens_total{type="input"}[1h])
 
 Set up alerting when token burn exceeds your budget threshold. The [Prometheus guide](/guides/monitor-with-prometheus/) walks through scrape config and alert rules.
 
-**Logs.** Sortie's structured logs record what ran, not what it cost. No log line carries a dollar figure. One carries a token count: when `agent.max_tokens` is set and an issue exhausts it, Sortie logs `token budget exhausted, blocking re-dispatch` with `used_tokens`, the issue's cumulative tokens across every session, and `budget_tokens`, the ceiling it hit. Grep for that message to find the issues that reached the ceiling. For the spend figures themselves, reach for `sortie stats` or the `sortie_tokens_total` counter above. The [logging guide](/guides/monitor-with-logs/) covers structured log access.
+**Logs.** Sortie's structured logs record what ran, not what it cost. No log line carries a dollar figure. Two carry a token count, both gated on `agent.max_tokens` being set: `token budget exhausted, blocking re-dispatch` when an issue reaches the ceiling, and `token budget cannot be fully evaluated, allowing dispatch` when it has not but some of its runs went unmeasured. Both carry `used_tokens`, the issue's measured cumulative tokens across every session, and `budget_tokens`, the ceiling. Grep for `token budget` to find both. For the spend figures themselves, reach for `sortie stats` or the `sortie_tokens_total` counter above. The [logging guide](/guides/monitor-with-logs/) covers structured log access.
 
 **`sortie stats`.** The `stats` subcommand reports what finished work actually cost, aggregated from the local database over a range you choose and broken down by outcome, coding agent, dispatch rule, and prompt template. It is the only one of these surfaces that reports historical spend against completed runs rather than live or per-event figures, which makes it the one to reach for when the question is which dispatch rule or prompt template is burning the budget. Cost figures need `token_rates`, exactly as the dashboard does; without it you get token counts and no dollars.
 
@@ -233,9 +235,9 @@ You now have six layers of cost protection:
 
 1. A **per-turn hard cap** (adapter-specific) that stops the agent mid-session when spending exceeds the budget
 2. A **session limit** that prevents infinite retries on stuck issues
-3. A **per-issue token ceiling** that stops new sessions once cumulative spend crosses the budget
+3. A **per-issue token ceiling** that stops new sessions once measured cumulative spend crosses the budget
 4. A **turn limit** that bounds orchestrator loop iterations per session
 5. A **concurrency cap** that limits parallel spending
 6. A **cost-efficient model and effort level** (adapter-specific) to reduce per-token spend
 
-The per-turn cap, session limit, and turn limit are multiplicative; they set your worst-case dollar ceiling. The token ceiling is an absolute cap on top of the multiplication: an issue stops consuming new sessions at the budget no matter how the factors line up. The concurrency cap and model choice control burn rate. All six fail safe: when a cap is hit, the agent stops. No silent overruns.
+The per-turn cap, session limit, and turn limit are multiplicative; they set your worst-case dollar ceiling. The token ceiling is an absolute cap on top of the multiplication: an issue stops consuming new sessions at the budget no matter how the factors line up. The concurrency cap and model choice control burn rate. The five hard ceilings fail safe: when one is hit, the agent stops. The token ceiling enforces against measured spend and announces, rather than hides, the sessions it could not measure.

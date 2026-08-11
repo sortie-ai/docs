@@ -75,11 +75,13 @@ Errors from agent adapter sessions. They appear in logs with the format `agent: 
 | `invalid_workspace_cwd` | Workspace path is invalid, doesn't exist, or isn't a directory. | No | - | Check `workspace.root` permissions and available disk space. |
 | `response_timeout` | Startup or synchronous communication timed out before the agent responded. | Yes | Exponential | Increase [`agent.read_timeout_ms`](/reference/workflow-config/) if persistent. |
 | `turn_timeout` | A turn exceeded the configured [`agent.turn_timeout_ms`](/reference/workflow-config/). | Yes | Exponential | Increase the timeout, or simplify the task so the agent finishes faster. |
-| `port_exit` | Agent subprocess exited unexpectedly (non-zero exit code, pipe failure, or crash). | Yes | Exponential | Check agent logs for crash details. For SSH workers, exit code `255` indicates an SSH connection failure - check connectivity and verify the host is in `worker.ssh_hosts`. |
+| `port_exit` | Agent subprocess exited unexpectedly (non-zero exit code, pipe failure, or crash), or the runtime reported no turn outcome and the adapter had no per-turn process exit to observe. | Yes | Exponential | Check agent logs for crash details. For SSH workers, exit code `255` indicates an SSH connection failure - check connectivity and verify the host is in `worker.ssh_hosts`. |
 | `response_error` | Agent returned a protocol-level error response. | Yes | Exponential | Check agent version compatibility with Sortie. |
-| `turn_failed` | Agent turn completed with a failure status (the agent reported its own failure), or the agent exited with zero output tokens and no result event (no-output safety heuristic). | Yes | Exponential | Review the agent output in Sortie's logs for failure details. For no-output failures, check WARN-level logs for the agent's stderr content - common causes include MCP config parse errors and missing model configuration. |
+| `turn_failed` | Agent turn completed with a failure status (the agent reported its own failure), or the agent exited with code `0` without reporting a turn outcome and without producing evidence that the model did any work this turn. | Yes | Exponential | Review the agent output in Sortie's logs for failure details. For no-output failures, check WARN-level logs for the agent's stderr content - common causes include MCP config parse errors and missing model configuration. |
 | `turn_cancelled` | Turn was cancelled (reconciliation kill, stall detection, or shutdown). | No | - | Expected during reconciliation. No action needed unless frequent outside of shutdown. |
 | `turn_input_required` | Agent requested interactive user input. | No | - | Reconfigure the agent for non-interactive mode. For Claude Code, use `--allowedTools` to pre-authorize tools. |
+
+Failure text is uniform across coding agents. A turn that exits `0` having produced nothing reports `agent exited without producing output`, followed by the signal the adapter looked for when it names one (for example `agent exited without producing output: no assistant output on the run stream`). A non-zero exit reports `exit code N`. A runtime that reported no turn outcome and gave the adapter no process exit to observe reports `runtime reported no turn outcome`.
 
 ---
 
@@ -125,7 +127,7 @@ Not errors per se, but essential for understanding session outcomes. Appear in l
 
 | Exit kind | Meaning | What happens next |
 |---|---|---|
-| `normal` | Turn loop completed without error. | If issue is still active and `max_turns` reached: continuation retry (1s delay). If [`handoff_state`](/reference/workflow-config/) configured and issue still active: transition attempt, claim released on success, continuation retry on failure. If issue no longer active: claim released. |
+| `normal` | Turn loop completed without error. | If the tracker reports the issue in a terminal state: handoff suppressed, claim released. If [`handoff_state`](/reference/workflow-config/) configured and issue still active: transition attempt, claim released on success, continuation retry on failure. If issue still active with no handoff state configured: continuation retry (1s delay). If issue no longer active: claim released. A [`.sortie/status`](/reference/agent-extensions/) soft stop suppresses the continuation retry in every case, and `blocked` also suppresses the handoff transition. |
 | `error` | Fatal error during session. | If the error is retryable: exponential backoff retry. If not: claim released immediately, the issue becomes re-dispatchable on the next poll cycle. |
 | `cancelled` | Context cancelled (reconciliation kill, stall detection, or shutdown). | Claim released unless reconciliation pre-scheduled a retry. No automatic retry - reconciliation handles re-dispatch. |
 

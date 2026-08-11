@@ -50,7 +50,7 @@ The top bar displays:
 | Element | Description |
 |---|---|
 | **Sortie** | Application name. |
-| Version badge | Build version string (e.g., `1.14.0`). Shows `dev` when running an untagged build. |
+| Version badge | Build version string (e.g., `1.19.0`). Shows `dev` when running an untagged build. |
 | Uptime | Wall-clock time since the process started, formatted as `Xd Xh Xm` or `Xh Xm Xs`. |
 | Timestamp | UTC time when the snapshot was generated, in `HH:MM:SS UTC` format. |
 
@@ -63,7 +63,7 @@ Four cards across the top provide the high-level picture. A fifth card appears w
 | **Running** | Green | Integer | Always | Number of agent sessions currently executing. Maps to `sortie_sessions_running` in [Prometheus](/reference/prometheus-metrics/). |
 | **Retrying** | Yellow | Integer | Always | Number of issues in the retry queue - waiting for their next attempt after an error, continuation, or stall timeout. Maps to `sortie_sessions_retrying`. |
 | **Slots Free** | Gray | Integer | Always | Remaining dispatch capacity: `max_concurrent_agents − running`. When this reaches 0, the orchestrator waits for a running session to finish before dispatching the next issue. |
-| **Total Tokens** | Blue | Integer (comma-formatted) | Always | Cumulative LLM tokens consumed across all sessions since startup. Includes input, output, and cache-read tokens. |
+| **Total Tokens** | Blue | Integer (comma-formatted) | Always | Cumulative LLM tokens consumed across all sessions since startup: input plus output. Cache-read tokens are a subset of input and are not added on top. Sessions that reported no token usage contribute nothing. |
 | **Active Est. Cost (USD)** | Neutral | USD string | `token_rates` configured | Estimated cost across currently running sessions, computed from configured per-token rates. Shows an em dash when no running session matches a configured rate. See [cost estimation](#cost-estimation). |
 
 ## Accordion row detail
@@ -122,8 +122,8 @@ Lists every agent session that is actively executing. Sorted by start time (olde
 | **Host** | SSH host where the agent is running. This field appears only when at least one session uses an SSH host. Shows `local` for sessions running on the same machine as Sortie. |
 | **Model** | LLM model name reported by the agent (e.g., `claude-sonnet-4-20250514`). Shows an em dash when the agent has not reported a model. |
 | **API Requests** | Number of API requests the agent has made to the LLM provider. |
-| **Tokens** | Total tokens consumed by this session. When cache-read tokens are nonzero, they appear in parentheses (e.g., `12,450 (8,200 cached)`). |
-| **Est. Cost** | Estimated cost for this session based on configured [token rates](/reference/workflow-config/#token_rates). Shows an em dash when token rates are not configured for this session's agent adapter kind. This field appears only when `token_rates` is configured. |
+| **Tokens** | Total tokens consumed by this session. When cache-read tokens are nonzero, they appear in parentheses (e.g., `12,450 (8,200 cached)`). Shows `not reported` when the coding agent has reported no token usage for this session, which is distinct from a reported `0`. |
+| **Est. Cost** | Estimated cost for this session based on configured [token rates](/reference/workflow-config/#token_rates). Shows an em dash when token rates are not configured for this session's agent adapter kind, or when its **Tokens** field reads `not reported`. This field appears only when `token_rates` is configured. |
 | **Tool Time** | Percentage of elapsed wall-clock time the agent spent in tool calls. Shows `N/A` until the session has both elapsed time and recorded tool time. |
 | **API Time** | Percentage of elapsed wall-clock time the agent spent waiting for LLM API responses. Shows `N/A` until both elapsed time and API time are recorded. |
 
@@ -185,6 +185,8 @@ The footer displays aggregate statistics across all sessions since startup:
 | **Auto-refresh** | Reminder that the page refreshes every 5 seconds. |
 
 When `token_rates` is configured, a disclaimer line appears below the aggregate stats: "Cost estimates are based on configured token rates and may differ from actual provider billing."
+
+When at least one running session has reported no token usage, a further line names the count: "N running sessions have not reported token usage; the totals above exclude them." The line is absent when every running session has reported usage.
 
 ## Cost estimation
 

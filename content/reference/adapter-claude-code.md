@@ -180,7 +180,7 @@ Claude Code emits one JSON object per line on stdout when invoked with `--output
 | `system` | `api_retry` | `notification` | Formats retry metadata (attempt, delay, status). |
 | `system` | _(other)_ | `notification` | Generic system notification. |
 | `assistant` | - | `notification` | Summarizes content blocks (text, tool_use). |
-| `assistant` | _(with usage)_ | `token_usage` | Emits cumulative token counts and model identifier. |
+| `assistant` | _(with usage)_ | `token_usage` | Emits cumulative token counts and model identifier, at most once per message id. |
 | `assistant` | _(with tool_use block)_ | `tool_result` | Records tool name, duration, and error status. |
 | `user` | _(tool_result blocks)_ | `tool_result` | Correlates with in-flight `tool_use` blocks for duration. |
 | `result` | `subtype=success`, `is_error=false` | `turn_completed` | Successful turn completion. |
@@ -201,20 +201,21 @@ The `result` event carries turn-level metadata:
 | `duration_ms` | integer | Wall-clock turn duration in milliseconds. |
 | `duration_api_ms` | integer | Aggregate API response wait time in milliseconds. |
 | `num_turns` | integer | Number of agentic steps taken in this turn. |
-| `usage` | object | Token counts: `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`. |
+| `usage` | object | Token counts for the primary agent only: `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`. Excludes sub-agent activity. |
+| `modelUsage` | object | Per-model breakdown keyed by model name, each with `inputTokens`, `outputTokens`, `cacheReadInputTokens`, `cacheCreationInputTokens`, and `costUSD`. Includes sub-agent activity. |
 
 ---
 
 ## Token accounting
 
-The adapter accumulates token counts across all `assistant` messages within a turn, because Claude Code reports per-request usage (not cumulative). The orchestrator expects cumulative values for its delta algorithm.
+Reported token counts are cumulative over the whole session the orchestrator opened, across every turn of it, and never decrease. The `result` event at the end of each turn carries the authoritative figure for that turn; `assistant` events supply a provisional running estimate while the turn is still in flight.
 
 ### Accumulation logic
 
-1. Each `assistant` event with a `usage` field increments the running totals for `input_tokens`, `output_tokens`, and `cache_read_input_tokens`.
-2. `total_tokens` is computed as `input_tokens + output_tokens`.
-3. The cumulative totals are emitted as a `token_usage` event after each `assistant` message.
-4. If no per-message usage was emitted during the turn, the `result` event's usage serves as the fallback. This avoids inflating the orchestrator's API request counter.
+1. Each `assistant` event carrying a `usage` object contributes a provisional per-message figure, keyed by the message id. Claude Code repeats one message id across every streamed event of the same model request and grows the usage object as the response generates, so the adapter keeps the largest value seen per id rather than summing the repeats.
+2. A `token_usage` event is emitted the first time a message id is seen, and not again for that id, so the count matches API requests rather than stream events.
+3. On the `result` event, the per-model `modelUsage` breakdown is summed across every model entry and settled into the session total, replacing the turn's provisional estimate. The top-level `usage` object is used only when `modelUsage` is absent or empty. `modelUsage` is preferred because the top-level figure excludes sub-agent activity while the breakdown includes it — see [how to use sub-agents](/guides/use-subagents-with-sortie/#account-for-sub-agent-costs).
+4. In both shapes, `input_tokens` is the sum of the plain input count, cache-read tokens, and cache-creation tokens; `cache_read_tokens` carries the cache-read count separately as a subset of input; `total_tokens` is computed as `input_tokens + output_tokens` rather than read from any vendor total.
 
 ### Model tracking
 

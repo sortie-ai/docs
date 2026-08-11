@@ -15,9 +15,9 @@ The proof: when the GitHub Issues tracker adapter shipped in v1.1.0, it required
 
 ## What the TrackerAdapter contract looks like
 
-Every issue tracker — Jira, GitHub Issues, Linear, GitLab — does the same five things differently. It stores issues with states and metadata. It lets you query for issues by state. It lets you transition issues between states. It lets you post comments. And it lets you check whether an issue still exists.
+Every issue tracker — Jira, GitHub Issues, GitLab, Gitea, Linear — does the same five things differently. It stores issues with states and metadata. It lets you query for issues by state. It lets you transition issues between states. It lets you post comments. And it lets you check whether an issue still exists.
 
-The `TrackerAdapter` interface captures these five capabilities in eight methods. Conceptually, they split into two groups: read operations (fetch candidates by state, fetch a single issue with comments, batch-fetch states for reconciliation) and write operations (transition an issue's state, post a comment). The interface does not prescribe how these operations happen internally — an adapter can use REST, GraphQL, a local filesystem, or carrier pigeons. The orchestrator sees the same `Issue` struct regardless.
+The `TrackerAdapter` interface captures these five capabilities in nine methods. Conceptually, they split into two groups: read operations (fetch candidates by state, fetch a single issue with comments, batch-fetch states for reconciliation) and write operations (transition an issue's state, post a comment). The interface does not prescribe how these operations happen internally — an adapter can use REST, GraphQL, a local filesystem, or carrier pigeons. The orchestrator sees the same `Issue` struct regardless.
 
 The concrete differences between trackers are substantial. Jira uses JQL for querying and requires you to fetch available workflow transitions before moving a ticket — you can't transition to "In Review" without first asking Jira which transitions the issue's current state allows. GitHub Issues has only two native states (`open` and `closed`), so the GitHub adapter maps Sortie's orchestration states through labels: `sortie:active`, `sortie:done`, and their peers. Linear uses GraphQL and native named states. Each tracker has its own pagination model, its own error format, its own authentication scheme.
 
@@ -53,9 +53,9 @@ That spread is why the interface is organized around lifecycle and normalized ev
 
 ## CI and SCM: the same pattern, extended
 
-The boundary is not limited to trackers and agents. The reaction subsystem, which acts on a pull request after the agent hands off, added two more interfaces behind the same wall. The `CIStatusProvider` reads pipeline status for a git ref, so the orchestrator can re-dispatch an agent when CI fails. The `SCMAdapter` reads pull-request data (review decisions, requested-change comments, mergeability) and, for the auto-merge reaction, writes: it merges an approved pull request and optionally deletes the source branch. Both register through the same kind-keyed registry as trackers and agents, obey the same naming rule, and normalize provider-specific responses (GitHub today) into domain types.
+The boundary is not limited to trackers and agents. The reaction subsystem, which acts on a pull request after the agent hands off, added two more interfaces behind the same wall. The `CIStatusProvider` reads pipeline status for a git ref, so the orchestrator can re-dispatch an agent when CI fails. The `SCMAdapter` reads pull-request data (review decisions, requested-change comments, mergeability) and, for the auto-merge reaction, writes: it merges an approved pull request and optionally deletes the source branch. Both register through the same kind-keyed registry as trackers and agents, obey the same naming rule, and normalize provider-specific responses (GitHub, Gitea, and GitLab today) into domain types.
 
-Auto-merge is worth singling out, because it is the one place where an adapter changes the outside world rather than only observing it. Even there, the orchestrator gained the authority to merge pull requests without learning a single GitHub-specific detail. The write path is six methods on one interface and a typed `ErrSCMConflict` for the races a merge can lose; the scheduler that calls them still sees only domain types. The pattern that made trackers and agents disposable made the merge capability additive in exactly the same way.
+Auto-merge is worth singling out, because it is the one place where an adapter changes the outside world rather than only observing it. Even there, the orchestrator gained the authority to merge pull requests without learning a single forge-specific detail. The write path is two more methods on that one interface and a typed `ErrSCMConflict` for the races a merge can lose; the scheduler that calls them still sees only domain types. The pattern that made trackers and agents disposable made the merge capability additive in exactly the same way.
 
 The newest arrival is the notifier family: the `webhook` and `slack` backends behind the [`notify_operator` tool](/reference/agent-extensions/#notify_operator) implement a one-method `Notifier` interface, register through the same kind-keyed registry, and obey the same boundary rules. A new notification channel is a new package, not a core change.
 
@@ -103,7 +103,7 @@ Your team switches from Jira to Linear. In a hardcoded orchestrator, this is a m
 
 Your bet on Claude Code doesn't pan out and you move to Codex. Same story: change `agent.kind: codex` in WORKFLOW.md. The same workflow definitions, the same lifecycle hooks, the same budget controls, the same stall detection apply. The orchestrator's relationship with the agent hasn't changed — only the adapter behind the interface.
 
-For contributors, the barrier is correspondingly low. Adding a tracker adapter for an internal issue system means implementing eight methods in one package. You don't need to understand the orchestrator's state machine, the retry backoff formula, or the reconciliation algorithm. The interface tells you what the orchestrator needs; the existing adapters show you the pattern. The adapter tests verify you satisfy the contract.
+For contributors, the barrier is correspondingly low. Adding a tracker adapter for an internal issue system means implementing nine methods in one package. You don't need to understand the orchestrator's state machine, the retry backoff formula, or the reconciliation algorithm. The interface tells you what the orchestrator needs; the existing adapters show you the pattern. The adapter tests verify you satisfy the contract.
 
 The design bet underlying all of this: the agent and tracker landscape will keep churning. New tools will appear. Existing tools will change their APIs. Teams will switch providers. Sortie's response is to make adapters disposable and the orchestration core stable. You adopt the orchestrator once. Adapters come and go.
 
@@ -113,6 +113,9 @@ The design bet underlying all of this: the agent and tracker landscape will keep
 - [Orchestration](/concepts/orchestration/) — how the dispatch-retry-reconcile loop uses adapter interfaces
 - [Jira adapter reference](/reference/adapter-jira/) — Jira-specific configuration and setup
 - [GitHub adapter reference](/reference/adapter-github/) — GitHub Issues configuration and label mapping
+- [GitLab adapter reference](/reference/adapter-gitlab/) — GitLab Issues configuration and label mapping
+- [Gitea adapter reference](/reference/adapter-gitea/) — Gitea Issues configuration and label mapping
+- [Linear adapter reference](/reference/adapter-linear/) — Linear-specific configuration and state mapping
 - [Claude Code adapter reference](/reference/adapter-claude-code/) — agent integration details
 - [Copilot CLI adapter reference](/reference/adapter-copilot/) — agent integration details
 - [Codex adapter reference](/reference/adapter-codex/) — agent integration details

@@ -216,13 +216,21 @@ time=2026-03-26T14:35:22.000+00:00 level=WARN msg="token budget exhausted, block
 
 This fires when `agent.max_tokens` is set and an issue's cumulative tokens across every completed session reach the configured ceiling. The check runs on the pre-dispatch path, before a scheduled retry fires, so it blocks the next dispatch rather than interrupting a session already running. `used_tokens` is the issue's running total; `budget_tokens` is the ceiling it hit. `used_sessions` and `budget_sessions` report the same comparison for the session-count budget, in case the issue is close to both ceilings at once.
 
-If Sortie can't read the token total, it fails open rather than blocking a retry on a persistence error:
+A session whose coding agent reported no token usage at all is recorded as unmeasured and contributes nothing to `used_tokens`. When an issue is still under the ceiling but some of its sessions went unmeasured, Sortie says so and dispatches anyway:
+
+```
+time=2026-03-26T14:35:22.000+00:00 level=WARN msg="token budget cannot be fully evaluated, allowing dispatch" issue_id=abc123 issue_identifier=MT-649 used_tokens=31000 budget_tokens=50000 unmeasured_sessions=2
+```
+
+`unmeasured_sessions` is how many of the issue's recorded sessions carry no spend figure, so `used_tokens` is a lower bound rather than the whole story. The ceiling message above takes precedence: an issue whose measured total already reaches the ceiling is blocked and logs that instead.
+
+If Sortie can't read the token total at all, it fails open rather than blocking a retry on a persistence error:
 
 ```
 time=2026-03-26T14:35:21.900+00:00 level=WARN msg="token budget check failed, proceeding with dispatch" issue_id=abc123 issue_identifier=MT-649 error="database is locked"
 ```
 
-WARN either way, but the outcome differs: dispatch proceeds here, where the ceiling message above blocks it.
+WARN in all three cases, but the outcome differs: dispatch proceeds for the latter two, where the ceiling message blocks it.
 
 ### Dispatch preflight failures
 

@@ -27,7 +27,7 @@ The adapter reads its configuration from the `tracker` section of the [WORKFLOW.
 | `handoff_state` | string | No | _(absent)_ | Repository label name set after a successful agent run. Must appear in neither `active_states` nor `terminal_states`. Absent disables handoff. |
 | `in_progress_state` | string | No | _(absent)_ | Repository label set at dispatch, before the agent runs. Must appear in `active_states`. Absent disables the dispatch-time transition. |
 | `query_filter` | string | No | `""` | URL query fragment merged into the repository issue-list request. See [query filter](#query-filter). |
-| `user_agent` | string | No | `"sortie/dev"` | `User-Agent` header sent on all requests. |
+| `user_agent` | string | No | `sortie/<version>` | `User-Agent` header sent on all requests. Sortie sets the tracker role's value to its own version string, so only the SCM and CI roles honor an override, set in a top-level `gitea:` block. |
 
 `in_progress_state` is a generic tracker field, not a Gitea-specific one. When set, the orchestrator transitions the issue into that label at dispatch through the same label swap `TransitionIssue` performs. Its collision rules (must appear in `active_states`, must not collide with `terminal_states` or `handoff_state`) are enforced by the generic config validation, so the Gitea validate hook carries no `in_progress_state` arm of its own.
 
@@ -59,7 +59,7 @@ Repository in `owner/repo` form, for example `sortie-ai/sortie`. The adapter spl
 
 ### State defaults
 
-`defaultActiveStates` is `["backlog", "in-progress", "review"]`; `defaultTerminalStates` is `["done", "wontfix"]`. When `active_states` or `terminal_states` is omitted, the adapter substitutes the corresponding default to derive an issue's state from its labels; an open issue with no state label derives to the first active state. These defaults feed state derivation only. The orchestrator gates dispatch on the workflow's configured `active_states`, not on the adapter's substituted defaults, so an omitted `active_states` dispatches nothing. Set both lists to the repository's actual labels rather than relying on the defaults.
+The adapter's default active states are `["backlog", "in-progress", "review"]`; its default terminal states are `["done", "wontfix"]`. When `active_states` or `terminal_states` is omitted, the adapter substitutes the corresponding default to derive an issue's state from its labels; an open issue with no state label derives to the first active state. These defaults feed state derivation only. The orchestrator gates dispatch on the workflow's configured `active_states`, not on the adapter's substituted defaults, so an omitted `active_states` dispatches nothing. Set both lists to the repository's actual labels rather than relying on the defaults.
 
 ---
 
@@ -87,7 +87,7 @@ The minimal verified scope set is `write:issue`, `read:user`, and `read:reposito
 |---|---|
 | `Authorization` | `token <api_key>`, verbatim. |
 | `Accept` | `application/json` |
-| `User-Agent` | Configured `user_agent` value. |
+| `User-Agent` | `sortie/<version>` on tracker requests; the configured `user_agent` value on SCM and CI requests, defaulting to `sortie/dev`. |
 | `Content-Type` | `application/json`, on requests with a body. |
 
 The HTTP client has a 30-second per-request timeout. Context cancellation propagates; a cancelled context aborts the in-flight request.
@@ -290,7 +290,7 @@ These routes paginate by page number, not by the `Link` header the tracker route
 
 Reviews carry a `state` enum of `APPROVED`, `PENDING`, `COMMENT`, `REQUEST_CHANGES`, and `REQUEST_REVIEW`. Gitea spells the changes-requested state `REQUEST_CHANGES`, not GitHub's `CHANGES_REQUESTED`; a state filter copied from the GitHub adapter matches nothing. Reviews an operator dismissed are skipped by every read.
 
-`GetReviewDecision` folds the review list in the adapter, since Gitea has no aggregate field to read. Reviews are ordered by `submitted_at` then `id`, and the latest `APPROVED` or `REQUEST_CHANGES` per reviewer supersedes that reviewer's earlier reviews; `COMMENT`, `PENDING`, and `REQUEST_REVIEW` are not decisions. Any standing `REQUEST_CHANGES` yields the changes-requested decision; otherwise any `APPROVED` yields approved; otherwise a non-empty `requested_reviewers` list on the PR yields review-required; otherwise not-required.
+`GetReviewDecision` folds the review list in the adapter, since Gitea has no aggregate field to read. Reviews are ordered by `submitted_at` then `id`, and the latest `APPROVED` or `REQUEST_CHANGES` per reviewer supersedes that reviewer's earlier reviews; `COMMENT`, `PENDING`, and `REQUEST_REVIEW` are not decisions. The ordering is load-bearing, so a `submitted_at` that is not a valid RFC 3339 value fails the read rather than sorting the review to the epoch, where a superseded approval could outrank the changes-requested review that supersedes it. Only reviews that can change the verdict are parsed, so a dismissed or non-decision review cannot fail the read. Any standing `REQUEST_CHANGES` yields the changes-requested decision; otherwise any `APPROVED` yields approved; otherwise a non-empty `requested_reviewers` list on the PR yields review-required; otherwise not-required.
 
 Review comments are single-line: the comment object carries `position` but no end-line field. A comment whose anchor a later push removed reports `position: 0`; its line falls back to `original_position` and the comment is marked outdated. A retained review's own body is returned as a PR-level comment alongside its inline comments.
 
@@ -365,7 +365,7 @@ The combined tracker-and-SCM package `internal/scm/gitea` registers three kinds 
 | `RequiresAPIKey` | `true` |
 | `ValidateTrackerConfig` | Offline config diagnostics for `sortie validate`. |
 
-The orchestrator's preflight validation uses `RequiresProject` and `RequiresAPIKey` to produce specific error messages before adapter construction. `ValidateTrackerConfig` runs the Gitea-specific offline checks (endpoint presence and shape, `owner/repo` format, empty state labels, active-terminal state overlap, and the `$SORTIE_GITEA_TOKEN` hint) without making network calls.
+The orchestrator's preflight validation uses `RequiresProject` and `RequiresAPIKey` to produce specific error messages before adapter construction. `ValidateTrackerConfig` runs the Gitea-specific offline checks without making network calls: endpoint presence and shape, the plain-`http` and redundant `/api/v1` advisories, `owner/repo` format, the `query_filter` grammar, the `$SORTIE_GITEA_TOKEN` hint, a key carrying surrounding whitespace, empty or padded state names, and active-terminal state overlap. State collisions involving `handoff_state` or `in_progress_state` are rejected by the generic configuration layer before adapter validation runs, for every `tracker.kind`.
 
 ---
 

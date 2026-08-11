@@ -221,6 +221,16 @@ After running Sortie against an issue, check whether the agent invoked sub-agent
 
 If the agent ignores the sub-agents, strengthen the prompt language. Replace suggestions ("consider using the reviewer agent") with directives ("you must delegate to the reviewer agent before completing the task"). Agent runtimes discover the files automatically, but the primary agent decides whether to delegate based on the prompt instructions it receives.
 
+## Account for sub-agent costs
+
+Fanning work out to a reviewer or planner sub-agent does not create a separate budget. The per-issue token ceiling ([`agent.max_tokens`](/guides/control-costs/#cap-tokens-per-issue)) sums what your agent runtime reports for the session, and sub-agent work runs inside that session, so it lands in the same total. Delegating to a sub-agent doesn't exempt that work from the ceiling, and it doesn't get a budget of its own.
+
+How completely that total reflects reality depends on what your runtime reports. A runtime that folds sub-agent token usage into the figures it exposes gives Sortie a ceiling that sees everything a delegation costs. A runtime that reports only the primary agent's own usage leaves sub-agent spend outside what Sortie can see, and the ceiling undercounts by exactly that gap. For Claude Code, this is a real distinction the adapter handles: the top-level usage figure on the result event excludes sub-agent activity, so the adapter reads the per-model usage breakdown instead, because that one includes it.
+
+For every other runtime, check your agent's own documentation on how it reports sub-agent usage before assuming the ceiling sees everything a delegation spends.
+
+See [how to control agent costs](/guides/control-costs/) for the full set of budget levers, and read the [`cost_budget` tool](/reference/agent-extensions/) if you want the agent itself to check remaining budget mid-session before it delegates further.
+
 ## What we covered
 
 Sub-agents work in Sortie workflows without any Sortie configuration — clone a repo with agent files, reference the agents by name in your prompt, and the agent runtime handles discovery and routing. The invocation syntax differs by runtime, but natural language descriptions work across all three. For the full prompt template syntax, see the [prompt template guide](/guides/write-prompt-template/). For the complete front matter schema including hooks, see the [WORKFLOW.md reference](/reference/workflow-config/).

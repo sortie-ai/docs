@@ -31,7 +31,7 @@ Monotonically increasing. Apply `rate()` or `increase()` to extract per-second o
 
 | Name | Labels | Description | Producing layer |
 |---|---|---|---|
-| `sortie_tokens_total` | `type` | Cumulative LLM tokens consumed. `type` is `input`, `output`, or `cache_read`. | Coordination |
+| `sortie_tokens_total` | `type` | Cumulative LLM tokens consumed. `type` is `input`, `output`, or `cache_read`. `cache_read` is the subset of `input` served from a prompt cache, so summing across all three label values double-counts it. A `type` appears only once a non-zero amount has been recorded for it, and a session whose coding agent reported no token usage advances no series at all. | Coordination |
 | `sortie_agent_runtime_seconds_total` | - | Cumulative agent runtime. Incremented when a session ends, not while it runs. For live elapsed time, use the `sortie_active_sessions_elapsed_seconds` gauge. | Coordination |
 | `sortie_dispatches_total` | `outcome` | Dispatch attempts. `outcome` is `success` (worker spawned) or `error` (spawn failed). | Coordination |
 | `sortie_worker_exits_total` | `exit_type` | Worker session completions. `exit_type` is `normal` (agent finished), `error` (agent or infrastructure failure), or `cancelled` (reconciliation or shutdown). | Coordination |
@@ -106,7 +106,7 @@ These queries assume the default 15-second scrape interval. Adjust `rate()` wind
 sum(rate(sortie_tokens_total[5m])) by (type) * 60
 ```
 
-Tokens per minute, broken down by `input` and `output`. Multiply by your provider's per-token pricing to get cost per minute.
+Tokens per minute, broken down by `input`, `output`, and `cache_read`. Multiply by your provider's per-token pricing to get cost per minute, keeping in mind that `cache_read` is part of `input` rather than an addition to it.
 
 ### Dispatch throughput and error rate
 

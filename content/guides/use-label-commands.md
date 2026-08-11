@@ -144,7 +144,7 @@ grep "label-fix dispatched" sortie.log
 
 ## Troubleshooting
 
-**Nothing happens after you apply the label.** Check, in order: the `label_commands` block is present and its `provider` is non-empty; the applied label name matches `review_label` or `fix_label` (matching is case-insensitive); the PR is Sortie-managed, with `.sortie/scm.json` carrying `pr_number`, `owner`, and `repo`; and the linked issue has not reached a terminal state, after which commands on its PR are ignored.
+**Nothing happens after you apply the label.** Check, in order: the `label_commands` block is present and its `provider` is non-empty; the applied label name matches `review_label` or `fix_label` (matching is case-insensitive); the PR is Sortie-managed, with `.sortie/scm.json` carrying `pr_number`, `owner`, and `repo`; and the linked issue has not reached a terminal state, after which commands on its PR are ignored. If none of those apply, check the logs for a repeating warning about the label-event read on that PR: an entry the forge serves with an unreadable timestamp fails the whole read, and Sortie retries it indefinitely without dispatching anything.
 
 **The session runs but no review or fix appears.** The prompt template is missing the `{{ if .label_review }}` (or `{{ if .label_fix }}`) branch, so the dispatch rendered your normal work prompt. Look for the load-time warning `label_commands active but prompt template has no label_review branch`, add the branch from the shipped example, and reload.
 

@@ -1,7 +1,7 @@
 ---
 title: How to connect Sortie to GitLab
 linkTitle: "Connect to GitLab"
-description: "Configure Sortie to poll a GitLab project: create a scoped access token, set the endpoint for a self-managed instance, set the namespace path, map label-driven states, scope candidates with query_filter, and verify the connection."
+description: "Configure Sortie to poll a GitLab project: create a scoped access token, set the endpoint for a self-managed instance, set the namespace path, map label-driven states, scope candidates with query_filter, react to merge requests with auto-merge, and verify the connection."
 author: Sortie AI
 date: 2026-08-06
 weight: 27
@@ -236,6 +236,42 @@ This configuration polls every 45 seconds, picks up issues assigned to the token
 
 For every tracker field and its validation rules, see the [GitLab adapter reference](/reference/adapter-gitlab/) and the [WORKFLOW.md reference](/reference/workflow-config/). For prompt template syntax, see [How to write a prompt template](/guides/write-prompt-template/).
 
+## React to merge requests
+
+Once your agents open merge requests, the same `gitlab` kind reacts to them: a reviewer requesting changes or a failing pipeline dispatches a fix continuation turn, review-bot comments route back to the agent, a conflicted merge request gets a rebase turn, and an approved, mergeable, green merge request merges with its source branch cleaned up. The mechanics are provider-agnostic and live elsewhere: [how to set up PR reactions](/guides/setup-pr-reactions/) covers the shared machinery, including the `.sortie/scm.json` metadata your hook writes, and the [reactions reference](/reference/reactions/) documents every kind, field, and default. This section is the GitLab-specific wiring.
+
+Activate a reaction kind by giving it `provider: gitlab`. Every active SCM reaction in one workflow must name the same provider. Because the tracker is already `kind: gitlab`, the reactions reuse the tracker's `endpoint`, `api_key`, and `project`, so you repeat no credentials; to point them at a different instance or project, set overrides in a top-level `gitlab:` block ([adapter pass-through configuration](/reference/workflow-config/#adapter-pass-through-configuration)).
+
+```yaml
+reactions:
+  review_comments:
+    provider: gitlab
+  bot_review:
+    provider: gitlab
+    bot_usernames:          # optional; adds accounts GitLab does not flag as bots
+      - reviewdog
+  ci_failure:
+    provider: gitlab
+    max_log_lines: 50       # tail of the first failing job's trace
+  merge_conflicts:
+    provider: gitlab
+  auto_merge:
+    provider: gitlab
+    strategy: squash        # squash (default) | merge | rebase
+    require_ci: true        # never merge on failing or pending CI
+    delete_branch: true     # remove the source branch after the merge
+```
+
+The `owner` and `repo` your hook writes to `.sortie/scm.json` are joined with a slash and encoded once, so together they must reconstruct the project's full namespace path. For a project nested in subgroups, either `owner: platform/backend` with `repo: api-gateway` or `owner: platform` with `repo: backend/api-gateway` resolves; `owner: platform` with `repo: api-gateway` does not, and returns 404. Write both halves unencoded.
+
+`bot_usernames` is optional here, unlike on Gitea. GitLab carries a bot marker on a user's own record, and Sortie resolves it once per comment author and caches the answer, so an account the platform marks as a bot routes to `bot_review` without appearing in any list. Name a review tool in the list when it comments under a regular user account.
+
+Auto-merge, branch deletion, and label removal need no scope beyond the `api` you already granted: GitLab has one coarse write scope rather than a split between contents and merge requests. At startup Sortie reads the token's own introspection route once. A classic token whose scopes omit `api` fails that check and auto-merge stays off for the life of the process. A fine-grained token reports no permission detail there, so the check cannot classify it and auto-merge proceeds; confirm such a token's permissions yourself.
+
+Two GitLab behaviors are worth knowing before you turn auto-merge on. `strategy: rebase` is not a per-call option on GitLab, so it merges the same way as `merge` and logs a warning; the project's own **Merge method** setting under **Settings > Merge requests** governs whether a merge rebases. And branch protection refuses a merge with `401` rather than the `403` the rest of the API uses for a permission failure, so an auth error from the merge route means either an invalid token or a token identity that may not merge into the target branch. Sortie's message names both.
+
+For the routes behind these operations, the mergeability mapping, and the full token detail, see the [GitLab adapter reference](/reference/adapter-gitlab/#scm-and-ci-surface).
+
 ## Verify the connection
 
 ### Validate the configuration offline
@@ -246,7 +282,9 @@ sortie validate ./WORKFLOW.md
 
 `sortie validate` parses the front matter, compiles the prompt template, and runs the GitLab checks **without contacting GitLab**. It catches the endpoint and project shape faults described above, the state-list advisories (an empty or padded entry, an `active_states` and `terminal_states` overlap), and any `query_filter` allowlist violation, reported by the same parser the constructor uses so the offline verdict cannot drift from the startup one. It also warns on an `http` endpoint, on an endpoint already ending in `/api/v4`, on an `api_key` with surrounding whitespace, and, when `api_key` is empty, points you at `$SORTIE_GITLAB_TOKEN`.
 
-Being offline is the limit worth holding on to: validation does not resolve your project, your token, or your labels. Those are construction-time checks.
+With a `reactions` block present, validation also covers the forge configuration offline: an `auto_merge` `strategy` outside `merge`, `squash`, and `rebase`, a `bot_usernames` value that is not a list of strings, and a reaction `provider` that names no registered adapter or differs across the active reactions.
+
+Being offline is the limit worth holding on to: validation does not resolve your project, your token, or your labels. Those are construction-time checks, and the token's scope is checked later still, when the auto-merge preflight runs at startup.
 
 ### Run one read-only poll
 
@@ -292,4 +330,5 @@ A real run dispatches an eligible candidate, and when the agent finishes Sortie 
 3. **Set the project** with `tracker.project` as a plain namespace path of any depth, or as the numeric project ID when the deployment must survive a rename.
 4. **Mapped the label-driven states** with `active_states`, `terminal_states`, and `handoff_state`, project labels GitLab creates on demand, with the adapter resolving stored casing so a variant does not become a duplicate. A terminal target closes the issue, an active target reopens it, and a handoff target leaves it open for a reviewer.
 5. **Scoped candidates** with a `query_filter` URL fragment, using `scope=assigned_to_me` to select the automation identity's work, checked against a closed allowlist so a typo fails at startup instead of widening the candidate set.
-6. **Verified the connection** offline with `sortie validate`, then online with `sortie --dry-run`, watching candidates fetch before running Sortie for real.
+6. **Reacted to merge requests** with `provider: gitlab` on each reaction kind, reusing the tracker's credentials, and relying on the `api` scope you already granted for auto-merge, branch deletion, and label removal.
+7. **Verified the connection** offline with `sortie validate`, then online with `sortie --dry-run`, watching candidates fetch before running Sortie for real.

@@ -48,7 +48,7 @@ sortie: too many arguments
 |---|---|---|---|
 | `-h`, `--help` | boolean | `false` | Print the help message and exit. |
 | `-V`, `--version` | boolean | `false` | Print the version banner, then exit. |
-| `-dumpversion` | boolean | `false` | Print the bare version string (e.g., `1.14.0`), then exit. |
+| `-dumpversion` | boolean | `false` | Print the bare version string (e.g., `1.19.0`), then exit. |
 | `--dry-run` | boolean | `false` | Run one poll cycle without spawning agents or writing to the database, then exit. |
 | `--env-file` | string | _(empty)_ | Path to a `.env` file containing `SORTIE_*` overrides. See [environment variables reference](/reference/environment/#env-file-support). |
 | `--log-format` | string | `text` | Log output format. Accepted values: `text`, `json`. |
@@ -121,13 +121,13 @@ Sets the log output format. Accepted values (case-insensitive): `text`, `json`. 
 When `text` is active (the default), Sortie emits structured `key=value` lines via `slog.TextHandler`:
 
 ```
-time=2026-04-07T14:30:00.000+00:00 level=INFO msg="sortie starting" version=1.14.0
+time=2026-04-07T14:30:00.000+00:00 level=INFO msg="sortie starting" version=1.19.0
 ```
 
 When `json` is active, each log line is a single JSON object via `slog.JSONHandler`:
 
 ```json
-{"time":"2026-04-07T14:30:00.000Z","level":"INFO","msg":"sortie starting","version":"1.14.0"}
+{"time":"2026-04-07T14:30:00.000Z","level":"INFO","msg":"sortie starting","version":"1.19.0"}
 ```
 
 JSON format is intended for containerized and cloud-native deployments where log aggregation systems (Loki, Datadog, CloudWatch, ELK) expect newline-delimited JSON on stdout/stderr.
@@ -199,7 +199,7 @@ The Go `flag` package also recognizes `-help` (single-dash long form) and treats
 Prints the full version banner to stdout and exits with code `0`. The short form `-V` is an alias for `--version`.
 
 ```
-sortie 1.14.0 (commit: 0651d1f, built: 2026-07-11, go1.26.1, linux/amd64)
+sortie 1.19.0 (commit: 0651d1f, built: 2026-07-11, go1.26.1, linux/amd64)
 ```
 
 The banner includes the Git commit SHA (first 7 characters), build date, Go toolchain version, and target platform. Actual values vary at build time. Development builds without release tags show `dev` as the version.
@@ -211,7 +211,7 @@ Skips workflow loading, configuration validation, and database initialization. I
 Prints the version string alone to stdout and exits with code `0`:
 
 ```
-1.14.0
+1.19.0
 ```
 
 Uses single-dash prefix (GCC convention). Designed for scripts and programmatic version checks.
@@ -249,7 +249,7 @@ The pipeline checks:
 - `agent.kind` maps to a registered adapter. Defaults to `claude-code` when absent.
 - Fields required by the selected adapter: `tracker.api_key`, `tracker.project`, `agent.command`.
 - At least one of `tracker.active_states` or `tracker.terminal_states` is non-empty.
-- Adapter-specific config validation. When the registered tracker adapter declares a `ValidateTrackerConfig` callback, the pipeline invokes it with the extracted tracker config fields. Adapter validation runs after the generic preflight checks and can produce both errors (block validity) and warnings (advisory). See [GitHub adapter validation](/reference/adapter-github/#validate-time-checks) for the checks the GitHub adapter performs.
+- Adapter-specific config validation. When the registered tracker adapter declares a `ValidateTrackerConfig` callback, the pipeline invokes it with the extracted tracker config fields. Adapter validation runs after the generic preflight checks and can produce both errors (block validity) and warnings (advisory). The Jira, GitHub, GitLab, Gitea, and Linear adapters each declare one; the `file` adapter does not. Each adapter reference page lists that adapter's checks, for example [GitHub adapter validation](/reference/adapter-github/#validate-time-checks).
 - Workspace root directory exists (or can be created) and is writable.
 
 The pipeline does **not** check:
@@ -406,7 +406,7 @@ The GitHub adapter (`tracker.kind: github`) produces these warning checks:
 
 State collisions involving `handoff_state` or `in_progress_state` are not warnings. The generic configuration layer rejects them for every `tracker.kind` before adapter validation runs, and they are reported under the `config.tracker.handoff_state` and `config.tracker.in_progress_state` check values with exit code `1`.
 
-For details on each check, see [GitHub adapter validate-time checks](/reference/adapter-github/#validate-time-checks).
+For details on each check, see [GitHub adapter validate-time checks](/reference/adapter-github/#validate-time-checks). The [Jira](/reference/adapter-jira/), [GitLab](/reference/adapter-gitlab/), [Gitea](/reference/adapter-gitea/), and [Linear](/reference/adapter-linear/) adapter references list the checks those adapters declare.
 
 ### `stats`
 
@@ -471,7 +471,7 @@ Both messages exit `1`.
 
 Which figures a report can carry depends on the database it reads, not on the version of the binary reading it. The command inspects the live `run_history` column set and reports the result as `schema_tier`. There are exactly two values.
 
-**`full`** - the table carries all four optional column groups:
+**`full`** - the table carries all five optional column groups:
 
 | Group | Columns | Figures it supplies |
 |---|---|---|
@@ -479,13 +479,14 @@ Which figures a report can carry depends on the database it reads, not on the ve
 | Self-review | `review_metadata` | The self-review section |
 | Dispatch-rule routing | `rule_name`, `template_id` | The dispatch-rule and prompt-template breakdowns |
 | Tokens | `input_tokens`, `output_tokens`, `total_tokens`, `cache_read_tokens` | Token sums and every derived cost figure |
+| Token measurement | `tokens_measured` | Which runs the coding agent could measure, and so which ones the token and cost figures cover |
 
 **`base`** - at least one group is missing. The report falls back to run counts, the outcome breakdown, the coding-agent breakdown, and durations. Turns, tokens, cost, the dispatch-rule breakdown, the prompt-template breakdown, and the self-review section are all left out.
 
-The tier is all-or-nothing by design. A database carrying three of the four groups still reports `base`, and the report then drops the groups it does carry along with the ones it never recorded. The warning names both lists so the two are not confused:
+The tier is all-or-nothing by design. A database carrying four of the five groups still reports `base`, and the report then drops the groups it does carry along with the ones it never recorded. The warning names both lists so the two are not confused:
 
 ```
-warning: this database was written before sortie recorded dispatch-rule routing, tokens and cost. The report falls back to run counts and durations, so it also leaves out turns, self-review results, which this database does carry. Run sortie once with this workflow to get the full report.
+warning: this database was written before sortie recorded dispatch-rule routing, tokens and cost, which runs the coding agent could measure. The report falls back to run counts and durations, so it also leaves out turns, self-review results, which this database does carry. Run sortie once with this workflow to get the full report.
 ```
 
 A degraded report is still a report: the warning goes to stderr in text mode and into `warnings` in JSON, and the exit code is `0`. In JSON, `by_rule` and `by_template` are empty arrays, `self_review` is `null`, and every figure the tier cannot supply is `null` rather than `0`. A null means the database never recorded that figure, not that the figure measured zero.
@@ -502,7 +503,7 @@ sortie stats: run_history table not found or missing base columns
 
 Both formats carry the same figures. Breakdown rows are sorted by descending run count, with ties broken by ascending name. A run that recorded no dispatch rule or prompt template appears under the sentinel name `<none>`, which also covers an empty agent adapter. Rounding is fixed so repeated runs over the same data produce identical output: rates and shares to four decimals, cost and mean turns to two, mean duration to one.
 
-The summary's duration and mean-turn figures cover **succeeded runs only**, so they describe the work that landed rather than the volume attempted. Token sums cover all runs in the range. A run counts as succeeded when its status is exactly `succeeded`. Cost is never stored; it is derived at report time from the token counts and the configured rates. See [control agent costs](/guides/control-costs/#monitor-spending) for where this fits among the other cost surfaces.
+The summary's duration and mean-turn figures cover **succeeded runs only**, so they describe the work that landed rather than the volume attempted. Token sums, and every cost figure derived from them, cover **measured runs only**: a run whose coding agent reported no token usage records that fact and is left out of those figures instead of counting as a run that spent nothing. A run counts as succeeded when its status is exactly `succeeded`. Cost is never stored; it is derived at report time from the token counts and the configured rates. See [control agent costs](/guides/control-costs/#monitor-spending) for where this fits among the other cost surfaces.
 
 **Text** (default) - the report is written to stdout. Warnings are written to stderr, after a blank line, one per line, each prefixed `warning: `. The two streams can be redirected independently.
 
@@ -517,8 +518,8 @@ generated: 2026-08-09T07:51:43Z
 runs 9   succeeded 7 (77.8%)
 duration (succeeded)    p50 2m 49s   p95 7m 12s   mean 3m 34s   samples 7
 turns (succeeded)       3.3
-tokens (all runs)       input 502,900   output 96,000   total 598,900   cache read 12,638,000
-cost (all runs)         $6.49   per succeeded run $0.93
+tokens (measured runs)  input 502,900   output 96,000   total 598,900   cache read 12,638,000
+cost (measured runs)    $6.49   per succeeded run $0.93
 
 by outcome
   OUTCOME    RUNS  SHARE  P50     P95     MEAN    TURNS  TOTAL TOKENS  COST
@@ -555,11 +556,12 @@ When the workflow sets no `token_rates`, token counts are still reported and the
 cost                    not estimated; set token_rates in the workflow to price these runs
 ```
 
-Three disclosure counters each add a footnote below the tables when they are not zero:
+Four disclosure counters each add a footnote below the tables when they are not zero:
 
 ```
 note: 2 of these runs took no measurable time. A run that a CI result closed out carries the same start and finish time.
 note: the duration figures skip 1 of these runs, whose recorded start and finish times were unusable.
+note: the token and cost figures skip 4 of these runs, because the coding agent behind them reported no token usage.
 note: the cost figures skip 3 of these runs, because token_rates has no price for the coding agent behind them.
 ```
 
@@ -604,12 +606,13 @@ Envelope:
 | `success_rate` | number | `succeeded` over `runs`, between 0 and 1. `0` when `runs` is `0`. |
 | `duration_seconds` | object | Duration figures over succeeded runs only. |
 | `mean_turns_succeeded` | number or null | Mean turns completed over succeeded runs. `null` on the `base` tier and when no run succeeded, never `0` in either case. |
-| `tokens` | object or null | Token sums over all runs in the range. `null` on the `base` tier. |
+| `tokens` | object or null | Token sums over the measured runs in the range. `null` on the `base` tier and when no run in the range was measured. |
 | `cost_usd` | number or null | Estimated cost over every priced run in the range. `null` on the `base` tier and when no run could be priced, never `0` in either case. |
-| `cost_per_succeeded_run_usd` | number or null | `cost_usd` divided by `succeeded`. `null` whenever `cost_usd` is `null`, and when no run succeeded. |
+| `cost_per_succeeded_run_usd` | number or null | `cost_usd` divided by the succeeded runs that were measured. `null` whenever `cost_usd` is `null`, and when no measured run succeeded. |
 | `zero_duration_runs` | integer | Runs that took no measurable time. A run that a CI result closed out carries the same start and finish time. |
 | `duration_excluded_runs` | integer | Runs left out of every duration figure because their stored timestamps could not be parsed or ran backwards. |
 | `cost_unpriced_runs` | integer | Runs left out of the cost figures because `token_rates` has no entry for their coding agent. |
+| `tokens_unmeasured_runs` | integer | Runs left out of the token and cost figures because the coding agent behind them reported no token usage. `0` on the `base` tier, where the distinction was never recorded. |
 
 Each element of `by_status`, `by_adapter`, `by_rule`, and `by_template`:
 
@@ -622,9 +625,10 @@ Each element of `by_status`, `by_adapter`, `by_rule`, and `by_template`:
 | `share` | number | This group's `runs` over the report's total `runs`. |
 | `duration_seconds` | object | Duration figures over all of this group's runs, not only the succeeded ones. |
 | `mean_turns` | number or null | Mean turns completed over this group's runs. `null` on the `base` tier. |
-| `tokens` | object or null | Token sums over this group's runs. `null` on the `base` tier. |
+| `tokens` | object or null | Token sums over this group's measured runs. `null` on the `base` tier and when the group holds no measured run. |
 | `cost_usd` | number or null | Estimated cost over this group's priced runs. `null` on the `base` tier and when the group holds no priced run. |
-| `cost_per_succeeded_run_usd` | number or null | `cost_usd` divided by this group's `succeeded`. `null` whenever `cost_usd` is `null`, and when the group has no succeeded run. |
+| `cost_per_succeeded_run_usd` | number or null | `cost_usd` divided by this group's succeeded runs that were measured. `null` whenever `cost_usd` is `null`, and when the group has no measured succeeded run. |
+| `tokens_unmeasured_runs` | integer | This group's runs left out of the token and cost figures because the coding agent behind them reported no token usage. `0` on the `base` tier. |
 
 `duration_seconds`, in both `summary` and every breakdown element:
 
@@ -641,10 +645,10 @@ Durations are seconds here. Text mode renders the same values as `2m 49s`.
 
 | Field | Type | Description |
 |---|---|---|
-| `input` | integer | Sum of recorded input tokens. |
-| `output` | integer | Sum of recorded output tokens. |
+| `input` | integer | Sum of recorded input tokens over the measured runs. |
+| `output` | integer | Sum of recorded output tokens over the measured runs. |
 | `total` | integer | Sum of the recorded totals, taken as stored rather than recomputed from `input` and `output`. |
-| `cache_read` | integer | Sum of recorded cache-read tokens. |
+| `cache_read` | integer | Sum of recorded cache-read tokens over the measured runs. |
 
 `self_review`:
 
@@ -685,7 +689,8 @@ A worked example, expanded for readability and trimmed to one row per breakdown.
     "cost_per_succeeded_run_usd": 0.93,
     "zero_duration_runs": 0,
     "duration_excluded_runs": 0,
-    "cost_unpriced_runs": 0
+    "cost_unpriced_runs": 0,
+    "tokens_unmeasured_runs": 0
   },
   "by_status": [
     {
@@ -698,7 +703,8 @@ A worked example, expanded for readability and trimmed to one row per breakdown.
       "mean_turns": 3.29,
       "tokens": {"input": 341900, "output": 67000, "total": 408900, "cache_read": 9038000},
       "cost_usd": 4.59,
-      "cost_per_succeeded_run_usd": 0.66
+      "cost_per_succeeded_run_usd": 0.66,
+      "tokens_unmeasured_runs": 0
     }
   ],
   "by_adapter": [
@@ -712,7 +718,8 @@ A worked example, expanded for readability and trimmed to one row per breakdown.
       "mean_turns": 3.33,
       "tokens": {"input": 324500, "output": 63900, "total": 388400, "cache_read": 12638000},
       "cost_usd": 5.72,
-      "cost_per_succeeded_run_usd": 1.14
+      "cost_per_succeeded_run_usd": 1.14,
+      "tokens_unmeasured_runs": 0
     }
   ],
   "by_rule": [
@@ -726,7 +733,8 @@ A worked example, expanded for readability and trimmed to one row per breakdown.
       "mean_turns": 2.5,
       "tokens": {"input": 145100, "output": 27700, "total": 172800, "cache_read": 5636000},
       "cost_usd": 2.54,
-      "cost_per_succeeded_run_usd": 0.64
+      "cost_per_succeeded_run_usd": 0.64,
+      "tokens_unmeasured_runs": 0
     }
   ],
   "by_template": [
@@ -740,7 +748,8 @@ A worked example, expanded for readability and trimmed to one row per breakdown.
       "mean_turns": 2.5,
       "tokens": {"input": 145100, "output": 27700, "total": 172800, "cache_read": 5636000},
       "cost_usd": 2.54,
-      "cost_per_succeeded_run_usd": 0.64
+      "cost_per_succeeded_run_usd": 0.64,
+      "tokens_unmeasured_runs": 0
     }
   ],
   "self_review": {
@@ -893,7 +902,7 @@ A second signal during drain is not intercepted - the OS terminates the process 
 All log output goes to **stderr**. The default format is structured `key=value` text:
 
 ```
-time=2026-03-26T14:30:01.271+00:00 level=INFO msg="sortie starting" version=1.14.0 workflow_path=/opt/sortie/WORKFLOW.md port=8080
+time=2026-03-26T14:30:01.271+00:00 level=INFO msg="sortie starting" version=1.19.0 workflow_path=/opt/sortie/WORKFLOW.md port=8080
 time=2026-03-26T14:30:01.298+00:00 level=INFO msg="database path resolved" db_path=/opt/sortie/.sortie.db
 time=2026-03-26T14:30:01.304+00:00 level=INFO msg="sortie started"
 time=2026-03-26T14:30:01.305+00:00 level=INFO msg="http server listening" addr=127.0.0.1:8080
@@ -902,7 +911,7 @@ time=2026-03-26T14:30:01.305+00:00 level=INFO msg="http server listening" addr=1
 When `--log-format json` is active (or `logging.format: json` in the workflow file), each line is a JSON object:
 
 ```json
-{"time":"2026-03-26T14:30:01.271+00:00","level":"INFO","msg":"sortie starting","version":"1.14.0","workflow_path":"/opt/sortie/WORKFLOW.md","port":8080}
+{"time":"2026-03-26T14:30:01.271+00:00","level":"INFO","msg":"sortie starting","version":"1.19.0","workflow_path":"/opt/sortie/WORKFLOW.md","port":8080}
 {"time":"2026-03-26T14:30:01.298+00:00","level":"INFO","msg":"database path resolved","db_path":"/opt/sortie/.sortie.db"}
 {"time":"2026-03-26T14:30:01.304+00:00","level":"INFO","msg":"sortie started"}
 {"time":"2026-03-26T14:30:01.305+00:00","level":"INFO","msg":"http server listening","addr":"127.0.0.1:8080"}
@@ -939,7 +948,7 @@ Stdout is used for help output (`-h`, `--help`), version output (`-V`, `--versio
 The `Version` variable defaults to `dev` when running from source. Release builds inject the version at compile time via linker flags:
 
 ```sh
-go build -ldflags "-s -w -X main.Version=1.14.0" -o sortie ./cmd/sortie
+go build -ldflags "-s -w -X main.Version=1.19.0" -o sortie ./cmd/sortie
 ```
 
 The Makefile sets this automatically from `git describe --tags`:

@@ -157,7 +157,7 @@ Self-review and CI feedback are complementary features that catch different fail
 | Phase | When | Signal source |
 |---|---|---|
 | Self-review | Inside worker, before exit | Local commands (tests, linters) |
-| CI feedback | After worker exit, reconcile loop | Remote CI pipeline (Checks API) |
+| CI feedback | After worker exit, reconcile loop | Remote CI pipeline, read through the forge's status API |
 
 Self-review catches local issues before the code is pushed. CI feedback catches integration issues after push. Both can be active simultaneously with independent counters. If self-review passes but CI later fails, the CI feedback loop triggers normally.
 
@@ -311,7 +311,7 @@ The `self_review` block sits alongside other top-level config. The review loop r
 
 ## Verify self-review
 
-Four approaches to confirm self-review is working.
+Three approaches to confirm self-review is working.
 
 ### Logs
 
@@ -333,10 +333,6 @@ grep "self-review cap reached" sortie.log
 
 Self-review logs include `issue_id`, `issue_identifier`, and iteration-scoped context fields, so you can trace a specific issue's review history.
 
-### Dashboard and Status API
-
-When the HTTP server is running, running entries show `self_review_active: true` and `self_review_iteration: N` while the review loop is in progress. Once the loop completes, these fields reset.
-
 ### Prometheus metrics
 
 Four self-review metrics are available when the HTTP server is enabled:
@@ -352,7 +348,7 @@ A healthy setup shows `sortie_self_review_sessions_total{final_verdict="pass"}` 
 
 ### Run history
 
-The `review_metadata` field in run history contains the full review audit trail: per-iteration diff size, verification results (exit codes, stdout, stderr), verdicts, and parse errors. Query it through the Status API or read it from the SQLite database directly:
+The `review_metadata` field in run history contains the full review audit trail: per-iteration diff size, verification results (exit codes, stdout, stderr), verdicts, and parse errors. It is not exposed over the status API; read it from the SQLite database directly:
 
 ```bash
 sqlite3 .sortie.db "SELECT review_metadata FROM run_history WHERE review_metadata IS NOT NULL ORDER BY started_at DESC LIMIT 1" | python3 -m json.tool

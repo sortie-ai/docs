@@ -39,7 +39,7 @@ change, commit what works, and summarize what remains instead of
 starting anything new.
 ```
 
-Tune the threshold to your budget; 100,000 tokens is a sensible reserve when `max_tokens` is in the low millions. Unlike `sortie_status`, which covers the current session only, `cost_budget` reports spend across all of the issue's sessions, including the one in flight.
+Tune the threshold to your budget; 100,000 tokens is a sensible reserve when `max_tokens` is in the low millions. Unlike `sortie_status`, which covers the current session only, `cost_budget` reports spend across all of the issue's sessions, including the one in flight. Sessions whose agent reported no usage at all contribute nothing to the total and are counted separately, so a `used_tokens_complete` of `false` means `used_tokens` is a lower bound and `remaining_tokens` is optimistic.
 
 The `null` case earns its line in the prompt. `remaining_tokens: null` means the budget is unlimited, not exhausted; an instruction that says "stop when remaining_tokens is low" without it makes the agent wind down on issues that have no token budget at all.
 

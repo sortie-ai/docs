@@ -6,7 +6,7 @@ author: Sortie AI
 date: 2026-08-06
 weight: 120
 ---
-In this tutorial, we will connect Sortie to GitLab and the Claude Code CLI, then watch the whole unattended cycle: GitLab offers a `backlog` issue, Sortie clones your repository, Claude Code writes and commits code, Sortie pushes a branch, and the issue moves to the state you configured for finished work. This builds on the [GitLab integration tutorial](/getting-started/gitlab-integration/) and adds three pieces: the Claude Code adapter, workspace hooks for git operations, and a prompt template. The agent is the same one the [Jira + Claude Code tutorial](/getting-started/jira-claude-end-to-end/) drives; only the tracker changed, from Jira to GitLab. One boundary is worth setting before you start: Sortie's GitLab support is a tracker, so the automated cycle ends at a pushed branch and a transitioned issue. Opening the merge request is yours to do in the GitLab UI afterward.
+In this tutorial, we will connect Sortie to GitLab and the Claude Code CLI, then watch the whole unattended cycle: GitLab offers a `backlog` issue, Sortie clones your repository, Claude Code writes and commits code, Sortie pushes a branch, and the issue moves to the state you configured for finished work. This builds on the [GitLab integration tutorial](/getting-started/gitlab-integration/) and adds three pieces: the Claude Code adapter, workspace hooks for git operations, and a prompt template. The agent is the same one the [Jira + Claude Code tutorial](/getting-started/jira-claude-end-to-end/) drives; only the tracker changed, from Jira to GitLab. One boundary is worth setting before you start: the cycle we build here ends at a pushed branch and a transitioned issue, and opening the merge request is yours to do in the GitLab UI afterward. Sortie opens no merge request itself. It can react to one after you open it, and that is a separate configuration step, covered in [how to set up PR reactions](/guides/setup-pr-reactions/).
 
 ## Prerequisites
 
@@ -319,3 +319,4 @@ This is the same Claude Code loop that powers the [Jira + Claude Code tutorial](
 - [GitLab adapter reference](/reference/adapter-gitlab/) - the tracker field contract, label-driven state model, and error mapping
 - [Claude Code adapter reference](/reference/adapter-claude-code/) - CLI flags, event stream, and pass-through configuration
 - [Control agent costs](/guides/control-costs/) - budget caps, turn limits, and the arithmetic behind them
+- [Set up PR reactions](/guides/setup-pr-reactions/) - route review comments, pipeline failures, and auto-merge back to the agent once you open the merge request

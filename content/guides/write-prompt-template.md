@@ -74,7 +74,7 @@ The `.issue` object is normalized across tracker backends:
 | `.issue.created_at` | string | ISO-8601 timestamp |
 | `.issue.updated_at` | string | ISO-8601 timestamp |
 
-Two other top-level variables are available alongside `.issue`:
+Two other top-level variables are available on every render alongside `.issue`:
 
 | Variable | Type | Purpose |
 |---|---|---|
@@ -82,6 +82,8 @@ Two other top-level variables are available alongside `.issue`:
 | `.run.turn_number` | integer | Current turn within the session |
 | `.run.max_turns` | integer | Configured maximum turns |
 | `.run.is_continuation` | boolean | `true` on turns 2+ of a multi-turn session |
+
+Reaction dispatches add one more top-level variable each, carrying the context that triggered them. They are `nil` on an ordinary dispatch, so `{{ if .ci_failure }}` is safe to write in a template that also serves primary runs. See [configure CI feedback](/guides/configure-ci-feedback/) and [configure review feedback](/guides/configure-review-feedback/) for their fields.
 
 {{< callout type="info" >}}
 **What counts as falsy in `{{ if }}`**
@@ -260,10 +262,10 @@ Check the logs for the rendered prompt. Render errors appear with line numbers.
 Sortie runs in strict mode (`missingkey=error`). A typo like `{{ .issue.titel }}` fails rendering immediately instead of producing an empty string. `sortie validate` catches these statically — unknown fields like `.issue.titel` produce an `unknown_field` warning, and unknown top-level variables like `{{ .config }}` produce an `unknown_var` warning. Check field names against the variable table above.
 
 **Forgetting to guard nil fields.**
-`.issue.parent` is `nil` when no parent exists. Accessing `.issue.parent.identifier` without a guard panics:
+`.issue.parent` is `nil` when no parent exists. Accessing `.issue.parent.identifier` without a guard fails the render with `nil pointer evaluating interface {}.identifier`, and the worker attempt ends there:
 
 ```jinja
-{{/* Wrong — crashes when parent is nil */}}
+{{/* Wrong — render fails when parent is nil */}}
 Parent: {{ .issue.parent.identifier }}
 
 {{/* Correct */}}

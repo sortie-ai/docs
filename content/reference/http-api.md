@@ -198,9 +198,7 @@ curl http://localhost:8080/api/v1/state
       },
       "tool_time_percent": 34.7,
       "api_time_percent": 51.2,
-      "self_review_active": true,
-      "self_review_iteration": 2,
-      "agent_kind": "claude-code"
+      "tokens_measured": true
     }
   ],
   "retrying": [
@@ -230,20 +228,19 @@ curl http://localhost:8080/api/v1/state
 
 | Field | Description |
 |---|---|
-| `tokens` | Nested object with `input_tokens`, `output_tokens`, `total_tokens`, and `cache_read_tokens` for this session. |
+| `display_identifier` | Human-facing identifier when the tracker distinguishes it from `issue_identifier`. Omitted when empty. |
+| `tokens` | Nested object with `input_tokens`, `output_tokens`, `total_tokens`, and `cache_read_tokens` for this session. `total_tokens` is `input_tokens + output_tokens`; `cache_read_tokens` is a subset of `input_tokens`, never an addition to it. All four are `0` when `tokens_measured` is `false`. |
+| `tokens_measured` | `false` when the coding agent has reported no token usage for this session, making the zeros in `tokens` an absence of measurement rather than a measurement of zero. `true` once any usage figure has been reported. |
 | `workspace_path` | Absolute filesystem path to the issue's workspace directory. |
 | `model_name` | LLM model in use. Omitted when unknown. |
 | `api_request_count` | Total API requests made by the agent in this session. |
 | `requests_by_model` | Breakdown of API requests per model. Omitted when empty. |
 | `tool_time_percent` | Percentage of elapsed wall-clock time spent in tool execution. `null` when not yet computed. |
 | `api_time_percent` | Percentage of elapsed wall-clock time spent waiting on API calls. `null` when not yet computed. |
-| `self_review_active` | `true` when the worker is in the self-review phase. Omitted when `false`. |
-| `self_review_iteration` | Current review iteration (1-based). Omitted when `0`. See [self-review configuration](/guides/configure-self-review/). |
-| `agent_kind` | Agent adapter kind string active at dispatch time (e.g., `"claude-code"`, `"copilot-cli"`). Used by the dashboard for [cost estimation](/reference/dashboard/#cost-estimation). Omitted when empty. |
 
 **`agent_totals`:** Cumulative across all sessions since Sortie started. `seconds_running` includes elapsed time from currently active sessions, not only completed ones.
 
-**`active_estimated_cost_usd`:** Estimated total cost across currently running sessions, computed from configured [token rates](/reference/workflow-config/#token_rates) and each running entry's `agent_kind`. Omitted when token rates are not configured or no running sessions match a configured rate. This is a presentation-layer estimate, not provider billing data.
+**`active_estimated_cost_usd`:** Estimated total cost across currently running sessions, computed from configured [token rates](/reference/workflow-config/#token_rates) and each running session's agent adapter kind. Sessions whose `tokens_measured` is `false` are excluded. Omitted when token rates are not configured or no running session both matches a configured rate and has reported token usage. This is a presentation-layer estimate, not provider billing data.
 
 **`rate_limits`:** Reserved for future use. Currently an empty object.
 
@@ -302,9 +299,7 @@ curl http://localhost:8080/api/v1/MT-649
     },
     "tool_time_percent": 34.7,
     "api_time_percent": 51.2,
-    "self_review_active": true,
-    "self_review_iteration": 2,
-    "agent_kind": "claude-code"
+    "tokens_measured": true
   },
   "retry": null,
   "recent_events": [],

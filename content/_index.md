@@ -1,6 +1,6 @@
 ---
-title: Sortie
-description: "Sortie turns issue tracker tickets into autonomous coding agent sessions. A single Go binary with adapters for Jira, GitHub, GitLab, Claude Code, Codex, and more."
+title: Sortie Documentation
+description: "Documentation for Sortie: quick start, core concepts, WORKFLOW.md and CLI reference, tracker and agent adapter setup, and task-focused how-to guides."
 author: Sortie AI
 breadcrumbs: false
 type: docs
@@ -51,18 +51,16 @@ agent:
 
 You are a senior engineer.
 
-## {{ .issue.identifier }}: {{ .issue.title }}
+Your task: {{ .issue.title }} ({{ .issue.identifier }})
+
+## Context
 
 {{ .issue.description }}
 ```
 
 The YAML front matter configures the tracker and agent. Everything after the closing `---` is a Go template rendered per issue.
 
-Sortie watches this file, polls Jira for matching issues, creates an isolated
-workspace for each, and launches the configured coding agent with the rendered prompt. It handles
-the rest: stall detection, timeout enforcement, retries with backoff, state
-reconciliation with the tracker, and workspace cleanup when issues reach terminal
-states, plus an opt-in age bound for the workspaces that never do. Swap `agent.kind: claude-code` for [`codex`](/reference/adapter-codex/), [`copilot-cli`](/reference/adapter-copilot/), or [`opencode`](/reference/adapter-opencode/) and the rest of the file stays the same. Changes to the workflow are applied without restart.
+Sortie watches this file, polls Jira for matching issues, creates an isolated workspace for each, and launches the configured coding agent with the rendered prompt. It handles the rest: stall detection, timeout enforcement, retries with backoff, state reconciliation with the tracker, and workspace cleanup when issues reach terminal states, plus an opt-in age bound for the workspaces that never do. Swap `agent.kind: claude-code` for [`codex`](/reference/adapter-codex/), [`copilot-cli`](/reference/adapter-copilot/), [`opencode`](/reference/adapter-opencode/) or [`kiro`](/reference/adapter-kiro/) and the rest of the file stays the same. Supported trackers: [GitHub Issues](/reference/adapter-github/), [GitLab Issues](/reference/adapter-gitlab/), [Gitea Issues](/reference/adapter-gitea/), [Linear](/reference/adapter-linear/) and [Jira](/reference/adapter-jira/). Changes to the workflow are applied without restart.
 
 ## Links
 

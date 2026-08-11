@@ -53,12 +53,14 @@ flowchart TD
 
 **Unclaimed → Claimed.** Occurs during the dispatch phase of a poll tick. The issue must pass all [candidate eligibility](#candidate-eligibility) checks and a global or per-state concurrency slot must be available. The issue enters `Running` immediately - there is no `Claimed` without a worker.
 
-**Running → RetryQueued.** Three worker exit outcomes lead here (none apply when a soft-stop signal is active; see [Claimed → Released](#transition-details) below):
+**Running → RetryQueued.** Four worker exit outcomes lead here (the first two do not apply when a soft-stop signal is active; see [Claimed → Released](#transition-details) below):
 
 - *Normal exit, issue still active, no soft-stop:* continuation retry after 1 000 ms fixed delay.
 - *Normal exit, handoff fails, no soft-stop:* continuation retry after 1 000 ms.
 - *Error exit, retryable:* exponential backoff retry (see [backoff formula](#backoff-formula)).
 - *Stall timeout:* worker is killed; exponential backoff retry is scheduled.
+
+An issue holds at most one queued retry. When any of these outcomes finds one already queued — a reaction continuation scheduled while the session was still running, for example — the queued entry is left in place and the claim is kept, rather than the queued work being replaced. The queued entry runs on its own timer, and the outcome that deferred to it takes no further action.
 
 **RetryQueued → Running.** The retry timer fires. The orchestrator re-fetches candidates, confirms the issue is still eligible, acquires a slot, and launches a new worker. If no slot is available, the retry is rescheduled with the same backoff.
 
@@ -73,6 +75,8 @@ flowchart TD
 - Soft-stop `blocked`: worker exits normally, claim released. No handoff transition, no continuation retry.
 - Soft-stop `needs-human-review`, handoff succeeds: worker exits normally, handoff transition performed, claim released.
 - Soft-stop `needs-human-review`, handoff fails: worker exits normally, handoff fails, claim released without retry.
+
+Two of these release only when the issue has no retry already queued: a successful `handoff_state` transition, and a normal exit on an issue that has since left the active states. A queued retry keeps the claim in both cases, so work queued while the session was running is not stranded.
 
 **Released → Unclaimed.** A released issue can be re-dispatched on a future poll tick if its tracker state returns to an active state. The orchestrator does not remember previous releases - each poll tick evaluates eligibility from scratch.
 

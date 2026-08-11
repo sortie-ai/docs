@@ -11,10 +11,10 @@ CI feedback closes the loop between your CI pipeline and Sortie's agents. When a
 
 ## Prerequisites
 
-- Sortie running with the GitHub tracker adapter (`tracker.kind: github`) — see [Connect to GitHub](/guides/connect-to-github/)
+- Sortie running with the GitHub, Gitea, or GitLab tracker adapter (`tracker.kind: github`, `gitea`, or `gitlab`), see [Connect to GitHub](/guides/connect-to-github/), [Connect to Gitea](/guides/connect-to-gitea/), or [Connect to GitLab](/guides/connect-to-gitlab/)
 - A branch-per-issue hook workflow that pushes commits — see [Setup workspace hooks](/guides/setup-workspace-hooks/)
-- CI configured on the repository (GitHub Actions, or any system that reports via the Checks API)
-- A GitHub personal access token with `repo` scope (needed for the Checks API)
+- CI configured on the repository (GitHub Actions, Gitea Actions, GitLab CI/CD, or any system that reports through the forge's status API)
+- An access token with the scope the CI provider needs for its status route: GitHub needs `repo`; see the [GitLab adapter reference](/reference/adapter-gitlab/#scm-and-ci-surface) and the [Gitea adapter reference](/reference/adapter-gitea/#scm-and-ci-surface) for their scopes
 
 ## Activate CI feedback
 
@@ -87,7 +87,7 @@ gh label create needs-human --repo myorg/myrepo --color "D93F0B"
 
 CI feedback needs a repository to query and a ref to check. It gets these from two sources, and you don't need extra config for either.
 
-**Repository coordinates** come from the tracker adapter. When `tracker.kind: github`, the `tracker` block already contains `api_key` and `project` (owner/repo). CI feedback reuses these credentials. No additional configuration needed.
+**Repository coordinates** come from the tracker adapter. When `ci_feedback.kind` matches `tracker.kind`, the `tracker` block already contains `api_key` and `project` (owner/repo for GitHub and Gitea, a namespace path or numeric ID for GitLab). CI feedback reuses these credentials. No additional configuration needed.
 
 **Branch and SHA** come from `.sortie/scm.json` in the workspace. Your `after_run` hook writes this file after pushing code. It contains at minimum a `branch` field, optionally a `sha` field, and optionally a `pushed_at` UTC timestamp:
 
@@ -173,7 +173,7 @@ Both `ci_feedback.max_retries` and `agent.max_sessions` are evaluated independen
 
 If the agent signals `blocked` via `.sortie/status` during a CI-fix run, the orchestrator respects that signal and releases the claim without further CI checks. For details on the agent-to-orchestrator protocol, see the [agent extensions reference](/reference/agent-extensions/).
 
-Self-review and CI feedback address different failure classes at different points in the pipeline. Self-review runs inside the worker before exit, catching local issues (test failures, lint errors) with verification commands you configure. CI feedback runs after the worker exits and the code is pushed, catching integration failures reported through the CI provider's Checks API. Both features can be active simultaneously with independent counters. Self-review runs first; CI feedback runs later. If self-review passes but CI later fails, the CI feedback loop triggers normally. For self-review configuration, see [how to configure self-review](/guides/configure-self-review/).
+Self-review and CI feedback address different failure classes at different points in the pipeline. Self-review runs inside the worker before exit, catching local issues (test failures, lint errors) with verification commands you configure. CI feedback runs after the worker exits and the code is pushed, catching integration failures reported through the CI provider's status API. Both features can be active simultaneously with independent counters. Self-review runs first; CI feedback runs later. If self-review passes but CI later fails, the CI feedback loop triggers normally. For self-review configuration, see [how to configure self-review](/guides/configure-self-review/).
 
 ## Complete example
 
@@ -325,7 +325,7 @@ All `ci_feedback` fields in one place:
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `kind` | string | _(absent)_ | CI provider adapter. Currently `"github"`. Presence activates the feature. |
+| `kind` | string | _(absent)_ | CI provider adapter. One of `"github"`, `"gitea"`, or `"gitlab"`. Presence activates the feature. |
 | `max_retries` | integer | `2` | Max CI-fix dispatches per issue before escalation. `0` = escalate immediately. |
 | `max_log_lines` | integer | `50` | Lines to fetch from the first failing check's log. `0` = disable log fetching. |
 | `escalation` | string | `"label"` | Escalation strategy: `"label"` or `"comment"`. |

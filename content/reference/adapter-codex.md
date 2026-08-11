@@ -129,7 +129,7 @@ Sends a `turn/start` JSON-RPC request on the existing thread and reads event not
 3. Enters the event loop, selecting on the message channel and context cancellation.
 4. Dispatches notifications by method name (see [event stream](#event-stream)).
 5. On context cancellation, sends `turn/interrupt` using a detached 2-second context.
-6. On `turn/completed`, emits final `token_usage` event and returns `TurnResult`.
+6. On `turn/completed`, emits the terminal turn event carrying the session's cumulative usage and returns `TurnResult`.
 7. Waits for in-flight dynamic tool call goroutines to complete before returning.
 
 ### `StopSession`
@@ -167,7 +167,11 @@ The Codex app-server emits JSON-RPC 2.0 notifications on stdout (JSONL). The ada
 | `turn/started` | Subsequent turns | `notification` | |
 | `turn/completed` | `status: "completed"` | `turn_completed` | |
 | `turn/completed` | `status: "failed"` | `turn_failed` | Includes error message from `turn.error`. |
-| `turn/completed` | `status: "interrupted"` | `turn_cancelled` | |
+| `turn/completed` | `status: "interrupted"`, turn context already cancelled | `turn_cancelled` | Sortie asked for the interruption. |
+| `turn/completed` | `status: "interrupted"`, turn context still live | `turn_failed` | An interruption Sortie did not request is a failure, so the claim is retried rather than released. |
+| `turn/completed` | Any other status | `turn_failed` | An unrecognized status is treated as a failure. |
+| `thread/tokenUsage/updated` | `tokenUsage` present, turn id matches the running turn | `token_usage` | Carries the run-cumulative snapshot. See [token accounting](#token-accounting). |
+| `thread/tokenUsage/updated` | `tokenUsage` absent, or turn id belongs to another turn | _(no event)_ | A foreign turn's totals raise the subtraction baseline instead. |
 | `turn/plan/updated` | - | `notification` | Agent plan update. |
 | `turn/diff/updated` | - | _(debug log only)_ | Not emitted as domain event. |
 | `item/started` | `commandExecution`, `fileChange`, `mcpToolCall`, `dynamicToolCall` | `notification` | Records tool name and timestamp in in-flight map. |
@@ -191,21 +195,35 @@ The `turn/completed` notification carries the final turn state:
 | `turn.status` | string | `"completed"`, `"failed"`, or `"interrupted"`. |
 | `turn.error.message` | string | Error description (present when status is `"failed"`). |
 | `turn.error.codexErrorInfo` | string | Error category for retry classification. See [error handling](#error-handling). |
-| `usage.input_tokens` | integer | Total input tokens (includes cached). |
-| `usage.output_tokens` | integer | Output tokens generated. |
-| `usage.cached_input_tokens` | integer | Cached input tokens (subset of input_tokens). |
+
+The notification carries no token counts. Usage arrives on its own notification; see [token accounting](#token-accounting).
+
+### Token usage fields
+
+Token usage arrives on `thread/tokenUsage/updated`, which carries a `tokenUsage` object with two breakdowns of the same shape:
+
+| Field path | Type | Description |
+|---|---|---|
+| `turnId` | string | The turn these counts belong to. |
+| `tokenUsage.total` | object | Thread-cumulative counts, spanning every turn of the thread including turns from an earlier run of a resumed thread. |
+| `tokenUsage.last` | object | Counts for the most recent model request alone. |
+| `<breakdown>.inputTokens` | integer | Input tokens, already inclusive of `cachedInputTokens`. |
+| `<breakdown>.outputTokens` | integer | Output tokens, already inclusive of `reasoningOutputTokens`. |
+| `<breakdown>.cachedInputTokens` | integer | Cached input tokens, a subset of `inputTokens`. |
 
 ---
 
 ## Token accounting
 
-Token usage is reported per turn in the `turn/completed` notification. Unlike the Claude Code adapter, which accumulates per-request usage across multiple `assistant` events, the Codex adapter receives a single usage snapshot at turn completion.
+Reported token counts are cumulative over the whole session the orchestrator opened, across every turn of it, and never decrease. Unlike the Claude Code adapter, which derives its figures from the event stream and the turn's terminal event, the Codex adapter reads a dedicated `thread/tokenUsage/updated` notification.
 
 ### Accumulation logic
 
-1. The `turn/completed` notification includes a `usage` object with `input_tokens`, `output_tokens`, and `cached_input_tokens`.
-2. `total_tokens` is computed as `input_tokens + output_tokens`. `cache_read_tokens` is set from `cached_input_tokens`.
-3. A single `token_usage` event is emitted after each turn. If `usage` is absent, all token fields are 0.
+1. `tokenUsage.total` is thread-cumulative, so a resumed thread reports spend the current run did not incur. The adapter subtracts a baseline to recover this run's own contribution: at the first notification matching the running turn, the baseline is `total` minus `last`.
+2. Each later notification for the running turn reports `total` minus that baseline as the run-cumulative snapshot, emitted as one `token_usage` event.
+3. A notification whose `turnId` belongs to another turn raises the baseline instead of emitting an event, so a foreign turn's spend never lands in this run's total.
+4. `input_tokens` comes from `inputTokens`, `output_tokens` from `outputTokens`, and `cache_read_tokens` from `cachedInputTokens`. `total_tokens` is computed as `input_tokens + output_tokens` rather than read from the notification's own `totalTokens`.
+5. A notification carrying no `tokenUsage` object emits no event and leaves the session's measurement state untouched. A session that never receives one is recorded as unmeasured rather than as having spent zero.
 
 ### Model tracking
 
@@ -364,7 +382,7 @@ The orchestrator's preflight validation uses this to produce a specific error me
 | Protocol | CLI flags + JSONL stdout | CLI flags + JSONL stdout | JSON-RPC 2.0 over stdin/stdout |
 | Session ID source | UUID generated by adapter | Discovered from `result` event | Thread ID from `thread/start` response |
 | Resume mechanism | `--resume <UUID>` (new subprocess) | `--resume <sessionId>` or `--continue` | `thread/resume` (JSON-RPC) or automatic within session |
-| Input token reporting | Per-request cumulative | Not available (always 0) | Per-turn from `turn/completed` |
+| Input token reporting | Per-request, from the result event's per-model breakdown | Recovered from the runtime's session-state journal after exit | From `thread/tokenUsage/updated`, baseline-subtracted |
 | Model reporting | From `assistant` events | Not available | Not available |
 | Permission mode | `--permission-mode` or `--dangerously-skip-permissions` | `--autopilot` + `--no-ask-user` + `--allow-all` | `approvalPolicy: "never"` (JSON-RPC param) |
 | Sandbox enforcement | None (external container) | None (external container) | OS-level (Seatbelt/bwrap/seccomp) + configurable policies |

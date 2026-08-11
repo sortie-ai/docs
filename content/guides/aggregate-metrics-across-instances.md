@@ -77,11 +77,12 @@ A few fields in the envelope matter to whatever receives it:
 | Field | Why it matters |
 |---|---|
 | `schema_tier` | `"full"` or `"base"`. On `"base"`, token and cost figures are `null` because the database is missing at least one of the column groups the full report needs — not because the runs cost nothing. Check this before reading a null as a zero. |
+| `summary.tokens_unmeasured_runs` | How many runs in range reported no token usage at all, so the token and cost figures exclude them rather than counting them as zero. A `"full"` report can still carry a null `tokens` when every run in range is unmeasured, which is why the tier alone does not tell a missing figure from an unmeasured one. Each breakdown row carries its own count under the same name. |
 | `warnings` | Non-empty when the report is degraded, for example by a partially migrated database or a malformed `token_rates` block. Tells a clean aggregate from a degraded one. A coding agent with no rate entry does not land here; those runs are counted in `summary.cost_unpriced_runs`. |
 | `workflow_path` | The workflow file this instance loaded when it produced the report. A local filesystem path, useful for identifying the source inside your own network. |
 | `db_path` | The SQLite database the figures came from. The same local-path caveat as `workflow_path` applies once a document leaves the host it was generated on. |
 
-Those four are what a receiver acts on. For the rest of the envelope, field by field, plus the flags, the range-bound grammar, and what puts a report on the `base` tier, see the [`sortie stats` CLI reference](/reference/cli/#stats).
+Those five are what a receiver acts on. For the rest of the envelope, field by field, plus the flags, the range-bound grammar, and what puts a report on the `base` tier, see the [`sortie stats` CLI reference](/reference/cli/#stats).
 
 This is the only figures document Sortie produces. Whatever emits it — this pipe today, or a built-in export feature later — carries exactly these figures and nothing divergent: the same population, the same rounding, the same meaning for a null. That is a recorded project constraint, not just today's implementation detail, so anything you build against this envelope keeps working if Sortie ever ships an exporter of its own.
 

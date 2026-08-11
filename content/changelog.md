@@ -11,6 +11,245 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.19.0] - 2026-08-11 { #1.19.0 }
+
+### Added
+
+- Install script (macOS and Linux): command-line flags next to the
+  existing environment variables - `--version`, `--install-dir`,
+  `--no-verify`, `--binary`, and `--help` - passed through a pipe with
+  `sh -s --`. A flag overrides the matching variable, and an
+  unrecognized flag now aborts the install instead of being ignored.
+  `--binary` installs a binary already on disk instead of downloading
+  one. Re-running the script no longer re-downloads a release that is
+  already installed in the target directory. On a GitHub Actions runner
+  the install directory is appended to `$GITHUB_PATH`, so later steps
+  find `sortie` without extra wiring. Resolving the latest release no
+  longer consumes the unauthenticated GitHub API quota, which is what
+  made unpinned installs fail on shared CI runners.
+
+- `sortie validate` Jira adapter config validation: emits offline
+  diagnostics for `tracker.kind: jira` covering endpoint presence,
+  endpoint URL shape (a scheme and a host), an endpoint that already
+  contains `/rest/api/`, and `api_key` shape (a colon in the first or
+  last position, and a colon-free key against an Atlassian Cloud host).
+  All four checks are errors that block dispatch.
+
+- `sortie validate` now reports a malformed Gitea `tracker.query_filter`
+  using the same grammar the adapter enforces at startup, and an
+  untrimmed element in `tracker.active_states` or `tracker.terminal_states`
+  on GitHub and Gitea, matching the existing GitLab and Linear
+  diagnostics. The empty-element and untrimmed-element diagnostic
+  wording is now identical across every tracker adapter that reports it.
+
+- `sortie validate` now checks the Jira API version, catching three
+  `tracker.kind: jira` misconfigurations that used to pass validation
+  and then abort the run at startup: a `tracker.api_version` other than
+  `"2"` or `"3"`; `"2"` against an Atlassian Cloud endpoint, which only
+  serves version 3; and a colon-free `tracker.api_key` against a
+  self-hosted endpoint whose effective version is `"3"` - the default
+  when `tracker.api_version` is unset - where a personal access token
+  needs either an `email:token` key or `tracker.api_version: "2"`. All
+  three are errors that block dispatch.
+  ([#785](https://github.com/sortie-ai/sortie/issues/785))
+
+- GitLab SCM provider: Sortie's pull-request automation now runs against
+  GitLab.com or a self-managed GitLab instance, at parity with the GitHub
+  and Gitea SCM providers. Set `provider: gitlab` on a
+  `reactions.auto_merge`, `reactions.review_comments`,
+  `reactions.bot_review`, `reactions.merge_conflicts`,
+  `reactions.ci_failure`, or `reactions.label_commands` block to drive it
+  through GitLab: Sortie routes human and bot review feedback on a merge
+  request back into the agent session, reacts to merge conflicts, to a
+  failing pipeline on an agent's merge request (surfacing an excerpt of
+  the failing job's log), and to the `sortie:review` / `sortie:fix` label
+  commands, and, with `reactions.auto_merge`, merges an approved merge
+  request once its approval state, pipeline status, and mergeability
+  satisfy the configured preconditions (sending the expected head SHA so
+  a moved head aborts the merge rather than merging stale work) and
+  deletes the merged branch. Auto-merge on GitLab requires an access
+  token carrying GitLab's `api` scope; a token without it is reported at
+  startup.
+  ([#720](https://github.com/sortie-ai/sortie/issues/720),
+  [#721](https://github.com/sortie-ai/sortie/issues/721),
+  [#722](https://github.com/sortie-ai/sortie/issues/722))
+
+### Fixed
+
+- Follow-up work already queued for an issue is no longer discarded
+  when a second kind of follow-up becomes due for the same issue.
+  Sortie keeps one queued continuation per issue and the last writer
+  won silently, so a queued CI fix, review fix, bot-review fix,
+  post-merge-conflict rebase, or `sortie:review` / `sortie:fix` label
+  command could be dropped and never run, and a dropped continuation
+  could reappear after a restart. The losing side now waits and runs on
+  a later poll once the queued work has been dispatched; a label
+  command keeps its label on the pull request until it actually starts,
+  so an unremoved label means the command is accepted but not yet
+  running; and a worker finishing normally no longer cancels work
+  queued while it was running. Two cases that could otherwise hold the
+  queue indefinitely are now bounded and reported: a reaction for an
+  issue parked outside every configured state is dropped after 30
+  minutes with a warning naming the reaction kind and the issue state,
+  instead of retrying at the backoff ceiling for the life of the
+  process and blocking that issue's other reactions, and a retry whose
+  timer event was lost under load is re-armed on a later poll instead
+  of stalling.
+  ([#743](https://github.com/sortie-ai/sortie/issues/743))
+
+- Token usage recorded for a run was undercounted on every adapter that
+  reports it - `claude-code`, `codex`, `copilot-cli`, and `opencode` -
+  by between one and three orders of magnitude, and was zero on `codex`
+  turns and on `claude-code` sessions whose work ran inside sub-agents.
+  A multi-turn session recorded only its largest single turn rather than
+  the whole session. Recorded figures now match what each runtime
+  reports for the same session, and `total_tokens` means input plus
+  output on every adapter, counting prompt-cache reads once within the
+  input total instead of adding them again. Everything derived from
+  these figures moves with them - `agent.max_tokens` enforcement, the
+  `cost_budget` agent tool, `sortie stats`, dashboard cost estimates,
+  and the Prometheus token counters - so an `agent.max_tokens` ceiling
+  tuned against the previous behavior will bind far sooner and is worth
+  revisiting before upgrading. Rows already written to `run_history`
+  keep their original figures, so a `sortie stats` window spanning the
+  upgrade mixes both. On `copilot-cli` input tokens are recovered from
+  the runtime's session journal after the agent process exits, so they
+  remain unreported when the agent runs over SSH.
+  ([#756](https://github.com/sortie-ai/sortie/issues/756))
+
+- A run whose coding agent reported no token usage was stored, summed,
+  priced, and displayed as a run that spent nothing, so an unmeasured
+  run looked identical to a genuinely free one. Each run now records
+  whether its token figures are a measurement, and the surfaces that
+  report spend keep the two apart. `sortie stats` counts tokens and cost
+  over measured runs only, labels them that way, and footnotes how many
+  runs it skipped; `--format json` gains `tokens_unmeasured_runs`
+  overall and per group. The dashboard shows a running session that has
+  reported no usage yet as `not reported`, leaves it out of the active
+  token and cost totals, and says how many it left out; the state API
+  gains `tokens_measured` per running entry. The `cost_budget` agent
+  tool gains `unmeasured_sessions` and `used_tokens_complete` so an
+  agent can tell a lower bound from an exact figure. An unmeasured run
+  still contributes nothing to the `agent.max_tokens` ceiling, but the
+  orchestrator now logs a warning that the ceiling could not be fully
+  evaluated instead of treating the incomplete total as authoritative;
+  the dispatch proceeds either way.
+  ([#757](https://github.com/sortie-ai/sortie/issues/757))
+
+- An `opencode` turn that exits cleanly having produced no model output
+  at all - no text, no reasoning, no tool call - is no longer reported
+  as completed. The turn now fails and is retried, instead of counting
+  as work done and letting the run advance the issue on nothing.
+
+- A failed or cancelled turn on `opencode` and `codex` now records why
+  it ended. Both agents reported the outcome with no accompanying
+  error, so the run's `error` column and the dashboard showed a failure
+  with no reason attached; the runtime's own diagnostic now reaches
+  both. On `codex`, a turn that fails before it starts and one whose
+  subprocess output ends early also reach the event stream, so the
+  dashboard's last event no longer stops at the last step that worked.
+
+- The GitHub auto-merge CI gate read only the first page of a commit's
+  combined statuses and check runs, so a commit carrying more than 30
+  of either could report the wrong merge verdict. Both routes are now
+  paginated to exhaustion.
+  ([#784](https://github.com/sortie-ai/sortie/issues/784))
+
+- The Gitea auto-merge CI gate treated a commit status it did not
+  recognize as passing, letting auto-merge proceed on a signal it could
+  not interpret. It now treats an unrecognized or empty status as
+  pending, matching the Gitea CI reaction's own reading of the same
+  value.
+
+- An auto-merge on GitHub that lost the race to a merge performed by
+  someone else no longer retries until it escalates. Sortie recognized
+  that case only when GitHub's rejection wording said the pull request
+  was already merged, which it does not say, so the reaction re-polled
+  a merge that had already landed and eventually asked for a human.
+  Sortie now re-reads the pull request after a rejected merge and
+  treats a confirmed merge as success, closing out the reaction and
+  counting it as merged, which is what Gitea already did.
+  ([#786](https://github.com/sortie-ai/sortie/issues/786))
+
+- On GitHub, `reactions.merge_completion` never moved an issue to its
+  terminal state after the pull request merged. The GitHub API version
+  Sortie pins stopped reporting the merge commit the reaction uses to
+  recognize a merge, so the issue stayed in its pre-merge state, its
+  workspace was never cleaned up, and a warning repeated at every poll
+  for the life of the process. Sortie now reads the merge commit from
+  GitHub's GraphQL API and the transition lands on the first poll after
+  the merge. A GitHub token used with `merge_completion` must therefore
+  be able to read the GraphQL API; a token that cannot now fails the
+  read with a logged error and backoff instead of looping silently.
+  ([#775](https://github.com/sortie-ai/sortie/issues/775))
+
+- On Gitea, a pull request label event whose timestamp the forge
+  returned in an unreadable form silently skipped the `sortie:review`
+  and `sortie:fix` label commands. The unreadable value was substituted
+  with the epoch, which sorts ahead of every position the detector had
+  already recorded, so the command was passed over and its label left on
+  the pull request. The read now fails with a payload error and backs
+  off, which is what GitHub already did. A review comment's timestamp is
+  still tolerated, because it feeds only the review debounce window. And
+  because Gitea folds its review decision from each review's submission
+  time, a review that can change the verdict and carries an unreadable
+  timestamp now fails the precondition read rather than letting a
+  superseded approval outrank the changes-requested review that
+  supersedes it, so `reactions.auto_merge` defers instead of merging on
+  a misread verdict.
+  ([#798](https://github.com/sortie-ai/sortie/issues/798))
+
+### Changed
+
+- `opencode` transport failures - a stdout read error, a session id
+  mismatch, or a timeout waiting for the first response - now report
+  `exit_reason=turn_failed` instead of `turn_ended_with_error`, which
+  no built-in coding agent reports any more. An alert or dashboard
+  filter on the old value must match on the error kind instead, which
+  already drew the same distinction.
+
+- Turn failure text is now the same across every coding agent: a turn
+  that exits successfully having produced nothing reports `agent exited
+  without producing output`, and a non-zero exit reports `exit code N`.
+  An alert matching the previous `kiro` or `opencode` wording needs
+  updating.
+
+- `run_history.turns_completed` no longer counts a turn that ended in
+  failure or cancellation on `opencode` and `codex`, so the column
+  means the same thing on every coding agent. Turn counts and mean
+  turns per run in `sortie stats` and on the dashboard drop for those
+  two agents at this release, with no change in behavior behind the
+  numbers.
+
+- The multi-label state WARN, logged when an issue carries more than
+  one configured active, terminal, or handoff label, now identifies the
+  issue with `issue_identifier` on every forge, replacing `issue_index`
+  on Gitea and `iid` on GitLab. GitHub now logs this WARN as well,
+  matching Gitea and GitLab. An operator's saved log filter on the old
+  attribute name needs updating.
+
+- A source-control failure on GitHub or Gitea that is not a merge no
+  longer reports the `scm_conflict_error` category. A 405 or 409 from a
+  review read, a CI read, a label removal, or a branch delete now
+  reports `scm_api_error`; only a rejected merge reports a conflict. An
+  operator's alert on `scm_conflict_error` now fires on merges only.
+
+- Release tags now carry a `v` prefix (`v1.19.0`). Every earlier version
+  was additionally tagged under its prefixed name against the same
+  commit, so the Go module proxy now publishes the full version list and
+  `go install github.com/sortie-ai/sortie/cmd/sortie@v1.18.0` resolves;
+  it previously published no versions at all, leaving the module
+  installable only at a pseudo-version. The install scripts for macOS,
+  Linux, and Windows take a pinned version with or without the prefix,
+  so an existing `SORTIE_VERSION=1.18.0` or `--version 1.18.0` still
+  selects that release.
+
+### Migrations
+
+- Add `tokens_measured INTEGER NOT NULL DEFAULT 1` to `run_history`;
+  pre-migration rows read back as measured, so a run recorded before the
+  upgrade that reported no token usage still counts as a genuine zero.
+
 ## [1.18.0] - 2026-08-09 { #1.18.0 }
 
 ### Added
@@ -1374,40 +1613,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   execution via GitHub Actions.
 - Architecture Decision Records (ADR-0001 through ADR-0005).
 
-[1.18.0]: https://github.com/sortie-ai/sortie/compare/1.17.0...1.18.0
-[1.17.0]: https://github.com/sortie-ai/sortie/compare/1.16.1...1.17.0
-[1.16.1]: https://github.com/sortie-ai/sortie/compare/1.16.0...1.16.1
-[1.16.0]: https://github.com/sortie-ai/sortie/compare/1.15.0...1.16.0
-[1.15.0]: https://github.com/sortie-ai/sortie/compare/1.14.1...1.15.0
-[1.14.1]: https://github.com/sortie-ai/sortie/compare/1.14.0...1.14.1
-[1.14.0]: https://github.com/sortie-ai/sortie/compare/1.13.0...1.14.0
-[1.13.0]: https://github.com/sortie-ai/sortie/compare/1.12.0...1.13.0
-[1.12.0]: https://github.com/sortie-ai/sortie/compare/1.11.0...1.12.0
-[1.11.0]: https://github.com/sortie-ai/sortie/compare/1.10.0...1.11.0
-[1.10.0]: https://github.com/sortie-ai/sortie/compare/1.9.1...1.10.0
-[1.9.1]: https://github.com/sortie-ai/sortie/compare/1.9.0...1.9.1
-[1.9.0]: https://github.com/sortie-ai/sortie/compare/1.8.0...1.9.0
-[1.8.0]: https://github.com/sortie-ai/sortie/compare/1.7.1...1.8.0
-[1.7.1]: https://github.com/sortie-ai/sortie/compare/1.7.0...1.7.1
-[1.7.0]: https://github.com/sortie-ai/sortie/compare/1.6.1...1.7.0
-[1.6.1]: https://github.com/sortie-ai/sortie/compare/1.6.0...1.6.1
-[1.6.0]: https://github.com/sortie-ai/sortie/compare/1.5.1...1.6.0
-[1.5.1]: https://github.com/sortie-ai/sortie/compare/1.5.0...1.5.1
-[1.5.0]: https://github.com/sortie-ai/sortie/compare/1.4.0...1.5.0
-[1.4.0]: https://github.com/sortie-ai/sortie/compare/1.3.0...1.4.0
-[1.3.0]: https://github.com/sortie-ai/sortie/compare/1.2.1...1.3.0
-[1.2.1]: https://github.com/sortie-ai/sortie/compare/1.2.0...1.2.1
-[1.2.0]: https://github.com/sortie-ai/sortie/compare/1.1.0...1.2.0
-[1.1.0]: https://github.com/sortie-ai/sortie/compare/1.0.0...1.1.0
-[1.0.0]: https://github.com/sortie-ai/sortie/compare/0.0.10...1.0.0
-[0.0.10]: https://github.com/sortie-ai/sortie/compare/0.0.9...0.0.10
-[0.0.9]: https://github.com/sortie-ai/sortie/compare/0.0.8...0.0.9
-[0.0.8]: https://github.com/sortie-ai/sortie/compare/0.0.7...0.0.8
-[0.0.7]: https://github.com/sortie-ai/sortie/compare/0.0.6...0.0.7
-[0.0.6]: https://github.com/sortie-ai/sortie/compare/0.0.5...0.0.6
-[0.0.5]: https://github.com/sortie-ai/sortie/compare/0.0.4...0.0.5
-[0.0.4]: https://github.com/sortie-ai/sortie/compare/0.0.3...0.0.4
-[0.0.3]: https://github.com/sortie-ai/sortie/compare/0.0.2...0.0.3
-[0.0.2]: https://github.com/sortie-ai/sortie/compare/0.0.1...0.0.2
-[0.0.1]: https://github.com/sortie-ai/sortie/compare/0.0.0...0.0.1
+[1.19.0]: https://github.com/sortie-ai/sortie/compare/v1.18.0...v1.19.0
+[1.18.0]: https://github.com/sortie-ai/sortie/compare/v1.17.0...v1.18.0
+[1.17.0]: https://github.com/sortie-ai/sortie/compare/v1.16.1...v1.17.0
+[1.16.1]: https://github.com/sortie-ai/sortie/compare/v1.16.0...v1.16.1
+[1.16.0]: https://github.com/sortie-ai/sortie/compare/v1.15.0...v1.16.0
+[1.15.0]: https://github.com/sortie-ai/sortie/compare/v1.14.1...v1.15.0
+[1.14.1]: https://github.com/sortie-ai/sortie/compare/v1.14.0...v1.14.1
+[1.14.0]: https://github.com/sortie-ai/sortie/compare/v1.13.0...v1.14.0
+[1.13.0]: https://github.com/sortie-ai/sortie/compare/v1.12.0...v1.13.0
+[1.12.0]: https://github.com/sortie-ai/sortie/compare/v1.11.0...v1.12.0
+[1.11.0]: https://github.com/sortie-ai/sortie/compare/v1.10.0...v1.11.0
+[1.10.0]: https://github.com/sortie-ai/sortie/compare/v1.9.1...v1.10.0
+[1.9.1]: https://github.com/sortie-ai/sortie/compare/v1.9.0...v1.9.1
+[1.9.0]: https://github.com/sortie-ai/sortie/compare/v1.8.0...v1.9.0
+[1.8.0]: https://github.com/sortie-ai/sortie/compare/v1.7.1...v1.8.0
+[1.7.1]: https://github.com/sortie-ai/sortie/compare/v1.7.0...v1.7.1
+[1.7.0]: https://github.com/sortie-ai/sortie/compare/v1.6.1...v1.7.0
+[1.6.1]: https://github.com/sortie-ai/sortie/compare/v1.6.0...v1.6.1
+[1.6.0]: https://github.com/sortie-ai/sortie/compare/v1.5.1...v1.6.0
+[1.5.1]: https://github.com/sortie-ai/sortie/compare/v1.5.0...v1.5.1
+[1.5.0]: https://github.com/sortie-ai/sortie/compare/v1.4.0...v1.5.0
+[1.4.0]: https://github.com/sortie-ai/sortie/compare/v1.3.0...v1.4.0
+[1.3.0]: https://github.com/sortie-ai/sortie/compare/v1.2.1...v1.3.0
+[1.2.1]: https://github.com/sortie-ai/sortie/compare/v1.2.0...v1.2.1
+[1.2.0]: https://github.com/sortie-ai/sortie/compare/v1.1.0...v1.2.0
+[1.1.0]: https://github.com/sortie-ai/sortie/compare/v1.0.0...v1.1.0
+[1.0.0]: https://github.com/sortie-ai/sortie/compare/v0.0.10...v1.0.0
+[0.0.10]: https://github.com/sortie-ai/sortie/compare/v0.0.9...v0.0.10
+[0.0.9]: https://github.com/sortie-ai/sortie/compare/v0.0.8...v0.0.9
+[0.0.8]: https://github.com/sortie-ai/sortie/compare/v0.0.7...v0.0.8
+[0.0.7]: https://github.com/sortie-ai/sortie/compare/v0.0.6...v0.0.7
+[0.0.6]: https://github.com/sortie-ai/sortie/compare/v0.0.5...v0.0.6
+[0.0.5]: https://github.com/sortie-ai/sortie/compare/v0.0.4...v0.0.5
+[0.0.4]: https://github.com/sortie-ai/sortie/compare/v0.0.3...v0.0.4
+[0.0.3]: https://github.com/sortie-ai/sortie/compare/v0.0.2...v0.0.3
+[0.0.2]: https://github.com/sortie-ai/sortie/compare/v0.0.1...v0.0.2
+[0.0.1]: https://github.com/sortie-ai/sortie/compare/v0.0.0...v0.0.1
 [0.0.0]: https://github.com/sortie-ai/sortie/releases/tag/0.0.0
