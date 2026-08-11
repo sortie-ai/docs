@@ -17,11 +17,34 @@
   // Expose globally so cookieconsent-config.js can call gtag() for consent updates.
   window.gtag = gtag;
 
-  // Consent Mode v2: deny analytics by default before any tags fire.
-  // wait_for_update gives CookieConsent up to 500 ms to call gtag("consent", "update", ...)
-  // before GA4 sends the first hit. This covers returning visitors whose consent
-  // cookie is read synchronously on page load.
+  // Consent Mode v2: deny every storage signal by default before any tags fire.
+  //
+  // These four keys are Google's own published snippet for denying consent for
+  // all parameters by default. The three advertising signals are not optional
+  // decoration: Consent Mode v2 is *defined* by the addition of ad_user_data
+  // and ad_personalization to the v1 pair, and an unspecified signal falls back
+  // to granted.
+  //
+  // Measured on the live site before this was widened. With only
+  // analytics_storage denied, the Google tag wrote a _gcl_au cookie -- 182 days,
+  // scoped to .sortie-ai.com -- and a _gcl_ls localStorage key on first load,
+  // before the banner had been answered, and rejecting consent removed neither.
+  // It also contacted stats.g.doubleclick.net. With all four denied, both
+  // disappear in every state, the request goes to region1.google-analytics.com
+  // instead, and the gcs signal changes from G1-0 to G100. Verified by
+  // intercepting this file in a browser and replacing only this statement.
+  //
+  // updateGtagConsent() in cookieconsent-config.js deliberately grants only
+  // analytics_storage. This site runs no advertising, so the three ad signals
+  // stay denied permanently. That is the intended end state, not an oversight.
+  //
+  // wait_for_update gives CookieConsent up to 500 ms to call
+  // gtag("consent", "update", ...) before GA4 sends the first hit. This covers
+  // returning visitors whose consent cookie is read synchronously on page load.
   gtag("consent", "default", {
+    ad_storage: "denied",
+    ad_user_data: "denied",
+    ad_personalization: "denied",
     analytics_storage: "denied",
     wait_for_update: 500,
   });
