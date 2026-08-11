@@ -162,7 +162,7 @@ The JSON API returns errors in a standard envelope:
 | `method_not_allowed` | `405` | Wrong HTTP method for the endpoint (e.g., `POST` to a `GET`-only route). The `Allow` header indicates the correct method. |
 | `internal_error` | `500` | Server-side JSON encoding failure or unexpected error. |
 
-For full endpoint documentation, request/response shapes, and curl examples, see [HTTP API reference](http-api.md).
+For full endpoint documentation, request/response shapes, and curl examples, see [HTTP API reference](/reference/http-api/).
 
 ---
 

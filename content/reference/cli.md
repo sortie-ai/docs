@@ -163,7 +163,7 @@ The file is re-read on every WORKFLOW.md reload (file change detection). If the 
 Sets the listening port for the embedded HTTP server. The server starts by default on port `7678`. All observability surfaces share this port:
 
 - `/` - HTML dashboard ([dashboard reference](/reference/dashboard/))
-- `/api/v1/state` - JSON API ([HTTP API reference](http-api.md))
+- `/api/v1/state` - JSON API ([HTTP API reference](/reference/http-api/))
 - `/api/v1/<identifier>` - Per-issue detail
 - `/api/v1/refresh` - Trigger immediate poll cycle
 - `/livez` - Liveness probe
@@ -1049,6 +1049,6 @@ sortie mcp-server --workflow /opt/sortie/WORKFLOW.md
 
 - [WORKFLOW.md configuration reference](/reference/workflow-config/) - all config fields
 - [Environment variables reference](/reference/environment/) - `SORTIE_*` config overrides, agent runtime vars, `$VAR` indirection, hook env
-- [HTTP API reference](http-api.md) - JSON API endpoints and response shapes
+- [HTTP API reference](/reference/http-api/) - JSON API endpoints and response shapes
 - [Dashboard reference](/reference/dashboard/) - built-in HTML monitoring dashboard
 - [Prometheus metrics reference](/reference/prometheus-metrics/) - metric names, types, labels, and PromQL examples

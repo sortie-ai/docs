@@ -1,0 +1,22 @@
+{{- /* Override of Hextra's empty _partials/custom/footer.html, rendered by
+       _partials/footer.html inside .hextra-custom-footer (which already
+       supplies the max width and the horizontal safe-area padding).
+
+       Its whole job is the anchor below. Until this file existed the footer
+       rendered no anchors at all, and this site — 83 pages, the only Sortie
+       property Google has indexed — linked to sortie-ai.com zero times, while
+       the landing page linked here 49 times. The apex therefore had no inbound
+       links from anything Sortie controls, which is not a thing any amount of
+       on-page work on the apex can compensate for.
+
+       The anchor text names the product and what it does on purpose. "Home",
+       "Website" or "Here" would pass the same link with none of the meaning;
+       anchor text is one of the few signals a link carries about its target,
+       and this link is repeated on every page of the site. */ -}}
+<div class="hx:mx-auto hx:flex hx:w-full hx:flex-col hx:items-center hx:pt-10 hx:text-sm hx:sm:items-start">
+  <a
+    class="hx:text-current hx:underline hx:underline-offset-2 hx:decoration-from-font hx:hover:text-gray-800 hx:dark:hover:text-gray-200"
+    href="https://sortie-ai.com/"
+    >Sortie — autonomous coding agent orchestrator</a
+  >
+</div>

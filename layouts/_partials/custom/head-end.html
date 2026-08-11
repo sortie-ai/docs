@@ -4,9 +4,56 @@
 <meta name="author" content="Sortie AI" />
 {{- end -}}
 
-{{- /* cookieconsent library from CDN */ -}}
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orestbida/cookieconsent@3.1.0/dist/cookieconsent.css" />
-<script defer src="https://cdn.jsdelivr.net/gh/orestbida/cookieconsent@3.1.0/dist/cookieconsent.umd.js"></script>
+{{- /* cookieconsent — committed to this repository, served from this origin,
+       fingerprinted and carrying Subresource Integrity, the same standard every
+       other asset on this page is held to.
+
+       It used to be linked straight from jsDelivr. Two problems with that, and
+       the first is the one that matters here: the browser disclosed the
+       visitor's IP address to a third party in order to download the banner
+       that had not yet asked the visitor for anything, on a site whose consent
+       design is deny-by-default. The second is that a plain CDN <link>/<script>
+       carried no integrity attribute, so the bytes were unverifiable.
+
+       Fetching at build time with resources.GetRemote fixed both of those but
+       left the CDN deciding what shipped, one build later. The files are now
+       committed, so the *bytes* are pinned rather than the version string, and
+       the build performs no third-party network fetch.
+
+       PROVENANCE — upstream is https://github.com/orestbida/cookieconsent,
+       tag v3.1.0, files taken from its dist/ directory:
+
+           assets/css/vendor/cookieconsent-3.1.0.css
+             source  https://cdn.jsdelivr.net/gh/orestbida/cookieconsent@3.1.0/dist/cookieconsent.css
+             sha256  ca046b8b1b1094107205988e7096a687b241c8ef5f3fefe5e543ed28d26646c1
+             SRI     sha256-ygRrixsQlBByBZiOcJamh7JByO9fP+/l5UPtKNJmRsE=
+
+           assets/js/vendor/cookieconsent-3.1.0.umd.js
+             source  https://cdn.jsdelivr.net/gh/orestbida/cookieconsent@3.1.0/dist/cookieconsent.umd.js
+             sha256  bc6e2f2e6381fc025b27a6b0afb5a0e1fc689c6f9fc40a78708adb2054ef4575
+             SRI     sha256-vG4vLmOB/AJbJ6awr7Wg4fxonG+fxAp4cIrbIFTvRXU=
+
+       Verify either with `curl -fsSL <source> | sha256sum`.
+
+       Upgrading is a deliberate act: add the new pair of files, update this
+       comment and the two paths below, delete the old pair, and check that
+       /js/cookieconsent-config.js still matches the new API. Keep the CSS and
+       the JS on the same version — they are released together and the CSS
+       targets class names the script generates. */ -}}
+{{- $ccCssPath := "css/vendor/cookieconsent-3.1.0.css" -}}
+{{- $ccJsPath := "js/vendor/cookieconsent-3.1.0.umd.js" -}}
+{{- with resources.Get $ccCssPath -}}
+  {{- $ccCss := . | fingerprint -}}
+  <link rel="stylesheet" href="{{ $ccCss.RelPermalink }}" integrity="{{ $ccCss.Data.Integrity }}" />
+{{- else -}}
+  {{- errorf "custom/head-end.html: assets/%s is missing. It is committed to this repository; see the provenance comment in this file." $ccCssPath -}}
+{{- end -}}
+{{- with resources.Get $ccJsPath -}}
+  {{- $ccJs := . | fingerprint -}}
+  <script defer src="{{ $ccJs.RelPermalink }}" integrity="{{ $ccJs.Data.Integrity }}"></script>
+{{- else -}}
+  {{- errorf "custom/head-end.html: assets/%s is missing. It is committed to this repository; see the provenance comment in this file." $ccJsPath -}}
+{{- end -}}
 
 {{- /* cookieconsent local override styles */ -}}
 <link rel="stylesheet" href="/css/cookieconsent.css" />
@@ -25,9 +72,12 @@
 {{- if hugo.IsProduction }}{{- $feedback = $feedback | minify | fingerprint -}}{{ end -}}
 <script defer src="{{ $feedback.RelPermalink }}"></script>
 
-{{- /* mermaid CDN + theme-aware initialization */ -}}
-<script defer src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
-<script defer src="/js/mermaid-init.js"></script>
+{{- /* Mermaid used to be injected here, unconditionally, on all 83 pages. It
+       now loads from layouts/_partials/scripts/mermaid.html, at the end of
+       <body>, and only on the 2 pages that actually contain a diagram. Do not
+       move it back: the gate is a page-scoped flag set by the codeblock render
+       hook while the content renders, which is after this partial has already
+       been written out. */ -}}
 
 {{- /* GitHub star count — lightweight fetch from public API */ -}}
 <script>

@@ -92,7 +92,7 @@ You will not find `issue_id` or `issue_identifier` as Prometheus labels. This is
 
 Sortie's concurrency is O(10) agents, not O(10,000) microservice endpoints - but issue identifiers are unbounded over time. Adding them as labels would create an ever-growing number of time series that degrades Prometheus storage and query performance for no operational benefit.
 
-Prometheus answers aggregate questions: "How many sessions are running?", "What is the token burn rate?", "Are dispatches failing?" The [JSON API](http-api.md) answers per-issue questions: "What is PROJ-42 doing right now?", "How many tokens has this session consumed?" Use both.
+Prometheus answers aggregate questions: "How many sessions are running?", "What is the token burn rate?", "Are dispatches failing?" The [JSON API](/reference/http-api/) answers per-issue questions: "What is PROJ-42 doing right now?", "How many tokens has this session consumed?" Use both.
 
 None of the labels above name the Sortie instance itself, because Sortie's metrics registry has no concept of one. Prometheus supplies that separation on the scrape side instead: every series gets an `instance` label (the scraped `host:port`) and a `job` label (the `job_name` from `scrape_configs`), regardless of what the exporter emits. Point one Prometheus at several Sortie processes and those two labels are what let you view each instance separately or sum across all of them — see [how to aggregate metrics across instances](/guides/aggregate-metrics-across-instances/).
 

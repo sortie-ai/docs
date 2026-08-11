@@ -1083,7 +1083,7 @@ Unknown top-level keys are collected into an extensions map for forward compatib
 
 ### `server`
 
-Embedded HTTP observability server. Exposes a JSON API, HTML dashboard, health probes, and Prometheus metrics on a single port. See the [HTTP API reference](http-api.md) for endpoint details and the [Prometheus metrics reference](/reference/prometheus-metrics/) for metric definitions.
+Embedded HTTP observability server. Exposes a JSON API, HTML dashboard, health probes, and Prometheus metrics on a single port. See the [HTTP API reference](/reference/http-api/) for endpoint details and the [Prometheus metrics reference](/reference/prometheus-metrics/) for metric definitions.
 
 | Field  | Type        | Default     | Description                                                                      |
 | ------ | ----------- | ----------- | -------------------------------------------------------------------------------- |

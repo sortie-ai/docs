@@ -2,7 +2,8 @@ baseURL = "https://docs.sortie-ai.com/"
 title = "Sortie"
 locale = "en-US"
 defaultContentLanguage = "en"
-# Hugo outputs public/ which becomes the Cloudflare Pages deploy directory.
+# Hugo outputs public/, which wrangler.toml exposes as the Cloudflare Workers
+# static-assets directory ([assets] directory = "./public").
 publishDir = "public"
 
 # enableGitInfo replaces git-revision-date-localized MkDocs plugin.
@@ -96,10 +97,14 @@ width = "normal"
 
 # "Copy Page" context menu with AI integrations.
 #
-# Markdown is obtained at runtime from Cloudflare content negotiation
-# (Accept: text/markdown on the canonical URL); no static .md mirrors are
-# generated. Two project overrides make this work without the markdown output
-# format Hextra normally requires:
+# The menu copies Markdown obtained at runtime from Cloudflare content
+# negotiation (Accept: text/markdown on the canonical URL) — not from the
+# static .md mirrors declared at the bottom of this file. Both representations
+# exist on purpose and neither replaces the other: the mirrors are stable URLs
+# an agent can guess without knowing about content negotiation, while
+# negotiation is what a fetch() from this page can use without navigating the
+# browser away to a different URL. Two project overrides keep the menu on the
+# negotiated path:
 #   - layouts/_partials/components/page-context-menu.html (points at the
 #     canonical URL, drops the markdown-output gate and the "View as Markdown"
 #     item, which a browser navigation cannot negotiate)
@@ -118,6 +123,15 @@ icon = "claude"
 url = "https://claude.ai/new?q=I%27m+looking+at+this+documentation%3A+{markdown_url}%0AHelp+me+understand+how+to+use+it."
 
 [menu]
+# The product site. Deliberately a separate entry from the navbar logo, which
+# links to "/" — the docs root on this host — so the two are not the same
+# destination dressed up twice. Hextra's navbar partial treats any URL
+# starting with http as external and adds target/rel itself.
+[[menu.main]]
+name = "Sortie Home"
+url = "https://sortie-ai.com/"
+weight = 1
+
 [[menu.main]]
 name = "Search"
 weight = 10
@@ -129,12 +143,20 @@ type = "search"
 path = "github.com/imfing/hextra"
 
 # --------------------------------------------------------------------------
-# llms.txt support — https://llmstxt.org/
-# Generates /llms.txt (navigation index) and /llms-full.txt (full content)
-# at build time. Per-page Markdown is served on demand by Cloudflare via
-# content negotiation (Accept: text/markdown), so no static .md mirrors are
-# emitted.
+# Machine-facing output formats: /llms.txt, /llms-full.txt, and a per-page
+# Markdown mirror at <path>/index.md.
+#
+# Only /llms.txt comes from a specification. https://llmstxt.org/ defines
+# exactly one file — a navigation index at the site root — and nothing else.
+#
+# /llms-full.txt is NOT in that specification. It is a Mintlify convention
+# that spread by imitation, and it is generated here only because agents that
+# were built against Mintlify-hosted docs ask for it by name. Do not cite
+# llmstxt.org as its authority; the comment that used to do so was wrong.
 # --------------------------------------------------------------------------
+
+[mediaTypes."text/markdown"]
+suffixes = ["md"]
 
 # llms.txt — navigation index linking to each page.
 [outputFormats.LLMsTxt]
@@ -154,9 +176,51 @@ isPlainText = true
 notAlternative = true
 rel = "alternate"
 
+# Markdown — the raw Markdown source of each page, published at <path>/index.md.
+#
+# The crawler control for these files lives in static/_headers, not here: the
+# /*.md rule sends `X-Robots-Tag: noindex, nofollow`. That header is the whole
+# control, and it is not optional.
+#
+# It is tempting to argue the header is unnecessary because text/markdown does
+# not appear on Google's indexable-file-types list. That argument is wrong.
+# The same Google page says the file type "is determined by the Content-Type
+# HTTP header returned when Google crawls the file, though in some cases
+# Google may use the file extension or re-parse the file using a different
+# parser if the Content-Type header is missing or incorrect." So a dropped or
+# rewritten Content-Type — one deleted _headers rule — puts these files back
+# into a type Google does index. Absence from a documentation list is not a
+# control; the response header is.
+#
+# What must NOT be added instead: a robots.txt Disallow. These files exist so
+# that AI agents can read them, and a Disallow stops a compliant agent
+# fetching them at all. It is also strictly worse than useless for indexing,
+# because Google documents that for a URL disallowed in robots.txt "any
+# information about indexing or serving rules will not be found and will
+# therefore be ignored" — the noindex above would never be seen. static/robots.txt
+# deliberately says nothing about .md; leave it that way.
+#
+# Two keys below are load-bearing:
+#   - notAlternative = true keeps the .md URL out of
+#     Page.AlternativeOutputFormats, so the HTML <head> never advertises it
+#     with <link rel="alternate">.
+#   - permalinkable is deliberately left unset (Hugo defaults it to false).
+#     That is what keeps .md URLs out of sitemap.xml: Hugo's embedded sitemap
+#     template emits .Permalink, and only a permalinkable output format makes
+#     .Permalink return its own URL instead of the HTML one. Because this
+#     rests on a Hugo default rather than on anything written here, re-verify
+#     that sitemap.xml contains zero .md URLs after every Hugo upgrade.
+[outputFormats.Markdown]
+mediaType = "text/markdown"
+baseName = "index"
+isPlainText = true
+notAlternative = true
+rel = "alternate"
+
 [outputs]
 # Home page generates HTML + both LLM text files.
 home = ["HTML", "RSS", "LLMsTxt", "LLMsFull"]
-# Regular pages and sections generate HTML only.
-page = ["HTML"]
+# Regular pages generate HTML + a raw Markdown mirror at <path>/index.md.
+page = ["HTML", "Markdown"]
+# Sections generate HTML only (index pages mostly contain shortcodes).
 section = ["HTML"]

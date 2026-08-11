@@ -6,7 +6,7 @@ date: 2026-04-26
 weight: 50
 url: /reference/dashboard/
 ---
-Sortie ships a self-contained HTML dashboard at `/` on the same port as the [JSON API](http-api.md) and [Prometheus metrics](/reference/prometheus-metrics/). No external tools, no JavaScript frameworks, no CDN dependencies - one HTML page rendered server-side by Go's `html/template` engine with vanilla JavaScript for interactive behavior.
+Sortie ships a self-contained HTML dashboard at `/` on the same port as the [JSON API](/reference/http-api/) and [Prometheus metrics](/reference/prometheus-metrics/). No external tools, no JavaScript frameworks, no CDN dependencies - one HTML page rendered server-side by Go's `html/template` engine with vanilla JavaScript for interactive behavior.
 
 The dashboard is designed for local, at-a-glance monitoring. Open it in a browser while Sortie runs, and you see what is happening right now: which agents are working, how many tokens they have consumed, what is waiting for retry, and how past runs ended. Tables use an accordion pattern - each row shows primary identification and status fields, and clicking a row expands an inline detail panel with secondary fields. All rows are collapsed by default. The page auto-refreshes every 5 seconds via an HTML `<meta http-equiv="refresh">` tag.
 
@@ -102,7 +102,7 @@ Row striping uses a CSS class (`row-even`) applied via a Go template function ra
 
 ## Running sessions table
 
-Lists every agent session that is actively executing. Sorted by start time (oldest first). Each row links to the [per-issue JSON detail endpoint](http-api.md#get-apiv1identifier-issue-detail).
+Lists every agent session that is actively executing. Sorted by start time (oldest first). Each row links to the [per-issue JSON detail endpoint](/reference/http-api/#get-apiv1identifier-issue-detail).
 
 ### Collapsed row columns (always visible)
 

@@ -1,4 +1,53 @@
+{{- /* Structured data for the documentation host.
+
+       READ THIS BEFORE CHANGING AN @id.
+
+       An Organization and a SoftwareApplication are *global* identifiers, not
+       per-site URLs. Sortie publishes from two hosts — sortie-ai.com and this
+       one — and both describe the same company and the same program. Two @id
+       values for one entity is exactly how a graph consumer concludes there
+       are two companies and two products with the same name, which is what
+       this site shipped until now: it minted #organization and #software from
+       its own baseURL.
+
+       So the two identifiers below are hard-coded to the apex forms and must
+       stay byte-identical to the ones emitted by the landing page's
+       layouts/_partials/schema.html. Do NOT "improve" them by deriving them
+       from site.BaseURL the way the landing page does — that construction is
+       only correct there because there site.BaseURL *is* the apex. Copying it
+       here is the bug.
+
+       A WebSite is genuinely per-host: these are two websites. Its @id
+       therefore stays derived from site.BaseURL, but its publisher points at
+       the apex Organization.
+
+       inLanguage comes from site.Language.Locale, which is the supported way to
+       read it on Hugo 0.159.2. The two older spellings — .Language.LanguageCode
+       and .Site.LanguageCode — were deprecated in Hugo 0.158.0 and still log a
+       deprecation notice at INFO today; they will be removed. Measured on this
+       site, with hugo.toml's root-level locale = "en-US":
+
+           site.Language.Locale        -> "en-US"   <- used here
+           site.Language.LanguageCode  -> "en-US"   (deprecated)
+           site.LanguageCode           -> "en-US"   (deprecated)
+           site.Language.Lang          -> "en"      (the content language, not
+                                                     the locale — wrong value)
+
+       It was briefly hard-coded to the literal "en-US" out of caution, on the
+       theory that the value has to agree with the apex's and so should not be
+       allowed to drift. That was the wrong instinct: unlike the @id values, an
+       inLanguage that disagreed would be a *correct* statement about a site
+       that had genuinely changed language, whereas a stale literal would be a
+       false one. Deriving it also keeps this file honest if hugo.toml's locale
+       is ever edited. Note that site.Language.Lang would NOT do — it resolves
+       to the bare "en" this file used to emit, which is what the audit
+       flagged. */ -}}
 {{- $siteURL := site.BaseURL -}}
+{{- $apexURL := "https://sortie-ai.com/" -}}
+{{- $orgID := "https://sortie-ai.com/#organization" -}}
+{{- $appID := "https://sortie-ai.com/#software" -}}
+{{- $webID := printf "%s#website" $siteURL -}}
+{{- $inLanguage := site.Language.Locale -}}
 {{- $orgLogo := printf "%simg/apple-touch-icon.png" $siteURL -}}
 {{- $ogImage := .Params.image | default (printf "%simg/og-image.jpg" $siteURL) -}}
 {{- $title := .Params.title | default .Title -}}
@@ -12,11 +61,33 @@
 {{- if not .Lastmod.IsZero -}}
   {{- $modifiedISO = .Lastmod.Format "2006-01-02" -}}
 {{- end -}}
-{{- $orgNode := dict "@type" "Organization" "@id" (printf "%s#organization" $siteURL) "name" "Sortie AI" "url" $siteURL "logo" (dict "@type" "ImageObject" "url" $orgLogo "width" 180 "height" 180) -}}
+{{- /* url is the apex, not this host. An Organization's url is the URL of the
+       organisation itself, and Sortie AI as an organisation lives at
+       sortie-ai.com; this documentation site is one of the things it publishes.
+       Emitting url: https://docs.sortie-ai.com/ under an @id that the apex also
+       claims would put two different url values on one merged node, which is
+       the sort of contradiction that makes a consumer pick one arbitrarily. The
+       relationship between the two hosts is already stated, in the properties
+       meant for it: sameAs below, and WebSite.publisher on the home page, which
+       points this host's WebSite node at the Organization's @id. Nothing is
+       lost by dropping this host from url.
+
+       sameAs is what states, in the machine-readable direction, that this host
+       and the apex are one organisation. The apex declares the mirror image of
+       this list; neither side is complete on its own. */ -}}
+{{- $orgNode := dict "@type" "Organization" "@id" $orgID "name" "Sortie AI" "url" $apexURL "logo" (dict "@type" "ImageObject" "url" $orgLogo "width" 180 "height" 180) "sameAs" (slice $apexURL "https://github.com/sortie-ai") -}}
 {{ if .IsHome -}}
 {{- $websiteName := printf "%s Documentation" site.Title -}}
-{{- $websiteNode := dict "@type" "WebSite" "@id" (printf "%s#website" $siteURL) "url" $siteURL "name" $websiteName "description" site.Params.description "publisher" (dict "@id" (printf "%s#organization" $siteURL)) "inLanguage" "en" "potentialAction" (dict "@type" "SearchAction" "target" (dict "@type" "EntryPoint" "urlTemplate" (printf "%s?q={search_term_string}" $siteURL)) "query-input" "required name=search_term_string") -}}
-{{- $softwareNode := dict "@type" "SoftwareApplication" "@id" (printf "%s#software" $siteURL) "name" site.Title "description" $desc "applicationCategory" "DeveloperApplication" "operatingSystem" "macOS, Linux, Windows" "url" "https://github.com/sortie-ai/sortie" "author" (dict "@id" (printf "%s#organization" $siteURL)) "offers" (dict "@type" "Offer" "price" 0 "priceCurrency" "USD") "softwareHelp" (dict "@type" "CreativeWork" "url" $siteURL) -}}
+{{- $websiteNode := dict "@type" "WebSite" "@id" $webID "url" $siteURL "name" $websiteName "description" site.Params.description "publisher" (dict "@id" $orgID) "inLanguage" $inLanguage "potentialAction" (dict "@type" "SearchAction" "target" (dict "@type" "EntryPoint" "urlTemplate" (printf "%s?q={search_term_string}" $siteURL)) "query-input" "required name=search_term_string") -}}
+{{- /* No "url" key here on purpose. It used to point at the GitHub repository,
+       which directly contradicted the apex node carrying this same @id, whose
+       url is the apex itself. The repository is a sameAs — the same statement
+       the apex makes — not the canonical URL of the software.
+
+       offers.price is the string "0", not the number 0, so that the two hosts
+       serialise this node identically; Google's own SoftwareApplication
+       examples use a string. */ -}}
+{{- $softwareNode := dict "@type" "SoftwareApplication" "@id" $appID "name" site.Title "description" $desc "applicationCategory" "DeveloperApplication" "operatingSystem" "macOS, Linux, Windows" "sameAs" (slice "https://github.com/sortie-ai/sortie") "author" (dict "@id" $orgID) "offers" (dict "@type" "Offer" "price" "0" "priceCurrency" "USD") "softwareHelp" (dict "@type" "CreativeWork" "url" $siteURL) -}}
 {{- $homeSchema := dict "@context" "https://schema.org" "@graph" (slice $orgNode $websiteNode $softwareNode) -}}
 <script type="application/ld+json">
   {{ $homeSchema | jsonify (dict "indent" "  ") | safeJS }}
@@ -58,7 +129,7 @@
 {{- if not $isArticle -}}
   {{- $webpageType = "CollectionPage" -}}
 {{- end -}}
-{{- $webpageNode := dict "@type" $webpageType "@id" $canonicalURL "url" $canonicalURL "name" $title "isPartOf" (dict "@id" (printf "%s#website" $siteURL)) "breadcrumb" (dict "@id" (printf "%s#breadcrumb" $canonicalURL)) "inLanguage" "en" -}}
+{{- $webpageNode := dict "@type" $webpageType "@id" $canonicalURL "url" $canonicalURL "name" $title "isPartOf" (dict "@id" $webID) "breadcrumb" (dict "@id" (printf "%s#breadcrumb" $canonicalURL)) "inLanguage" $inLanguage -}}
 {{- if $desc -}}
   {{- $webpageNode = merge $webpageNode (dict "description" $desc) -}}
 {{- end -}}
@@ -70,7 +141,7 @@
 {{- end -}}
 {{- $graphNodes := slice $orgNode $webpageNode -}}
 {{- if $isArticle -}}
-  {{- $articleNode := dict "@type" "TechArticle" "headline" $title "url" $canonicalURL "author" (dict "@id" (printf "%s#organization" $siteURL)) "publisher" (dict "@id" (printf "%s#organization" $siteURL)) "isPartOf" (dict "@id" (printf "%s#website" $siteURL)) "about" (dict "@id" (printf "%s#software" $siteURL)) "inLanguage" "en" "isAccessibleForFree" true "image" (dict "@type" "ImageObject" "url" $ogImage "width" 1200 "height" 630) "mainEntityOfPage" (dict "@id" $canonicalURL) -}}
+  {{- $articleNode := dict "@type" "TechArticle" "headline" $title "url" $canonicalURL "author" (dict "@id" $orgID) "publisher" (dict "@id" $orgID) "isPartOf" (dict "@id" $webID) "about" (dict "@id" $appID) "inLanguage" $inLanguage "isAccessibleForFree" true "image" (dict "@type" "ImageObject" "url" $ogImage "width" 1200 "height" 630) "mainEntityOfPage" (dict "@id" $canonicalURL) -}}
   {{- if $desc -}}
     {{- $articleNode = merge $articleNode (dict "description" $desc) -}}
   {{- end -}}

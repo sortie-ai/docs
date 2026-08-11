@@ -24,3 +24,33 @@
 /llms-full.txt
   Content-Type: text/markdown; charset=utf-8
   X-Robots-Tag: noindex
+
+# Per-page Markdown mirrors (<path>/index.md), emitted by the
+# [outputFormats.Markdown] block in hugo.toml.
+#
+# ONE splat, not two. Cloudflare: "When matching, a splat pattern — signified
+# by an asterisk (*) — will greedily match all characters. You may only
+# include a single splat in the URL." The splat is greedy across "/", so this
+# single rule covers /changelog/index.md and /reference/http-api/index.md
+# alike. An earlier version of this file used /**/*.md; two splats are not
+# permitted and such a rule does not apply — silently, with no build error and
+# no deploy warning. If a .md response ever comes back without the headers
+# below, count the asterisks first.
+#
+# Content-Type must be stated explicitly: the /* rule above sets
+# X-Content-Type-Options: nosniff, so nothing may be inferred from the body.
+#
+# X-Robots-Tag is the actual, and only, protection against these mirrors being
+# indexed alongside the HTML pages they duplicate. Do not weaken it on the
+# theory that Google does not index text/markdown — Google determines file
+# type from Content-Type but reserves the right to fall back to the extension
+# or re-parse when that header is "missing or incorrect", so the exemption
+# evaporates the moment the line above does. nofollow is not decoration
+# either: it stops a crawler chasing the rewritten in-body links.
+#
+# Do NOT translate this into a robots.txt Disallow. A Disallow would block the
+# AI agents these files exist for, and Google never reads indexing rules on a
+# URL it is not allowed to crawl — the noindex would go unseen.
+/*.md
+  Content-Type: text/markdown; charset=utf-8
+  X-Robots-Tag: noindex, nofollow

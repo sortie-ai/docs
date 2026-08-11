@@ -1,1 +1,13 @@
 <pre class="mermaid">{{- .Inner -}}</pre>
+{{- /* The flag Hextra's _partials/scripts.html reads to decide whether to pull
+       in _partials/scripts/mermaid.html (overridden in this project). Setting
+       it here is what keeps 3.5 MB of Mermaid off the 81 pages that contain no
+       diagram; only 2 of 83 content files reach this render hook.
+
+       .Page.Store, not .Store: inside a render hook .Store is the hook's own
+       scratch, and the value has to survive on the page. The read happens at
+       the end of <body>, after .Content has been rendered, so the flag is
+       already set by then — do not move the read into <head> without also
+       forcing content rendering first, the way _partials/head.html does with
+       {{ $noop := .WordCount }} before it tests hasMath. */ -}}
+{{- .Page.Store.Set "hasMermaid" true -}}

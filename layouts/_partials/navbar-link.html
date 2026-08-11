@@ -1,0 +1,121 @@
+{{- /* Verbatim copy of Hextra v0.12.2's
+       _partials/navbar-link.html, with exactly one line changed. Diff it
+       against the vendored original before and after any theme upgrade:
+
+           diff layouts/_partials/navbar-link.html \
+                _vendor/github.com/imfing/hextra/layouts/_partials/navbar-link.html
+
+       The expected diff is this comment plus the title= line marked FIX below.
+       If upstream has fixed the defect, delete this file rather than merging.
+
+       THE DEFECT. In the "Regular menu item without children" branch, upstream
+       writes:
+
+           title="{{ or (T .Identifier) .Name | safeHTML }}"
+
+       Dot there is the dict that navbar.html passed into the partial —
+       (dict "currentPage" … "link" … "external" … "item" …) — not the menu
+       item. A map has no Identifier or Name key, so both lookups yield the zero
+       value, T "" returns "", and the attribute renders empty: <a title href=…>.
+       Two lines further down the same branch uses $item.Name correctly for the
+       visible text, which is why the defect is invisible until you read the
+       markup. Every menu entry rendered through this branch is affected, on
+       every page; it became noticeable here only when an external "Sortie Home"
+       entry was added to hugo.toml's [[menu.main]].
+
+       The fix is $item, matching the dropdown branch above, which already reads
+       $item.Identifier and $item.Name in its own title= and aria-label=.
+
+       Overriding is the only route: the theme is a Hugo Module and _vendor/ is
+       gitignored, so the vendored copy is not a file this repository can patch.
+       Hugo resolves partials from the project before the module, so this file
+       wins wholesale — there is no way to override a single line, which is why
+       88 lines are duplicated for a one-token change. */ -}}
+{{- $currentPage := .currentPage -}}
+{{- $link := .link -}}
+{{- $item := .item -}}
+{{- $icon := .icon -}}
+{{- $external := .external -}}
+
+{{- $active := or ($currentPage.HasMenuCurrent "main" $item) ($currentPage.IsMenuCurrent "main" $item) -}}
+{{- /* Additional check for section landing pages in multilingual sites (normalize trailing slashes) */ -}}
+{{- if and (not $active) $link -}}
+  {{- $currentPath := strings.TrimSuffix "/" $currentPage.RelPermalink -}}
+  {{- $linkPath := strings.TrimSuffix "/" $link -}}
+  {{- if eq $currentPath $linkPath -}}
+    {{- $active = true -}}
+  {{- end -}}
+{{- end -}}
+{{- $activeClass := cond $active "hx:font-medium" "hx:text-gray-600 hx:hover:text-gray-800 hx:dark:text-gray-400 hx:dark:hover:text-gray-200" -}}
+
+{{- if $item.HasChildren -}}
+{{- /* Dropdown menu for items with children */ -}}
+<div class="hx:relative hx:hidden hx:md:inline-block">
+  <button
+    title="{{ or (T $item.Identifier) $item.Name | safeHTML }}"
+    data-state="closed"
+    class="hextra-nav-menu-toggle hx:cursor-pointer hx:text-sm hx:contrast-more:text-gray-700 hx:contrast-more:dark:text-gray-100 hx:relative hx:-ml-2 hx:whitespace-nowrap hx:p-2 hx:flex hx:items-center hx:gap-1 {{ $activeClass }}"
+    type="button"
+    aria-label="{{ or (T $item.Identifier) $item.Name | safeHTML }}"
+    aria-expanded="false"
+    aria-haspopup="menu"
+  >
+    {{- if $icon -}}
+    <span class="hx:inline-flex hx:items-center">
+      {{- partial "utils/icon" (dict "name" $icon "attributes" `height="1em" class="hx:inline-block"`) -}}
+    </span>
+    {{- end -}}
+    <span class="hx:text-center">
+      {{- or (T $item.Identifier) $item.Name | safeHTML -}}
+    </span>
+    {{- partial "utils/icon.html" (dict "name" "chevron-down" "attributes" "height=12 class=\"hx:transition-transform hx:duration-200 hx:ease-in-out\"") -}}
+  </button>
+  <ul
+    class="hextra-nav-menu-items hx:hidden hx:z-20 hx:max-h-64 hx:overflow-auto hx:rounded-lg hx:border hx:border-gray-200 hx:bg-white hx:p-1 hx:text-sm hx:shadow-lg hx:dark:border-neutral-700 hx:dark:bg-neutral-900"
+    style="min-width: 100px;"
+    role="menu"
+  >
+    {{ range $item.Children }}
+    {{- $link := .URL -}}
+    {{- $external := strings.HasPrefix $link "http" -}}
+    {{- with .PageRef -}}
+    {{- if hasPrefix . "/" -}}
+    {{- $link = relLangURL (strings.TrimPrefix "/" .) -}}
+    {{- end -}}
+    {{- end -}}
+    <li role="none" class="hextra-nav-menu-item hx:flex hx:flex-col">
+      <a
+        href="{{ $link }}"
+        {{ if $external }}target="_blank" rel="noreferrer"{{ end }}
+        role="menuitem"
+        class="hx:text-gray-600 hx:hover:text-gray-800 hx:dark:text-gray-400 hx:dark:hover:text-gray-200 hx:relative hx:cursor-pointer hx:whitespace-nowrap hx:rounded-sm hx:py-1.5 hx:transition-colors hx:ltr:pl-3 hx:ltr:pr-9 hx:rtl:pr-3 hx:rtl:pl-9 hx:flex hx:items-center hx:gap-1 hx:hover:bg-gray-100 hx:dark:hover:bg-neutral-800"
+      >
+        {{- if and (eq .Params.type "link") .Params.icon -}}
+        <span class="hx:inline-flex hx:items-center">
+          {{- partial "utils/icon" (dict "name" .Params.icon "attributes" `height="1em" class="hx:inline-block"`) -}}
+        </span>
+        {{- end -}}
+        {{- or (T .Identifier) .Name | safeHTML -}}
+      </a>
+    </li>
+    {{- end -}}
+  </ul>
+</div>
+{{- else -}}
+{{- /* Regular menu item without children */ -}}
+<a
+  title="{{ or (T $item.Identifier) $item.Name | safeHTML }}"{{/* FIX: upstream reads .Identifier/.Name off the partial's dict, which has neither. */}}
+  href="{{ $link }}"
+  {{ if $external }}target="_blank" rel="noreferrer"{{ end }}
+  class="hx:text-sm hx:contrast-more:text-gray-700 hx:contrast-more:dark:text-gray-100 hx:relative hx:-ml-2 hx:hidden hx:whitespace-nowrap hx:p-2 hx:md:inline-flex hx:items-center hx:gap-1 {{ $activeClass }}"
+>
+  {{- if $icon -}}
+  <span class="hx:inline-flex hx:items-center">
+    {{- partial "utils/icon" (dict "name" $icon "attributes" `height="1em" class="hx:inline-block"`) -}}
+  </span>
+  {{- end -}}
+  <span class="hx:text-center">
+    {{- or (T $item.Identifier) $item.Name | safeHTML -}}
+  </span>
+</a>
+{{- end -}}
