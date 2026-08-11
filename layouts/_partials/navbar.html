@@ -40,7 +40,13 @@
         {{- else if .Params.icon -}}
           {{- /* Display icon menu item */ -}}
           {{- if not $link -}}{{ warnf "Icon menu item '%s' has no URL" .Name }}{{- end -}}
-          {{- $rel := cond (eq .Params.icon "mastodon") "noreferrer me" "noreferrer" }}
+          {{- /* noopener, not upstream's noreferrer: same protection for the new
+                 browsing context, without stripping the Referer header that
+                 makes an outbound click attributable. Rationale in full in
+                 _partials/navbar-link.html. The "me" token is upstream's and
+                 must survive — it is the rel=me identity link Mastodon
+                 verifies. */ -}}
+          {{- $rel := cond (eq .Params.icon "mastodon") "noopener me" "noopener" }}
           <a class="hx:p-2 hx:text-current" {{ if $external }}target="_blank" rel="{{ $rel }}"{{ end }} href="{{ $link }}" title="{{ or (T .Identifier) .Name | safeHTML }}">
             {{- partial "utils/icon.html" (dict "name" .Params.icon "attributes" (printf "height=%d" $iconHeight)) -}}
             <span class="hx:sr-only">{{ or (T .Identifier) .Name | safeHTML }}</span>
@@ -51,7 +57,10 @@
       {{- end -}}
     {{- end -}}
 
-    <a class="hx:p-2 hx:text-current hx:inline-flex hx:items-center hx:gap-1.5" href="https://github.com/sortie-ai/sortie" target="_blank" rel="noreferrer" title="GitHub">
+    {{/* Project addition (not in Hextra v0.12.2): the repo link with a star
+         count. rel=noopener rather than noreferrer so GitHub's traffic panel
+         attributes these visits to the docs host. */}}
+    <a class="hx:p-2 hx:text-current hx:inline-flex hx:items-center hx:gap-1.5" href="https://github.com/sortie-ai/sortie" target="_blank" rel="noopener" title="GitHub">
       {{- partial "utils/icon.html" (dict "name" "github" "attributes" (printf "height=%d" $iconHeight)) -}}
       <span id="gh-stars" class="hx:text-xs hx:opacity-70"></span>
       <span class="hx:sr-only">GitHub</span>

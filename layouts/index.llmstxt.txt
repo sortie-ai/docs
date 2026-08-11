@@ -7,7 +7,27 @@ Sortie is an autonomous coding agent orchestrator. Engineers manage work at the 
 
 For full documentation in a single file suitable for pasting into an AI assistant, see: {{ $site.BaseURL }}llms-full.txt
 
-Tip for agents: every page linked below is also available as clean Markdown. Request its URL with the HTTP header `Accept: text/markdown` to receive the Markdown rendering instead of HTML (lower token count, no navigation chrome).
+{{/*
+  Two Markdown representations exist and they are not equivalent, so this line
+  names the better one first and describes the other accurately.
+
+  The static mirrors (<page-url>index.md, layouts/page.markdown.md) are the raw
+  source: title, prose, code, nothing else. The content-negotiated route
+  (Accept: text/markdown, implemented outside this repository) converts the
+  rendered HTML, so it still carries the front matter, the skip link, the
+  version banner and the whole sidebar — measured on /reference/errors/, 298
+  lines against the mirror's 177, with the H1 not reached until line 111 and
+  102 link targets whose anchor text is empty. Until this line was rewritten it
+  advertised only that route, and described it as having "no navigation
+  chrome", which was false about the route it named and silent about the route
+  that would have made the claim true.
+
+  Do not restore the shorter version by dropping a clause: each sentence is
+  load-bearing, and the last one exists because the ## headings below are
+  sections, which publish no mirror ([outputs] in hugo.toml). An agent that
+  appends index.md to one of those gets a 404.
+*/ -}}
+Tip for agents: every page URL below also serves its Markdown source at `<page-url>index.md` — the page body alone, no navigation. Requesting a page URL with the header `Accept: text/markdown` also returns Markdown, but that rendering is converted from the HTML and still carries the sidebar and page chrome. The `##` headings below are sections, not pages, and have no `index.md`.
 {{ range $site.Sections }}
 ## {{ .Title }}
 {{ range .RegularPages }}

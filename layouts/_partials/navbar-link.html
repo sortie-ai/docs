@@ -1,12 +1,13 @@
 {{- /* Verbatim copy of Hextra v0.12.2's
-       _partials/navbar-link.html, with exactly one line changed. Diff it
+       _partials/navbar-link.html, with exactly three lines changed. Diff it
        against the vendored original before and after any theme upgrade:
 
            diff layouts/_partials/navbar-link.html \
                 _vendor/github.com/imfing/hextra/layouts/_partials/navbar-link.html
 
-       The expected diff is this comment plus the title= line marked FIX below.
-       If upstream has fixed the defect, delete this file rather than merging.
+       The expected diff is this comment, the title= line marked FIX below, and
+       the two rel= lines marked REL. If upstream has fixed the defect, delete
+       this file rather than merging.
 
        THE DEFECT. In the "Regular menu item without children" branch, upstream
        writes:
@@ -30,7 +31,30 @@
        gitignored, so the vendored copy is not a file this repository can patch.
        Hugo resolves partials from the project before the module, so this file
        wins wholesale — there is no way to override a single line, which is why
-       88 lines are duplicated for a one-token change. */ -}}
+       88 lines are duplicated for a one-token change.
+
+       THE REL CHANGE. Upstream pairs target="_blank" with rel="noreferrer" on
+       every external menu entry. Per the HTML Standard those are two unrelated
+       keywords: noreferrer suppresses the Referer header, while the thing that
+       actually needs suppressing — the opener reference a new browsing context
+       inherits — is noopener. So noreferrer buys nothing here that noopener
+       does not, and it costs the referrer.
+
+       That cost is not abstract. The [[menu.main]] "Sortie Home" entry in
+       hugo.toml is this host's only link to the product site, and it renders
+       through this partial on every page. With noreferrer, every click on it
+       arrives at sortie-ai.com with no Referer, so GA4 files it as direct
+       traffic and Cloudflare's referrer table never shows docs at all: the
+       docs → apex funnel becomes unmeasurable at exactly the point it was
+       created. Ranking is unaffected either way — noreferrer does not imply
+       nofollow — so nothing is traded for the measurement.
+
+       Hextra's own _markup/render-link.html already uses rel="noopener" alone
+       for external links in page content, so this is upstream's own convention,
+       applied to menu entries. The same one-token change is made everywhere
+       this repository renders an external anchor: _partials/navbar.html,
+       _partials/sidebar.html, _partials/toc.html and
+       _partials/components/page-context-menu.html. */ -}}
 {{- $currentPage := .currentPage -}}
 {{- $link := .link -}}
 {{- $item := .item -}}
@@ -86,7 +110,7 @@
     <li role="none" class="hextra-nav-menu-item hx:flex hx:flex-col">
       <a
         href="{{ $link }}"
-        {{ if $external }}target="_blank" rel="noreferrer"{{ end }}
+        {{ if $external }}target="_blank" rel="noopener"{{ end }}{{/* REL: upstream writes noreferrer; see the header comment. */}}
         role="menuitem"
         class="hx:text-gray-600 hx:hover:text-gray-800 hx:dark:text-gray-400 hx:dark:hover:text-gray-200 hx:relative hx:cursor-pointer hx:whitespace-nowrap hx:rounded-sm hx:py-1.5 hx:transition-colors hx:ltr:pl-3 hx:ltr:pr-9 hx:rtl:pr-3 hx:rtl:pl-9 hx:flex hx:items-center hx:gap-1 hx:hover:bg-gray-100 hx:dark:hover:bg-neutral-800"
       >
@@ -106,7 +130,7 @@
 <a
   title="{{ or (T $item.Identifier) $item.Name | safeHTML }}"{{/* FIX: upstream reads .Identifier/.Name off the partial's dict, which has neither. */}}
   href="{{ $link }}"
-  {{ if $external }}target="_blank" rel="noreferrer"{{ end }}
+  {{ if $external }}target="_blank" rel="noopener"{{ end }}{{/* REL: upstream writes noreferrer; see the header comment. */}}
   class="hx:text-sm hx:contrast-more:text-gray-700 hx:contrast-more:dark:text-gray-100 hx:relative hx:-ml-2 hx:hidden hx:whitespace-nowrap hx:p-2 hx:md:inline-flex hx:items-center hx:gap-1 {{ $activeClass }}"
 >
   {{- if $icon -}}
