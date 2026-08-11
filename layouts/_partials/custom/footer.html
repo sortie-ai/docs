@@ -12,7 +12,15 @@
        The anchor text names the product and what it does on purpose. "Home",
        "Website" or "Here" would pass the same link with none of the meaning;
        anchor text is one of the few signals a link carries about its target,
-       and this link is repeated on every page of the site. */ -}}
+       and this link is repeated on every page of the site.
+
+       Disabled 2026-08-11: the anchor is commented out, not deleted, because
+       the footer read as sparse with it. The copyright block is rendered
+       separately by _partials/footer.html and is unaffected. While the anchor
+       is off, every page still links to the apex twice from the navbar and the
+       mobile menu, but with the anchor text "Sortie Home" and target=_blank
+       rel=noreferrer. Uncomment the markup below to restore it. */ -}}
+{{/*
 <div class="hx:mx-auto hx:flex hx:w-full hx:flex-col hx:items-center hx:pt-10 hx:text-sm hx:sm:items-start">
   <a
     class="hx:text-current hx:underline hx:underline-offset-2 hx:decoration-from-font hx:hover:text-gray-800 hx:dark:hover:text-gray-200"
@@ -20,3 +28,4 @@
     >Sortie — autonomous coding agent orchestrator</a
   >
 </div>
+*/}}
