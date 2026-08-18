@@ -3,7 +3,7 @@ title: "How to Schedule Recurring Agent Work"
 linkTitle: "Schedule Agent Work"
 description: "Create recurring Sortie work with GitHub Actions or Jira Automation, prevent duplicate issues, and cap unattended agent costs."
 author: Sortie AI
-date: 2026-08-13
+date: 2026-08-18
 weight: 24
 url: /guides/schedule-agent-work/
 ---
@@ -184,8 +184,10 @@ task. Otherwise one schedule can close another schedule's issue.
 {{< callout type="warning" >}}
 `close-previous` replaces, rather than skips, unfinished work. If the prior
 issue is still running, the terminal label causes Sortie to stop that run
-during state reconciliation. Set the schedule interval long enough for the
-task to finish under normal conditions.
+during state reconciliation. The loop also strips the handoff label, so an
+issue the agent already finished and handed off is closed while a person is
+still reviewing it. Set the schedule interval long enough for the task to
+finish and be reviewed under normal conditions.
 {{< /callout >}}
 
 ### Test the GitHub workflow
@@ -240,7 +242,7 @@ option repeats the following actions for every result; it is not an
 
 Add a **Lookup work items** action with this JQL:
 
-```jql
+```
 project = "PROJ"
 AND labels = "scheduled-dependency-report"
 AND statusCategory != Done
@@ -316,8 +318,8 @@ agent:
 - `max_tokens` caps measured cumulative token usage across that issue's
   sessions. Sortie checks it between sessions, so one running session can pass
   the threshold before the next dispatch is blocked.
-- `max_turns` and `max_concurrent_agents` bound how much work can run at
-  once.
+- `max_turns` bounds the turns inside one session, and
+  `max_concurrent_agents` bounds how many issues run at once.
 
 These values are a conservative starting point, not a universal budget. Start
 with a weekly or daily schedule, measure normal completion time and token use,
@@ -329,6 +331,37 @@ template, but they do not override `agent.max_sessions` or
 `agent.max_tokens`. Use a separate Sortie workflow if recurring work needs
 different hard limits from interactive issues. See [How to control agent
 costs](/guides/control-costs/) for adapter-specific spending caps and monitoring.
+
+## Decide what an empty run means
+
+A recurring task often has nothing to do: no dependency drifted this week, no
+documentation went stale. When `tracker.handoff_state` is set, Sortie compares
+the workspace against a baseline taken before the agent starts and withholds
+the handoff from a run that moved no committed position, changed no working
+tree, and left behind no pushed branch or pull request. Such a run is recorded
+as failed and retried with backoff.
+
+Consecutive withheld runs on one issue are counted. On reaching the ceiling,
+Sortie attaches an escalation label and dispatches the issue no further. The
+ceiling is `agent.max_sessions` where you set one and `3` otherwise, so the
+budget above parks a quiet issue after two empty runs. The label is
+`reactions.review_comments.escalation_label`, or `needs-human` when that block
+or value is absent.
+
+The comparison reads the Git worktree only, ignoring `.sortie/` and gitignored
+paths. A task whose sole output is a tracker comment, an external dashboard, or
+an ignored file therefore reads as empty on every run. Prefer scoping the task
+so a no-op still commits something observable, such as a report whose
+timestamp changes. Where that is not possible, turn the check off:
+
+```yaml
+tracker:
+  handoff_evidence: off
+```
+
+The default, `observed`, withholds only where the workspace could be inspected
+and showed nothing. `strict` also withholds where it could not be inspected at
+all, such as a workspace that is not a Git tree.
 
 ## Route recurring work to its own prompt
 
@@ -345,9 +378,9 @@ dispatch:
 ```
 
 Place this rule before any catch-all rule. Then create
-`prompts/scheduled-work.md`:
+`prompts/scheduled-work.md`, resolved relative to the WORKFLOW.md directory:
 
-```text
+```jinja
 You are completing recurring unattended work for {{ .issue.identifier }}.
 
 {{ .issue.title }}
@@ -377,3 +410,24 @@ For either tracker:
 The scheduler's job ends when it creates the tracker issue. From that point on,
 it is ordinary Sortie work, so retries, budgets, handoff, CI and review
 reactions, and workspace cleanup need no scheduler-specific configuration.
+
+## Troubleshooting
+
+**The scheduler created the issue and Sortie never picked it up.** Check the
+issue against `tracker.query_filter` first. The GitHub adapter appends the
+filter to its own search query without validating it, so a misspelled
+qualifier matches nothing and reports no error. Then confirm the issue carries
+a label listed in `active_states`: the GitHub recipe adds `backlog` in a step
+of its own, which is skipped when an earlier step fails.
+
+**A scheduled issue stopped being dispatched and now carries `needs-human`.**
+Sortie parked it, either because its runs produced nothing observable or
+because the agent wrote `blocked` to
+[`.sortie/status`](/reference/agent-extensions/). Remove the label or move the
+issue to another tracker state to release it, then address the cause.
+
+**Two issues from the same schedule are open at once.** On GitHub, Issue Bot
+matches the previous issue on every label in its `labels` input, so a state
+label that Sortie replaces mid-run breaks the lookup. Keep state labels out of
+that input. On Jira, confirm the lookup JQL names the schedule-specific label
+and that the condition compares `{{lookupIssues.size}}` against `0`.
