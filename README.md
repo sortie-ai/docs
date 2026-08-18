@@ -7,7 +7,7 @@
 Sortie turns issue tracker tickets into autonomous coding agent sessions.
 This repository contains all the source code and content for the Sortie documentation site.
 
-[Read the Docs](https://docs.sortie-ai.com) · [Report an Issue](https://github.com/sortie-ai/sortie-docs/issues/new) · [Main Repository](https://github.com/sortie-ai/sortie)
+[Read the Docs](https://docs.sortie-ai.com) · [Report an Issue](https://github.com/sortie-ai/docs/issues/new) · [Main Repository](https://github.com/sortie-ai/sortie)
 
 </div>
 
@@ -56,7 +56,7 @@ hugo server \
 npm run server
 ```
 
-Open [http://localhost:1313](http://localhost:1313) in your browser. Hugo watches for file changes and reloads automatically.
+Open `http://localhost:1313` in your browser. Hugo watches for file changes and reloads automatically.
 
 ### Build for Production
 
@@ -108,6 +108,7 @@ For small fixes (typos, broken links, wording improvements), edit the file direc
 | Link | Description |
 |---|---|
 | [sortie-ai/sortie](https://github.com/sortie-ai/sortie) | Main project - the Sortie orchestrator binary |
+| [sortie-ai/sortie-ai.com](https://github.com/sortie-ai/sortie-ai.com) | Official website |
 | [sortie-ai/homebrew-tap](https://github.com/sortie-ai/homebrew-tap) | Homebrew Tap for Sortie |
 
 ## License
