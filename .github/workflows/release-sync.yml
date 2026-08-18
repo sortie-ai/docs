@@ -7,7 +7,7 @@ name: Release sync
 # change nothing. Everything this site says about the current version comes from
 # one place: the first `[x.y.z]` heading in content/changelog.md, which
 # layouts/_partials/banner.html extracts at build time to drive the version
-# banner. That file is a hand-written mirror of the product's CHANGELOG.md —
+# banner. That file is a hand-written mirror of the product's CHANGELOG.md -
 # release notes are prose, and nothing here can write them. Whoever syncs the
 # changelog produces a commit, and that commit is what triggers the Cloudflare
 # Workers Builds deploy. A dispatch-driven rebuild in between would publish the
@@ -19,7 +19,7 @@ on:
   repository_dispatch:
     # Sent by sortie-ai/sortie .github/workflows/release.yml, job notify-sites.
     # repository_dispatch only fires for a workflow file that exists on the
-    # default branch — this file has no effect until it is merged to main.
+    # default branch - this file has no effect until it is merged to main.
     types: [sortie-release]
   workflow_dispatch:
     inputs:

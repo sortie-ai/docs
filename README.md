@@ -15,7 +15,7 @@ This repository contains all the source code and content for the Sortie document
 
 ## About Sortie
 
-Sortie is an autonomous coding agent orchestrator. Engineers manage work at the ticket level — Sortie handles the rest: isolated workspaces, retry logic, state reconciliation, tracker integration, and cost tracking. Single binary, zero dependencies, SQLite persistence.
+Sortie is an autonomous coding agent orchestrator. Engineers manage work at the ticket level - Sortie handles the rest: isolated workspaces, retry logic, state reconciliation, tracker integration, and cost tracking. Single binary, zero dependencies, SQLite persistence.
 
 For a full overview, see the [product documentation](https://docs.sortie-ai.com).
 
@@ -23,7 +23,7 @@ For a full overview, see the [product documentation](https://docs.sortie-ai.com)
 
 | Component | Details |
 |---|---|
-| **Static site generator** | [Hugo](https://gohugo.io/) ≥ 0.146.0 (extended) |
+| **Static site generator** | [Hugo](https://gohugo.io/) ≥ 0.164.0 (extended) |
 | **Theme** | [Hextra](https://imfing.github.io/hextra/) v0.12.1 (Tailwind CSS, FlexSearch) |
 | **Markdown renderer** | Goldmark with KaTeX math support |
 | **Deployment** | [Cloudflare Workers](https://developers.cloudflare.com/workers/) (static assets via Wrangler) |
@@ -31,10 +31,10 @@ For a full overview, see the [product documentation](https://docs.sortie-ai.com)
 
 ## Prerequisites
 
-- [Hugo](https://gohugo.io/installation/) ≥ 0.146.0 **extended** version
-- [Go](https://go.dev/dl/) ≥ 1.20 — required by Hugo Modules (theme dependency management)
-- [Git](https://git-scm.com/) — required for `enableGitInfo` (last-modified dates)
-- [Node.js](https://nodejs.org/) — required for Wrangler deployment
+- [Hugo](https://gohugo.io/installation/) ≥ 0.164.0 **extended** version
+- [Go](https://go.dev/dl/) ≥ 1.20 - required by Hugo Modules (theme dependency management)
+- [Git](https://git-scm.com/) - required for `enableGitInfo` (last-modified dates)
+- [Node.js](https://nodejs.org/) - required for Wrangler deployment
 
 ## Local Development
 
@@ -80,34 +80,9 @@ The generated static site in `public/` is deployed to Cloudflare Workers via Wra
 npx wrangler deploy
 ```
 
-## Repository Structure
-
-```
-sortie-docs/
-├── content/                     # All documentation content (Markdown)
-│   ├── _index.md                # Homepage
-│   ├── changelog.md             # Release history
-│   ├── concepts/                # Conceptual explanations
-│   ├── getting-started/         # Installation, Quick Start, Jira Integration, End-to-End
-│   ├── guides/                  # How-to guides (SSH scaling, monitoring, hooks, etc.)
-│   └── reference/               # CLI, Workflow config, API, Prometheus metrics, errors
-├── layouts/                     # Hugo layout overrides (Go templates)
-├── static/                      # Static assets
-│   ├── img/                     # Images, favicons, OG image
-│   ├── css/                     # Custom CSS (cookieconsent, overrides)
-│   ├── js/                      # Custom JS (feedback widget, cookie consent)
-│   ├── _headers                 # Cloudflare response headers
-│   └── _redirects               # URL redirects
-├── go.mod                       # Hugo module — pins Hextra theme version
-├── go.sum                       # Module checksums
-├── hugo.toml                    # Hugo configuration
-├── wrangler.toml                # Cloudflare Workers deployment config
-└── package.json                 # Node.js deps (Wrangler)
-```
-
 ## Contributing
 
-We welcome contributions from the community — whether it's fixing a typo, improving a guide, or adding new content.
+We welcome contributions from the community - whether it's fixing a typo, improving a guide, or adding new content.
 
 ### Quick Edits
 
@@ -116,13 +91,13 @@ For small fixes (typos, broken links, wording improvements), edit the file direc
 ### Adding a Page
 
 1. Create a new `.md` file in the appropriate `content/` subdirectory.
-2. Hugo picks it up automatically — no nav registration required.
+2. Hugo picks it up automatically - no nav registration required.
 3. Preview locally with `hugo server`.
-4. Push your branch — Cloudflare deploys automatically on merge to `main`.
+4. Push your branch - Cloudflare deploys automatically on merge to `main`.
 
 ### Content Guidelines
 
-- Documentation follows the [Diátaxis framework](https://diataxis.fr/) — tutorials, how-to guides, reference, and explanation are kept separate by intent.
+- Documentation follows the [Diátaxis framework](https://diataxis.fr/) - tutorials, how-to guides, reference, and explanation are kept separate by intent.
 - Write in clear, concise English aimed at senior engineers and DevOps practitioners.
 - Use [Hextra callout shortcodes](https://imfing.github.io/hextra/docs/guide/shortcodes/callout/) for warnings, tips, and notes.
 - Include cross-links to related pages (installation → quick start → reference).
@@ -132,9 +107,8 @@ For small fixes (typos, broken links, wording improvements), edit the file direc
 
 | Link | Description |
 |---|---|
-| [sortie-ai/sortie](https://github.com/sortie-ai/sortie) | Main project — the Sortie orchestrator binary |
+| [sortie-ai/sortie](https://github.com/sortie-ai/sortie) | Main project - the Sortie orchestrator binary |
 | [sortie-ai/homebrew-tap](https://github.com/sortie-ai/homebrew-tap) | Homebrew Tap for Sortie |
-| [Architecture spec](https://github.com/sortie-ai/sortie/blob/main/docs/architecture.md) | Internal engineering reference |
 
 ## License
 
