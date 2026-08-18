@@ -7,7 +7,7 @@
 Sortie turns issue tracker tickets into autonomous coding agent sessions.
 This repository contains all the source code and content for the Sortie documentation site.
 
-[Read the Docs](https://docs.sortie-ai.com) · [Report an Issue](https://github.com/sortie-ai/docs/issues/new) · [Main Repository](https://github.com/sortie-ai/sortie)
+[Documentation](https://docs.sortie-ai.com) · [Report an Issue](https://github.com/sortie-ai/docs/issues/new) · [Main Repository](https://github.com/sortie-ai/sortie)
 
 </div>
 
