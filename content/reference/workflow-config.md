@@ -936,12 +936,21 @@ Each adapter reads additional settings from a top-level block named after its `k
 
 ### `claude-code`
 
-| Field             | Type    | Description                                              |
-| ----------------- | ------- | -------------------------------------------------------- |
-| `permission_mode` | string  | Claude Code permission mode (e.g., `bypassPermissions`). |
-| `model`           | string  | Model for agent sessions.                                |
-| `max_turns`       | integer | CLI `--max-turns` flag.                                  |
-| `max_budget_usd`  | number  | Per-invocation cost cap. Resets each turn.               |
+| Field | Type | Default | CLI flag | Description |
+|---|---|---|---|---|
+| `permission_mode` | string | _(absent)_ | `--permission-mode` | Claude Code permission mode. Values: `acceptEdits`, `auto`, `bypassPermissions`, `default`, `dontAsk`, `manual` (an alias for `default`), `plan`. When absent, the adapter passes `--dangerously-skip-permissions` instead. |
+| `model` | string | _(CLI default)_ | `--model` | Model for agent sessions. Accepts an alias such as `sonnet`, or a full model name. |
+| `fallback_model` | string | _(none)_ | `--fallback-model` | Model to switch to when the primary is overloaded, unavailable, or returns another non-retryable server error. Accepts a comma-separated chain, capped at three models. Authentication, billing, rate-limit, request-size, and transport errors never trigger a switch, and the switch lasts one turn only. See [Fallback model scope](/reference/adapter-claude-code/#fallback-model-scope). |
+| `max_turns` | integer | _(CLI default)_ | `--max-turns` | Claude Code's internal agentic turn budget per invocation. |
+| `max_budget_usd` | number | _(none)_ | `--max-budget-usd` | Per-invocation cost cap. Resets each turn. |
+| `effort` | string | _(CLI default)_ | `--effort` | Inference effort level. Values: `low`, `medium`, `high`, `xhigh`, `max`, and `ultracode`, which starts the session at `xhigh` with ultracode enabled. The accepted set depends on the model; an unrecognized value falls back to the default effort with a warning. |
+| `allowed_tools` | string | _(none)_ | `--allowedTools` | Comma- or space-separated list of tools that run without a permission prompt, including scoped rules such as `Bash(git diff *)`. |
+| `disallowed_tools` | string | _(none)_ | `--disallowedTools` | Comma- or space-separated list of tools to deny. A bare tool name removes the tool from the model's context; a scoped rule denies only matching calls. |
+| `system_prompt` | string | _(none)_ | `--append-system-prompt` | Text appended to Claude Code's default system prompt rather than replacing it. |
+| `mcp_config` | string | _(none)_ | `--mcp-config` | Path to an MCP server configuration file, resolved relative to the WORKFLOW.md directory when not absolute. Sortie reads that file and passes a generated copy carrying its own `sortie-tools` server, leaving the original unmodified; a file already declaring `sortie-tools` fails the attempt. |
+| `session_persistence` | boolean | `true` | `--no-session-persistence` | Whether Claude Code saves session history to disk. When `false`, the flag is passed and no session file is written. The adapter continues a session on later turns with `--resume <session_id>`, which reads the persisted session, so with persistence off every turn after the first fails with `No conversation found with session ID`. |
+
+The adapter validates none of these values. What the CLI does with an invalid one differs per flag: `--permission-mode` is rejected at launch, `--effort` falls back to the default effort with a warning, and an unknown model name reaches the API and fails there. A key whose YAML value has the wrong type is ignored and the default applies.
 
 > [!WARNING]
 > `agent.max_turns` (orchestrator turn-loop limit) and `claude-code.max_turns` (CLI internal turn budget) are distinct values with different semantics. The orchestrator limit controls how many turns the worker runs before exiting. The adapter limit controls the Claude Code CLI's internal turn budget per invocation.
@@ -950,8 +959,12 @@ Each adapter reads additional settings from a top-level block named after its `k
 claude-code:
   permission_mode: bypassPermissions
   model: claude-sonnet-4-20250514
+  fallback_model: claude-haiku-4-5
   max_turns: 50
   max_budget_usd: 5
+  effort: high
+  allowed_tools: "Read Edit Bash(git diff *)"
+  mcp_config: ./mcp-servers.json
 ```
 
 ### `copilot-cli`

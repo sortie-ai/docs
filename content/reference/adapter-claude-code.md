@@ -46,27 +46,27 @@ agent:
 
 ### `claude-code` extension section
 
-These fields are adapter-specific. The orchestrator forwards them to the adapter without validation. Each field maps to a Claude Code CLI flag.
+These fields are adapter-specific. The orchestrator forwards them to the adapter without validation. Each field maps to a Claude Code CLI flag. What the CLI does with an invalid value differs per flag: `--permission-mode` is rejected at launch, `--effort` falls back to the default effort with a warning, and an unknown model name reaches the API and fails there.
 
 | Field | CLI flag | Type | Default | Description |
 |---|---|---|---|---|
-| `permission_mode` | `--permission-mode` | string | _(see below)_ | Permission behavior for tool calls. Values: `default`, `acceptEdits`, `bypassPermissions`. |
+| `permission_mode` | `--permission-mode` | string | _(see below)_ | Permission behavior for tool calls. Values: `acceptEdits`, `auto`, `bypassPermissions`, `default`, `dontAsk`, `manual` (an alias for `default`), `plan`. See [Permission mode](#permission-mode). |
 | `model` | `--model` | string | _(CLI default)_ | LLM model identifier (e.g., `claude-sonnet-4-20250514`). |
-| `fallback_model` | `--fallback-model` | string | _(none)_ | Fallback model used when the primary model is unavailable. |
+| `fallback_model` | `--fallback-model` | string | _(none)_ | Model Claude Code switches to when the primary model is overloaded, unavailable, or returns another non-retryable server error. Accepts a comma-separated chain tried in order. See [Fallback model scope](#fallback-model-scope) for the failure classes it does not cover. |
 | `max_turns` | `--max-turns` | integer | _(CLI default)_ | Claude Code's internal agentic turn budget per invocation. |
 | `max_budget_usd` | `--max-budget-usd` | number | _(none)_ | Per-invocation cost cap in USD. Claude Code stops when the API cost accumulated within that one invocation reaches this amount. The counter starts at zero on every turn, including resumed ones, so the per-session ceiling is this value times `agent.max_turns`. |
-| `effort` | `--effort` | string | _(CLI default)_ | Inference effort level. Values: `low`, `medium`, `high`. |
-| `allowed_tools` | `--allowedTools` | string | _(none)_ | Comma-separated list of tools the agent is allowed to use. |
-| `disallowed_tools` | `--disallowedTools` | string | _(none)_ | Comma-separated list of tools the agent is blocked from using. |
+| `effort` | `--effort` | string | _(CLI default)_ | Inference effort level. Values: `low`, `medium`, `high`, `xhigh`, `max`, and `ultracode`, which starts the session at `xhigh` with ultracode enabled. The accepted set depends on the model. An unrecognized value is not rejected: Claude Code warns and uses the default effort. |
+| `allowed_tools` | `--allowedTools` | string | _(none)_ | Comma- or space-separated list of tools that run without a permission prompt, including scoped rules such as `Bash(git diff *)`. Forwarded as a single argument. |
+| `disallowed_tools` | `--disallowedTools` | string | _(none)_ | Comma- or space-separated list of tools to deny. A bare tool name removes that tool from the model's context; a scoped rule leaves it available and denies only matching calls. Forwarded as a single argument. |
 | `system_prompt` | `--append-system-prompt` | string | _(none)_ | Additional text appended to Claude Code's system prompt. |
 | `mcp_config` | `--mcp-config` | string | _(none)_ | Path to an MCP server configuration file. |
-| `session_persistence` | `--no-session-persistence` | boolean | `true` | Whether Claude Code persists session history to disk. When `false`, the flag `--no-session-persistence` is passed. |
+| `session_persistence` | `--no-session-persistence` | boolean | `true` | Whether Claude Code persists session history to disk. When `false`, the flag `--no-session-persistence` is passed. See [Session persistence and resume](#session-persistence-and-resume). |
 
 ```yaml
 claude-code:
   permission_mode: bypassPermissions
   model: claude-sonnet-4-20250514
-  fallback_model: claude-sonnet-4-20250514
+  fallback_model: claude-haiku-4-5
   max_turns: 50
   max_budget_usd: 5
   effort: high
@@ -87,9 +87,29 @@ With `agent.max_turns: 5` and `claude-code.max_turns: 50`, the orchestrator runs
 
 Setting `claude-code.max_turns` too low causes Claude Code to exit mid-task. Setting `agent.max_turns` too low causes the orchestrator to stop re-invoking the agent before the issue is resolved.
 
+### Fallback model scope
+
+`fallback_model` covers model availability, not provider exhaustion. Claude Code switches to a fallback when the primary model is overloaded, unavailable (a retired model, for example), or returns another non-retryable server error.
+
+Authentication, billing, rate-limit, request-size, and transport errors never trigger a switch. They follow their normal retry and error handling. A run that exhausts its provider quota fails on the primary model and does not continue on the fallback.
+
+The switch lasts for the current turn only. The adapter spawns one CLI invocation per turn, and each turn starts on the primary model.
+
+The value may name a chain of models separated by commas, tried in order. Claude Code caps a chain at three models after removing duplicates and ignores any beyond that. The adapter forwards the configured string unchanged and does not validate it.
+
+### Session persistence and resume
+
+The adapter opens a session with `--session-id <uuid>` on the first turn and continues it with `--resume <session_id>` on every turn after that. `--resume` reads the session file Claude Code wrote to disk.
+
+`session_persistence: false` passes `--no-session-persistence`, and no session file is written. The first turn still completes. Every turn after it exits non-zero with `No conversation found with session ID: <uuid>`.
+
+`agent.max_turns` defaults to `20`, so a session runs more than one turn unless that field is set to `1`.
+
 ### Permission mode
 
 When `permission_mode` is absent, the adapter passes `--dangerously-skip-permissions` as a legacy fallback. This flag is deprecated by the Claude Code CLI.
+
+The modes below are the ones that decide whether a headless session can run unattended. `--permission-mode` accepts the full set listed in the extension section above.
 
 | Value | Behavior |
 |---|---|
