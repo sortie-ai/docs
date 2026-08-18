@@ -1,7 +1,7 @@
 name: Release sync
 
-# Check that content/changelog.md covers the release that just shipped, and
-# raise an issue when it does not.
+# Check that content/changelog.md covers the latest published release, and raise
+# an issue when it does not.
 #
 # This workflow does NOT rebuild or redeploy the site, because a rebuild would
 # change nothing. Everything this site says about the current version comes from
@@ -10,23 +10,23 @@ name: Release sync
 # banner. That file is a hand-written mirror of the product's CHANGELOG.md -
 # release notes are prose, and nothing here can write them. Whoever syncs the
 # changelog produces a commit, and that commit is what triggers the Cloudflare
-# Workers Builds deploy. A dispatch-driven rebuild in between would publish the
-# same bytes.
+# Workers Builds deploy.
 #
 # So the only honest thing to automate is the reminder.
+#
+# It used to be a doorbell: sortie-ai/sortie rang this repository with a
+# repository_dispatch as soon as a release was published. Nothing is pushed here
+# any more - this asks the Releases API on its own schedule instead. The cost is
+# latency: a release published just after a run is noticed on the next one.
 
 on:
-  repository_dispatch:
-    # Sent by sortie-ai/sortie .github/workflows/release.yml, job notify-sites.
-    # repository_dispatch only fires for a workflow file that exists on the
-    # default branch - this file has no effect until it is merged to main.
-    types: [sortie-release]
+  schedule:
+    # Once a day. The reminder is a safety net for a changelog that is normally
+    # synced by hand within the hour, so a longer wait than the site refresh is
+    # fine. Off the hour: scheduled runs are delayed under load, which peaks at
+    # :00.
+    - cron: "27 7 * * *"
   workflow_dispatch:
-    inputs:
-      version:
-        description: "Release version to check for, e.g. 1.19.0 (no leading v)"
-        required: false
-        type: string
 
 permissions:
   contents: read
@@ -43,30 +43,35 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Resolve the latest published release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # /releases/latest skips drafts and pre-releases, so a tag pushed
+          # mid-release cannot open an issue for a version nobody has announced.
+          TAG=$(gh api repos/sortie-ai/sortie/releases/latest --jq '.tag_name')
+
+          # Releases from 1.19.0 on carry a v-prefixed git tag while the version
+          # number stays bare. The changelog headings are bare.
+          VERSION="${TAG#v}"
+          if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::latest release tag '${TAG}' does not normalise to a bare X.Y.Z version"
+            exit 1
+          fi
+
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "✓ latest published release is ${VERSION}"
+
       - name: Check whether content/changelog.md documents the release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          # The version is taken from the dispatch payload rather than from the
-          # Releases API. That is a deliberate relaxation: the only thing this
-          # workflow produces is an issue, so a wrong value costs a badly
-          # titled issue and nothing else. It is still format-checked below.
-          VERSION: ${{ github.event.client_payload.version || inputs.version }}
+          VERSION: ${{ steps.release.outputs.version }}
         run: |
           set -euo pipefail
-
-          if [ -z "${VERSION}" ]; then
-            echo "::error::no version supplied (client_payload.version or the workflow input)"
-            exit 1
-          fi
-
-          # Releases from 1.19.0 on carry a v-prefixed git tag while the version
-          # number stays bare. The changelog headings are bare, so reject the
-          # prefixed form outright rather than silently stripping it.
-          if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::'${VERSION}' is not a bare X.Y.Z version"
-            exit 1
-          fi
 
           # Match the heading form used throughout the file:
           #   ## [1.18.0] - 2026-08-09 { #1.18.0 }
