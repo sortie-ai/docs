@@ -11,8 +11,28 @@ OUT="$ROOT/data/github.yaml"
 die() { printf '\033[31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 log() { printf '\033[2m%s\033[0m %s\n' "$(date -u +%H:%M:%S)" "$*" >&2; }
 
-command -v curl >/dev/null 2>&1 || die "required command not found: curl"
-command -v jq   >/dev/null 2>&1 || die "required command not found: jq"
+command -v curl    >/dev/null 2>&1 || die "required command not found: curl"
+command -v python3 >/dev/null 2>&1 || die "required command not found: python3"
+
+# python3 rather than jq: this script now runs inside the Cloudflare Workers
+# Builds image, whose pre-installed package table lists curl, git and wget but
+# no jq. python3 is guaranteed there, in CI and in local development.
+#
+# Reads one top-level key of a JSON object from stdin and prints it. A missing
+# key, a null, or anything that is not a JSON object all print nothing, so a
+# failed parse reaches the caller as an empty string rather than as a
+# plausible-looking value.
+json_get() {
+    python3 -c '
+import json, sys
+try:
+    doc = json.load(sys.stdin)
+    value = doc.get(sys.argv[1]) if isinstance(doc, dict) else None
+except Exception:
+    value = None
+print("" if value is None else value)
+' "$1"
+}
 
 # The count is public, so an anonymous request works. A token is still
 # preferred: anonymous requests are limited to 60 per hour keyed on the
@@ -38,7 +58,7 @@ body=$(curl -sS --fail-with-body -D "$hdr" \
             -H 'X-GitHub-Api-Version: 2022-11-28' \
             "https://api.github.com/repos/$REPO") || {
     status=$(awk 'toupper($1) ~ /^HTTP/ { s = $2 } END { print s }' "$hdr")
-    message=$(jq -r '.message // empty' <<<"$body" 2>/dev/null)
+    message=$(json_get message <<<"$body" 2>/dev/null)
     # 404 deserves its own sentence: GitHub returns it rather than 403 when a
     # credential is valid but not entitled to the resource, so "not found" here
     # can equally mean "this token may not read that repository".
@@ -53,9 +73,10 @@ awk 'tolower($1) == "x-ratelimit-remaining:" { r = $2 }
      tolower($1) == "x-ratelimit-limit:"     { l = $2 }
      END { printf "rate limit: %d of %d remaining\n", r, l }' "$hdr" >&2
 
-# `// empty` rather than `// 0`: a missing field must reach the regex below as
-# an empty string and fail it, not arrive pre-laundered into a plausible zero.
-stars=$(jq -r '.stargazers_count // empty' <<<"$body")
+# An absent field must reach the regex below as an empty string and fail it,
+# not arrive pre-laundered into a plausible zero - hence json_get's `None ->
+# ""` rather than a numeric default.
+stars=$(json_get stargazers_count <<<"$body")
 
 [[ "$stars" =~ ^[0-9]+$ ]] \
     || die "stargazers_count was not an integer (got '${stars:-<absent>}'). The response was probably an error object, not a repository."
