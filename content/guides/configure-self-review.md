@@ -29,7 +29,9 @@ self_review:
 
 Two fields are required for activation: `enabled: true` turns on the feature, and `verification_commands` lists the commands to run. Omitting `verification_commands` when enabled produces a config error.
 
-Once activated, Sortie enters the self-review phase after the coding turn loop completes successfully and the issue is still in an active state. The entire review loop runs inside the same worker goroutine, using the same agent session with full conversation context from the coding turns. The agent sees everything it wrote during coding and can reason about its own changes.
+Once activated, Sortie enters the self-review phase when the coding turn loop ends either because the turn budget (`agent.max_turns`) is exhausted or because the agent writes the completion signal, `needs-human-review`, to `.sortie/status`. A `blocked` signal is never admitted to the phase, whatever `self_review.enabled` says. The full gate is a conjunction: self-review is enabled, the issue is still in an active tracker state, the run has not been cancelled, and the session was dispatched normally rather than by a [label command](/reference/label-commands/) applied to a pull request. If any of these does not hold, the phase does not run and the worker exits as it would without self-review.
+
+The entire review loop runs inside the same worker goroutine, using the same agent session with full conversation context from the coding turns. The agent sees everything it wrote during coding and can reason about its own changes.
 
 When `enabled` is absent or `false`, the worker skips the review phase entirely and exits as before.
 
@@ -102,7 +104,7 @@ self_review:
 
 Here is what happens once self-review activates, step by step:
 
-1. The agent completes its coding turns normally.
+1. The agent completes its coding turns, either by exhausting the turn budget or by writing `needs-human-review` to `.sortie/status`. If the loop ended because the agent wrote the signal, Sortie deletes `.sortie/status` before the phase's first read, so a reader inspecting the workspace mid-run does not find the file that triggered entry.
 2. Sortie runs `git add --intent-to-add .` then `git diff HEAD` in the workspace to capture all changes: modified files, new files, and deletions. The intent-to-add step ensures newly created files appear in the diff.
 3. Sortie runs each verification command sequentially, capturing exit codes, stdout, and stderr per command.
 4. Sortie assembles a review prompt containing the original issue description, the workspace diff, and all verification results with their exit codes and output.
@@ -111,6 +113,10 @@ Here is what happens once self-review activates, step by step:
 7. After the loop, Sortie writes `.sortie/review_summary.md` with a human-readable summary of iterations, verdicts, and verification outcomes.
 
 If the agent fails to write a valid verdict file on non-final iterations, Sortie treats it as "iterate" and gives the agent another chance. On the final iteration, a missing or invalid verdict terminates the loop with `final_verdict: "none"` and `cap_reached: true`. Sortie will not promote a missing verdict to "pass."
+
+## What `.sortie/status` means during review
+
+The two recognized values mean something different here than they do in the coding turns. Writing `needs-human-review` during a review or fix turn is consumed and ignored: it does not end the phase early and does not substitute for a verdict file. Writing `blocked` still ends the phase, and it converts the run's exit to the blocked disposition, overriding the completion signal that admitted the run in the first place. The review prompt tells the agent as much on every iteration.
 
 ## What the agent sees
 
@@ -165,11 +171,13 @@ For CI feedback configuration, see [Configure CI feedback](/guides/configure-ci-
 
 ## Interaction with hooks and handoff
 
-Self-review runs before the worker exits, which means it runs before `after_run` hooks and before handoff transitions. The sequence:
+Self-review runs after the coding turns and before the worker tears down the session, which means it runs before `after_run` hooks and before handoff transitions. The sequence:
 
 ```
-coding turns → self-review loop → worker exit → after_run hook → handoff
+coding turns → status read → self-review phase → session teardown → after_run hook → worker exit disposition
 ```
+
+The phase's turns count toward the run's completed turns alongside the coding turns. A run admitted to the phase because the agent wrote `needs-human-review` takes exactly the disposition it would have taken without the phase; what changes is the work performed before that disposition is computed, with one exception: a `blocked` signal written during the phase converts the exit to the blocked disposition.
 
 The `after_run` hook environment includes two self-review variables:
 

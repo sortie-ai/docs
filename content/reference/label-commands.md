@@ -96,7 +96,7 @@ The read-only path runs no operator hooks (`after_create`, `before_run`, `after_
 - the per-turn tracker-state refresh, and with it the issue-state termination gate that ends a normal turn loop when the issue leaves an active state;
 - the self-review loop, which has no local checkout to verify;
 - the `after_run` teardown hook, on every exit path including panic recovery, because no operator setup hook ran on the scratch workspace;
-- the worker-exit handoff transition and the active-issue continuation retry, so a clean review exit neither hands off nor re-dispatches.
+- the worker-exit handoff transition and the active-issue continuation retry, so a clean review exit neither hands off nor re-dispatches. A `blocked` signal releases the claim rather than parking the issue, because the read-only posture does not drive issue state.
 
 Because the read-only turn loop is not gated on issue state, its turn budget rests on the `agent.max_turns` ceiling plus the agent's own completion signal (the [`.sortie/status`](/reference/agent-extensions/) control-plane file). A review is naturally a single turn (fetch the diff, post the review, stop), and `agent.max_turns` is the backstop for a session that does not self-signal.
 
@@ -132,7 +132,7 @@ The fix path suppresses the same issue-work side effects the review path suppres
 - the dispatch comment on the linked issue;
 - the per-turn tracker-state refresh, and with it the issue-state termination gate;
 - the self-review loop;
-- the worker-exit handoff transition and the active-issue continuation retry, so a clean fix exit neither hands off nor re-dispatches.
+- the worker-exit handoff transition and the active-issue continuation retry, so a clean fix exit neither hands off nor re-dispatches. A `blocked` signal releases the claim rather than parking the issue, for the same reason.
 
 The `after_run` teardown hook does run on a fix exit, because the setup hooks ran; this is the one dispatch-lifecycle difference from the review posture, which runs no hooks at all. Because the fix turn loop is not gated on issue state, its turn budget rests on `agent.max_turns` plus the agent's completion signal. A fix is naturally multi-turn (fetch the comments, apply changes, push, post the summary), so the completion signal matters more here than for a review: without it a completed fix session runs to `agent.max_turns`.
 

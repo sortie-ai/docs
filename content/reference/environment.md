@@ -112,6 +112,7 @@ When [`--env-file`](/reference/cli/#-env-file) is provided, the CLI resolves the
 | `hooks.timeout_ms` | Grouped with hooks for consistency |
 | `agent.max_concurrent_agents_by_state` | Complex map structure (`{"in progress": 3, "to do": 1}`) |
 | `tracker.api_version` | No override variable exists; set directly in WORKFLOW.md or via `$VAR` indirection |
+| `tracker.handoff_evidence` | No override variable exists; set directly in WORKFLOW.md. Unlike most of its neighbors in the `tracker` section, it does not resolve `$VAR` references either. |
 | `ci_feedback.*` | No override variables exist; must be set in WORKFLOW.md |
 | `self_review.*` | No override variables exist; verification commands are security-sensitive and must come from version-controlled WORKFLOW.md |
 | `reactions.*` (including `reactions.label_commands`) | No override variables exist; reaction configuration must come from WORKFLOW.md |

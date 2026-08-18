@@ -240,6 +240,7 @@ The pipeline checks:
 - Front matter is a YAML map (not a scalar, list, or null).
 - Integer-typed fields accept valid integers (type coercion from string and float). Affected fields: `polling.interval_ms`, `agent.turn_timeout_ms`, `agent.read_timeout_ms`, `agent.stall_timeout_ms`, `agent.max_concurrent_agents`, `agent.max_turns`, `agent.max_retry_backoff_ms`, `agent.max_sessions`, `hooks.timeout_ms`.
 - `tracker.handoff_state` is a string, is non-empty when present, and does not collide with `active_states` or `terminal_states`.
+- `tracker.handoff_evidence` is one of `observed`, `strict`, or `off`. The check is a closed-set comparison and runs offline with no network access.
 - `tracker.in_progress_state` is a member of `active_states` when present, and does not collide with `terminal_states` or `handoff_state`.
 - `db_path` is a string when present.
 - `agent.max_sessions` is non-negative.
@@ -359,7 +360,7 @@ The `check` field in JSON output and the prefix in text output use these values:
 |---|---|
 | `workflow_load` | Workflow file missing, unreadable, or unparseable YAML. |
 | `workflow_front_matter` | Front matter is not a YAML map. |
-| `config.<field>` | Configuration field type or value error (e.g., `config.polling.interval_ms`, `config.tracker.handoff_state`). |
+| `config.<field>` | Configuration field type or value error (e.g., `config.polling.interval_ms`, `config.tracker.handoff_state`, `config.tracker.handoff_evidence`). |
 | `config.workspace.retention_days` | Workspace retention window is not an integer, is negative, or is non-zero but below the accepted minimum. |
 | `reactions.merge_completion` | Invalid `reactions.merge_completion` block: a missing or colliding `target_state`, a required `tracker` field left unset, or a `poll_interval_ms` below the floor. |
 | `reactions.scm_provider_conflict` | The `reactions.merge_completion` provider disagrees with the provider of another active SCM reaction. |

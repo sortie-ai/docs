@@ -33,6 +33,7 @@ tracker:
     - Done
     - Won't Do
   handoff_state: Human Review         # State set after successful agent run
+  handoff_evidence: observed          # observed (default) | strict | off
   in_progress_state: In Progress       # State set when agent picks up the issue
   comments:
     on_dispatch: true                  # Post comment when agent starts
@@ -201,6 +202,7 @@ Issue tracker connection and query settings.
 | `terminal_states` | list of strings | `[]`                  | Issue states that trigger workspace cleanup. This is the primary removal ground and is always on; the opt-in age bound in [`workspace.retention_days`](#workspace) is the second. |
 | `query_filter`    | string          | `""`                  | Query fragment that narrows candidate and terminal-state queries. For Jira: a JQL expression appended to the query. For Linear: an `IssueFilter` JSON object merged into the query (see the Linear example below). For Gitea: a URL query fragment merged into the repository issue-list query (see the Gitea example below). For GitLab: a URL query fragment merged into the project issue-list query, key-checked against a closed allowlist (see the GitLab example below). |
 | `handoff_state`   | string          | _(absent)_            | Target state after a successful agent run. Absent disables handoff.     |
+| `handoff_evidence` | string         | `"observed"`           | Evidence policy consulted before the handoff write. `observed` withholds the write only on a positively observed absence of workspace change; `strict` also withholds it when evidence cannot be determined; `off` performs no evidence check and leaves the write governed by the other handoff conditions alone. See [state machine reference](/reference/state-machine/#handoff-evidence). |
 | `in_progress_state` | string        | _(absent)_            | Target state for dispatch-time transition at the start of each worker attempt. Absent disables dispatch-time transitions. |
 | `api_version`     | string          | `"3"`                 | Jira REST API version: `"3"` for Jira Cloud, `"2"` for Jira Server / Data Center. Quote the value; a bare integer draws a `sortie validate` advisory. Adapters other than Jira ignore this field. `sortie validate` rejects a value other than `"2"` or `"3"`, and rejects `"2"` against an `.atlassian.net` endpoint. See the [Jira adapter reference](/reference/adapter-jira/#api_version) for deployment-mode behavior and [offline validation](/reference/adapter-jira/#offline-validation) for the full check list. |
 | `comments.on_dispatch`   | bool   | `false`               | Post a tracker comment when a worker is dispatched.                     |
@@ -222,6 +224,8 @@ At least one of `active_states` or `terminal_states` must be non-empty. When bot
 `handoff_state`, when set, must not appear in `active_states` (causes immediate re-dispatch loop) or `terminal_states` (handoff is not a terminal outcome). Jira handoff requires write permissions on the API token: `write:jira-work` (classic) or `write:issue:jira` (granular).
 
 `in_progress_state`, when set, must appear in `active_states` (otherwise reconciliation would immediately cancel the worker after the transition). It must not appear in `terminal_states` or collide with `handoff_state`. If the issue is already in the target state at dispatch time, the transition call is skipped (debug log only). Other transition failures at runtime are non-fatal: the worker logs a warning and continues to workspace preparation. Requires the same write permissions as `handoff_state`.
+
+`handoff_evidence`, when set, must be one of `observed`, `strict`, or `off`. The check is a closed-set comparison that needs no network access, so an invalid value is rejected offline at startup, on dynamic reload, and by `sortie validate`.
 
 > [!NOTE]
 > Workspace cleanup for issues that reach a terminal state while no worker is running is handled by a periodic sweep, not by an instant event. The sweep runs every 60 poll cycles - with the default 30-second `polling.interval_ms`, cleanup occurs within approximately 30 minutes; with a 60-second interval, within approximately 60 minutes. When a worker is still running and reconciliation detects a terminal state, cleanup happens on the current poll tick. On the same pass, and only after that terminal check, the sweep applies a second removal ground based on workspace age; it is opt-in and off by default (see [`workspace.retention_days`](#workspace)). At startup Sortie runs the terminal check alone: it queries the tracker for the states of the workspace directories it finds and removes those reported terminal, and it cleans nothing on that pass if the listing or the tracker read fails.

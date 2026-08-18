@@ -53,10 +53,11 @@ flowchart TD
 
 **Unclaimed → Claimed.** Occurs during the dispatch phase of a poll tick. The issue must pass all [candidate eligibility](#candidate-eligibility) checks and a global or per-state concurrency slot must be available. The issue enters `Running` immediately - there is no `Claimed` without a worker.
 
-**Running → RetryQueued.** Four worker exit outcomes lead here (the first two do not apply when a soft-stop signal is active; see [Claimed → Released](#transition-details) below):
+**Running → RetryQueued.** Five worker exit outcomes lead here (the first two do not apply when a soft-stop signal is active; see [Claimed → Released](#transition-details) below):
 
 - *Normal exit, issue still active, no soft-stop:* continuation retry after 1 000 ms fixed delay.
 - *Normal exit, handoff fails, no soft-stop:* continuation retry after 1 000 ms.
+- *Normal exit, handoff withheld by the [evidence policy](#handoff-evidence), no soft-stop:* exponential backoff retry (see [backoff formula](#backoff-formula)) - the only one of these five outcomes that takes exponential backoff from a normal exit rather than the fixed continuation delay.
 - *Error exit, retryable:* exponential backoff retry (see [backoff formula](#backoff-formula)).
 - *Stall timeout:* worker is killed; exponential backoff retry is scheduled.
 
@@ -72,9 +73,10 @@ An issue holds at most one queued retry. When any of these outcomes finds one al
 - The `max_tokens` token budget is reached.
 - The worker error is classified as non-retryable.
 - A `handoff_state` transition succeeds (the tracker now owns the issue).
-- Soft-stop `blocked`: worker exits normally, claim released. No handoff transition, no continuation retry.
+- Soft-stop `blocked`: worker exits normally, claim released. No handoff transition, no continuation retry. Where the dispatch drives issue state, the issue is also parked with the escalation label and held out of dispatch until a release gesture. See [the parked-issue release rules](/concepts/agent-communication/).
 - Soft-stop `needs-human-review`, handoff succeeds: worker exits normally, handoff transition performed, claim released.
 - Soft-stop `needs-human-review`, handoff fails: worker exits normally, handoff fails, claim released without retry.
+- The consecutive handoff-absence ceiling is reached: the claim is released and the issue is held out of dispatch until a release gesture. See [park issues stuck in a loop of empty runs](/guides/configure-retry-behavior/#park-issues-stuck-in-a-loop-of-empty-runs) for the ceiling and the three release gestures.
 
 Two of these release only when the issue has no retry already queued: a successful `handoff_state` transition, and a normal exit on an issue that has since left the active states. A queued retry keeps the claim in both cases, so work queued while the session was running is not stranded.
 
@@ -149,7 +151,7 @@ The orchestrator writes tracker state at exactly three points in an issue's life
 | Write | Trigger | Configured by |
 |---|---|---|
 | In-progress state | At dispatch, before workspace preparation. | `tracker.in_progress_state` |
-| Handoff state | On a normal worker exit, with the issue still in an active state, not a blocked soft stop, and not already reported terminal. | `tracker.handoff_state` |
+| Handoff state | On a normal worker exit, with the issue still in an active state, the dispatch driving issue state, not a blocked soft stop, not already reported terminal, and not withheld by the [handoff-evidence verdict](#handoff-evidence). | `tracker.handoff_state` |
 | Terminal state | When a Sortie-managed pull request merges while the linked issue is still parked in the handoff state. | `reactions.merge_completion.target_state` |
 
 There are no other orchestrator-initiated tracker writes. What the orchestrator does besides these three carries no state semantics: the dispatch comment, the completion and failure comments, the auto-merge success comment, and a reaction's escalation label or comment are not transitions. The governing boundary is not between reading and writing, it is between a write that reports an event the orchestrator observed and a write that expresses a judgment about the work; the orchestrator makes only the first kind, so a case that turns on judgment, such as choosing between a completion state and an abandonment state for a pull request closed unmerged, is left to you or to the coding agent.
@@ -159,6 +161,24 @@ The coding agent has a path of its own, separate from these three: the [`tracker
 Each write stays off until its field is configured. The third is the newest and needs `reactions.merge_completion.provider` on top of its target state; a deployment that does not configure it sees no terminal write from the orchestrator at all.
 
 The handoff write carries one extra guard, because it is the write most likely to race a person. If you close or cancel an issue while its final turn is still finishing, the handoff write would otherwise overwrite your decision with `handoff_state`. So the exit path tests the issue against `terminal_states` using the freshest observation it has, preferring one made by reconciliation, then one made by the worker's own per-turn refresh, then the state recorded at dispatch. A terminal observation suppresses the write, releases the claim, and cancels any pending retry. Because that observation can itself go stale while the worker tears down, Sortie performs one more state read immediately before the write and applies the same test. If that read fails, the write proceeds: an unreachable tracker is not evidence that the issue is closed. The read is skipped entirely when `terminal_states` is empty, since with no terminal state configured no value could classify as one and the call would cost a tracker request without ever suppressing anything. Only a terminal state suppresses. Any other state, including `handoff_state` itself when the agent already applied it through the `tracker_api` tool, leaves the write and everything downstream of it unchanged.
+
+### Handoff evidence
+
+The handoff write is subject to one further condition beyond the four in the table above: the run's handoff-evidence verdict, governed by [`tracker.handoff_evidence`](/reference/workflow-config/#tracker) (default `observed`). Sortie inspects the workspace the run used and returns one of three verdicts: work was observed, absence of work was observed, or evidence was not determinable. Work observed never withholds the write. Absence observed always withholds it, unless the policy is `off`. Not determinable withholds it only under `strict`.
+
+| Policy | Work observed | Absence observed | Not determinable |
+|---|---|---|---|
+| `observed` (default) | Handoff proceeds | Withheld | Handoff proceeds |
+| `strict` | Handoff proceeds | Withheld | Withheld |
+| `off` | No verdict is computed; the four conditions above stand | n/a | n/a |
+
+The default withholds only on a positively observed absence and abstains everywhere it cannot measure the workspace, the case a workspace that is not a Git work tree produces. A deployment whose workspaces are never version-controlled trees sees no behavioral change under the default and configures nothing. `strict` has no partial form: in such a deployment it withholds every transition and stops the pipeline, which is the operator's own choice to make.
+
+One legitimate configuration is misread by the default. A primary dispatch whose entire product is a write to the tracker presents a measurable workspace and no movement in it, so it reads as an absence. A write made through the [`tracker_api` tool](/reference/agent-extensions/#tracker_api) goes straight to the tracker, not to the workspace, so it is invisible to the inspection above and cannot rescue the case. That is the case `off` exists for.
+
+The verdict describes what survived the run, not whether the agent acted: it can withhold a handoff write and it can never cause one, and it cannot see work that was produced and then reverted. A withheld handoff records the run as failed, naming the verdict as the reason, even though the agent process exited normally.
+
+This changes what a recorded run status of `succeeded` asserts: it no longer means only that the worker exited without error, but also that the system did not positively observe the run producing nothing. Rows recorded before this policy took effect, and any row recorded under the `off` policy, keep the older meaning and are not rewritten. A success rate computed across that boundary compares two different definitions of `succeeded`.
 
 A continuation turn dispatched by a reaction runs as an ordinary agent session and so performs the same in-progress and handoff writes, while a session dispatched by a label command performs neither.
 
@@ -171,7 +191,7 @@ Seven external events drive state transitions. Each is handled by the orchestrat
 | Trigger | What happens |
 |---|---|
 | **Poll tick** | Reconcile running issues (stall detection + tracker state refresh). Run preflight validation. Fetch candidates. Sort by priority. Dispatch eligible issues until slots are exhausted. Dispatched workers perform the optional in-progress transition (via `tracker.in_progress_state`) and optional dispatch comment (via `tracker.comments.on_dispatch`) as their first steps. |
-| **Worker exit (normal)** | Remove `running` entry. Persist run history to SQLite. Update token totals. Four outcome paths: (1) no soft-stop, issue active -- schedule continuation retry or perform handoff transition (retry on handoff failure); (2) soft-stop `blocked` -- release claim, no handoff, no retry; (3) soft-stop `needs-human-review` -- perform handoff transition (if configured and issue active), release claim (no retry on handoff failure); (4) issue already reported terminal -- no handoff, release claim, no retry, no reactions enqueued. Path 4 is tested ahead of paths 1 and 3 and overrides them; path 2 is tested first of all. Post completion comment if [`tracker.comments.on_completion`](/reference/workflow-config/) is enabled (detached goroutine, non-blocking). |
+| **Worker exit (normal)** | Remove `running` entry. Persist run history to SQLite (a withheld handoff is recorded as `failed`, naming the verdict). Update token totals. Five outcome paths: (1) no soft-stop, issue active -- schedule continuation retry or perform handoff transition (retry on handoff failure); (2) soft-stop `blocked` -- release claim, no handoff, no retry, and park the issue with the escalation label where the dispatch drives issue state; (3) soft-stop `needs-human-review` -- perform handoff transition (if configured, issue active, and the dispatch drives issue state), release claim (no retry on handoff failure); (4) issue already reported terminal -- no handoff, release claim, no retry, no reactions enqueued; (5) handoff eligible but withheld by the [evidence policy](#handoff-evidence) -- no handoff transition, exponential backoff retry, or the issue is parked once the consecutive-absence ceiling is reached. Path 4 is tested ahead of paths 1, 3, and 5 and overrides them; path 5 is tested ahead of paths 1 and 3 and overrides them; path 2 is tested first of all. Post completion comment if [`tracker.comments.on_completion`](/reference/workflow-config/) is enabled (detached goroutine, non-blocking). |
 | **Worker exit (error)** | Remove `running` entry. Persist run history. Classify error. If retryable, schedule exponential backoff retry. If not, release claim. Post failure comment if [`tracker.comments.on_failure`](/reference/workflow-config/) is enabled (detached goroutine, non-blocking). |
 | **Agent update event** | Update live session fields: token counters, session ID, thread ID, agent PID, rate limits, last activity timestamp. |
 | **Retry timer fired** | Re-fetch candidates. If the issue is still eligible and slots are available, dispatch. If no slots, reschedule. If the issue is gone or inactive, release claim. |

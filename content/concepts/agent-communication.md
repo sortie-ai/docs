@@ -25,7 +25,7 @@ The agent can't proceed. It writes one word to `.sortie/status`:
 blocked
 ```
 
-The turn completes. Sortie reads the file, sees `blocked`, and stops scheduling retries for PROJ-42. The issue sits until a human resolves the dependency.
+The turn completes. Sortie reads the file, sees `blocked`, and stops scheduling retries for PROJ-42. The issue sits, marked with a label, until a human resolves the dependency.
 
 The first action was data access — the agent needed information to decide. The second was a control signal — the agent communicated a decision. Data flowed through MCP. The signal flowed through the filesystem. Different transports, different times, different purposes.
 
@@ -59,7 +59,9 @@ When the MCP server crashes, the agent runtime detects a broken pipe and gets er
 
 ## Control plane: the `.sortie/status` file
 
-The file protocol is deliberately minimal. The agent writes a single recognized token — `blocked` or `needs-human-review` — to `.sortie/status` in the workspace. Sortie reads this file once, after the turn completes and before the retry decision. If the file says `blocked`, Sortie does not schedule another attempt. The issue sits until a human changes its tracker state. If the file says `needs-human-review`, Sortie also stops retrying, but goes one step further: it transitions the issue to the configured handoff state in the tracker, so the team sees completed work waiting for review. Both values stop the retry loop. The difference is what happens to the issue in the tracker on the way out.
+The file protocol is deliberately minimal. The agent writes a single recognized token, `blocked` or `needs-human-review`, to `.sortie/status` in the workspace. Sortie reads this file after every turn, and again inside the self-review phase, not once at the end of the run. If the file says `blocked`, Sortie does not schedule another attempt. Where the dispatch drives the issue's state, Sortie parks the issue instead of merely releasing it, attaching a label so it can be told apart from an abandoned one. The park lifts when a person moves the issue to a tracker state different from the one it was parked in, when a person removes the label and Sortie has confirmed on a later fetch that the removal actually reached the tracker, or when a later run for the issue produces observable work. Where `tracker.query_filter` excludes the parking label, Sortie never confirms the label is present, so removing it releases nothing there; those issues need to be released by moving them instead. If the file says `needs-human-review`, Sortie treats the work as finished: it runs the configured self-review phase first, where self-review is enabled, and only then transitions the issue to the configured handoff state in the tracker, so the team sees completed work waiting for review. Both values stop the retry loop. The difference is what happens to the issue in the tracker on the way out.
+
+A session dispatched by applying a [label command](/reference/label-commands/) to a pull request has no linked issue state to drive: it releases its claim on a blocked signal instead of parking, and it never enters the self-review phase.
 
 Timing matters. Sortie reads the file *after* the agent process exits, eliminating race conditions. The read happens *before* the tracker API call, avoiding a wasted request for an issue the agent already declared blocked.
 
@@ -108,8 +110,8 @@ If you're writing workflow prompts or building a custom agent, the decision fram
 | Review prior run outcomes | `workspace_history` tool | You need history to avoid repeating mistakes |
 | Escalate a decision to a human mid-session | `notify_operator` tool | The human needs to know now; the orchestrator does not act on it |
 | Report progress on a long task | `notify_operator` tool | Fire-and-forget to a configured channel |
-| Signal "I'm blocked" | `.sortie/status` file | One-way advisory, survives MCP failure |
-| Signal "ready for review" | `.sortie/status` file | Same file, but also triggers [handoff transition](/reference/agent-extensions/) when configured |
+| Signal "I'm blocked" | `.sortie/status` file | Parks the issue with a label; one-way advisory, survives MCP failure |
+| Signal "ready for review" | `.sortie/status` file | Same file, but runs self-review first, then triggers [handoff transition](/reference/agent-extensions/) when configured |
 
 The rule of thumb: if the agent needs a response, use a tool. If the agent is sending a signal about its own state, use the file. If a human needs to know, use `notify_operator`.
 

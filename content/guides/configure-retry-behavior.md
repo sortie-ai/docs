@@ -56,13 +56,45 @@ When the token ceiling fires:
 level=WARN msg="token budget exhausted, blocking re-dispatch" issue_id="PROJ-42" issue_identifier="PROJ-42" reason="token_budget" used_tokens=1503417 budget_tokens=1500000 used_sessions=2 budget_sessions=3
 ```
 
+### Park issues stuck in a loop of empty runs
+
+Sortie distinguishes a run that produced nothing observable in the workspace from a run that failed outright. Under [`tracker.handoff_evidence`](/reference/workflow-config/#tracker) at its default, `observed` (and under `strict`), a run whose workspace shows no evidence of work does not advance the issue. It is retried on the same exponential backoff as an error, not the 1-second continuation delay below. See the [state machine reference](/reference/state-machine/#handoff-evidence) for the full three-verdict rule this follows.
+
+Left alone, an issue stuck in that loop would retry forever. Sortie counts consecutive runs whose handoff was withheld this way and stops once the count reaches a ceiling. That ceiling is not a setting of its own: it is `agent.max_sessions`, with one exception baked in. `max_sessions: 0` still means unlimited for the ordinary per-issue session budget, but this consecutive-absence ceiling reads `0` as `3`. With the default, an issue that never shows evidence of work gets the initial run plus two retries, then parks on the third absence.
+
+Parking:
+
+- attaches an escalation label to the issue
+- stops the retry sequence
+- releases Sortie's claim on the issue
+- holds the issue out of dispatch until you release it
+
+The label is [`reactions.review_comments.escalation_label`](/reference/reactions/#reactionsreview_comments), falling back to `needs-human` when that block or value is absent. Only the label's name is borrowed: `reactions.review_comments` does not need to be active for this park to use it, and that reaction's own escalation action plays no part here.
+
+You'll see both steps in the logs:
+
+```
+level=WARN msg="handoff withheld by evidence policy" issue_id="PROJ-42" issue_identifier="PROJ-42" policy="observed" verdict="absence of work observed" reason="workspace commit and working tree match the run baseline" turns_completed=2 consecutive_absences=3
+level=WARN msg="issue parked" issue_id="PROJ-42" issue_identifier="PROJ-42" reason="handoff_absence" parked_state="In Progress" label="needs-human" consecutive_absences=3 absence_ceiling=3
+```
+
+Release a parked issue with any one of three gestures:
+
+1. Move the issue to a tracker state different from the one it was parked in.
+2. Remove the parking label, but only once Sortie has confirmed, on a later fetch, that the label actually reached the tracker. A label you see missing before that confirmation happened releases nothing.
+3. Let a later run for the same issue produce a work-observed verdict; the park lifts on its own.
+
+If [`tracker.query_filter`](/reference/workflow-config/#tracker) excludes the parking label from the issues Sortie fetches, Sortie can never confirm the label is present, so removing it never releases the park either. Release those issues by moving them to a different state instead.
+
+A review-comment or CI continuation retry is never stopped by this ceiling; it runs on its own retry budget. The consecutive-absence count is neither kept nor consulted when `tracker.handoff_evidence` is `off`. And a run that ends with no evidence verdict at all, such as an agent that reports itself blocked, leaves the count exactly where it stood: it neither advances it nor resets it.
+
 ## Tune backoff timing
 
 Sortie uses two different retry strategies depending on what happened, and they fire at different speeds.
 
 ### Continuation retries (1-second delay)
 
-When an agent finishes its turns normally but the issue is still in an active tracker state, Sortie treats this as "keep going" — not an error. It waits 1 second and dispatches a new session. This also applies when a handoff transition fails.
+When an agent finishes its turns normally but the issue is still in an active tracker state, Sortie treats this as "keep going" — not an error. It waits 1 second and dispatches a new session. This also applies when a handoff transition fails, but not when the handoff is withheld by the evidence policy: that outcome takes the exponential-backoff lane below, covered under [park issues stuck in a loop of empty runs](#park-issues-stuck-in-a-loop-of-empty-runs).
 
 You don't configure this delay. It's fixed at 1,000 ms because the agent succeeded; there's no reason to wait.
 
@@ -184,12 +216,18 @@ grep "token budget exhausted" sortie.log
 
 # Stall killed a session
 grep "stall detected" sortie.log
+
+# Handoff withheld because no work was observed
+grep "handoff withheld by evidence policy" sortie.log
+
+# Issue parked after repeated absence of work
+grep "issue parked" sortie.log
 ```
 
 **Dry run.** `sortie start --dry-run` runs a single poll tick and shows which issues are eligible for dispatch. It doesn't test retry behavior directly (retries happen over multiple ticks), but it confirms your config parses correctly and issues are visible.
 
 ## What we configured
 
-You now have control over all five dimensions of Sortie's retry behavior: how many times it retries (`max_sessions`), how much an issue may spend across those attempts (`max_tokens`), how long it waits between retries (`max_retry_backoff_ms`), how it detects stuck sessions (`stall_timeout_ms`), and when it gives up on a single turn (`turn_timeout_ms`). The continuation retry for successful-but-incomplete work runs at a fixed 1-second interval and needs no configuration.
+You now have control over all five dimensions of Sortie's retry behavior: how many times it retries (`max_sessions`), how much an issue may spend across those attempts (`max_tokens`), how long it waits between retries (`max_retry_backoff_ms`), how it detects stuck sessions (`stall_timeout_ms`), and when it gives up on a single turn (`turn_timeout_ms`). The continuation retry for successful-but-incomplete work runs at a fixed 1-second interval and needs no configuration. Neither does the consecutive-absence ceiling that parks an issue stuck producing no observable work: it is derived from `max_sessions` rather than set separately.
 
 For the full state machine and backoff formulas, see the [state machine reference](/reference/state-machine/). For all config field defaults in one place, see the [workflow config reference](/reference/workflow-config/). For budget and cost controls that complement retry settings, see [how to control agent costs](/guides/control-costs/).

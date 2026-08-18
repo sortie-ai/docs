@@ -472,7 +472,7 @@ The adapter implements the six read methods of the `SCMAdapter` interface, plus 
 |---|---|
 | `GetReviewDecision` | `GET /projects/{project}/merge_requests/{iid}/reviewers`, then `GET .../merge_requests/{iid}/approvals` |
 | `GetMergeability` | `GET /projects/{project}/merge_requests/{iid}` |
-| `GetCIStatus` | `GET /projects/{project}/merge_requests/{iid}`; reads the embedded `head_pipeline`, no second request |
+| `GetCIStatus` | `GET /projects/{project}/merge_requests/{iid}`, and `GET .../repository/commits/{sha}/statuses` for a `manual` head pipeline that is not superseded |
 | `FetchPendingReviews` | `GET .../merge_requests/{iid}/reviewers`, `GET .../merge_requests/{iid}/notes`, and `GET /users/{id}` per unresolved reviewer |
 | `FetchBotReviewComments` | `GET .../merge_requests/{iid}/notes`, and `GET /users/{id}` per unresolved author |
 | `ListLabelEvents` | `GET .../merge_requests/{iid}/resource_label_events` |
@@ -520,19 +520,41 @@ Resolved bot flags are cached for the adapter's lifetime, so a given author cost
 
 ### Pipeline status
 
-`GetCIStatus` maps the merge request's `head_pipeline.status` onto the merge-gate conclusion the [auto-merge CI precondition](/reference/reactions/#reactionsauto_merge) reads. The platform folds an externally reported commit status into the head pipeline, so the pipeline's own status already accounts for one and no second request is issued.
+`GetCIStatus` starts from the merge request's embedded `head_pipeline` object and maps its status onto the merge-gate conclusion the [auto-merge CI precondition](/reference/reactions/#reactionsauto_merge) reads. The mapping applies only when `head_pipeline.sha` matches the merge request's own head SHA, compared case-insensitively, with one exemption: a merged-results or merge-train pipeline generated for this merge request, which runs on a ref whose commit exists in neither branch and carries no field relating it to the head. A head pipeline that fails the comparison describes a superseded commit and resolves to `pending`, with one warning naming both SHAs and the pipeline id, before `manual` is even considered; see [stale head pipeline](#stale-head-pipeline) below. The platform folds an externally reported commit status into the head pipeline, so for the twelve statuses the table below maps directly, the pipeline's own status already accounts for one and no second request is issued. `manual` is the exception, resolved after the table.
 
 | `head_pipeline.status` | CI conclusion |
 |---|---|
 | `head_pipeline` absent | Empty, meaning no checks exist on the head |
 | `success`, `skipped` | `success` |
 | `failed`, `canceled` | `failing` |
-| `created`, `waiting_for_resource`, `preparing`, `waiting_for_callback`, `pending`, `running`, `canceling`, `scheduled`, `manual` | `pending` |
+| `created`, `waiting_for_resource`, `preparing`, `waiting_for_callback`, `pending`, `running`, `canceling`, `scheduled` | `pending` |
 | Any other value | `pending`, logged at WARN naming the observed value |
 
 A `skipped` pipeline is merge-eligible. GitLab reports that status only for a pipeline whose every job is skipped or an untriggered manual job, so its job set cannot carry a failing conclusion.
 
-A `manual` pipeline holds at `pending` even though it has settled, because GitLab also reports `manual` for a pipeline carrying a blocking manual job alongside a job that failed. With `require_ci: true`, an auto-merge entry on such a head defers on every tick rather than merging.
+A `manual` head pipeline is resolved separately: `GetCIStatus` reads that pipeline's own job set, a second, paginated request scoped to the pipeline, and folds the normalized entries through the same rule the [CI status provider](#ci-status-provider) uses to compute its own aggregate.
+
+| Job set on a `manual` head pipeline | Verdict |
+|---|---|
+| Every job completed and none failing (an untriggered `manual` job or a `failed` job with `allow_failure: true` both count as completed and non-failing) | `success` |
+| A job reports `failed` with `allow_failure: false`, or `canceled` | `failing` |
+| A job is still queued or running | `pending` |
+
+The first row is the correction: a `manual` head pipeline settling with nothing left but an untriggered manual job is merge-eligible, not stuck. The second row is also a correction: a manual job sharing the pipeline with a job that genuinely failed now reports `failing` instead of masking the failure as `pending`. The third row is the ordinary manual-gate pipeline, where later work has been created but has not run yet; `pending` is correct there. An unrecognized job status logs one warning naming it and its count, and folds the same way an in-progress job does.
+
+A job set that folds to the empty verdict holds at `pending` instead, with one warning naming the pipeline: the platform never reports `manual` for a pipeline with no jobs, so an empty scoped result means the read itself was mis-addressed, not that the pipeline is clean. A `manual` head pipeline with no SHA of its own, or a pipeline id of zero, fails as a payload error before any request is issued, for the same reason: the platform answers a zero-scoped query with an empty result rather than an error, and failing loudly here is what keeps the anomaly visible instead of it masquerading as a clean pipeline. A failure of the job-set read itself is returned unchanged, never degraded into a verdict.
+
+The job-set read is one request in the ordinary case, and more on a large job set, since it walks the same paginated route the [CI status provider](#ci-status-provider) uses for its own commit-status read. With `require_ci: true`, an auto-merge entry now merges once a `manual` head pipeline's job set genuinely settles clean, escalates when the set hides a failed job, and defers only while queued or running work remains, rather than deferring on every tick regardless of the job set.
+
+### Stale head pipeline
+
+GitLab exposes `head_pipeline` as a stored association on the merge request, not a value recomputed against the current head. A push that creates no pipeline of its own, for example one that touches no path a pipeline configuration watches, leaves `head_pipeline` pointing at the pipeline for the previous commit after the merge request's own head SHA has already moved.
+
+`GetCIStatus` detects this by comparing `head_pipeline.sha` against the merge request's own SHA, case-insensitively, before classifying anything. A mismatch resolves to `pending`, with one warning naming both SHAs and the pipeline id, rather than reporting a status computed for a commit that is no longer current. The comparison runs before the `manual` job-set read, so a superseded `manual` pipeline never pays for one. No second request is issued for a stale head pipeline of any status: the merge-request read that already carries `head_pipeline` is the only one.
+
+Two pipeline shapes are exempt from the comparison: a merged-results pipeline and a merge-train pipeline generated for the merge request being read. Both run on a ref whose commit exists in neither the source nor the target branch, so their SHA can never equal the merge request's own head, and no field on the response relates one to the other. `GetCIStatus` recognizes the shape by an exact match on both the pipeline's source and its ref anchored to the merge request being read, never by testing the ref alone: a branch can be named after a generated ref, but its source cannot be forged to match.
+
+The platform's own mergeability check is not a backstop here: a merge request with a demonstrably stale head pipeline still reported a mergeable, can-be-merged status, so a deployment cannot rely on mergeability alone to catch this.
 
 ### CI status provider
 
@@ -554,7 +576,7 @@ Each status entry's `status` and `allow_failure` fields decide its check conclus
 | `running`, `canceling` | `pending` | In progress |
 | Any other value | `pending` | In progress, logged at WARN naming the observed value and the count |
 
-An allowed-to-fail job therefore never turns the aggregate red and is never counted as failing. The aggregate status and failing count come from the same shared rule the GitHub and Gitea providers use. A pipeline reporting `manual` is the one shape on which the two CI readers differ: every untriggered manual job is a completed, non-failing run here, so the aggregate is passing, while the [merge gate](#pipeline-status) holds at `pending`.
+An allowed-to-fail job therefore never turns the aggregate red and is never counted as failing. The aggregate status and failing count come from the same shared rule the GitHub and Gitea providers use, the same rule the [merge gate](#pipeline-status) now folds a `manual` head pipeline's job set through, so the two readers agree on a `manual` verdict. They still differ on a stale head pipeline: the merge gate reads the SHA embedded on the merge request response and can hold at `pending` on one, the shape covered under [stale head pipeline](#stale-head-pipeline), while this provider resolves the commit it was asked about for itself and is never exposed to that staleness.
 
 On a failing verdict, the log excerpt is the sanitized tail of the first failing job's trace, capped by the `max_log_lines` budget; a `max_log_lines` of zero or less disables it. GitLab ignores the `Range` header on the trace route, so a trace larger than 1 MiB yields the tail of that first megabyte rather than the true tail. `Ref` in the returned result always echoes the caller's input ref, never the resolved SHA.
 

@@ -74,6 +74,22 @@ The agent subprocess exited with code 0 without reporting a turn outcome, and th
 
 Run with `--log-level debug` to see the full subprocess stderr. Fix the root cause (correct the config path, set the right API key, wait for rate limits to clear) and Sortie's exponential backoff retries will succeed automatically.
 
+## Issue keeps re-running and never advances
+
+```
+level=WARN msg="handoff withheld by evidence policy" issue_id="PROJ-42" issue_identifier="PROJ-42" policy="observed" verdict="absence of work observed" reason="workspace commit and working tree match the run baseline" turns_completed=2 consecutive_absences=1
+```
+
+Sortie's default `tracker.handoff_evidence` policy withholds the handoff transition when a run leaves the workspace exactly as it found it. The issue stays in its active tracker state, and Sortie retries it on exponential backoff rather than failing silently or moving it forward on the strength of an exit code alone.
+
+1. **Check what the agent actually did.** A withheld run names its verdict as the run's failure reason in [run history](/reference/dashboard/). If the agent reported success but changed nothing in the workspace, that is exactly the case this policy exists to catch.
+
+2. **A dispatch whose only product is a tracker write is a known false positive.** If your agent's entire job is calling `tracker_api` to transition the issue itself, set `tracker.handoff_evidence: off`. See [workflow configuration](/reference/workflow-config/#tracker).
+
+3. **Repeated absences park the issue.** After a bounded number of consecutive withheld runs, Sortie stops retrying and applies an escalation label instead of looping forever. See [park issues stuck in a loop of empty runs](/guides/configure-retry-behavior/#park-issues-stuck-in-a-loop-of-empty-runs).
+
+4. **Not every workspace can be measured.** A workspace that is not a Git work tree changes nothing under the default policy. Only `strict` withholds there, and it withholds every transition. See the [state machine reference](/reference/state-machine/#handoff-evidence).
+
 ## Tracker returns 401 or 403
 
 ```

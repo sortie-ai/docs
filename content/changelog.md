@@ -11,6 +11,186 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.20.0] - 2026-08-18 { #1.20.0 }
+
+### Added
+
+- `sortie validate` now checks the numeric settings of the
+  `reactions.review_comments` and `reactions.merge_conflicts` blocks: a
+  `poll_interval_ms` below `30000` on either block, and a negative
+  `debounce_ms` or a `max_continuation_turns` of zero or less on
+  `review_comments`. All four previously passed validation and then
+  stopped the run at startup, after the state database had already been
+  created.
+  ([#803](https://github.com/sortie-ai/sortie/issues/803))
+
+- Sortie now withholds the handoff transition from a run that produced
+  no work it could observe. The workspace is compared against a
+  baseline taken immediately before the agent starts, and the issue
+  advances to `tracker.handoff_state` only when the run moved the
+  committed position, changed the working tree, or left a pushed branch
+  or pull request behind - so a session that finished with nothing to
+  show no longer arrives for human review as if it had. Such a run is
+  recorded as failed, names the verdict as its reason, counts on
+  `sortie_handoff_transitions_total{result="withheld"}`, and leaves the
+  issue in its active state for a backoff retry. The new
+  `tracker.handoff_evidence` field selects the policy: `observed`, the
+  default, withholds only where the workspace could be inspected and
+  showed nothing; `strict` also withholds where it could not be
+  inspected at all, such as a workspace that is not a Git tree; `off`
+  computes no verdict and restores the previous behavior. A deployment
+  whose agents leave their result outside the workspace - a tracker
+  comment, say - sees those issues withheld and re-dispatched on every
+  run, and sets the field to `off`.
+  ([#768](https://github.com/sortie-ai/sortie/issues/768))
+
+- An issue whose runs keep producing nothing is now parked instead of
+  being dispatched again indefinitely. Sortie counts the consecutive
+  withheld handoffs on each issue and, on reaching the ceiling, attaches
+  the escalation label configured under
+  `reactions.review_comments.escalation_label` (`needs-human` when that
+  block or value is absent), stops the retry sequence, and dispatches
+  the issue no further. The ceiling is `agent.max_sessions` where the
+  deployment sets one and `3` otherwise, which is the first attempt plus
+  two more. Parking is announced with the issue, how many consecutive
+  empty runs were seen, the ceiling, and the label applied, so a parked
+  issue can be told apart from an abandoned one. A run that produces
+  work clears the count at once; a run that ends without an evidence
+  verdict, such as an agent reporting itself blocked, leaves the count
+  where it stood. The count is neither kept nor consulted under
+  `tracker.handoff_evidence: off`, and a review-comment or CI
+  continuation retry is never stopped by this ceiling.
+  ([#769](https://github.com/sortie-ai/sortie/issues/769))
+
+### Fixed
+
+- Adapter endpoint validation errors no longer print credentials
+  embedded in the configured `endpoint`. A Jira or GitLab endpoint
+  written as `scheme://user:secret@host` that fails validation is now
+  reported with its user and password masked, so the secret cannot
+  reach the operator log.
+  ([#791](https://github.com/sortie-ai/sortie/issues/791))
+
+- GitHub: inline review comments now reach the agent with the lines
+  they were written against. Both human and bot review feedback
+  arrived with no location at all, so the agent had to find the
+  referenced code itself and a prompt template guarded on the start
+  line - including the example published in the reference
+  documentation - never rendered its branch. Comments left on an
+  outdated diff report their original lines; pull-request-level review
+  bodies remain unlocated.
+  ([#776](https://github.com/sortie-ai/sortie/issues/776))
+
+- Gitea: review comments anchored to the old side of the diff now
+  reach the agent, carrying the line they were left on, instead of
+  being silently discarded as outdated. A review whose comments were
+  all on the old side dispatched no agent turn and never escalated
+  either, so sortie appeared to ignore the review outright until the
+  pending check expired. Gitea review comments are no longer filtered
+  as outdated at all, because the platform reports no signal for an
+  anchor that a later push has superseded.
+  ([#778](https://github.com/sortie-ai/sortie/issues/778))
+
+- A review comment whose author is listed in `reactions.bot_review.bot_usernames`
+  no longer triggers the human `review_comments` reaction. The allowlist
+  previously suppressed an author only from the bot-review loop, so an
+  allowlisted reviewer's `CHANGES_REQUESTED` review also drove the human
+  loop on any provider with a bot-account marker, consuming two
+  independent continuation budgets for the same feedback. On Gitea, which
+  exposes no bot-account marker at all, the allowlist is the only
+  classification signal that exists, so a bot review there drove the human
+  loop unconditionally. The exclusion requires an active
+  `reactions.bot_review` block, because that is where `bot_usernames`
+  lives.
+  ([#665](https://github.com/sortie-ai/sortie/issues/665))
+
+- Self-review now runs when the agent reports its work complete,
+  instead of only when the agent exhausts its turn budget. An operator
+  who set `self_review.enabled: true` got the verification commands and
+  the review turn on the one path a finished run never takes, so work
+  reached the handoff state with none of the configured checks having
+  run. A run that ends this way now takes longer, counts its review and
+  fix turns alongside its coding turns, records a review outcome where
+  it previously recorded none, and passes that outcome to the
+  `after_run` hook in place of `disabled`.
+  ([#813](https://github.com/sortie-ai/sortie/issues/813))
+
+- An agent that writes `blocked` to `.sortie/status` now holds its
+  issue until a person acts, instead of having it dispatched again on
+  the next poll and on every poll after that. Sortie parks the issue:
+  it attaches the escalation label configured under
+  `reactions.review_comments.escalation_label` (`needs-human` when that
+  block or value is absent), holds the issue out of dispatch and out of
+  the retry lane, keeps it parked across a restart, and counts it on
+  `sortie_issue_parks_total{reason}`. The issue keeps the tracker state
+  it was dispatched in, so the label is what marks it as waiting on a
+  person. Nothing previously outlasted the run, leaving
+  `agent.max_sessions` as the only bound on the repeat and no bound at
+  all where it is unset. A park is released when Sortie observes
+  someone act on the issue: moving it to another tracker state, or
+  removing the parking label. The same release now applies to an issue
+  parked for producing no observable work. Where `tracker.query_filter`
+  excludes the parking label, Sortie never confirms the label is
+  present and removing it releases nothing, so release those issues by
+  moving them instead.
+  ([#811](https://github.com/sortie-ai/sortie/issues/811))
+
+- GitLab: a merge request whose pipeline is waiting on a manual job is
+  no longer held out of auto-merge indefinitely. Such a pipeline was
+  reported as still running on every poll, so the auto-merge entry
+  expired on its timeout and the merge fell to a person. The verdict
+  now follows the pipeline's own jobs: one waiting only on manual jobs
+  counts as passing, one that also holds a failed job reports failing
+  instead of looking identical to a healthy one, and one with work
+  still queued stays pending. Reading a pipeline in this state costs
+  one extra API call per poll; every other pipeline state is unchanged.
+  ([#827](https://github.com/sortie-ai/sortie/issues/827))
+
+- GitLab: auto-merge no longer acts on a CI verdict belonging to an
+  earlier commit. GitLab reports a merge request's pipeline as stored,
+  not as re-checked against the current commit, so a push that produced
+  no pipeline of its own - removing the CI configuration, or a change
+  the pipeline rules exclude - left the previous commit's result in
+  place. A merge request could merge on a passing result that never
+  covered the commit being merged, and the same staleness held the gate
+  shut the other way. The verdict is now withheld as pending whenever
+  the pipeline on offer describes a commit other than the merge request
+  head. A merge request whose branch never produced a pipeline still
+  reports no verdict and merges where the deployment allows it.
+  Projects using merged results pipelines or merge trains keep the
+  previous behavior, because those pipelines run on a commit that
+  exists in neither branch and never match the head by design.
+  ([#828](https://github.com/sortie-ai/sortie/issues/828))
+
+- GitLab: mergeability reads no longer warn about values GitLab
+  documents and the adapter already handles. A draft merge request, one
+  that is no longer open, and one whose pipeline is still running each
+  logged `unrecognized gitlab detailed_merge_status value` at WARN on
+  every poll for as long as the condition held, burying the diagnostic
+  that exists to surface a value a newer GitLab release introduced. The
+  warning is now raised only for a value outside the set GitLab's API
+  documents, and every mergeability verdict is unchanged. Licensed
+  instances stop warning on five further blocking values, among them
+  failing status checks and security policy violations, which the
+  adapter had been matching against the wrong spelling. A merge request
+  held back by a merge check is now reported at DEBUG, naming the value
+  and the merge request it came from.
+  ([#829](https://github.com/sortie-ai/sortie/issues/829))
+
+### Migrations
+
+- Add the `handoff_absence_resets` table, recording per issue where its
+  consecutive-absence count was last cleared by an observed piece of
+  work. An issue with no row there has its recorded empty runs counted
+  in full, so an upgrade carries any absences already in the database
+  into the new ceiling.
+
+- Add the `parked_issues` table, holding one row per issue currently
+  held out of dispatch. It records current state rather than history:
+  the row is deleted when the park is released. An upgrade starts with
+  no parked issues, so an issue whose agent reported itself blocked
+  before the upgrade is parked the next time it reports it.
+
 ## [1.19.0] - 2026-08-11 { #1.19.0 }
 
 ### Added
@@ -1613,6 +1793,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   execution via GitHub Actions.
 - Architecture Decision Records (ADR-0001 through ADR-0005).
 
+[1.20.0]: https://github.com/sortie-ai/sortie/compare/v1.19.0...v1.20.0
 [1.19.0]: https://github.com/sortie-ai/sortie/compare/v1.18.0...v1.19.0
 [1.18.0]: https://github.com/sortie-ai/sortie/compare/v1.17.0...v1.18.0
 [1.17.0]: https://github.com/sortie-ai/sortie/compare/v1.16.1...v1.17.0

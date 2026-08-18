@@ -33,24 +33,32 @@ mkdir -p .sortie && echo "blocked" > .sortie/status
 | `blocked` | The agent cannot proceed without human intervention. |
 | `needs-human-review` | Work is complete but requires human review before merging or closing. |
 
-Both values suppress continuation retry and release the issue claim. The difference: `needs-human-review` also triggers a handoff transition to `tracker.handoff_state` (when configured and the issue is in an active tracker state). `blocked` does not perform any tracker transition.
+Both values suppress continuation retry and eventually release the issue claim, but they diverge at three points in the run: whether the self-review phase runs (`blocked` never enters it; `needs-human-review` does, when self-review is enabled and the issue is still active), what the two values mean if written again inside that phase, and what happens to the issue on exit. `blocked` parks the issue where the dispatch drives issue state, or releases the claim otherwise; it performs no tracker transition. `needs-human-review` triggers a handoff transition to `tracker.handoff_state` when configured, the issue is still active, the dispatch drives issue state, and the [handoff-evidence verdict](/reference/state-machine/#handoff-evidence) permits it.
 
 ### Orchestrator behavior
 
-When Sortie detects a recognized value in `.sortie/status`:
+When Sortie detects a recognized value in `.sortie/status`, both signals complete the current turn normally and break the turn loop -- no further turns are attempted. From there they diverge.
 
-1. Completes the current turn normally.
-2. Breaks the turn loop -- no further turns are attempted.
-3. Exits the worker run.
-4. For `needs-human-review` only: when `tracker.handoff_state` is configured and the issue is in an active tracker state, performs the handoff transition.
-5. Releases the issue claim.
-6. Does **not** schedule a continuation retry.
+**`blocked`:**
 
-If the handoff transition in step 4 fails (network error, permission denied, nil adapter), the orchestrator logs a warning and releases the claim without retry. The agent finished its work -- retrying would be wrong.
+1. Exits the worker run. The signal is excluded from the self-review phase by name, whatever `self_review.enabled` says.
+2. Performs no tracker transition.
+3. Where the dispatch drives issue state, parks the issue and holds it out of dispatch. See [the parked-issue release rules](/concepts/agent-communication/) for how a park lifts. Where the dispatch does not drive issue state (a session started by a [label command](/reference/label-commands/)), releases the claim instead.
+4. Does **not** schedule a continuation retry.
 
-The issue re-dispatches only when the tracker state changes (e.g., a human moves it back to an active state).
+**`needs-human-review`:**
 
-The full interaction between `.sortie/status` and `tracker.handoff_state` is documented in the [A2O protocol specification](https://github.com/sortie-ai/sortie/blob/main/docs/agent-to-orchestrator-protocol.md) Section 3.6.
+1. Where `self_review.enabled` and the issue is still active, enters the [self-review phase](/guides/configure-self-review/) before exiting. A pending completion signal is consumed on entry; the phase reports its own outcome there and can still convert the exit to the `blocked` disposition.
+2. Exits the worker run.
+3. When `tracker.handoff_state` is configured, the issue is still active, the dispatch drives issue state, no terminal observation intervenes, and the [handoff-evidence verdict](/reference/state-machine/#handoff-evidence) permits it, performs the handoff transition.
+4. Releases the issue claim.
+5. Does **not** schedule a continuation retry.
+
+If the handoff transition in step 3 fails (network error, permission denied, nil adapter), the orchestrator logs a warning and releases the claim without retry. The agent finished its work -- retrying would be wrong.
+
+A parked issue is released by one of three gestures: the tracker state changes to something other than the one it was parked in, the parking label is removed and confirmed gone, or a later run for the issue produces observable work. See [the release rules](/concepts/agent-communication/) for the confirmation guard and the query-filter caveat. A `needs-human-review` exit with no `tracker.handoff_state` configured performs no tracker write at all, so the issue is immediately eligible for re-dispatch on the next poll.
+
+The full interaction between `.sortie/status` and `tracker.handoff_state` is documented in the [A2O protocol specification](https://github.com/sortie-ai/sortie/blob/main/docs/agent-to-orchestrator-protocol.md).
 
 ### Edge cases
 
@@ -77,6 +85,8 @@ complete and awaiting review. Do not write this file during normal productive wo
 ```
 
 Continuation turns do not repeat the instructions. You can include your own instructions in prompt templates too - duplicates are harmless.
+
+During the self-review phase, a second injected instruction supersedes this one for the duration of the phase: it tells the agent to report through `.sortie/review_verdict.json` instead, that writing `needs-human-review` to `.sortie/status` there is consumed and ignored, and that `blocked` still ends the phase.
 
 ### Cleanup and protection
 
