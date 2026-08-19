@@ -135,7 +135,7 @@ Some failures indicate a configuration problem that retrying won't fix. Sortie r
 When you see these, the fix is operational — install the binary, fix the workspace path, rotate the API key. The log line is explicit:
 
 ```
-level=ERROR msg="worker run failed, non-retryable, releasing claim" error="agent: agent_not_found: claude not found in PATH"
+level=ERROR msg="worker run failed, non-retryable, releasing claim" error="agent: agent_not_found: agent command \"claude\" not found: exec: \"claude\": executable file not found in $PATH"
 ```
 
 For the full error catalog with every error kind and its retry classification, see the [error reference](/reference/errors/).

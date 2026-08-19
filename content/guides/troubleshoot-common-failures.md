@@ -12,7 +12,7 @@ Each section below covers one failure — the log line you see, why it happens, 
 ## Agent won't start
 
 ```
-level=ERROR msg="worker run failed, non-retryable, releasing claim" error="agent: agent_not_found: claude not found in PATH"
+level=ERROR msg="worker run failed, non-retryable, releasing claim" error="agent: agent_not_found: agent command \"claude\" not found: exec: \"claude\": executable file not found in $PATH"
 ```
 
 The agent binary isn't installed or isn't on `PATH`.
@@ -42,7 +42,7 @@ The agent binary isn't installed or isn't on `PATH`.
 ## Agent crashes on authentication
 
 ```
-level=ERROR msg="worker run failed, scheduling retry" error="agent: port_exit: exit status 1"
+level=ERROR msg="worker run failed, scheduling retry" error="agent: port_exit: exit code 1"
 ```
 
 Workers start and immediately crash. The actual cause — a missing `ANTHROPIC_API_KEY` — lives inside the agent subprocess, not in Sortie's error output. This is the most common deployment failure.
@@ -78,7 +78,7 @@ Run with `--log-level debug` to see the full subprocess stderr. Fix the root cau
 
 ```
 level=WARN msg="turn timeout exceeded" issue_id="PROJ-42" issue_identifier="PROJ-42" session_id="session-abc-001" turn_timeout_ms=1800000 turn_number=2
-level=WARN msg="worker run failed, scheduling retry" issue_id="PROJ-42" issue_identifier="PROJ-42" session_id="session-abc-001" error="agent turn 2: agent: turn_timeout: turn exceeded the configured 1800000 ms bound; the adapter then reported: context deadline exceeded" next_attempt=1 delay_ms=10000
+level=WARN msg="worker run failed, scheduling retry" issue_id="PROJ-42" issue_identifier="PROJ-42" session_id="session-abc-001" error="agent turn 2: agent: turn_timeout: turn exceeded the configured 1800000 ms bound; the adapter's own report follows: context deadline exceeded" next_attempt=1 delay_ms=10000
 ```
 
 The turn ran longer than `agent.turn_timeout_ms`. The attempt fails and is retried on the usual exponential backoff; it is not abandoned.
