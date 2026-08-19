@@ -74,6 +74,19 @@ The agent subprocess exited with code 0 without reporting a turn outcome, and th
 
 Run with `--log-level debug` to see the full subprocess stderr. Fix the root cause (correct the config path, set the right API key, wait for rate limits to clear) and Sortie's exponential backoff retries will succeed automatically.
 
+## A turn runs long and gets cut off
+
+```
+level=WARN msg="turn timeout exceeded" issue_id="PROJ-42" issue_identifier="PROJ-42" session_id="session-abc-001" turn_timeout_ms=1800000 turn_number=2
+level=WARN msg="worker run failed, scheduling retry" issue_id="PROJ-42" issue_identifier="PROJ-42" session_id="session-abc-001" error="agent turn 2: agent: turn_timeout: turn exceeded the configured 1800000 ms bound; the adapter then reported: context deadline exceeded" next_attempt=1 delay_ms=10000
+```
+
+The turn ran longer than `agent.turn_timeout_ms`. The attempt fails and is retried on the usual exponential backoff; it is not abandoned.
+
+1. **Tell it apart from a stall.** A turn timeout reports `turn_timeout`; a stall reports `turn_cancelled` and fires on silence rather than duration, regardless of how long the turn has been running. See the [error reference](/reference/errors/#agent-errors) for both error kinds.
+
+2. **Set a larger value if the task is genuinely long-running.** See [how to configure retry behavior](/guides/configure-retry-behavior/#turn-timeout) for the tradeoffs between a longer turn timeout and the stall-detection ratio.
+
 ## Issue keeps re-running and never advances
 
 ```

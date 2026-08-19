@@ -104,6 +104,8 @@ When [`--env-file`](/reference/cli/#-env-file) is provided, the CLI resolves the
 | bool | Accepts `true`, `false`, `1`, `0` (case-insensitive) | Startup error naming the env var and rejected value |
 | csv | Comma-separated. Items trimmed. Empty items discarded. Empty string produces an empty list. | - |
 
+A value that parses successfully can still be rejected by configuration validation; the table above covers parse failures only. `SORTIE_AGENT_TURN_TIMEOUT_MS` is one such field, with the constraint documented in the [configuration reference](/reference/workflow-config/#agent).
+
 ### Fields not overridable via env
 
 | Field | Reason |

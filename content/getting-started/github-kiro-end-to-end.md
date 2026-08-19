@@ -355,7 +355,7 @@ Open [http://127.0.0.1:8642/](http://127.0.0.1:8642/) in a browser while Sortie 
 
 **The worker fails at session start with an authentication error.** You see `agent session start: KIRO_API_KEY is invalid or expired` (or `... is not set`), and no `agent session started` line follows. The key is missing, invalid, or the account lacks a Kiro Pro, Pro+, or Power subscription. Confirm with `kiro-cli whoami`; a good key prints your authenticated account.
 
-**A turn hits the turn timeout.** The turn ends at the `turn_timeout_ms` backstop and the worker reports a cancelled turn. The cause is a stuck turn. The credential preflight prevents the no-credential device-login hang, so the usual culprit is a bad model name or a genuinely long task. Verify both with `kiro-cli whoami` and `kiro-cli chat --list-models --format json`.
+**A turn hits the turn timeout.** The turn ends at the `turn_timeout_ms` backstop, the worker reports a `turn_timeout` error, and the attempt is retried. The cause is a stuck turn. The credential preflight prevents the no-credential device-login hang, so the usual culprit is a bad model name or a genuinely long task. Verify both with `kiro-cli whoami` and `kiro-cli chat --list-models --format json`.
 
 For the full behavior matrix, including exit-code classification, output shape, and resume, see the [Kiro adapter reference](/reference/adapter-kiro/).
 

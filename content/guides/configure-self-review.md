@@ -86,6 +86,8 @@ self_review:
 | `max_diff_bytes` | `102400` (100 KB) | Max bytes of diff included in the review prompt. Larger diffs are truncated with a note in the prompt. Tune relative to your agent's context window. |
 | `verification_timeout_ms` | `120000` (2 min) | Per-command timeout. Timed-out commands are killed (entire process group). The agent sees "TIMED OUT" in the review prompt. |
 
+A verification command timing out is not the same as the review or fix turn itself running long. Both are bounded by the workflow-wide `agent.turn_timeout_ms`, the same field that bounds coding turns rather than a setting of its own for self-review. Unlike every other way this loop can end, a review or fix turn that exceeds it fails the attempt outright, and the attempt is retried rather than the loop degrading and continuing.
+
 Verification command output is capped at 64 KB per stream (stdout and stderr independently). A runaway test suite that dumps megabytes of output will not blow up agent memory or prompt size.
 
 ## The `reviewer` field

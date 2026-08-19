@@ -244,6 +244,7 @@ The pipeline checks:
 - `tracker.in_progress_state` is a member of `active_states` when present, and does not collide with `terminal_states` or `handoff_state`.
 - `db_path` is a string when present.
 - `agent.max_sessions` is non-negative.
+- `agent.turn_timeout_ms` is positive.
 - Go `text/template` syntax in the prompt body (strict mode - unknown variables and functions are errors).
 - Template static analysis: dot-context misuse inside `{{ range }}` / `{{ with }}`, unknown top-level variables, and unknown sub-fields of known variables (advisory warnings).
 - `tracker.kind` is present and maps to a registered adapter.
@@ -255,7 +256,7 @@ The pipeline checks:
 
 The pipeline does **not** check:
 
-- **Value ranges.** Negative values for `polling.interval_ms` or timeout fields are accepted. Zero values are replaced with built-in defaults.
+- **Value ranges**, for most fields. Negative values for `polling.interval_ms` or other timeout fields are accepted, and zero values are replaced with built-in defaults. `agent.turn_timeout_ms` is checked: it must be positive, and any other value is rejected rather than replaced.
 - **Format constraints.** `tracker.endpoint` is not checked for valid URL syntax. Path fields are not checked for existence (except `workspace.root`).
 
 #### Advisory warnings
@@ -362,8 +363,9 @@ The `check` field in JSON output and the prefix in text output use these values:
 | `workflow_front_matter` | Front matter is not a YAML map. |
 | `config.<field>` | Configuration field type or value error (e.g., `config.polling.interval_ms`, `config.tracker.handoff_state`, `config.tracker.handoff_evidence`). |
 | `config.workspace.retention_days` | Workspace retention window is not an integer, is negative, or is non-zero but below the accepted minimum. |
+| `config.agent.turn_timeout_ms` | The per-turn timeout is not a positive integer. |
 | `reactions.merge_completion` | Invalid `reactions.merge_completion` block: a missing or colliding `target_state`, a required `tracker` field left unset, or a `poll_interval_ms` below the floor. |
-| `reactions.scm_provider_conflict` | The `reactions.merge_completion` provider disagrees with the provider of another active SCM reaction. |
+| `reactions.scm_provider_conflict` | Two active SCM reactions name different providers. |
 | `template_parse` | Go template syntax error in the prompt body. |
 | `tracker.kind` | Missing `tracker.kind` field. |
 | `tracker.api_key` | Missing or empty API key after environment variable expansion. |
