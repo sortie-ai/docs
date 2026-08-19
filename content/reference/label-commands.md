@@ -98,7 +98,7 @@ The read-only path runs no operator hooks (`after_create`, `before_run`, `after_
 - the `after_run` teardown hook, on every exit path including panic recovery, because no operator setup hook ran on the scratch workspace;
 - the worker-exit handoff transition and the active-issue continuation retry, so a clean review exit neither hands off nor re-dispatches. A `blocked` signal releases the claim rather than parking the issue, because the read-only posture does not drive issue state.
 
-Because the read-only turn loop is not gated on issue state, its turn budget rests on the `agent.max_turns` ceiling plus the agent's own completion signal (the [`.sortie/status`](/reference/agent-extensions/) control-plane file). A review is naturally a single turn (fetch the diff, post the review, stop), and `agent.max_turns` is the backstop for a session that does not self-signal.
+Because the read-only turn loop is not gated on issue state, its turn budget rests on the `agent.max_turns` ceiling plus the agent's own completion signal (the [`.sortie/status`](/reference/agent-extensions/) control-plane file), and every turn also carries the [`agent.turn_timeout_ms`](/reference/workflow-config/#agent) wall-clock bound regardless of posture. A review is naturally a single turn (fetch the diff, post the review, stop), and `agent.max_turns` is the backstop for a session that does not self-signal.
 
 ### The `label_review` continuation key
 

@@ -256,7 +256,7 @@ The pipeline checks:
 
 The pipeline does **not** check:
 
-- **Value ranges**, for most fields. Negative values for `polling.interval_ms` or other timeout fields are accepted, and zero values are replaced with built-in defaults. `agent.turn_timeout_ms` is checked: it must be positive, and any other value is rejected rather than replaced.
+- **Value ranges**, for most fields other than `agent.max_sessions`, `agent.turn_timeout_ms`, and `workspace.retention_days`. Negative values for `polling.interval_ms` or other timeout fields are accepted. Zero replaces with a built-in default for `polling.interval_ms` and `agent.read_timeout_ms`; for `agent.stall_timeout_ms` zero is kept and disables stall detection. `agent.turn_timeout_ms` is checked: it must be positive, and any other value is rejected rather than replaced.
 - **Format constraints.** `tracker.endpoint` is not checked for valid URL syntax. Path fields are not checked for existence (except `workspace.root`).
 
 #### Advisory warnings
