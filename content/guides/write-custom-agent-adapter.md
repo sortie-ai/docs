@@ -370,7 +370,7 @@ A session-id-based resume fits a CLI that owns an addressable identifier. Claude
 
 Make the agent's capabilities and limitations visible to operators, because they change how a workflow must be configured.
 
-Token-usage emission is optional. If the CLI reports tokens, drive a `UsageAccumulator` and emit `EventTokenUsage`; this feeds token-based budgets. If it reports none, leave `TurnResult.Usage` at the zero value, emit no `EventTokenUsage`, and the agent is budgeted by time only, through `agent.turn_timeout_ms`. Kiro is the worked example: its headless path reports an abstract credits figure, never token counts, so token budgets are inert and the turn timeout is the only backstop on a stuck turn.
+Token-usage emission is optional. If the CLI reports tokens, drive a `UsageAccumulator` and emit `EventTokenUsage`; this feeds token-based budgets. If it reports none, leave `TurnResult.Usage` at the zero value, emit no `EventTokenUsage`, and the agent is budgeted by time only, through `agent.turn_timeout_ms`. Kiro is the worked example: its headless path reports an abstract credits figure, never token counts, so token budgets are inert and `agent.turn_timeout_ms` is the time-based budget that remains.
 
 Tool permissions are surfaced through the passthrough config, with a least-privilege default. Kiro exposes a `trust_tools` allowlist (the read-only set of `read`, `grep`, `glob` is the safe starting point) and a mutually exclusive `trust_all_tools` switch. Expose only the flags your CLI actually has.
 

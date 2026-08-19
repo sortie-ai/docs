@@ -192,7 +192,7 @@ If you arrived from the Copilot tutorial, the tracker, polling, workspace, hooks
 
 `agent.kind: kiro` selects the Kiro CLI adapter, registered under the `kiro` kind. `agent.command: kiro-cli` is the binary Sortie launches, resolved from `PATH` at session start. Each turn runs one `kiro-cli chat --no-interactive` subprocess to completion.
 
-`agent.turn_timeout_ms: 1800000` gives each turn 30 minutes. For most adapters the turn timeout is a safety net; for Kiro it is the only backstop, because the CLI has no native per-turn timeout. If a turn stalls, this deadline ends it.
+`agent.turn_timeout_ms: 1800000` gives each turn 30 minutes, a wall-clock bound the orchestrator applies regardless of how much output the agent has produced.
 
 The `kiro:` block is the adapter-specific pass-through. If you came from the Copilot tutorial, here is the mapping:
 

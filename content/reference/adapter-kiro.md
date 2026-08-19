@@ -30,7 +30,7 @@ These fields control the orchestrator's scheduling behavior. They are not passed
 | `max_sessions` | integer | `0` (unlimited) | Maximum completed worker sessions per issue before the orchestrator stops retrying. `0` disables the budget. |
 | `max_concurrent_agents` | integer | `10` | Global concurrency limit across all issues. |
 | `max_concurrent_agents_by_state` | map | `{}` | Per-state concurrency limits. Keys are state names, lowercased for matching. Non-positive or non-numeric entries are silently ignored. |
-| `turn_timeout_ms` | integer | `3600000` (1 hour) | Total timeout for a single `RunTurn` call. The orchestrator cancels the turn context when exceeded. Kiro has no native per-turn timeout, so this is the only backstop on a stuck turn. |
+| `turn_timeout_ms` | integer | `3600000` (1 hour) | Total timeout for a single `RunTurn` call. The orchestrator cancels the turn context when exceeded. See `stall_timeout_ms` below for the bound on a turn that stops producing output. |
 | `read_timeout_ms` | integer | `5000` (5 seconds) | Timeout for startup and synchronous operations. |
 | `stall_timeout_ms` | integer | `300000` (5 minutes) | Maximum time between consecutive events before the orchestrator treats the turn as stalled. `0` or negative disables stall detection. |
 | `max_retry_backoff_ms` | integer | `300000` (5 minutes) | Maximum delay cap for exponential backoff between retry attempts. |
@@ -261,7 +261,7 @@ The preflight defends against two distinct failure shapes:
 | No credential | Headless `chat` enters an interactive device-login flow and blocks indefinitely, because `--no-interactive` does not suppress login. |
 | Invalid key | Headless `chat` exits 0 with empty stdout and `Authentication failed.` on stderr, a silent failure that exit code alone cannot detect. |
 
-The presence check defends against the hang; the `whoami` canary defends against the silent exit-0 failure. The orchestrator turn timeout (`agent.turn_timeout_ms`) is the final backstop.
+The presence check defends against the hang; the `whoami` canary defends against the silent exit-0 failure. It runs once per session, before any turn; a turn that goes silent afterward is ended by stall detection, and the turn timeout is the bound that remains if stall detection is disabled.
 
 {{< callout type="warning" >}}
 **MCP is unavailable on the `KIRO_API_KEY` path.** The backend profile gate returns 403 under API-key authentication and disables MCP. `StartSessionParams.MCPConfigPath` has no effect, and `--require-mcp-startup` is unreachable. See [MCP](#mcp).
