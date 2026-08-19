@@ -97,6 +97,7 @@ Each worker attempt progresses through a linear sequence of phases. Terminal pha
 | `LaunchingAgentProcess` | The agent adapter starts a session (subprocess, API call, or mock). |
 | `InitializingSession` | Waiting for the `session_started` event from the agent adapter. |
 | `StreamingTurn` | The agent is actively working. Token usage, tool calls, and status events stream in. |
+| `SelfReviewing` | Optional. Entered only when [`self_review.enabled`](/reference/workflow-config/#self_review) is true and the coding turn loop finished successfully, not on turn failure. Runs review iterations until the turn budget is exhausted or the agent signals completion. |
 | `Finishing` | The turn ended. `after_run` hooks execute. The worker checks whether to loop for another turn. |
 | `Succeeded` | Terminal. The worker completed all turns without error. |
 | `Failed` | Terminal. An error occurred during any earlier phase. |
@@ -113,6 +114,8 @@ flowchart TD
     LA --> IS[InitializingSession]
     IS --> ST[StreamingTurn]
     ST --> FN[Finishing]
+    ST --> SR[SelfReviewing]
+    SR --> FN
 
     FN --> ST
     FN --> OK([Succeeded])
@@ -126,7 +129,7 @@ flowchart TD
     classDef success fill:#d1fae5,stroke:#059669,color:#064e3b,stroke-width:2px
     classDef failure fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
 
-    class DT,DC,PW,BP,LA,IS,FN phase
+    class DT,DC,PW,BP,LA,IS,SR,FN phase
     class ST active
     class OK success
     class TO,SL,CR failure

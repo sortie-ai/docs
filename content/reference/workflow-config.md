@@ -508,7 +508,7 @@ Coding agent adapter, concurrency, timeouts, and retry behavior. These fields co
 | `stall_timeout_ms`               | integer | `300000` (5m)   | Inactivity timeout based on event stream gaps. `0` or negative disables stall detection. |
 | `max_retry_backoff_ms`           | integer | `300000` (5m)   | Maximum delay cap for exponential backoff on retries.                                 |
 
-`max_concurrent_agents`, `max_concurrent_agents_by_state`, `max_retry_backoff_ms`, `max_sessions`, and `max_tokens` reload dynamically without restart; `max_tokens` takes effect at the next retry evaluation. All other fields apply to future dispatches only.
+`max_concurrent_agents`, `max_concurrent_agents_by_state`, `max_retry_backoff_ms`, `max_sessions`, and `max_tokens` reload dynamically without restart; `max_tokens` takes effect at the next retry evaluation. All other fields apply to future dispatches only, except where the [dynamic reload table](#dynamic-reload) below states a finer-grained answer.
 
 ```yaml
 agent:
