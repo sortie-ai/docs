@@ -392,7 +392,7 @@ The pull request read supplies the draft flag, the head SHA (the CI ref), the he
 
 The merge commit identifier comes from a second read, `PullRequest.mergeCommit.oid` on the GraphQL API. The pinned REST API version no longer carries `merge_commit_sha` on the pull request payload. The GraphQL read is issued only for a pull request the REST payload reports as merged, and a pull request GitHub reports with no merge commit yields an empty identifier rather than an error.
 
-The GraphQL endpoint is `/graphql` on the configured host, or `/api/graphql` when `endpoint` ends in the GitHub Enterprise Server `/api/v3` suffix. A deployment that configures the [`merge_completion` reaction](/reference/reactions/#reactionsmerge_completion) needs a credential that can reach it, since that kind latches on the merge commit identifier and re-enqueues while the identifier is empty.
+The GraphQL endpoint is `/graphql` on the configured host, or `/api/graphql` when `endpoint` ends in the GitHub Enterprise Server `/api/v3` suffix. A deployment that configures the [`merge_completion` reaction](/reference/reactions/#reactionsmerge_completion) needs a credential that can reach it, since that kind latches on the merge commit identifier. A failed GraphQL read surfaces as an error, and the reaction retries it with backoff. A successful read that reports no merge commit yields an empty identifier instead, which the reaction tolerates for 30 minutes before it stops polling and escalates rather than transitioning the issue.
 
 ---
 

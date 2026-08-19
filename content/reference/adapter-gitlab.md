@@ -526,8 +526,8 @@ Resolved bot flags are cached for the adapter's lifetime, so a given author cost
 |---|---|
 | `head_pipeline` absent | Empty, meaning no checks exist on the head |
 | `success`, `skipped` | `success` |
-| `failed`, `canceled` | `failing` |
-| `created`, `waiting_for_resource`, `preparing`, `waiting_for_callback`, `pending`, `running`, `canceling`, `scheduled` | `pending` |
+| `failed` | `failing` |
+| `created`, `waiting_for_resource`, `preparing`, `waiting_for_callback`, `pending`, `running`, `canceling`, `canceled`, `scheduled` | `pending` |
 | Any other value | `pending`, logged at WARN naming the observed value |
 
 A `skipped` pipeline is merge-eligible. GitLab reports that status only for a pipeline whose every job is skipped or an untriggered manual job, so its job set cannot carry a failing conclusion.
@@ -536,11 +536,11 @@ A `manual` head pipeline is resolved separately: `GetCIStatus` reads that pipeli
 
 | Job set on a `manual` head pipeline | Verdict |
 |---|---|
-| Every job completed and none failing (an untriggered `manual` job or a `failed` job with `allow_failure: true` both count as completed and non-failing) | `success` |
-| A job reports `failed` with `allow_failure: false`, or `canceled` | `failing` |
-| A job is still queued or running | `pending` |
+| Every job completed, none failing, and none cancelled (an untriggered `manual` job or a `failed` job with `allow_failure: true` both count as completed and non-failing) | `success` |
+| A job reports `failed` with `allow_failure: false` | `failing` |
+| A job is still queued or running, or a completed job reports `canceled` | `pending` |
 
-The first row is the correction: a `manual` head pipeline settling with nothing left but an untriggered manual job is merge-eligible, not stuck. The second row is also a correction: a manual job sharing the pipeline with a job that genuinely failed now reports `failing` instead of masking the failure as `pending`. The third row is the ordinary manual-gate pipeline, where later work has been created but has not run yet; `pending` is correct there. An unrecognized job status logs one warning naming it and its count, and folds the same way an in-progress job does.
+The first row is the correction: a `manual` head pipeline settling with nothing left but an untriggered manual job is merge-eligible, not stuck. The second row is also a correction: a manual job sharing the pipeline with a job that genuinely failed reports `failing`, not `pending`. The third row also covers a completed job that reports `canceled`: that job asserts no result about the commit, so it holds the verdict at `pending` alongside the ordinary case of later work that has been created but has not run yet. An unrecognized job status logs one warning naming it and its count, and folds the same way an in-progress job does.
 
 A job set that folds to the empty verdict holds at `pending` instead, with one warning naming the pipeline: the platform never reports `manual` for a pipeline with no jobs, so an empty scoped result means the read itself was mis-addressed, not that the pipeline is clean. A `manual` head pipeline with no SHA of its own, or a pipeline id of zero, fails as a payload error before any request is issued, for the same reason: the platform answers a zero-scoped query with an empty result rather than an error, and failing loudly here is what keeps the anomaly visible instead of it masquerading as a clean pipeline. A failure of the job-set read itself is returned unchanged, never degraded into a verdict.
 
@@ -576,7 +576,7 @@ Each status entry's `status` and `allow_failure` fields decide its check conclus
 | `running`, `canceling` | `pending` | In progress |
 | Any other value | `pending` | In progress, logged at WARN naming the observed value and the count |
 
-An allowed-to-fail job therefore never turns the aggregate red and is never counted as failing. The aggregate status and failing count come from the same shared rule the GitHub and Gitea providers use, the same rule the [merge gate](#pipeline-status) now folds a `manual` head pipeline's job set through, so the two readers agree on a `manual` verdict. They still differ on a stale head pipeline: the merge gate reads the SHA embedded on the merge request response and can hold at `pending` on one, the shape covered under [stale head pipeline](#stale-head-pipeline), while this provider resolves the commit it was asked about for itself and is never exposed to that staleness.
+An allowed-to-fail job therefore never turns the aggregate red and is never counted as failing. A `canceled` job is a different kind of non-failing: it withholds a passing verdict without turning the aggregate red either, holding it at `pending` instead. The aggregate status and failing count come from the same shared rule the GitHub and Gitea providers use, the same rule the [merge gate](#pipeline-status) now folds a `manual` head pipeline's job set through, so the two readers agree on a `manual` verdict. They still differ on a stale head pipeline: the merge gate reads the SHA embedded on the merge request response and can hold at `pending` on one, the shape covered under [stale head pipeline](#stale-head-pipeline), while this provider resolves the commit it was asked about for itself and is never exposed to that staleness.
 
 On a failing verdict, the log excerpt is the sanitized tail of the first failing job's trace, capped by the `max_log_lines` budget; a `max_log_lines` of zero or less disables it. GitLab ignores the `Range` header on the trace route, so a trace larger than 1 MiB yields the tail of that first megabyte rather than the true tail. `Ref` in the returned result always echoes the caller's input ref, never the resolved SHA.
 

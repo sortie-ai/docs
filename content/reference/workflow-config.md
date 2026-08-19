@@ -649,6 +649,8 @@ CI feedback follows the same activation pattern as other optional Sortie feature
 
 Repository coordinates (owner, repo name, API token, endpoint) are not part of the `ci_feedback` section. They live in the adapter pass-through block that matches the CI provider kind. When `ci_feedback.kind: github`, the CI adapter reads credentials from the `github:` top-level section in [Extensions](#extensions). When `tracker.kind` and `ci_feedback.kind` match (the common single-platform case), both adapters share the same credentials from the tracker config. See [adapter pass-through configuration](#adapter-pass-through-configuration) for the extension block pattern.
 
+`watch_window_ms` is not a key of this block. A deployment configured through `ci_feedback` always gets its default; see the [`reactions.ci_failure` field table](/reference/reactions/#reactionsci_failure) for where it lives and what it does.
+
 `sortie validate` checks `ci_feedback` sub-keys against the known schema. Unknown sub-keys produce an advisory warning. Adapter-specific keys nested inside `ci_feedback:` (e.g., `ci_feedback.github.owner`) are flagged as unknown because `ci_feedback` does not use adapter pass-through. Place adapter-specific config in a top-level extension block instead.
 
 > [!NOTE]
@@ -1363,6 +1365,7 @@ Sortie watches `WORKFLOW.md` for filesystem changes and re-applies configuration
 | `ci_feedback.max_retries`              | Next reconcile tick.                   |
 | `ci_feedback.escalation`, `ci_feedback.escalation_label` | Next reconcile tick.   |
 | `ci_feedback.kind`, `ci_feedback.max_log_lines` | Requires restart.              |
+| `reactions.ci_failure.watch_window_ms` | Next reconcile tick.                   |
 | `self_review.*`                        | Next dispatch. Running workers use the snapshot captured at review-phase entry. |
 | `reactions.*`, every kind except `ci_failure` | Requires restart. The whole block is captured once at construction, including whether each kind is active, so adding or removing a kind's block changes nothing until the process restarts. |
 | `notifications`                        | Next agent session. Each session's MCP sidecar reads the workflow file at startup; in-flight sessions are unaffected. |
