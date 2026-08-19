@@ -15,7 +15,7 @@ CI feedback closes the loop between your CI pipeline and Sortie's agents. When a
 - A branch-per-issue hook workflow that pushes commits — see [Setup workspace hooks](/guides/setup-workspace-hooks/)
 - CI configured on the repository (GitHub Actions, Gitea Actions, GitLab CI/CD, or any system that reports through the forge's status API)
 - An access token with the scope the CI provider needs for its status route: GitHub needs `repo`; see the [GitLab adapter reference](/reference/adapter-gitlab/#scm-and-ci-surface) and the [Gitea adapter reference](/reference/adapter-gitea/#scm-and-ci-surface) for their scopes
-- A source-control adapter, resolved from `ci_feedback.kind` when no other [PR reaction](/guides/setup-pr-reactions/) configures one; every active reaction's provider must then agree, or Sortie exits at startup
+- A source-control adapter, resolved from `ci_feedback.kind` when no other [PR reaction](/guides/setup-pr-reactions/) configures one; every active reaction's provider must then agree, or `sortie validate` reports a mismatch offline and Sortie exits at startup
 
 ## Activate CI feedback
 

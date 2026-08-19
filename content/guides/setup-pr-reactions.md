@@ -351,7 +351,7 @@ sqlite3 sortie.db "SELECT issue_id, fingerprint, dispatched, updated_at FROM rea
 
 `updated_at` is when the condition was first seen, not when polling stopped, and `dispatched` set to `1` means the escalation reached the tracker. A restart does not restart the 30-minute clock, because the row outlives the process.
 
-**Startup fails with a provider mismatch.** Every active SCM reaction must declare the same `provider`, not just `review_comments` and `auto_merge`. Align them, or remove one. `sortie validate` catches this offline and names the disagreeing kinds for every reaction except `ci_failure`. When `ci_failure` is the one that disagrees, the process logs an error naming the disagreeing kinds and exits at startup instead.
+**Startup fails with a provider mismatch.** Every active SCM reaction must declare the same `provider`, not just `review_comments` and `auto_merge`. Align them, or remove one. `sortie validate` catches this offline and names the disagreeing kinds.
 
 **Review or merge reactions never start.** Confirm `.sortie/scm.json` carries the fields each kind needs: `pr_number`, `owner`, and `repo` for both, plus `branch` for auto-merge. A missing or zero-valued field skips the kind silently. Verify your `after_run` hook writes the file after opening the PR.
 
