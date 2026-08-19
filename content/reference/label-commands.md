@@ -47,7 +47,7 @@ Label commands are configured in a single `reactions.label_commands` block in `W
 
 **No escalation machinery.** The block carries no `max_retries`, `escalation`, or `escalation_label`, and detection has no retry budget. A human is in the loop; when nothing visibly happens, the operator re-applies the label.
 
-**Validation.** Setting `provider` while both `review_label` and `fix_label` are empty strings is a configuration error, a loud misconfiguration rather than a silently inert block. Because this is a config-shape check, it surfaces offline through `sortie validate`. A `provider` naming an unregistered SCM adapter is also a validate error, reported under the check name `scm_adapter`. When more than one SCM reaction kind is active (label commands, `review_comments`, `bot_review`, `merge_conflicts`, `auto_merge`, or `merge_completion`), every active kind must name the same `provider`; a mismatch is fatal at startup and `sortie validate` reports it offline under `reactions.scm_provider_conflict`.
+**Validation.** Setting `provider` while both `review_label` and `fix_label` are empty strings is a configuration error, a loud misconfiguration rather than a silently inert block. Because this is a config-shape check, it surfaces offline through `sortie validate`. A `provider` naming an unregistered SCM adapter is also a validate error, reported under the check name `scm_adapter`. When more than one SCM reaction kind is active (label commands, `ci_failure`, `review_comments`, `bot_review`, `merge_conflicts`, `auto_merge`, or `merge_completion`), every active kind must name the same `provider`; a mismatch is fatal at startup and `sortie validate` reports it offline under `reactions.scm_provider_conflict`.
 
 **Example** (defaults):
 
