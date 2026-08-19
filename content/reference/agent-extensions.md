@@ -473,7 +473,7 @@ Per entry:
         "started_at": "2026-03-30T14:20:00Z",
         "completed_at": "2026-03-30T14:35:12Z",
         "status": "failed",
-        "error": "agent turn error: turn timeout exceeded"
+        "error": "agent turn 3: agent: turn_timeout: turn exceeded the configured 3600000 ms bound; the adapter then reported: context deadline exceeded"
       },
       {
         "attempt": 1,

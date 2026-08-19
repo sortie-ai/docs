@@ -59,7 +59,7 @@ Reconciliation is not a convenience feature. It's a correctness requirement.
 
 Two checks run every tick, before any dispatch happens.
 
-**Stall detection.** For each running agent, Sortie computes how long it's been since the last event — any event: a tool call, a token usage update, a turn completion. If that elapsed time exceeds `stall_timeout_ms`, Sortie kills the agent and queues a retry. Without stall detection, a hung agent — waiting for user input that will never come, stuck in a deadlocked subprocess, leaked as a zombie process — holds a concurrency slot forever. One stuck agent per day means zero available slots within a week.
+**Stall detection.** For each running agent, Sortie computes how long it's been since the last event — any event: a tool call, a token usage update, a turn completion. If that elapsed time exceeds `stall_timeout_ms`, Sortie kills the agent and queues a retry. Without stall detection, a hung agent — waiting for user input that will never come, stuck in a deadlocked subprocess, leaked as a zombie process — holds a concurrency slot until the turn timeout catches it, up to an hour later rather than in minutes. One stuck agent per day means zero available slots within a week.
 
 **Tracker state refresh.** Sortie fetches current tracker states for all running issues, then evaluates three possible outcomes:
 

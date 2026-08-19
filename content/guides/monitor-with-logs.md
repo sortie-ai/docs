@@ -197,7 +197,7 @@ WARN — the comment failed but the session lifecycle is unaffected. Check API t
 ### Errors and retries
 
 ```
-time=2026-03-26T14:35:22.000+00:00 level=WARN msg="worker run failed, scheduling retry" issue_id=abc123 issue_identifier=MT-649 session_id=session-abc-001 error="agent: turn_timeout: context deadline exceeded" next_attempt=2 delay_ms=20000
+time=2026-03-26T14:35:22.000+00:00 level=WARN msg="worker run failed, scheduling retry" issue_id=abc123 issue_identifier=MT-649 session_id=session-abc-001 error="agent turn 4: agent: turn_timeout: turn exceeded the configured 1800000 ms bound; the adapter then reported: context deadline exceeded" next_attempt=2 delay_ms=20000
 ```
 
 WARN with `scheduling retry` — Sortie is recovering automatically. The `next_attempt` and `delay_ms` fields tell you when the retry fires.

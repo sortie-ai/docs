@@ -161,7 +161,9 @@ level=WARN msg="stall detected, cancelling worker" issue_id="PROJ-42" elapsed_ms
 
 ### Turn timeout
 
-`agent.turn_timeout_ms` is the hard cap on total time for a single `RunTurn` call. Default: `3600000` (1 hour). This fires regardless of agent activity — even a chatty agent gets killed when time's up.
+`agent.turn_timeout_ms` is the hard cap on total time for a single agent turn. Default: `3600000` (1 hour). This fires regardless of agent activity — even a chatty agent gets killed when time's up.
+
+Unlike `stall_timeout_ms`, this bound cannot be turned off. The value must be positive; a non-positive `turn_timeout_ms` stops the workflow from loading.
 
 ```yaml
 agent:
