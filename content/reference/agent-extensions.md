@@ -421,7 +421,7 @@ The failure shape is the same structured envelope every built-in tool uses.
 
 ## `workspace_history`
 
-Read-only access to prior run history for the current issue. The agent calls this tool to see what happened in previous attempts - whether they succeeded, failed, timed out, or stalled. Useful for avoiding repeated mistakes on retry.
+Read-only access to prior run history for the current issue. The agent calls this tool to see what happened in previous attempts - whether they succeeded, failed, were cancelled, or failed CI. Useful for avoiding repeated mistakes on retry.
 
 `workspace_history` is a **Tier 1** tool: queries the local SQLite database in read-only mode, no external calls. Registered when both `SORTIE_DB_PATH` and `SORTIE_ISSUE_ID` are set and the database can be opened in read-only mode. If the database open fails, the MCP server continues without this tool (non-fatal).
 
@@ -454,7 +454,7 @@ Per entry:
 | `agent_adapter` | string | Which agent adapter was used (e.g., `claude-code`). |
 | `started_at` | string | ISO-8601 timestamp. |
 | `completed_at` | string | ISO-8601 timestamp. |
-| `status` | string | Terminal status: `succeeded`, `failed`, `timed_out`, `stalled`, `cancelled`. |
+| `status` | string | Terminal status: `succeeded`, `failed`, `cancelled`, `ci_failed`. |
 | `error` | string or null | Error message if failed; `null` on success. |
 
 ### Example response
