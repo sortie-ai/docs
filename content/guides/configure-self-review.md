@@ -118,7 +118,7 @@ If the agent fails to write a valid verdict file on non-final iterations, Sortie
 
 ## What `.sortie/status` means during review
 
-The two recognized values mean something different here than they do in the coding turns. Writing `needs-human-review` during a review or fix turn is consumed and ignored: it does not end the phase early and does not substitute for a verdict file. Writing `blocked` still ends the phase, and it converts the run's exit to the blocked disposition, overriding the completion signal that admitted the run in the first place. The review prompt tells the agent as much on every iteration.
+The two recognized values mean something different here than they do in the coding turns. Writing `needs-human-review` during a review or fix turn is consumed and ignored: it does not end the phase early and does not substitute for a verdict file. Writing `blocked` still ends the phase, and it converts the run's exit to the blocked disposition, whichever of the two admissions brought the run into the phase. The review prompt tells the agent as much on every iteration.
 
 ## What the agent sees
 
@@ -179,7 +179,7 @@ Self-review runs after the coding turns and before the worker tears down the ses
 coding turns → status read → self-review phase → session teardown → after_run hook → worker exit disposition
 ```
 
-The phase's turns count toward the run's completed turns alongside the coding turns. A run admitted to the phase because the agent wrote `needs-human-review` takes exactly the disposition it would have taken without the phase; what changes is the work performed before that disposition is computed, with one exception: a `blocked` signal written during the phase converts the exit to the blocked disposition.
+The phase's turns count toward the run's completed turns alongside the coding turns. A run admitted to the phase, whether by exhausting the turn budget or because the agent wrote `needs-human-review`, takes exactly the disposition it would have taken without the phase; what changes is the work performed before that disposition is computed, with one exception: a `blocked` signal written during the phase converts the exit to the blocked disposition on either admission.
 
 The `after_run` hook environment includes two self-review variables:
 
