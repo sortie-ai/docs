@@ -219,7 +219,7 @@ hooks:
         --repo myorg/myrepo \
         --head "sortie/${SORTIE_ISSUE_IDENTIFIER}" \
         --base main \
-        --title "${SORTIE_ISSUE_IDENTIFIER}: ${SORTIE_ISSUE_TITLE}" \
+        --title "sortie(${SORTIE_ISSUE_IDENTIFIER}): automated changes" \
         --body "Automated PR for ${SORTIE_ISSUE_IDENTIFIER}" \
         2>/dev/null || gh pr view \
         --repo myorg/myrepo \

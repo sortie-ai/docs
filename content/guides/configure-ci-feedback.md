@@ -15,6 +15,7 @@ CI feedback closes the loop between your CI pipeline and Sortie's agents. When a
 - A branch-per-issue hook workflow that pushes commits — see [Setup workspace hooks](/guides/setup-workspace-hooks/)
 - CI configured on the repository (GitHub Actions, Gitea Actions, GitLab CI/CD, or any system that reports through the forge's status API)
 - An access token with the scope the CI provider needs for its status route: GitHub needs `repo`; see the [GitLab adapter reference](/reference/adapter-gitlab/#scm-and-ci-surface) and the [Gitea adapter reference](/reference/adapter-gitea/#scm-and-ci-surface) for their scopes
+- A source-control adapter, resolved from `ci_feedback.kind` when no other [PR reaction](/guides/setup-pr-reactions/) configures one; every active reaction's provider must then agree, or Sortie exits at startup
 
 ## Activate CI feedback
 
@@ -27,13 +28,15 @@ ci_feedback:
 
 There is no `enabled` flag. Presence of `kind` activates the feature; absence disables it.
 
-Once activated, Sortie hooks into the worker exit path. After each normal worker exit where the agent pushed code, the orchestrator reads `.sortie/scm.json` from the workspace to discover the branch and commit SHA. On the next reconcile tick, it polls CI status on that ref. Three outcomes are possible:
+Once activated, Sortie hooks into the worker exit path. After each normal worker exit where the agent pushed code and the workspace's `.sortie/scm.json` carries a pull request number, an owner, a repository, and a branch, the orchestrator records a pending CI watch for that pull request. On each reconcile tick, it resolves the pull request's current head and polls CI status for that head. Three common outcomes:
 
-- **Passing.** CI is green. No action taken. The CI-fix attempt counter resets to zero.
+- **Passing.** CI is green. The CI-fix attempt counter resets to zero, and Sortie keeps watching that pull request, so a commit pushed afterward is still observed.
 - **Pending.** Checks are still running. Sortie re-checks on the next tick.
 - **Failing.** At least one check failed. Sortie dispatches a continuation run with failure context injected into the prompt.
 
-If you don't see CI feedback triggering, check that your `after_run` hook writes `.sortie/scm.json`. Without it, Sortie has no ref to poll and skips the feature silently for that run.
+The watch is bounded by `watch_window_ms` (default twenty-four hours), measured from the pull request's last recorded commit rather than from when the watch started. Reaching that age drops the entry with a log warning and no escalation; a value of `0` removes the bound.
+
+If you don't see CI feedback triggering, check that your `after_run` hook writes `.sortie/scm.json` with `pr_number`, `owner`, `repo`, and `branch` all present. A workspace whose metadata carries a branch but no pull request identity logs `ci watch not seeded: workspace metadata missing pull request identity` at debug level; grep your logs for it to confirm this is the cause.
 
 ## Configure retry limits
 
@@ -45,7 +48,7 @@ ci_feedback:
 
 `max_retries` controls how many CI-fix continuation dispatches Sortie attempts per issue before escalating. Default: 2. Set to 0 to escalate on the first CI failure without retrying.
 
-Each CI failure that triggers a new dispatch increments the counter. If the agent fixes the issue and CI passes, the counter resets to zero. When the counter exceeds `max_retries`, Sortie escalates via the configured strategy and releases its claim on the issue.
+Each CI failure that triggers a new dispatch increments the counter. If the agent fixes the issue and CI passes, the counter resets to zero. When the counter exceeds `max_retries`, Sortie escalates via the configured strategy and releases its claim on the issue. A commit landing on the pull request afterward restores the attempt budget when Sortie can establish that the commit is not its own work, so an agent cannot extend its own budget by pushing; applying the configured fix label re-arms an escalated pull request by hand.
 
 ## Configure log fetching
 
@@ -89,15 +92,15 @@ CI feedback needs a repository to query and a ref to check. It gets these from t
 
 **Repository coordinates** come from the tracker adapter. When `ci_feedback.kind` matches `tracker.kind`, the `tracker` block already contains `api_key` and `project` (owner/repo for GitHub and Gitea, a namespace path or numeric ID for GitLab). CI feedback reuses these credentials. No additional configuration needed.
 
-**Branch and SHA** come from `.sortie/scm.json` in the workspace. Your `after_run` hook writes this file after pushing code. It contains at minimum a `branch` field, optionally a `sha` field, and optionally a `pushed_at` UTC timestamp:
+**The pull request identity** comes from `.sortie/scm.json` in the workspace. Your `after_run` hook writes this file after pushing code and opening the pull request. CI feedback needs `pr_number`, `owner`, and `repo` alongside `branch`; all four fields must be present for Sortie to seed a CI watch, and `branch` and `sha` alone do not qualify:
 
 ```json
-{"branch": "sortie/PROJ-123", "sha": "abc123def456", "pushed_at": "2026-04-10T12:00:00Z"}
+{"branch": "sortie/PROJ-123", "sha": "abc123def456", "pushed_at": "2026-04-10T12:00:00Z", "pr_number": 42, "owner": "myorg", "repo": "myrepo"}
 ```
 
-When both `branch` and `sha` are present, Sortie uses the SHA as the ref for more deterministic results. When only `branch` is present, Sortie queries CI status by branch name. The `pushed_at` timestamp is used only by startup recovery for handoff-stage issues — it determines whether a previously pushed branch is still fresh enough to re-poll after a restart. If absent, recovery falls back to the agent run's `completed_at` time. See [Resume sessions across restarts](/guides/resume-sessions-across-restarts/) for the recovery model.
+Once the watch is seeded, the orchestrator resolves the pull request's current head itself, through the SCM adapter, on every poll, rather than reading a ref recorded once. The `pushed_at` timestamp is used only by startup recovery for handoff-stage issues — it determines whether a previously pushed branch is still fresh enough to re-poll after a restart. If absent, recovery falls back to the agent run's `completed_at` time. See [Resume sessions across restarts](/guides/resume-sessions-across-restarts/) for the recovery model.
 
-Here's an `after_run` hook that pushes and writes the SCM metadata:
+Here's an `after_run` hook that pushes, opens a pull request, and writes the SCM metadata:
 
 ```bash
 git add -A
@@ -105,16 +108,26 @@ git diff --cached --quiet || {
   git commit -m "sortie(${SORTIE_ISSUE_IDENTIFIER}): automated changes"
   git push origin "sortie/${SORTIE_ISSUE_IDENTIFIER}" --force-with-lease
 
-  # Write SCM metadata for CI feedback
   SHA=$(git rev-parse HEAD)
+  PR_URL=$(gh pr create \
+    --repo myorg/myrepo \
+    --head "sortie/${SORTIE_ISSUE_IDENTIFIER}" \
+    --base main \
+    --title "sortie(${SORTIE_ISSUE_IDENTIFIER}): automated changes" \
+    --body "Automated PR for ${SORTIE_ISSUE_IDENTIFIER}" \
+    2>/dev/null || gh pr view "sortie/${SORTIE_ISSUE_IDENTIFIER}" \
+    --repo myorg/myrepo --json url -q .url 2>/dev/null)
+  PR_NUMBER=$(echo "$PR_URL" | grep -oP '\d+$')
   PUSHED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
   mkdir -p .sortie
-  printf '{"branch":"sortie/%s","sha":"%s","pushed_at":"%s"}' \
-    "${SORTIE_ISSUE_IDENTIFIER}" "${SHA}" "${PUSHED_AT}" > .sortie/scm.json
+  cat > .sortie/scm.json <<EOF
+{"branch":"sortie/${SORTIE_ISSUE_IDENTIFIER}","sha":"${SHA}","pushed_at":"${PUSHED_AT}","pr_number":${PR_NUMBER:-0},"owner":"myorg","repo":"myrepo"}
+EOF
 }
 ```
 
-If `.sortie/scm.json` is absent, has an empty `branch` field, or is a symlink (rejected for security), CI feedback is skipped for that run.
+If `.sortie/scm.json` is absent, is missing the pull request identity, or is a symlink (rejected for security), CI feedback is skipped for that run.
 
 ## What the agent sees
 
@@ -174,6 +187,8 @@ Both `ci_feedback.max_retries` and `agent.max_sessions` are evaluated independen
 If the agent signals `blocked` via `.sortie/status` during a CI-fix run, the orchestrator respects that signal and stops running further CI checks. A CI-fix continuation runs as an ordinary agent session, so it drives the issue's state like any normal dispatch, and the issue is [parked](/concepts/agent-communication/) with the escalation label rather than merely released. For details on the agent-to-orchestrator protocol, see the [agent extensions reference](/reference/agent-extensions/).
 
 Self-review and CI feedback address different failure classes at different points in the pipeline. Self-review runs inside the worker before exit, catching local issues (test failures, lint errors) with verification commands you configure. CI feedback runs after the worker exits and the code is pushed, catching integration failures reported through the CI provider's status API. Both features can be active simultaneously with independent counters. Self-review runs first; CI feedback runs later. If self-review passes but CI later fails, the CI feedback loop triggers normally. For self-review configuration, see [how to configure self-review](/guides/configure-self-review/).
+
+Unattended CI recovery follows the pull request's head for as long as the watch window allows. A commit that lands on the pull request after a passing result is evaluated like any other.
 
 ## Complete example
 
@@ -317,7 +332,7 @@ Three CI-related metrics are available when the HTTP server is running (default 
 | `sortie_ci_escalations_total` | `action` (`label`, `comment`, `error`) | Escalation actions taken. |
 | `sortie_retries_total` | `trigger` (`ci_fix`) | CI-fix dispatches scheduled. |
 
-A healthy CI feedback setup shows `sortie_ci_status_checks_total{result="passing"}` climbing steadily, with occasional `failing` bumps that correlate with `sortie_retries_total{trigger="ci_fix"}` increments. Persistent `error` results on the status check metric indicate a token or permissions problem. For the full metrics catalog, see [Prometheus metrics reference](/reference/prometheus-metrics/).
+A healthy CI feedback setup shows `sortie_ci_status_checks_total{result="passing"}` incrementing on every poll for as long as the watch continues, since a passing result keeps the pull request under watch rather than ending it. Expect occasional `failing` bumps that correlate with `sortie_retries_total{trigger="ci_fix"}` increments. Persistent `error` results on the status check metric indicate a token or permissions problem. For the full metrics catalog, see [Prometheus metrics reference](/reference/prometheus-metrics/).
 
 ## Configuration reference
 
@@ -330,6 +345,8 @@ All `ci_feedback` fields in one place:
 | `max_log_lines` | integer | `50` | Lines to fetch from the first failing check's log. `0` = disable log fetching. |
 | `escalation` | string | `"label"` | Escalation strategy: `"label"` or `"comment"`. |
 | `escalation_label` | string | `"needs-human"` | Label to apply when `escalation` is `"label"`. Created on demand if the tracker does not already have it. |
+
+The watch window is not a field of this block. It lives at `reactions.ci_failure.watch_window_ms`; see the [reactions reference](/reference/reactions/#reactionsci_failure) for its default and behavior.
 
 For the full WORKFLOW.md configuration reference including all sections, see [workflow config reference](/reference/workflow-config/).
 

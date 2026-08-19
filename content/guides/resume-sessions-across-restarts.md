@@ -56,7 +56,7 @@ On startup, Sortie now reconstructs review and CI pending entries for handoff-st
 
 - The latest successful run per issue in SQLite `run_history`.
 - The current tracker state for those issues (one batched `FetchIssueStatesByIDs` call).
-- The workspace's existing `.sortie/scm.json` (PR coordinates for review, branch for CI).
+- The workspace's existing `.sortie/scm.json` (PR coordinates for both review and CI).
 
 After the recovery summary line, normal review and CI polling resumes against those entries on the next reconcile tick. Reviewer comments left while the process was down are picked up within one review poll interval. No operator action is required.
 

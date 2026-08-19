@@ -79,7 +79,7 @@ Both `review_comments` and `auto_merge` act on a specific PR, so they need its c
 
 Which fields each kind reads:
 
-- `ci_failure` uses `branch` and `sha` to poll CI status. The SHA is preferred; the branch is the fallback.
+- `ci_failure` uses `pr_number`, `owner`, `repo`, and `branch` to seed a CI watch. When any is missing or zero, no watch is seeded for that workspace, logged at debug level.
 - `review_comments` uses `pr_number`, `owner`, and `repo`. When any is missing or zero, review polling is skipped for that workspace with no error.
 - `auto_merge` uses `pr_number`, `owner`, `repo`, and `branch`. The `branch` field is required because branch deletion after merge needs it.
 - `merge_completion` uses `pr_number`, `owner`, and `repo`. It needs no `branch`, because it performs no checkout.
@@ -99,7 +99,7 @@ git diff --cached --quiet || {
     --repo myorg/myrepo \
     --head "sortie/${SORTIE_ISSUE_IDENTIFIER}" \
     --base main \
-    --title "${SORTIE_ISSUE_IDENTIFIER}: ${SORTIE_ISSUE_TITLE}" \
+    --title "sortie(${SORTIE_ISSUE_IDENTIFIER}): automated changes" \
     --body "Automated PR for ${SORTIE_ISSUE_IDENTIFIER}" \
     2>/dev/null || gh pr view "sortie/${SORTIE_ISSUE_IDENTIFIER}" \
     --repo myorg/myrepo --json url -q .url 2>/dev/null)
@@ -337,7 +337,21 @@ The merge fingerprint combines the PR head SHA and the review decision, so a new
 
 **Auto-merge is deferred forever.** Raise the log level to `debug` and read the `auto_merge deferred:` messages. They name the unmet precondition: CI is still pending or red, the review decision isn't `APPROVED`, the PR is not in a mergeable state, or the PR is a draft. Resolve the named condition and the next tick proceeds.
 
-**Startup fails with a provider mismatch.** Every active SCM reaction must declare the same `provider`, not just `review_comments` and `auto_merge`. Align them, or remove one. `sortie validate` catches this offline and names the disagreeing kinds.
+**A PR merged but its issue never left the handoff state.** The forge reported the merge without a merge commit identifier, which is the value `merge_completion` latches on. Sortie waits 30 minutes for it to appear, retrying with backoff, then stops polling that PR and applies your configured escalation without transitioning the issue. Find the stop:
+
+```bash
+grep "merge_completion stopped after merge commit identifier remained missing" sortie.log
+```
+
+The line names the repository, the PR number, and how long Sortie waited; the warnings logged before it carry the same context. Sortie does not resume on its own, so verify the merge in the forge and move the issue to your `target_state` yourself if the merge is genuine. An API Sortie cannot reach produces a retried error instead of this stop, so a stop means the forge itself answered with no merge commit. The waiting observation is visible in SQLite while it lasts, and after the stop:
+
+```bash
+sqlite3 sortie.db "SELECT issue_id, fingerprint, dispatched, updated_at FROM reaction_fingerprints WHERE kind='merge-completion-missing-sha'"
+```
+
+`updated_at` is when the condition was first seen, not when polling stopped, and `dispatched` set to `1` means the escalation reached the tracker. A restart does not restart the 30-minute clock, because the row outlives the process.
+
+**Startup fails with a provider mismatch.** Every active SCM reaction must declare the same `provider`, not just `review_comments` and `auto_merge`. Align them, or remove one. `sortie validate` catches this offline and names the disagreeing kinds for every reaction except `ci_failure`. When `ci_failure` is the one that disagrees, the process logs an error naming the disagreeing kinds and exits at startup instead.
 
 **Review or merge reactions never start.** Confirm `.sortie/scm.json` carries the fields each kind needs: `pr_number`, `owner`, and `repo` for both, plus `branch` for auto-merge. A missing or zero-valued field skips the kind silently. Verify your `after_run` hook writes the file after opening the PR.
 
