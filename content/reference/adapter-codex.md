@@ -56,7 +56,6 @@ These fields are adapter-specific. The orchestrator forwards them to the adapter
 | `thread_sandbox` | `sandbox` (thread/start) | string | `workspaceWrite` | Sandbox mode for the thread. Values: `readOnly`, `workspaceWrite`, `dangerFullAccess`, `externalSandbox`. |
 | `turn_sandbox_policy` | `sandboxPolicy` (turn/start) | map | _(see below)_ | Per-turn sandbox policy override. Merged on top of the default policy. |
 | `personality` | `personality` (thread/start) | string | _(none)_ | Personality preset. |
-| `skip_git_repo_check` | _(adapter-level)_ | boolean | `false` | Reserved for future use. Codex requires the workspace to be a Git repository. |
 
 ```yaml
 codex:
