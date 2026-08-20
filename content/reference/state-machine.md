@@ -121,6 +121,7 @@ flowchart TD
     FN --> OK([Succeeded])
 
     ST --> TO([TimedOut])
+    SR --> TO
     ST --> SL([Stalled])
     ST --> CR([Canceled])
 
@@ -135,7 +136,7 @@ flowchart TD
     class TO,SL,CR failure
 ```
 
-Any phase from `PreparingWorkspace` through `StreamingTurn` can also transition to **Failed** on error. The specific error trigger for each phase is documented in the table above.
+Any phase from `PreparingWorkspace` through `StreamingTurn` can also transition to **Failed** on error; `SelfReviewing` can also transition to **TimedOut**, but only when a review or fix turn exceeds `agent.turn_timeout_ms`. The specific error trigger for each phase is documented in the table above.
 
 ### Multi-turn behavior
 
