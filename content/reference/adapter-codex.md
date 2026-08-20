@@ -104,6 +104,8 @@ Launches the app-server subprocess, performs the JSON-RPC initialization handsha
 8. **Resume path:** if `ResumeSessionID` is non-empty, sends `thread/resume` instead. Falls back to `thread/start` if resume fails.
 9. Returns a `Session` with `ID` set to the thread ID and `AgentPID` set to the subprocess PID.
 
+The workspace does not need to be a Git repository: `thread/start` accepts a non-git `cwd` and reports `gitInfo: null`.
+
 **Errors:**
 
 | Condition | Error kind |
