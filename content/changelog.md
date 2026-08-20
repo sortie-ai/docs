@@ -11,6 +11,128 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.21.0] - 2026-08-20 { #1.21.0 }
+
+### Fixed
+
+- A check run cancelled by a newer commit no longer spends a retry from
+  the `reactions.ci_failure` budget. The CI verdict counts only
+  `failure` and `timed_out` as failing; a cancelled check now withholds
+  green instead of asserting failure, holding the verdict at pending, so
+  it dispatches no fix continuation and appends no failure to run
+  history. A required workflow configured to cancel its own in-flight
+  runs when a newer commit lands was spending the whole bounded budget
+  on ordinary pushes, so a commit that genuinely failed later went
+  unremediated. The merge gate answers by the same rule and reports such
+  a head as pending rather than failing, which on GitLab also covers a
+  `canceled` pipeline status. The escalation raised on budget exhaustion
+  now names exactly the checks the verdict counted as failing.
+  ([#831](https://github.com/sortie-ai/sortie/issues/831))
+
+- Merge-completion polling no longer retries forever when a forge
+  reports a pull request merged but never supplies its merge commit
+  identifier. The first such response starts a persisted thirty-minute
+  grace period with exponential polling backoff; if the identifier is
+  still absent, Sortie stops without transitioning the issue and sends
+  the configured escalation. Time spent waiting for review does not
+  count toward the grace period, restarts do not reset it, and failed
+  escalation delivery can be retried by a later fresh pending entry
+  without reopening the stopped polling loop. If such a later entry
+  observes a real identifier, it follows the normal exactly-once
+  transition path. A retry can occasionally redeliver the escalation
+  instead of delivering it for the first time, when the tracker write
+  succeeded but the internal marker that records delivery failed to
+  write: a label escalation repeats harmlessly, because reapplying a
+  present label is a no-op, but a comment escalation posts a second
+  comment.
+  ([#777](https://github.com/sortie-ai/sortie/issues/777))
+
+- The `ci_failure` reaction now evaluates the pull request's current
+  head on every pass and keeps watching after a passing result, so a
+  commit pushed later that fails CI is observed and receives a fix
+  continuation. Previously the watch retired on the first passing
+  result and the commit it polled never advanced past the one the agent
+  handed off, so a branch could sit on a failing commit with its linked
+  issue stuck in the review state and no escalation raised. A new head
+  restores the attempt budget only when Sortie can establish that the
+  commit is not its own work, so an agent cannot extend its own budget
+  by pushing. The watch ends when the pull request merges or closes,
+  and otherwise after `reactions.ci_failure.watch_window_ms`
+  (default `86400000`, twenty-four hours) with no new commit; `0`
+  removes that bound, and applying the configured fix label re-arms a
+  pull request by hand.
+  ([#871](https://github.com/sortie-ai/sortie/issues/871))
+
+- `agent.turn_timeout_ms` is now enforced. A turn that exceeds the
+  configured bound ends, the attempt is recorded as failed with the
+  `turn_timeout` reason, and a retry is scheduled with the usual
+  exponential backoff. The bound covers self-review turns too: a
+  self-review turn that exceeds it fails the attempt rather than
+  completing it, so such a run is retried instead of handed off.
+  Previously the value was parsed and reported by `sortie resolve` but
+  applied nowhere, so nothing bounded a turn whose agent kept producing
+  output; stall detection could not cover the gap, because it measures
+  silence rather than duration.
+  ([#834](https://github.com/sortie-ai/sortie/issues/834))
+
+- An agent that writes `blocked` to its status file during a self-review
+  turn now ends the run as a blocked soft stop however the run entered
+  that phase. Previously the signal was honoured only when the agent had
+  signalled completion; a run that entered self-review by exhausting
+  `agent.max_turns` had it discarded and finished as an ordinary
+  completed run, so the issue moved to `tracker.handoff_state` where one
+  is configured, or was dispatched again on a continuation retry, over
+  work the agent had just reported it could not carry further. Such a
+  run now takes no handoff transition and schedules no retry: the claim
+  is released and the issue is parked, held out of dispatch until a
+  human changes its state or removes the parking label. Releasing a
+  parked issue now also clears its consecutive handoff-absence count
+  whatever reason parked it, so a release no longer leaves a count
+  behind that would park the issue again sooner than expected.
+  ([#856](https://github.com/sortie-ai/sortie/issues/856))
+
+- A cancelled Codex turn no longer consumes CPU while it waits for the
+  agent to wind down. It previously spun a full core from the moment of
+  cancellation until the turn reached its terminal state, so a shutdown
+  that cancelled several concurrent Codex turns spun one core each.
+  Cancellation reaches this path on shutdown, on stall detection, and
+  when `agent.turn_timeout_ms` expires.
+  ([#845](https://github.com/sortie-ai/sortie/issues/845))
+
+### Changed
+
+- `reactions.ci_failure` now resolves the pull request's current head
+  through the same SCM provider every other active SCM-backed reaction
+  uses, so a deployment naming `reactions.ci_failure` with one provider
+  and another active SCM-backed reaction with a different provider now
+  fails at startup instead of running with a currency-blind CI watch.
+  `sortie validate` now reports the same conflict offline, under the
+  `reactions.scm_provider_conflict` check. The previously accepted
+  shape, two providers across the active SCM-backed reactions including
+  `ci_failure`, is no longer valid; name one forge across every active
+  SCM-backed reaction, including `ci_failure`, to start again.
+  ([#871](https://github.com/sortie-ai/sortie/issues/871),
+  [#890](https://github.com/sortie-ai/sortie/issues/890))
+
+- A non-positive `agent.turn_timeout_ms` is now rejected at startup, by
+  `sortie validate`, and on reload. `0` or a negative number is no
+  longer accepted; `0` did not disable the bound before either, it
+  silently meant one hour. Unlike `agent.stall_timeout_ms`, this bound
+  cannot be disabled.
+  ([#834](https://github.com/sortie-ai/sortie/issues/834))
+
+- The `codex.skip_git_repo_check` pass-through key is removed. It never
+  had an effect: the value was parsed and read by no launch path, and
+  the `codex app-server` transport the adapter drives exposes no
+  equivalent protocol field and rejects the equivalent flag, which
+  exists only on `codex exec`. The key also promised something the
+  adapter never needed. A workspace that is not a Git repository is the
+  default and already works, because the refusal the key named lives in
+  the `codex exec` wrapper, above the layer the adapter talks to.
+  Nothing validates unknown keys inside the `codex` block, so a
+  WORKFLOW.md that still sets the key is ignored rather than rejected.
+  ([#840](https://github.com/sortie-ai/sortie/issues/840))
+
 ## [1.20.0] - 2026-08-18 { #1.20.0 }
 
 ### Added
@@ -1793,6 +1915,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   execution via GitHub Actions.
 - Architecture Decision Records (ADR-0001 through ADR-0005).
 
+[1.21.0]: https://github.com/sortie-ai/sortie/compare/v1.20.0...v1.21.0
 [1.20.0]: https://github.com/sortie-ai/sortie/compare/v1.19.0...v1.20.0
 [1.19.0]: https://github.com/sortie-ai/sortie/compare/v1.18.0...v1.19.0
 [1.18.0]: https://github.com/sortie-ai/sortie/compare/v1.17.0...v1.18.0
