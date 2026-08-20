@@ -1,6 +1,6 @@
 ---
 title: "GitLab Adapter"
-description: "GitLab tracker, SCM, and CI adapter reference: REST v4 configuration, PRIVATE-TOKEN authentication, label-driven state, namespace-path or numeric project scoping, the query_filter allowlist, Link pagination, error mapping, merge request reviews, review decision, mergeability, auto-merge, branch cleanup, CI status, the api write scope, and Community Edition compatibility."
+description: "GitLab tracker, SCM, and CI adapter: REST v4 setup, PRIVATE-TOKEN auth, label-driven state, query_filter scoping, merge-request reviews, and auto-merge."
 author: Sortie AI
 date: 2026-08-06
 weight: 160
