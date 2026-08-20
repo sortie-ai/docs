@@ -95,7 +95,7 @@ The default `sandboxPolicy` sent on `turn/start` sets `type` to `workspaceWrite`
 Launches the app-server subprocess, performs the JSON-RPC initialization handshake, authenticates if needed, and starts or resumes a thread.
 
 1. Validates that `WorkspacePath` is a non-empty absolute path pointing to an existing directory.
-2. Resolves the `command` via `exec.LookPath` (splits on first space to extract binary and arguments). In SSH mode, resolves the local `ssh` binary instead.
+2. Resolves the `command` via `exec.LookPath` (splits on whitespace to extract the binary and its argument tokens). In SSH mode, resolves the local `ssh` binary instead.
 3. Launches the subprocess with `cmd.Dir` set to the workspace path and `cmd.Env` set to the full parent process environment. Process group isolation via `procutil.SetProcessGroup`.
 4. Wires stdin, stdout, and stderr pipes. Starts a background scanner goroutine on stdout (1 MB max line size).
 5. **Initialize handshake:** sends `initialize` request with `clientInfo` and `capabilities.experimentalApi: true`. Waits for response. Sends `initialized` notification.
