@@ -134,7 +134,7 @@ The fix path suppresses the same issue-work side effects the review path suppres
 - the self-review loop;
 - the worker-exit handoff transition and the active-issue continuation retry, so a clean fix exit neither hands off nor re-dispatches. A `blocked` signal releases the claim rather than parking the issue, for the same reason.
 
-The `after_run` teardown hook does run on a fix exit, because the setup hooks ran; this is the one dispatch-lifecycle difference from the review posture, which runs no hooks at all. Because the fix turn loop is not gated on issue state, its turn budget rests on `agent.max_turns` plus the agent's completion signal. A fix is naturally multi-turn (fetch the comments, apply changes, push, post the summary), so the completion signal matters more here than for a review: without it a completed fix session runs to `agent.max_turns`.
+The `after_run` teardown hook does run on a fix exit, because the setup hooks ran; this is the one dispatch-lifecycle difference from the review posture, which runs no hooks at all. Because the fix turn loop is not gated on issue state, its turn budget rests on `agent.max_turns` plus the agent's completion signal, and every turn also carries the [`agent.turn_timeout_ms`](/reference/workflow-config/#agent) wall-clock bound regardless of posture. A fix is naturally multi-turn (fetch the comments, apply changes, push, post the summary), so the completion signal matters more here than for a review: without it a completed fix session runs to `agent.max_turns`.
 
 ### The `label_fix` continuation key
 
