@@ -7,14 +7,13 @@ Sortie is an autonomous coding agent orchestrator. Engineers manage work at the 
 
 For full documentation in a single file suitable for pasting into an AI assistant, see: {{ $site.BaseURL }}llms-full.txt
 
-Tip for agents: every page URL below also serves its Markdown source at `<page-url>index.md` — the page body alone, no navigation. Requesting a page URL with the header `Accept: text/markdown` also returns Markdown, but that rendering is converted from the HTML and still carries the sidebar and page chrome. The `##` headings below are sections, not pages, and have no `index.md`.
+Tip for agents: every page URL below also serves its Markdown source at `<page-url>index.md` (e.g. https://docs.sortie-ai.com/getting-started/installation/index.md) — the page body alone, no navigation. Requesting a page URL with the header `Accept: text/markdown` also returns Markdown, but that rendering is converted from the HTML and still carries the sidebar and page chrome. The `##` headings below are sections, not pages, and have no `index.md`.
 {{ range $site.Sections }}
 ## {{ .Title }}
 {{ range .RegularPages }}
 - [{{ .Title }}]({{ .Permalink }}){{ with .Params.description }}: {{ . }}{{ end }}
 {{- end }}
-{{ end -}}
-
+{{ end }}
 ## Optional
 {{ range where $site.RegularPages "Section" "" }}
 - [{{ .Title }}]({{ .Permalink }}){{ with .Params.description }}: {{ . }}{{ end }}

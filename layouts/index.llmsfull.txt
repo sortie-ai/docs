@@ -11,7 +11,7 @@ intended for use as context in AI assistants.
 
 ---
 
-{{ .RawContent }}
+{{ .RenderShortcodes }}
 
 ---
 {{ range $site.Sections }}{{ range .RegularPages }}
@@ -23,7 +23,7 @@ intended for use as context in AI assistants.
 {{ with .Params.description }}
 > {{ . }}
 {{ end }}
-{{ .RawContent }}
+{{ .RenderShortcodes }}
 {{- end }}
 {{ end -}}
 {{ range where $site.RegularPages "Section" "" }}
@@ -35,5 +35,5 @@ intended for use as context in AI assistants.
 {{ with .Params.description }}
 > {{ . }}
 {{ end }}
-{{ .RawContent }}
+{{ .RenderShortcodes }}
 {{- end }}

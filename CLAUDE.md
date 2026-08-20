@@ -90,12 +90,14 @@ Pages remains supported but receives no new feature investment.
 Two representations. Both are live, and neither replaces the other.
 
 1. **Static mirrors.** Every regular page publishes its Markdown source at
-   `<path>/index.md` — 78 files — from `[outputFormats.Markdown]` in
-   `hugo.toml` and the `layouts/page.markdown.md` template. They exist so that
-   an agent can guess a URL rather than having to know about content
-   negotiation. Note the shape: `<path>/index.md`, never `<path>.md`, because
-   54 of the 83 content files pin an explicit `url:` in front matter and an
-   explicit trailing-slash `url` overrides an output format's `ugly` setting.
+   `<path>/index.md`, and no `_index.md` gets one, because `[outputs]` in
+   `hugo.toml` assigns the format to `page` alone. The format itself is
+   `[outputFormats.Markdown]`, the template is `layouts/page.markdown.md`.
+   They exist so that an agent can guess a URL rather than having to know
+   about content negotiation. Note the shape: `<path>/index.md`, never
+   `<path>.md`, because most content files pin an explicit `url:` in front
+   matter and an explicit trailing-slash `url` overrides an output format's
+   `ugly` setting.
 
    Every one of these files is served with `X-Robots-Tag: noindex, nofollow`
    by the `/*.md` rule in `static/_headers`. That header is the only thing
