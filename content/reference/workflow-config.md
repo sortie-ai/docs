@@ -1006,7 +1006,6 @@ copilot-cli:
 | `approval_policy` | string | `never` | Approval policy for thread and turn. Values: `never`, `onRequest`, `unlessTrusted`, `always`. |
 | `thread_sandbox` | string | `workspaceWrite` | Thread sandbox mode. Values: `workspaceWrite`, `readOnly`, `dangerFullAccess`, `externalSandbox`. |
 | `personality` | string | _(none)_ | Personality preset. Maps to `personality` on `thread/start`. |
-| `skip_git_repo_check` | boolean | `false` | Skip git repository validation for non-git workspaces. |
 | `turn_sandbox_policy` | map | _(none)_ | Per-turn sandbox policy override. Keys such as `networkAccess`, `writableRoots`. |
 
 The Codex adapter uses a persistent subprocess model: the `codex app-server` is launched once in `StartSession` and kept alive across turns. This differs from Claude Code, Copilot CLI, and OpenCode, which spawn a new subprocess per turn. See the [Codex adapter reference](/reference/adapter-codex/) for the full lifecycle.
@@ -1021,7 +1020,6 @@ codex:
   approval_policy: never
   thread_sandbox: workspaceWrite
   personality: concise
-  skip_git_repo_check: false
   turn_sandbox_policy:
     networkAccess: true
 ```
