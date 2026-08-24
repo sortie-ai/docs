@@ -31,7 +31,7 @@ This extends to a strict naming rule: no `jira_*` or `claude_*` identifiers outs
 
 The alternative considered was Go's plugin system for dynamic loading. Plugins would let third parties add adapters without recompiling Sortie. It was rejected because Go plugins have fragile ABI coupling (the plugin and the host must be built with the same Go toolchain version), they complicate the single-binary deployment model, and their platform support is limited to Linux and macOS. For the expected adapter count — a handful of trackers and a handful of agents — compile-time interfaces are the right abstraction. A contributor adding a GitHub Issues tracker writes one package implementing the `TrackerAdapter` interface without modifying any existing orchestration code.
 
-Import dependencies flow in one direction: `domain ← config ← persistence ← adapters ← workspace ← orchestrator ← cmd`. The domain layer depends on nothing. Adapters depend on domain types. The orchestrator depends on adapter interfaces but never on adapter implementations. This layering is what makes additive extensibility possible — new adapters slot in without creating dependency cycles or touching core logic.
+Import dependencies flow in one direction. The domain layer depends on nothing. Adapters and the workspace layer depend on domain types. The orchestrator depends on domain, config, persistence, and workspace, plus adapter interfaces through the registry — never on a concrete adapter implementation. This layering is what makes additive extensibility possible — new adapters slot in without creating dependency cycles or touching core logic.
 
 ## The orchestrator owns the truth
 
@@ -39,26 +39,9 @@ Trackers have their own state models — Jira has workflow transitions, GitHub h
 
 ![Orchestration state machine](/img/orchestration-state-machine.svg)
 
-The diagram above shows every path an issue can take through the orchestrator. Each transition is driven by a combination of an event and a condition evaluated at that moment:
+The diagram above shows every path an issue can take through the orchestrator. What matters architecturally is not the full list of triggers — that belongs in the [state machine reference](/reference/state-machine/) and changes as reactions and budgets are added — but the shape every exit obeys. Every worker exit resolves to exactly one disposition, evaluated in a fixed priority order: an agent-reported block outranks a tracker-observed terminal state, which outranks a handoff transition, which outranks "still active, try again," which outranks "no longer active, release." The first matching condition wins, and every disposition either releases the claim outright or schedules a retry with a well-defined delay — continuation retry at a fixed short interval when the issue is merely still active, exponential backoff when something failed. There is no path where an issue is silently forgotten, stuck between active and released with no timer to resolve it.
 
-| Event | Condition | Next state | Effect |
-|---|---|---|---|
-| Normal exit | Issue is active, `handoff_state` configured, transition succeeds | Released | Claim removed |
-| Normal exit | Issue is active, `handoff_state` configured, transition fails | RetryQueued | Continuation retry after 1 s |
-| Normal exit | Issue is active, no `handoff_state` configured | RetryQueued | Continuation retry after 1 s |
-| Normal exit | Issue is not active | Released | Claim removed |
-| Error exit | Error is retryable | RetryQueued | Exponential backoff |
-| Error exit | Error is non-retryable | Released | Claim removed |
-| Cancelled | No pre-scheduled retry exists | Released | Claim removed |
-| Cancelled | Stall retry exists | RetryQueued | Claim preserved |
-| Retry timer fires | Issue not found, terminal, or blocked | Released | Claim removed |
-| Retry timer fires | No slots available | RetryQueued | Rescheduled for later |
-| Retry timer fires | Effort budget exhausted (`max_sessions`) | Released | Claim removed |
-| Retry timer fires | Issue is eligible | Running | Re-dispatched to agent |
-
-The table captures a key design property: the orchestrator never silently drops work. Every exit path either explicitly releases the claim (removing the issue from orchestrator ownership) or queues a retry with a well-defined delay. There is no state where an issue is "lost" — stuck between active and released with no timer to resolve it.
-
-An issue holds at most one queued continuation at a time, and that slot is arbitrated rather than overwritten. When a row above would queue a retry for an issue whose slot another unit of work already owns — a CI fix, a review fix, a rebase after a merge conflict, a label command — the exit defers to whatever is already queued and keeps the claim so the loop cannot clear it. Nothing is discarded to make room, which is why work queued while a session was still running survives that session's exit.
+An issue holds at most one queued retry at a time, and that slot is arbitrated rather than overwritten. When an exit would schedule a retry for an issue whose slot another unit of work already owns — a CI fix, a review fix, a rebase after a merge conflict, a label command — the exit defers to whatever is already queued and keeps the claim so the loop cannot clear it out from under that work. Nothing is discarded to make room, which is why work queued while a session was still running survives that session's exit. The same arbitration governs a claim that would otherwise be released: an incumbent retry keeps the claim alive even when the ordinary disposition for that exit would have let it go.
 
 When the orchestrator decides whether to dispatch an issue, it checks its own claim state and slot availability — not the tracker. The tracker is a read source for candidate issues, not a state store for scheduling decisions.
 
@@ -68,7 +51,7 @@ The orchestrator reconciles its state against the tracker on every poll tick and
 
 ## Workspace isolation as a safety boundary
 
-Every issue gets its own workspace directory: `<workspace_root>/<sanitized_identifier>/`. The agent process runs with its working directory set to this path. Before launching any agent, Sortie validates that the current working directory matches the workspace path. This is not a suggestion — it's a hard invariant enforced at the code level.
+Every issue gets its own workspace directory: `<workspace_root>/<sanitized_identifier>/`. The agent process runs with its working directory set to this path. Before launching any agent, Sortie re-resolves and re-validates that path — still exists, still a directory — and only then hands it to the subprocess as its working directory. This is not a suggestion — it's a hard invariant enforced at the code level.
 
 The safety model has three invariants. First, the agent's working directory must equal the workspace path. Second, the workspace path must be a child of the workspace root (absolute path normalization, prefix check). Third, the workspace directory name uses only `[A-Za-z0-9._-]` characters — everything else is replaced with underscore. Together, these prevent path traversal attacks and directory injection. An issue identifier crafted to include `../` or shell metacharacters cannot escape the workspace root.
 

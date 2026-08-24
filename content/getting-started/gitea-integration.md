@@ -178,9 +178,6 @@ tracker:
 polling:
   interval_ms: 30000
 
-server:
-  port: 8642
-
 agent:
   kind: mock
   max_turns: 1
@@ -202,7 +199,7 @@ A few Gitea-specific lines to notice:
 - `active_states` and `terminal_states` are repository label names, matched case-insensitively. Sortie creates a state label on demand the first time it moves an issue into that state, so you did not pre-create `review`. Watch it appear after the handoff.
 - `handoff_state: review` moves each finished issue to the `review` label. Because `review` is not a terminal state, the issue stays open.
 - `agent.kind: mock` runs the built-in mock agent, which simulates a session with no subprocess and no file changes. `max_turns: 1` gives it a single turn, enough to prove the loop.
-- `polling.interval_ms: 30000` polls Gitea every 30 seconds, and `server.port: 8642` serves the dashboard at `http://localhost:8642`.
+- `polling.interval_ms: 30000` polls Gitea every 30 seconds.
 
 ### Validate the configuration
 
@@ -212,13 +209,14 @@ Check the file before you run it:
 sortie validate ./WORKFLOW.md
 ```
 
-`sortie validate` runs entirely offline. It confirms the endpoint is present and well-formed, that `project` is a valid `owner/repo`, and that your active and terminal state lists do not overlap, and it warns if the token resolves empty. Because the local container speaks plain HTTP, you will see one advisory warning:
+`sortie validate` runs entirely offline. It confirms the endpoint is present and well-formed, that `project` is a valid `owner/repo`, and that your active and terminal state lists do not overlap, and it warns if the token resolves empty. You will see two advisory warnings:
 
 ```
 warning: tracker.endpoint.insecure: tracker.endpoint uses http; the token travels in cleartext, use https
+warning: agent.kind.no_tool_channel: agent kind "mock" has no tool execution channel: Sortie's tools are neither advertised nor callable for it
 ```
 
-That is expected for a disposable local instance, and it does not block anything. Validation never contacts Gitea, so it cannot tell you whether the token works or whether the repository exists. An invalid token or a mistyped repository instead fails the construction preflight the moment Sortie starts, when the adapter calls `GET /user` and `GET /repos/{owner}/{repo}`.
+The first is expected for a disposable local instance that speaks plain HTTP. The second is the mock agent being honest: it launches no process, so Sortie's own agent tools cannot reach it, and the first-turn prompt does not offer them; it disappears once you swap in a real coding agent. Neither blocks anything. Validation never contacts Gitea, so it cannot tell you whether the token works or whether the repository exists. An invalid token or a mistyped repository instead fails the construction preflight the moment Sortie starts, when the adapter calls `GET /user` and `GET /repos/{owner}/{repo}`.
 
 ### Run Sortie
 
@@ -228,20 +226,20 @@ Start Sortie:
 sortie ./WORKFLOW.md
 ```
 
-You should see output like this:
+You should see output like this (the `tick completed` lines carry more fields than shown here):
 
 ```
 level=INFO msg="sortie starting" version=0.x.x workflow_path=/home/you/sortie-gitea/WORKFLOW.md
 level=INFO msg="database path resolved" db_path=/home/you/sortie-gitea/.sortie.db
 level=INFO msg="sortie started"
-level=INFO msg="tick completed" candidates=2 dispatched=2 running=2 retrying=0
+level=INFO msg="tick completed" candidates=2 dispatched=2 ... running=2 retrying=0 ...
 level=INFO msg="workspace prepared" issue_id=1 issue_identifier=1 workspace=…/1
 level=INFO msg="agent session started" issue_id=1 issue_identifier=1 session_id=mock-session-001
 level=INFO msg="turn started" issue_id=1 issue_identifier=1 turn_number=1 max_turns=1
 level=INFO msg="turn completed" issue_id=1 issue_identifier=1 turn_number=1 max_turns=1
 level=INFO msg="worker exiting" issue_id=1 issue_identifier=1 exit_kind=normal turns_completed=1
 level=INFO msg="handoff transition succeeded, releasing claim" issue_id=1 issue_identifier=1 handoff_state=review
-level=INFO msg="tick completed" candidates=0 dispatched=0 running=0 retrying=0
+level=INFO msg="tick completed" candidates=0 dispatched=0 ... running=0 retrying=0 ...
 ```
 
 The first `tick completed` line reports `candidates=2 dispatched=2`: Sortie found both `backlog` issues and started a mock session for each. The lines that follow trace issue 1 from workspace to handoff. Issue 2 moves through the identical sequence in the same tick, and because Sortie runs the two sessions concurrently, the two issues' lines interleave in your terminal. Each session removes the `backlog` label, adds `review`, and leaves the issue open, because `review` is not a terminal state. By the next poll, neither issue sits in an active state, so the second `tick completed` reports `candidates=0` and Sortie goes idle.
@@ -250,7 +248,7 @@ Press **Ctrl+C** to stop Sortie.
 
 ### Verify the results
 
-Open the dashboard at `http://localhost:8642`. The run history shows the two completed mock sessions, one per issue.
+Open the dashboard at `http://localhost:7678`. The run history shows the two completed mock sessions, one per issue.
 
 Now open Gitea at `http://localhost:3000` and look at the two issues in `sortie/adapter-lab`. Each one now carries the `review` label instead of `backlog`, and both are still open, because `review` is not a terminal state. Notice a `review` label you never created: Sortie added it the first time it moved an issue into that state.
 

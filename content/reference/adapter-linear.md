@@ -21,7 +21,7 @@ The adapter reads its configuration from the `tracker` section of the [WORKFLOW.
 | `kind` | string | Yes | - | Must be `"linear"`. |
 | `api_key` | string | Yes | - | Linear personal API key. Sent verbatim in the `Authorization` header, no `Bearer` prefix. See [authentication](#authentication). |
 | `project` | string | Yes | - | Linear **team key** (e.g., `ENG`), the prefix on issue identifiers. Not a Linear project. See [identifiers and team scoping](#identifiers-and-team-scoping). |
-| `endpoint` | string | No | `https://api.linear.app/graphql` | GraphQL endpoint URL. There is no self-hosted Linear; overriding serves tests and mocks. |
+| `endpoint` | string | No | `https://api.linear.app/graphql` | GraphQL endpoint URL. There is no self-hosted Linear; overriding serves tests and mocks. A present value must be an absolute http(s) URL with a hostname or construction fails. |
 | `active_states` | list of strings | No | `["Backlog", "Todo", "In Progress"]` | Workflow-state names eligible for dispatch. |
 | `terminal_states` | list of strings | No | `["Done", "Canceled", "Duplicate"]` | Workflow-state names that trigger workspace cleanup. |
 | `handoff_state` | string | No | _(absent)_ | Workflow-state name set after a successful agent run. Must appear in neither `active_states` nor `terminal_states`. Absent disables handoff. |
@@ -29,7 +29,7 @@ The adapter reads its configuration from the `tracker` section of the [WORKFLOW.
 
 `user_agent` is not a Linear adapter config key an operator can set. Sortie sets the tracker role's value to its own version string, and `linear` fills no SCM or CI role, so a value supplied in a top-level `linear:` block is ignored.
 
-The adapter does not define an `in_progress_state` key. Dispatch-time transitions are a Jira and GitHub feature; the Linear config validation has no `in_progress_state` arm.
+`tracker.in_progress_state` is validated and executed by the orchestrator the same way for every tracker kind: it drives a dispatch-time transition through the adapter's `TransitionIssue` method, gated on dispatch posture rather than on tracker kind, so it works under `kind: linear` the same way it does under Jira or GitHub. The one real difference is construction-time coverage. The Linear adapter reads `active_states`, `terminal_states`, and `handoff_state` at construction and checks each against the team's workflow states (see [canonical-casing preflight](#canonical-casing-preflight)), but it never reads `in_progress_state` itself. A misconfigured `in_progress_state` therefore surfaces only at dispatch time, as a `tracker_payload_error` from the transition call, rather than as a construction failure.
 
 State names are compared case-insensitively at startup and resolved to the team's canonical casing. `active_states` and `terminal_states` must not overlap, and `handoff_state` must appear in neither list. See [state model](#state-model).
 
@@ -62,9 +62,7 @@ The adapter authenticates with a Linear personal API key. The key is sent **verb
 Authorization: <api_key>
 ```
 
-The missing-prefix detail is the most common Linear integration bug. A `Bearer`-prefixed key returns HTTP 400 with a body message instructing the caller to remove the prefix. The adapter sends the key exactly as configured, so the value must be the bare key with no scheme and no surrounding whitespace.
-
-Personal keys carry the `lin_api_` prefix. Linear participates in GitHub secret scanning: a key committed to a public GitHub repository is detected and automatically revoked. A leaked key is dead.
+The adapter sends the key exactly as configured, so the value must be the bare key with no scheme and no surrounding whitespace; a `Bearer` prefix or stray whitespace becomes part of the credential and fails authentication. Personal keys carry the `lin_api_` prefix; the offline validator warns when a configured key lacks it or carries surrounding whitespace (see [adapter registration](#adapter-registration)).
 
 Fixed headers on every request:
 
@@ -78,33 +76,21 @@ The HTTP client has a 30-second per-request timeout. Context cancellation propag
 
 ### Construction-time validation
 
-The constructor runs the `viewer` query to classify the key before the first poll cycle. A valid key returns the acting user on HTTP 200. An invalid, missing, or revoked key returns HTTP 401 with the body message `Authentication required, not authenticated`, mapped to `tracker_auth_error`, which blocks construction.
+The constructor runs the `viewer` query to classify the key before the first poll cycle. A valid key returns the acting user on HTTP 200. An invalid, missing, or revoked key fails the `viewer` query, which the adapter routes through the same [error model](#error-model) that classifies every other call, mapping it to `tracker_auth_error` and blocking construction.
 
 ### OAuth
 
-OAuth 2.0 is not supported. The orchestrator runs as a single headless principal, and the 24-hour OAuth access-token expiry would require a token-refresh subsystem that personal API keys make unnecessary.
+OAuth 2.0 is not supported. The orchestrator runs as a single headless principal with no interactive authorization flow and no user-facing callback, which an OAuth token exchange requires and a personal API key does not.
 
 ---
 
 ## State model
 
-Every Linear workflow state carries a workspace-immutable `type` category. There are seven values.
-
-| `type` | Meaning | Suggested bucket |
-|---|---|---|
-| `triage` | Intake queue awaiting acceptance (optional feature). | Neither (excluded by default). |
-| `backlog` | Accepted, not planned. | `active_states` |
-| `unstarted` | Planned, not begun (e.g., "Todo"). | `active_states` |
-| `started` | Work in progress (e.g., "In Progress", "In Review"). | `active_states` / `handoff_state` |
-| `completed` | Done. | `terminal_states` |
-| `canceled` | Abandoned. | `terminal_states` |
-| `duplicate` | Closed as a duplicate. | `terminal_states` |
-
-States are team-scoped. Two teams can each have an "In Progress" state with different UUIDs. A team can have several states of the same `type` (for example, "In Review" and "QA" are both `started`).
+Every Linear workflow state carries a `type` category defined by Linear; see [external references](#external-references) for the full enumeration. States are team-scoped: two teams can each have an "In Progress" state with different UUIDs, and a team can have several states of the same `type` (for example, "In Review" and "QA").
 
 ### Name-based mapping
 
-The adapter maps issues by configured state **name**, not by `type`. `domain.Issue.State` is `issue.state.name` with original casing preserved. The `type` category does not drive selection; it serves a startup tripwire that emits a WARN when a configured `active_states` entry resolves to a `completed`, `canceled`, or `duplicate` state, or a `terminal_states` entry resolves to a non-terminal state.
+The adapter maps issues by configured state **name**, not by `type`. `domain.Issue.State` is `issue.state.name` with original casing preserved. The `type` category does not drive selection; it serves a startup tripwire that treats three categories, `completed`, `canceled`, and `duplicate`, as terminal. The tripwire emits a WARN when a configured `active_states` entry resolves to one of those three categories, or a `terminal_states` entry resolves to a category outside them.
 
 ### Canonical-casing preflight
 
@@ -112,13 +98,14 @@ Linear's `state.name.in` filter is case-sensitive. At construction the adapter f
 
 ### Default mapping
 
-A new Linear team ships with six states and no `triage`. The verified default mapping for that layout:
+The adapter's built-in defaults, applied when `active_states` or `terminal_states` is absent or empty:
 
 ```yaml
 active_states: [Backlog, Todo, In Progress]
 terminal_states: [Done, Canceled, Duplicate]
-handoff_state: In Review   # operator-added started state; not a default
 ```
+
+`handoff_state` has no default; it stays absent, and dispatch-time handoff is disabled, unless configured.
 
 ---
 
@@ -158,12 +145,13 @@ The adapter normalizes Linear GraphQL responses to [`domain.Issue`](/reference/w
 | `Parent` | `issue.parent` | `{id, identifier}` to `{ID, Identifier}`. `nil` when absent. |
 | `Comments` | Separate connection | `nil` on candidate fetch. Populated by `FetchIssueByID`. |
 | `BlockedBy` | `issue.inverseRelations.nodes` | Nodes where `type == "blocks"`. See [blocker extraction](#blocker-extraction). |
+| `BlockersUnresolved` | `issue.inverseRelations.pageInfo.hasNextPage` | `true` when the nested connection was truncated at its first-page cap, meaning `BlockedBy` may be incomplete. |
 | `CreatedAt` | `issue.createdAt` | ISO-8601 timestamp string, as-is. |
 | `UpdatedAt` | `issue.updatedAt` | ISO-8601 timestamp string, as-is. |
 
 Candidates are sorted client-side by normalized priority ascending, then by creation time ascending. Issues with no priority sort last. The server sort hint is not trusted.
 
-The nested `labels` and `inverseRelations` connections are capped at the first 25 nodes and are not paginated. An issue that exceeds the cap emits a WARN (`nested connection truncated`); the dropped nodes remain observable rather than silent.
+The nested `labels` and `inverseRelations` connections are capped at the first 25 nodes and are not paginated. An issue that exceeds the cap emits a WARN (`nested connection truncated`) and sets `BlockersUnresolved` on the returned issue; the dropped nodes remain observable rather than silent.
 
 ### Comment normalization
 
@@ -206,6 +194,18 @@ The filter applies to `FetchCandidateIssues` and `FetchIssuesByStates`. It does 
 
 ---
 
+## Labels
+
+Linear attaches labels by id, not by name, so adding a label by name is a resolve-then-attach sequence. The adapter looks up the name case-insensitively and prefers a label scoped to the configured team over a workspace-scoped label of the same name.
+
+When no label matches, the adapter creates one, always scoped to the configured team. If that create fails with a payload-class error, the adapter re-resolves once on the assumption a concurrent request already created the label, and returns the original create error only if that second resolution also finds nothing. A create refused for the team maps to `tracker_auth_error`.
+
+The label is attached through Linear's append-only field, so the issue's existing labels are never read or replaced. A label failure is not fatal to the run.
+
+Label creation is also gated by a team-level permission setting that some workspaces restrict to team owners; a credential that can otherwise read and write can still be refused there. See [Linear's own documentation](https://linear.app/developers/graphql) for what that setting is currently called and how to change it.
+
+---
+
 ## Pagination
 
 Linear uses Relay-style cursor connections. Every connection exposes `pageInfo { hasNextPage endCursor }`. The adapter requests with `after: null`, then `after: endCursor`, until `hasNextPage` is false.
@@ -214,7 +214,7 @@ Linear uses Relay-style cursor connections. Every connection exposes `pageInfo {
 |---|---|
 | Page size (top-level connections) | 50 |
 | Page size (nested `labels`, `inverseRelations`) | 25, not paginated |
-| `first` range | 1 to 250, both bounds enforced by Linear |
+| Page cap (top-level connections) | 200 pages; the walk logs a WARN and returns the items accumulated so far rather than continuing past it |
 | Cursor | Opaque `endCursor` token, passed back verbatim. Never parsed or constructed. |
 
 When a connection reports `hasNextPage: true` but an empty or absent `endCursor`, the adapter returns `tracker_missing_end_cursor` rather than treating pagination as complete. Silent truncation would be a data-loss bug.
@@ -223,27 +223,9 @@ When a connection reports `hasNextPage: true` but an empty or absent `endCursor`
 
 ## Rate limiting
 
-Linear enforces a request budget and a complexity budget per API key.
+Linear meters both a request budget and a query-complexity budget, and scales the request budget with the size of the workspace. The current quotas are Linear's to publish, and the adapter reads the remaining allowance from the response headers rather than assuming a figure.
 
-- **Request budget:** dynamic. Linear scales it by the number of paid seats in the workspace, so it is read from response headers and never hardcoded. A live single-seat workspace returned a limit of 2,500 against a documented 5,000.
-- **Complexity budget:** 3,000,000 points per hour, with a 10,000-point single-query cap. The production candidate query measures about 95 points.
-
-Linear returns these headers on every response. Reset values are epoch **milliseconds**.
-
-| Header | Meaning |
-|---|---|
-| `x-ratelimit-requests-limit` | Request quota (dynamic). |
-| `x-ratelimit-requests-remaining` | Requests left in the window. |
-| `x-ratelimit-requests-reset` | Window reset time, epoch milliseconds. |
-| `x-complexity` | Complexity score of the query. |
-| `x-ratelimit-complexity-limit` | Complexity quota. |
-| `x-ratelimit-complexity-remaining` | Complexity left in the window. |
-| `x-ratelimit-complexity-reset` | Window reset time, epoch milliseconds. |
-| `Retry-After` | Seconds to wait, present on rate-limit errors. |
-
-The adapter inspects `x-ratelimit-requests-remaining`, `x-ratelimit-requests-reset`, and `Retry-After`. It emits a WARN (`rate limit exhausted`) naming the reset time when `x-ratelimit-requests-remaining` reaches 0. It does not throttle client-side. A rate-limited response arrives as HTTP 400 (or 429) with the body code `RATELIMITED`, mapped to `tracker_api_error` and retried with exponential backoff.
-
----
+Sortie does not throttle client-side. When the remaining allowance reaches zero the adapter logs a `rate limit exhausted` warning. A throttled response classifies as `tracker_api_error`; the orchestrator does not retry it with backoff, it logs the failure and waits for the next poll interval. Poll cadence is the control: raise `polling.interval_ms` or narrow `query_filter`.
 
 ## Error model
 
@@ -290,8 +272,11 @@ The adapter registers itself under kind `"linear"` via an `init` function in `in
 | `RequiresProject` | `true` |
 | `RequiresAPIKey` | `true` |
 | `ValidateTrackerConfig` | Offline config diagnostics for `sortie validate`. |
+| `DefaultActiveStates` | `["Backlog", "Todo", "In Progress"]`, applied when `active_states` is absent; see [default mapping](#default-mapping). |
+| `DefaultTerminalStates` | `["Done", "Canceled", "Duplicate"]`, applied when `terminal_states` is absent; see [default mapping](#default-mapping). |
+| `BlockerSource` | `candidates` — a candidate fetch already carries every blocker Linear reports; see [blocker extraction](#blocker-extraction). |
 
-The orchestrator's preflight validation uses `RequiresProject` and `RequiresAPIKey` to produce specific error messages before adapter construction. `ValidateTrackerConfig` runs the Linear-specific offline checks without making network calls: team-key format, the `SORTIE_LINEAR_API_KEY` hint, a key carrying surrounding whitespace or lacking the `lin_api_` prefix, empty or padded state names, and active-terminal state overlap. An empty or padded state name is an error here, not a warning as on the sibling forge adapters, because the adapter matches a configured name against the team's workflow states exactly. State collisions involving `handoff_state` or `in_progress_state` are rejected by the generic configuration layer before adapter validation runs, for every `tracker.kind`.
+The orchestrator's preflight validation uses `RequiresProject` and `RequiresAPIKey` to produce specific error messages before adapter construction. `ValidateTrackerConfig` runs the Linear-specific offline checks without making network calls: endpoint shape, team-key format, the `SORTIE_LINEAR_API_KEY` hint, a key carrying surrounding whitespace or lacking the `lin_api_` prefix, empty or padded state names, and active-terminal state overlap. A present `endpoint` that does not parse as an absolute http(s) URL with a hostname is reported as `tracker.endpoint.invalid`; an empty value is not, since the adapter substitutes the default host for it. Unlike the sibling forge adapters, there is no plain-`http` warning here, because Linear has no self-hosted deployment mode to make the distinction meaningful. An empty or padded state name is an error here, not a warning as on the sibling forge adapters, because the adapter matches a configured name against the team's workflow states exactly. State collisions involving `handoff_state` or `in_progress_state` are rejected by the generic configuration layer before adapter validation runs, for every `tracker.kind`.
 
 ---
 
@@ -302,12 +287,21 @@ The orchestrator's preflight validation uses `RequiresProject` and `RequiresAPIK
 | Protocol | REST, multiple endpoints | REST, multiple endpoints | GraphQL, single POST endpoint |
 | Auth header | `Basic base64(email:token)` | `Bearer <token>` | `<api_key>` verbatim, no scheme prefix |
 | Error transport | HTTP status codes | HTTP status codes | `errors[]` inside HTTP 200 bodies |
-| State model | Workflow states + transition graph | open/closed + labels-as-states | Team-scoped named states + 7 type categories |
+| State model | Workflow states + transition graph | open/closed + labels-as-states | Team-scoped named states + a `type` category |
 | Identifier | `PROJ-123` (project key) | `299` (repo-scoped number) | `ENG-123` (team key + number), plus UUID |
 | Pagination | `nextPageToken` / offset | `Link` header | Relay cursors (`pageInfo`, `endCursor`) |
-| Rate-limit model | Points quota (65K/hr) | Requests (5K/hr) + search (30/min) | Requests (dynamic) + complexity (3M/hr, 10K/query) |
+| Rate-limit model | Per-tenant points quota | Separate REST and search budgets | Per-workspace request budget plus a query-complexity budget |
 
 See the [Jira adapter reference](/reference/adapter-jira/) and the [GitHub adapter reference](/reference/adapter-github/).
+
+---
+
+## External references
+
+- [Linear GraphQL API](https://linear.app/developers/graphql) - schema, authentication, and the personal API key this adapter uses
+- [Pagination](https://linear.app/developers/pagination) - cursor conventions behind the adapter's page walking
+- [Filtering](https://linear.app/developers/filtering) - filter syntax valid in `tracker.query_filter`
+- [Rate limiting](https://linear.app/developers/rate-limiting) - current request and complexity budgets
 
 ---
 

@@ -66,7 +66,7 @@ level=ERROR msg="worker run failed, scheduling retry" error="agent: turn_failed:
 
 The agent subprocess exited with code 0 without reporting a turn outcome, and the adapter found no evidence the model produced anything. What counts as evidence depends on the agent: output tokens for Claude Code and Copilot CLI, assistant output on the run stream for OpenCode, a credits trailer on stderr for Kiro. When the adapter names the signal it looked for, the error line carries it after a colon. Sortie treats every one of these as `turn_failed` and retries with exponential backoff. Common causes:
 
-1. **MCP config parsing failure.** The agent failed to parse `--additional-mcp-config` or `--mcp-config` and exited silently. Check the WARN-level log lines immediately above the error — Sortie emits the agent's stderr content, which contains the parse error.
+1. **MCP config parsing failure.** The agent failed to parse `--additional-mcp-config` or `--mcp-config` and exited silently. Check the WARN-level log lines immediately above the error — Sortie emits the agent's stderr content, which contains the parse error. On `codex` and `opencode` a bad MCP configuration fails differently: those adapters read it themselves before the agent starts, so the session ends with a `response_error` naming the file rather than a silent exit.
 
 2. **Missing or invalid model configuration.** The agent started but the configured model was unavailable, causing an immediate exit before any LLM work.
 
@@ -87,6 +87,23 @@ The turn ran longer than `agent.turn_timeout_ms`. The attempt fails and is retri
 
 2. **Set a larger value if the task is genuinely long-running.** See [how to configure retry behavior](/guides/configure-retry-behavior/#turn-timeout) for the tradeoffs between a longer turn timeout and the stall-detection ratio.
 
+## A run stops because it needs a person
+
+```
+level=WARN msg="agent asked for a decision only a person can make, ending the attempt"
+level=ERROR msg="worker run failed, non-retryable, releasing claim" error="agent turn 2: agent: turn_input_required: agent asked for a decision only a person can make: an answer to a question"
+```
+
+The agent asked for something no unattended run can supply: an answer to a question, or a permission the runtime gave Sortie no way to refuse and still continue. Sortie refuses rather than consenting on your behalf, and ends the attempt rather than waiting. The claim is released, no retry is scheduled, and the run is recorded with status `needs_person` rather than `failed`.
+
+1. **Read the message tail, not just the error kind.** The text after `turn_input_required:` names what the agent asked for. `an answer to a question` and `wider filesystem or network access` are the two tails in use today.
+
+2. **Do not reconfigure the agent for non-interactive mode.** It already is. Every runtime is launched in a mode that cannot ask interactively, and a pass-through setting that would undo that is refused before the run starts. This ending happens on the paths that survive that launch posture.
+
+3. **Give the agent what it lacked, outside the run.** If it wanted wider access, widen the sandbox: for Codex, `codex.thread_sandbox` and `codex.turn_sandbox_policy`. If it asked a question, the answer belongs in the issue or in the prompt template, so the next dispatch does not need to ask. See the [Codex adapter reference](/reference/adapter-codex/#approval-policy-and-sandbox) for which requests end an attempt and which ones the agent can work around.
+
+4. **Narrow the task if neither applies.** An issue whose resolution genuinely needs a human decision is not work an unattended agent can finish, and repeated `needs_person` runs on the same issue are the signal to take it out of the dispatch set.
+
 ## Issue keeps re-running and never advances
 
 ```
@@ -106,10 +123,10 @@ Sortie's default `tracker.handoff_evidence` policy withholds the handoff transit
 ## Tracker returns 401 or 403
 
 ```
-level=ERROR msg="poll failed" error="tracker: tracker_auth_error: HTTP 401: Unauthorized"
+level=ERROR msg="failed to fetch candidate issues" error="tracker: tracker_auth_error: HTTP 401: Unauthorized"
 ```
 
-The API token is wrong, expired, or lacks required permissions. This error is non-retryable — Sortie stops polling until you fix it.
+The API token is wrong, expired, or lacks required permissions. Sortie does not stop polling on this error — it logs it and retries on the next poll interval, so you will see it repeat until you fix the credential.
 
 1. Verify the environment variable resolves to a non-empty value:
 
@@ -120,11 +137,29 @@ The API token is wrong, expired, or lacks required permissions. This error is no
 2. Test the token directly:
 
     ```bash
-    curl -s -H "Authorization: Bearer $SORTIE_JIRA_API_KEY" \
+    curl -s -u "you@company.com:your-api-token" \
       "https://yourcompany.atlassian.net/rest/api/3/myself" | head -5
     ```
 
-3. If you use `handoff_state`, `in_progress_state`, or `tracker.comments`, the token needs write permissions: `write:jira-work` (classic) or `write:issue:jira` (granular).
+    That is the pairing Sortie sends for a key in `email:token` form. A Data Center personal access token carries no colon and goes out as a bearer credential instead.
+
+3. If you use `handoff_state`, `in_progress_state`, or `tracker.comments`, the token needs to be able to write to issues, not only read them.
+
+## Sortie won't start: endpoint is rejected
+
+```
+level=ERROR msg="failed to construct tracker adapter" error="tracker: tracker_payload_error: gitea: endpoint \"https://gitea.example.com:abc\" is not a valid absolute http(s) url"
+```
+
+`endpoint` failed to parse as an absolute `http` or `https` URL carrying a hostname. This is a construction-time failure on every adapter that reads an `endpoint` (GitHub, Gitea, GitLab, Linear) — Sortie refuses to start rather than letting a bad value reach the HTTP client and fail later as a network error. The same check runs offline through `sortie validate`, except for a Gitea CI or SCM endpoint set through a top-level `gitea:` override, which validate does not inspect.
+
+Three shapes commonly trigger this:
+
+- **A port with no host**, such as `http://:8080`. Give the hostname: `http://gitea.internal:8080`.
+- **An unbracketed IPv6 address**, such as `http://fd00::1:3000` — the exact form an address prints as from `ip addr`. Add brackets around the address: `http://[fd00::1]:3000`.
+- **A query string or fragment** appended to the base URL, such as `https://gitlab.example.com?insecure=1`. Remove it; the adapter appends its own API path and has nowhere to put one.
+
+If the endpoint carries a username or password, the error message masks it before printing, so a credential never appears in the log.
 
 ## Template render fails
 
@@ -180,8 +215,10 @@ A hook exited non-zero. `after_create` and `before_run` failures are fatal for t
 ## Issues not being dispatched
 
 ```
-level=INFO msg="tick completed" candidates=0 dispatched=0 running=0 retrying=0
+level=INFO msg="tick completed" candidates=0 dispatched=0 ... running=0 retrying=0 ...
 ```
+
+(the `tick completed` line carries more fields than shown here; see [How to monitor Sortie with logs](/guides/monitor-with-logs/) for the full field list)
 
 Sortie is polling but finds nothing to dispatch.
 
@@ -198,6 +235,8 @@ Sortie is polling but finds nothing to dispatch.
 3. **Concurrency cap reached.** If `running` equals `agent.max_concurrent_agents`, new issues wait. Increase the cap or wait for running agents to finish.
 
 4. **Query filter too narrow.** A typo in `tracker.query_filter` returns zero results. Use `--dry-run --log-level debug` to see the full query.
+
+5. **A blocker hasn't cleared, or its list couldn't be read.** An issue held for this reason carries a `skip_reason` in dry-run output: `blocked_by` means a listed blocker hasn't reached a terminal state yet. `blockers_unresolved` and `blockers_not_read` mean Sortie couldn't read the blocker list this poll (a failed read, or the per-poll read budget was already spent on other candidates) and will retry on a later poll - this applies to GitHub and Gitea, which read dependencies separately from the candidate list. See [candidate eligibility](/reference/state-machine/#candidate-eligibility) for the full gate, and `sortie_candidate_holds_total` on the [Prometheus metrics reference](/reference/prometheus-metrics/#counters) to watch this over time instead of one poll at a time.
 
 ## Sortie won't start at all
 

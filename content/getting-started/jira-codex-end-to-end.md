@@ -117,9 +117,6 @@ codex:
   effort: medium
   approval_policy: never
   thread_sandbox: workspaceWrite
-
-server:
-  port: 8080
 ---
 
 You are a senior engineer working in this repository.
@@ -184,14 +181,7 @@ Three hooks automate git operations at different lifecycle points:
 
 **`after_run`** runs after every agent attempt. It stages all changes, commits them if there are any, and pushes the branch. `--force-with-lease` is safe for automation: it pushes only if nobody else modified the remote branch.
 
-Hooks receive environment variables from the orchestrator. We use `SORTIE_ISSUE_IDENTIFIER` to name the branch. The full set of hook variables:
-
-| Variable | Example | Description |
-|---|---|---|
-| `SORTIE_ISSUE_ID` | `10042` | Tracker-internal ID |
-| `SORTIE_ISSUE_IDENTIFIER` | `PROJ-55` | Human-readable ticket key |
-| `SORTIE_WORKSPACE` | `/home/you/sortie-codex-e2e/workspaces/PROJ-55` | Absolute workspace path |
-| `SORTIE_ATTEMPT` | `0` | Current attempt number |
+Hooks receive environment variables from the orchestrator. This workflow only needs `SORTIE_ISSUE_IDENTIFIER`, to name the branch, but every hook also gets `SORTIE_ISSUE_ID`, `SORTIE_WORKSPACE`, and `SORTIE_ATTEMPT`. See [how to use hook environment variables](/guides/setup-workspace-hooks/#use-hook-environment-variables) for the complete set, including the SSH-only variable that appears when a workflow uses SSH worker mode.
 
 `timeout_ms: 120000` gives hooks two minutes to finish. The default is 60 seconds, but cloning a large repository can take longer.
 
@@ -213,7 +203,7 @@ The `codex:` section is adapter-specific pass-through configuration forwarded to
 
 - `model: o3` selects the OpenAI model. Replace this with your preferred model.
 - `effort: medium` controls the reasoning effort level. Options are `low`, `medium`, and `high`. Higher effort produces more thorough work at the cost of more tokens and time.
-- `approval_policy: never` auto-approves all tool calls, file edits, and command execution. Required for unattended operation. Without this, the app-server sends approval requests to the client, which stalls the session in headless mode.
+- `approval_policy: never` tells the app-server to ask for nothing before running a command or applying an edit, which is what an unattended run needs. It is also the default, so leaving the line out gives you the same behavior. Codex accepts two other values, `untrusted` and `on-request`, and Sortie refuses both: they let the app-server stop and ask, nobody is watching an unattended run, and Sortie reports the contradiction before the run rather than during it. If the app-server asks anyway, the adapter refuses the request instead of leaving it waiting. The [Codex adapter reference](/reference/adapter-codex/#approval-policy-and-sandbox) covers both.
 - `thread_sandbox: workspaceWrite` restricts file writes to the workspace directory and disables network access by default. The adapter sets `writableRoots` to the workspace path automatically.
 
 For the full list of `codex.*` fields, see the [Codex adapter reference](/reference/adapter-codex/).
@@ -265,14 +255,14 @@ Start Sortie:
 sortie ./WORKFLOW.md
 ```
 
-You should see output similar to this (timestamps and IDs will differ):
+You should see output similar to this (timestamps and IDs will differ, and the `tick completed` lines carry more fields than shown here):
 
 ```
 level=INFO msg="sortie starting" version=0.x.x workflow_path=/home/you/sortie-codex-e2e/WORKFLOW.md
 level=INFO msg="database path resolved" db_path=/home/you/sortie-codex-e2e/.sortie.db
-level=INFO msg="http server listening" address=127.0.0.1:8080
+level=INFO msg="http server listening" addr=127.0.0.1:7678
 level=INFO msg="sortie started"
-level=INFO msg="tick completed" candidates=1 dispatched=1 running=1 retrying=0
+level=INFO msg="tick completed" candidates=1 dispatched=1 ... running=1 retrying=0 ...
 level=INFO msg="workspace created" issue_id=10042 issue_identifier=PROJ-55
 level=INFO msg="hook started" hook=after_create issue_identifier=PROJ-55
 level=INFO msg="hook completed" hook=after_create issue_identifier=PROJ-55
@@ -293,7 +283,7 @@ level=INFO msg="hook started" hook=after_run issue_identifier=PROJ-55
 level=INFO msg="hook completed" hook=after_run issue_identifier=PROJ-55
 level=INFO msg="worker exiting" issue_id=10042 issue_identifier=PROJ-55 exit_kind=normal turns_completed=1
 level=INFO msg="handoff transition succeeded, releasing claim" issue_id=10042 issue_identifier=PROJ-55 handoff_state="In Review"
-level=INFO msg="tick completed" candidates=0 dispatched=0 running=0 retrying=0
+level=INFO msg="tick completed" candidates=0 dispatched=0 ... running=0 retrying=0 ...
 ```
 
 Here is the full lifecycle, step by step:
@@ -355,7 +345,7 @@ If the status did not change and you see a handoff warning in the logs, the Jira
 
 ### Check the dashboard
 
-Open [http://127.0.0.1:8080/](http://127.0.0.1:8080/) in a browser. You will see summary cards (running sessions, retry queue, free slots, total tokens consumed) and a run history table showing the completed session with its issue identifier, turn count, duration, and exit status.
+Open [http://127.0.0.1:7678/](http://127.0.0.1:7678/) in a browser. You will see summary cards (running sessions, retry queue, free slots, total tokens consumed) and a run history table showing the completed session with its issue identifier, turn count, duration, and exit status.
 
 {{% /steps %}}
 

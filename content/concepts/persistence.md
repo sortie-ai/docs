@@ -53,7 +53,7 @@ The choice of SQLite over alternatives like Postgres, Redis, or flat files is no
 
 **Concurrent reads with single-writer semantics.** SQLite's Write-Ahead Logging (WAL) mode lets the dashboard query run history while the orchestrator writes a new retry entry. The orchestrator enforces single-writer access through one database connection — all writes serialize through that connection, matching the orchestrator's own single-goroutine state mutation model. For write throughput measured in tens of transactions per minute, WAL mode is more than sufficient.
 
-**Forward-only migrations.** Schema changes are numbered SQL files embedded in the binary. On startup, Sortie applies any unapplied migrations automatically, inside transactions. No migration tool, no manual steps. If the database has a schema version newer than the binary expects, startup fails — this prevents running an old binary against a database that a newer binary modified. Currently at migration twelve, the sequence runs from the core tables through extended token metrics and workflow file tracking to run-history detail, self-review metadata, reaction fingerprints, the dispatch-rule routing columns that record each claim's frozen agent and template, the run-history token columns, and the flag that separates a measured run from one whose agent reported no usage.
+**Forward-only migrations.** Schema changes are numbered SQL files embedded in the binary. On startup, Sortie applies any unapplied migrations automatically, inside transactions. No migration tool, no manual steps. If the database has a schema version newer than the binary expects, startup fails — this prevents running an old binary against a database that a newer binary modified. Currently at migration fourteen, the sequence runs from the core tables through extended token metrics and workflow file tracking to run-history detail, self-review metadata, reaction fingerprints, the dispatch-rule routing columns that record each claim's frozen agent and template, the run-history token columns, the flag that separates a measured run from one whose agent reported no usage, the reset points for the consecutive handoff-absence sequence, and the parked-issue table.
 
 **Operational simplicity.** Backup the database by copying the file. Inspect it with `sqlite3`. Move to another host by copying the file. Stream continuous backups to S3 with Litestream. The operational model is as simple as the deployment model.
 
@@ -69,9 +69,9 @@ Every surface that answers a question about past work reads these tables. None o
 
 **Cost attribution.** Run history stores per-session token counts and whether the coding agent could measure them at all; session metadata stores the model. [`sortie stats`](/reference/cli/#stats) aggregates that history into spend by outcome, by coding agent, by dispatch rule, and by prompt template, and the dashboard and Prometheus counters read the live side of the same figures. Per-issue chargeback and budget alerting are that data viewed differently, not new collection.
 
-**Audit trail.** Every completed run records who (issue ID), what (exit type, turns, tokens), when (timestamps), and how (model, workflow file hash). This is the raw material for compliance evidence — SOC 2 audits, change logs, agent activity reports. The enterprise tier will add export formats and retention policies on top of data the free tier already collects.
+**Audit trail.** Every completed run records who (issue ID), what (exit type, turns, tokens), when (timestamps), and how (model, workflow file hash). This is the raw material for compliance evidence — SOC 2 audits, change logs, agent activity reports — even though Sortie itself does not ship an export or retention-policy surface for it today.
 
-The design philosophy: collect the data in the free core, build governance surfaces on top of it. Persistence makes both possible.
+The design philosophy: collect the data once, at the source, so any governance surface built on top of it is a query away rather than a redesign. Persistence makes that possible.
 
 ## Further reading
 

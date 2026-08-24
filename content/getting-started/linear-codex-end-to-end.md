@@ -115,9 +115,6 @@ codex:
   effort: medium
   approval_policy: never
   thread_sandbox: workspaceWrite
-
-server:
-  port: 8642
 ---
 
 You are a senior engineer working in this repository.
@@ -175,7 +172,7 @@ The one change for this tutorial is `handoff_state: Done`. When the agent finish
 
 ### Workspace and hooks
 
-`workspace.root: ./workspaces` creates a per-issue workspace directory named after the issue identifier, such as `workspaces/ENG-42/`. Three git hooks run at lifecycle points: `after_create` clones the repository into the fresh workspace, `before_run` fetches `main` and creates the branch `sortie/ENG-42`, and `after_run` commits any changes and pushes the branch with `--force-with-lease`. The hooks read `SORTIE_ISSUE_IDENTIFIER` to name the branch, and `timeout_ms: 120000` gives each hook two minutes. This is the same hook setup as the Jira + Codex tutorial. See its [Workspace and hooks](/getting-started/jira-codex-end-to-end/#workspace-and-hooks) section for the per-hook walk-through and the full table of hook environment variables.
+`workspace.root: ./workspaces` creates a per-issue workspace directory named after the issue identifier, such as `workspaces/ENG-42/`. Three git hooks run at lifecycle points: `after_create` clones the repository into the fresh workspace, `before_run` fetches `main` and creates the branch `sortie/ENG-42`, and `after_run` commits any changes and pushes the branch with `--force-with-lease`. The hooks read `SORTIE_ISSUE_IDENTIFIER` to name the branch, and `timeout_ms: 120000` gives each hook two minutes. This is the same hook setup as the Jira + Codex tutorial. See its [Workspace and hooks](/getting-started/jira-codex-end-to-end/#workspace-and-hooks) section for the per-hook walk-through, and [how to use hook environment variables](/guides/setup-workspace-hooks/#use-hook-environment-variables) for the complete variable set.
 
 ### Agent configuration
 
@@ -189,7 +186,7 @@ The `agent` section configures the orchestrator's scheduling behavior, and every
 
 ### The `codex` extension block
 
-The `codex:` section is adapter-specific pass-through configuration forwarded to the app-server. We set `model: o3` (replace with your preferred model), `effort: medium` (the reasoning level; `low`, `medium`, or `high`), `approval_policy: never` (auto-approves all tool calls and file edits, which unattended operation requires), and `thread_sandbox: workspaceWrite` (restricts writes to the workspace and disables network by default). These four fields are the same ones the Jira + Codex tutorial sets. For the full list of `codex.*` fields, see the [Codex adapter reference](/reference/adapter-codex/), and for the field-by-field explanation see the Jira + Codex tutorial's [codex extension block](/getting-started/jira-codex-end-to-end/#the-codex-extension-block).
+The `codex:` section is adapter-specific pass-through configuration forwarded to the app-server. We set `model: o3` (replace with your preferred model), `effort: medium` (the reasoning level; `low`, `medium`, or `high`), `approval_policy: never` (the default, under which the app-server asks for nothing before running a command or applying an edit, which unattended operation requires), and `thread_sandbox: workspaceWrite` (restricts writes to the workspace and disables network by default). These four fields are the same ones the Jira + Codex tutorial sets. For the full list of `codex.*` fields, see the [Codex adapter reference](/reference/adapter-codex/), and for the field-by-field explanation see the Jira + Codex tutorial's [codex extension block](/getting-started/jira-codex-end-to-end/#the-codex-extension-block).
 
 ### Inner turn budget
 
@@ -227,14 +224,14 @@ Start Sortie:
 sortie ./WORKFLOW.md
 ```
 
-You should see output similar to this (timestamps and IDs will differ):
+You should see output similar to this (timestamps and IDs will differ, and the `tick completed` lines carry more fields than shown here):
 
 ```
 level=INFO msg="sortie starting" version=0.x.x workflow_path=/home/you/sortie-linear-codex-e2e/WORKFLOW.md
 level=INFO msg="database path resolved" db_path=/home/you/sortie-linear-codex-e2e/.sortie.db
-level=INFO msg="http server listening" addr=127.0.0.1:8642
+level=INFO msg="http server listening" addr=127.0.0.1:7678
 level=INFO msg="sortie started"
-level=INFO msg="tick completed" candidates=1 dispatched=1 running=1 retrying=0
+level=INFO msg="tick completed" candidates=1 dispatched=1 ... running=1 retrying=0 ...
 level=INFO msg="workspace created" issue_id=a7c4f8e2-1b9d-4e3a-8f2c-6d5e4a3b2c1f issue_identifier=ENG-42
 level=INFO msg="hook started" hook=after_create issue_identifier=ENG-42
 level=INFO msg="hook completed" hook=after_create issue_identifier=ENG-42
@@ -255,7 +252,7 @@ level=INFO msg="hook started" hook=after_run issue_identifier=ENG-42
 level=INFO msg="hook completed" hook=after_run issue_identifier=ENG-42
 level=INFO msg="worker exiting" issue_id=a7c4f8e2-1b9d-4e3a-8f2c-6d5e4a3b2c1f issue_identifier=ENG-42 exit_kind=normal turns_completed=1
 level=INFO msg="handoff transition succeeded, releasing claim" issue_id=a7c4f8e2-1b9d-4e3a-8f2c-6d5e4a3b2c1f issue_identifier=ENG-42 handoff_state=Done
-level=INFO msg="tick completed" candidates=0 dispatched=0 running=0 retrying=0
+level=INFO msg="tick completed" candidates=0 dispatched=0 ... running=0 retrying=0 ...
 ```
 
 Here is the full lifecycle, step by step:
@@ -303,7 +300,7 @@ git ls-remote git@github.com:yourorg/yourrepo.git "refs/heads/sortie/ENG-42"
 
 You should see a commit hash. The `sortie/ENG-42` branch is on your remote, ready for a pull request.
 
-Open the issue in Linear in your browser. The status reads `Done`. On a board view, the card has moved to the Done column. Then open the dashboard at [http://127.0.0.1:8642/](http://127.0.0.1:8642/). You will see summary cards (running sessions, retry queue, free slots, total tokens consumed) and a run history table showing the completed session with its issue identifier, turn count, duration, and exit status.
+Open the issue in Linear in your browser. The status reads `Done`. On a board view, the card has moved to the Done column. Then open the dashboard at [http://127.0.0.1:7678/](http://127.0.0.1:7678/). You will see summary cards (running sessions, retry queue, free slots, total tokens consumed) and a run history table showing the completed session with its issue identifier, turn count, duration, and exit status.
 
 {{% /steps %}}
 

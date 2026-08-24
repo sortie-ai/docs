@@ -27,7 +27,7 @@ sortie --version
 You should see output like:
 
 ```
-sortie 1.19.0 (commit: 0651d1f, built: 2026-07-11, go1.26.1, linux/amd64)
+sortie 0.x.x (commit: xxxxxxx, built: yyyy-mm-dd, go1.26.x, linux/amd64)
 ```
 
 {{% steps %}}
@@ -124,15 +124,16 @@ Start Sortie and point it at the workflow file:
 sortie ./WORKFLOW.md
 ```
 
-You should see output similar to:
+You should see output similar to this (the `tick completed` lines carry more fields than shown here):
 
-```text {hl_lines=[4,"13-14",15]}
-level=INFO msg="sortie starting" version=1.19.0 workflow_path=/home/you/sortie-demo/WORKFLOW.md
+```text {hl_lines=[4,"14-15",16]}
+level=INFO msg="sortie starting" version=0.x.x workflow_path=/home/you/sortie-demo/WORKFLOW.md
 level=INFO msg="database path resolved" db_path=/home/you/sortie-demo/.sortie.db
 level=INFO msg="sortie started"
-level=INFO msg="tick completed" candidates=2 dispatched=2 running=2 retrying=0
+level=INFO msg="tick completed" candidates=2 dispatched=2 ... running=2 retrying=0 ...
 level=INFO msg="workspace prepared" issue_id=1 issue_identifier=DEMO-1 workspace=…/DEMO-1
 level=INFO msg="agent session started" issue_id=1 issue_identifier=DEMO-1 session_id=mock-session-001
+level=INFO msg="no tool execution channel for this session, withholding tool advertisement" issue_id=1 issue_identifier=DEMO-1 session_id=mock-session-001 agent_kind=mock remote=false
 level=INFO msg="turn started" issue_id=1 issue_identifier=DEMO-1 turn_number=1 max_turns=2
 level=INFO msg="turn completed" issue_id=1 issue_identifier=DEMO-1 turn_number=1 max_turns=2
 level=INFO msg="turn started" issue_id=1 issue_identifier=DEMO-1 turn_number=2 max_turns=2
@@ -141,7 +142,7 @@ level=INFO msg="worker exiting" issue_id=1 issue_identifier=DEMO-1 exit_kind=nor
 level=INFO msg="worker exiting" issue_id=2 issue_identifier=DEMO-2 exit_kind=normal turns_completed=2
 level=INFO msg="handoff transition succeeded, releasing claim" issue_id=1 issue_identifier=DEMO-1 handoff_state=Done
 level=INFO msg="handoff transition succeeded, releasing claim" issue_id=2 issue_identifier=DEMO-2 handoff_state=Done
-level=INFO msg="tick completed" candidates=0 dispatched=0 running=0 retrying=0
+level=INFO msg="tick completed" candidates=0 dispatched=0 ... running=0 retrying=0 ...
 ```
 
 Let's walk through what happened:
@@ -149,7 +150,10 @@ Let's walk through what happened:
 1. Sortie loaded `WORKFLOW.md` and read `issues.json`. It found two issues in
    the "To Do" state — `DEMO-1` and `DEMO-2`.
 2. For each issue, it created a workspace directory and started a mock agent
-   session.
+   session. The `no tool execution channel` line is the mock agent being
+   honest, not an error: it launches no process, so Sortie's own agent tools
+   cannot reach it and the first-turn prompt does not offer them. The line
+   disappears once you swap in a real coding agent.
 3. The mock agent ran two turns per issue (the `max_turns` we set).
 4. After both turns completed, Sortie transitioned each issue to "Done" (the
    `handoff_state` from our config).

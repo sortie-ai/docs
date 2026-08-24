@@ -11,7 +11,7 @@ Sortie's answer is two core Go interfaces — `TrackerAdapter` and `AgentAdapter
 
 This is not a plugin architecture bolted on after the fact. It is a structural constraint that shaped the codebase from day one, and the distinction matters. Plugins are optional extensions. Adapter interfaces are load-bearing boundaries that the core depends on for every dispatch, every retry, and every reconciliation check. Remove the adapters and the orchestrator has no way to read issues or launch agents. The design forces every integration through the same contract, which is what makes the core stable enough to survive the integrations themselves being replaced.
 
-The proof: when the GitHub Issues tracker adapter shipped in v1.1.0, it required zero changes to the orchestrator, the retry system, the reconciliation loop, or the persistence layer. One new package, implementing one existing interface. The scheduler didn't know anything had changed.
+The proof is what a tracker costs. The GitHub Issues adapter is one package implementing one existing interface, and the orchestrator, the retry system, the reconciliation loop, and the persistence layer carry no code for it. The scheduler cannot tell one tracker from another.
 
 ## What the TrackerAdapter contract looks like
 
@@ -19,7 +19,7 @@ Every issue tracker — Jira, GitHub Issues, GitLab, Gitea, Linear — does the 
 
 The `TrackerAdapter` interface captures these five capabilities in nine methods. Conceptually, they split into two groups: read operations (fetch candidates by state, fetch a single issue with comments, batch-fetch states for reconciliation) and write operations (transition an issue's state, post a comment). The interface does not prescribe how these operations happen internally — an adapter can use REST, GraphQL, a local filesystem, or carrier pigeons. The orchestrator sees the same `Issue` struct regardless.
 
-The concrete differences between trackers are substantial. Jira uses JQL for querying and requires you to fetch available workflow transitions before moving a ticket — you can't transition to "In Review" without first asking Jira which transitions the issue's current state allows. GitHub Issues has only two native states (`open` and `closed`), so the GitHub adapter maps Sortie's orchestration states through labels: `sortie:active`, `sortie:done`, and their peers. Linear uses GraphQL and native named states. Each tracker has its own pagination model, its own error format, its own authentication scheme.
+The concrete differences between trackers are substantial. Jira uses JQL for querying and requires you to fetch available workflow transitions before moving a ticket — you can't transition to "In Review" without first asking Jira which transitions the issue's current state allows. GitHub Issues has only two native states (`open` and `closed`), so the GitHub adapter derives Sortie's orchestration states from configurable labels instead — plain state names such as `backlog`, `in-progress`, and `done` by default, not a fixed naming scheme. Linear uses GraphQL and native named states. Each tracker has its own pagination model, its own error format, its own authentication scheme.
 
 The adapter translates all of this into a common vocabulary. The orchestrator never needs to know that Jira's transition API is a two-step dance, or that GitHub state management works through label add/remove rather than workflow transitions. It calls `TransitionIssue`, gets back either success or a typed error, and moves on.
 
@@ -33,7 +33,7 @@ The `AgentAdapter` interface has four methods, organized around session lifecycl
 
 The harder problem is event normalization. Claude Code streams JSONL with dozens of message types — tool calls, approvals, errors, token usage, system notifications — each with its own structure. A future HTTP-based agent adapter might use Server-Sent Events with a completely different schema. The adapter normalizes everything into `AgentEvent`, a single type with an `EventType`, `TokenUsage`, `ToolName`, `Message`, and a handful of other fields. The orchestrator reacts to `turn_completed`, `turn_failed`, `token_usage` without knowing which agent produced them or what the native event format looked like.
 
-There are roughly fourteen normalized event types — from `session_started` through `tool_result` to `malformed` — covering the full range of things an agent can do during a session. The adapter maps its native protocol onto this vocabulary. Events that don't fit any category land as `other_message` rather than being silently dropped.
+There are thirteen normalized event types — from `session_started` through `tool_result` to `malformed` — covering the full range of things an agent can do during a session. The adapter maps its native protocol onto this vocabulary. Events that don't fit any category land as `other_message` rather than being silently dropped.
 
 Session state is deliberately opaque. The `Session` struct has an `Internal` field typed as `any`. The orchestrator carries it between `StartSession`, `RunTurn`, and `StopSession` but never reads it. The Claude Code adapter stores its subprocess PID and stdio pipes there. A future HTTP-based adapter might store a WebSocket connection handle. The orchestrator doesn't care, and this is the point — the `Internal` field is a pressure valve that lets adapters carry arbitrary state through the orchestrator's pipeline without the pipeline needing to understand it.
 
@@ -63,7 +63,7 @@ The newest arrival is the notifier family: the `webhook` and `slack` backends be
 
 The strictest convention in the codebase: no `jira_*`, `github_*`, `claude_*`, or `copilot_*` identifiers outside their respective adapter packages. The domain layer uses generic vocabulary — `Issue`, `Session`, `Turn`, `Comment`. The config layer uses `tracker.kind` and `agent.kind`, not `jira.project_key` or `claude_code.model`.
 
-This is enforced culturally rather than by a linter, which might sound fragile. But the convention has teeth because it sits on top of a strict import dependency direction: `domain ← config ← persistence ← adapters ← workspace ← orchestrator ← cmd`. The domain layer depends on nothing. Adapters depend on domain types. The orchestrator depends on adapter interfaces but never on adapter implementations. A new adapter package cannot create a dependency cycle — Go's compiler enforces that.
+This is enforced culturally rather than by a linter, which might sound fragile. But the convention has teeth because it sits on top of a strict import direction: the domain layer depends on nothing, adapters and the workspace layer depend on domain types, and the orchestrator depends on domain, config, persistence, and workspace plus adapter interfaces through the registry — never on a concrete adapter implementation. `cmd` is the one package that imports every adapter, because it is the one place that wires a configured kind string to a concrete constructor. A new adapter package cannot create a dependency cycle — Go's compiler enforces that.
 
 The naming rule matters because integration-specific concepts leaking into the core is how orchestrators become unmaintainable. Once the scheduler knows about Jira workflow transitions, every new tracker must somehow map to Jira's model. Once the retry logic checks for Claude Code-specific error messages, every new agent must produce those same strings. The contamination is subtle — it starts with one convenience constant, then a special case in the dispatcher, then a conditional branch in the reconciler — and by the time you notice, the core has implicit assumptions about specific integrations baked into its logic. The naming rule is a firewall against that progression.
 
@@ -79,7 +79,7 @@ Go has a plugin system: `plugin.Open` loads shared objects at runtime. It was co
 
 **Platform limitations.** Go plugins work on Linux and macOS. No Windows, no other targets. Sortie's pure-Go, CGo-free build compiles for any platform Go targets.
 
-**Overkill for the scale.** Sortie will never have hundreds of adapters. The realistic count is a handful of trackers and a handful of agents: the issue trackers and coding-agent CLIs teams actually use, plus a file-based tracker and a mock agent for testing. For that count, compile-time interfaces with additive packages are the right level of abstraction — type-safe, simple to test, zero operational overhead.
+**Overkill for the scale.** Sortie will never have hundreds of adapters. The realistic count is a handful of trackers and a handful of agents: the issue trackers and coding-agent CLIs teams actually use, plus a file-based tracker for testing. For that count, compile-time interfaces with additive packages are the right level of abstraction — type-safe, simple to test, zero operational overhead.
 
 The trade-off is real: adding an adapter requires recompiling Sortie. For an open-source project where adapters are merged upstream, this works naturally — contributors submit pull requests, CI builds, releases include the new adapter. For organizations that want private adapters, the architecture supports forking with minimal merge conflict risk because adapter packages are isolated. Your internal `internal/tracker/yourtracker/` package touches nothing outside its directory.
 
@@ -87,7 +87,7 @@ An RPC-based plugin model (think HashiCorp's `go-plugin` over gRPC) was also con
 
 ## The registry: wiring adapters at startup
 
-The bridge between configuration and adapter instances is the registry — a typed map from `kind` strings to constructor functions. Each adapter package registers itself, and the startup code in `cmd/` resolves the configured `tracker.kind` and `agent.kind` to concrete adapter instances every time the workflow config is loaded.
+The bridge between configuration and adapter instances is the registry — a typed map from `kind` strings to constructor functions. Each adapter package registers itself as it loads, and the startup code in `cmd/` resolves the configured `tracker.kind` and `agent.kind` to concrete adapter instances every time the workflow config is loaded.
 
 This means adapter selection is a configuration decision, not a code decision. Your WORKFLOW.md says `tracker.kind: github` and Sortie instantiates the GitHub Issues adapter. Change it to `tracker.kind: jira` and the next reload instantiates Jira without a restart. The orchestrator's behavior — scheduling, retry, reconciliation — stays identical because it only interacts with the interface.
 
@@ -95,7 +95,7 @@ This means adapter selection is a configuration decision, not a code decision. Y
 
 The question behind this document: if you adopt Sortie today, does that investment survive the next twelve months of agent and tracker churn?
 
-Today, Sortie ships adapters for the mainstream issue trackers and coding-agent CLIs, alongside a file-based tracker and a mock agent for testing. The [reference section](/reference/) lists the current set. Each one is a self-contained package implementing an existing interface, and the next one lands the same way — additively, with no change to the orchestration core.
+Today, Sortie ships adapters for the mainstream issue trackers and coding-agent CLIs, alongside a file-based tracker for testing. The [reference section](/reference/) lists the current set. Each one is a self-contained package implementing an existing interface, and the next one lands the same way — additively, with no change to the orchestration core.
 
 Consider two scenarios that play out regularly in engineering organizations:
 

@@ -77,7 +77,7 @@ Two approaches depending on how your team tracks work.
 # frontend/WORKFLOW.md
 tracker:
   kind: github
-  api_key: $GITHUB_TOKEN
+  api_key: $SORTIE_GITHUB_TOKEN
   project: acme-corp/platform-tasks
   query_filter: "label:component:frontend"
   active_states: [todo, in-progress]
@@ -90,7 +90,7 @@ tracker:
 # frontend/WORKFLOW.md
 tracker:
   kind: github
-  api_key: $GITHUB_TOKEN
+  api_key: $SORTIE_GITHUB_TOKEN
   project: acme-corp/frontend
   active_states: [todo, in-progress]
   terminal_states: [done]
@@ -161,7 +161,7 @@ Each workflow's prompt template should tell the agent which repository it's in a
 ---
 tracker:
   kind: github
-  api_key: $GITHUB_TOKEN
+  api_key: $SORTIE_GITHUB_TOKEN
   project: acme-corp/platform-tasks
   query_filter: "label:component:frontend"
   active_states: [todo, in-progress]

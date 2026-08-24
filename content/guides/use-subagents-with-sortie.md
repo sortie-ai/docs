@@ -14,7 +14,7 @@ This guide shows you how to reference sub-agents in your `WORKFLOW.md` prompt so
 ## Prerequisites
 
 - A working Sortie setup ([quick start](/getting-started/quick-start/))
-- A repository containing agent definition files (`.claude/agents/`, `.github/agents/`, or `.gemini/agents/`)
+- A repository containing agent definition files (`.claude/agents/` or `.github/agents/`)
 - A `WORKFLOW.md` with hooks that clone the repo into the workspace ([workspace hooks guide](/guides/setup-workspace-hooks/))
 
 ## How it works
@@ -27,7 +27,7 @@ Sortie doesn't parse, validate, or route between agent files. The agent runtime 
 
 The `WORKFLOW.md` prompt body is where you tell the agent about available sub-agents. This is plain text that Sortie passes through to the agent — Sortie doesn't interpret sub-agent references.
 
-Each agent runtime discovers sub-agents differently. The safest approach is natural language: describe the agent by name and tell the primary agent when to use it. All three runtimes support automatic delegation when the prompt names an agent that matches a loaded definition.
+Each agent runtime discovers sub-agents differently. The safest approach is natural language: describe the agent by name and tell the primary agent when to use it. Both runtimes support automatic delegation when the prompt names an agent that matches a loaded definition.
 
 Here's a complete `WORKFLOW.md` that delegates code review to a reviewer sub-agent and planning to a planner sub-agent:
 
@@ -97,15 +97,12 @@ How the primary agent invokes a sub-agent depends on the runtime:
 |---|---|---|
 | Claude Code | Natural language or `@name` mention | "Use the reviewer agent" or "@reviewer check my changes" |
 | Copilot CLI | Natural language description | "Use the reviewer agent to review the changes" |
-| Gemini CLI | Natural language or `@name` at prompt start | "Use the reviewer agent" or "@reviewer check my changes" |
 
 Claude Code delegates via its [Task tool](https://code.claude.com/docs/en/sub-agents) — when the prompt mentions an agent by name, Claude matches it to a loaded definition and spawns a sub-agent with its own context window and tool permissions.
 
 Copilot CLI [infers the agent from context](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/create-custom-agents-for-cli). When the prompt describes a task that aligns with a custom agent's description, Copilot selects it automatically. You can also define trigger words in the agent profile to improve matching.
 
-Gemini CLI supports both [automatic delegation and explicit `@name` invocation](https://geminicli.com/docs/core/subagents.md). Note that Gemini subagents are experimental and require `"experimental": {"enableAgents": true}` in your Gemini CLI `settings.json`.
-
-Natural language works across all three runtimes, which makes it the safest default for prompts that might run on different agent backends.
+Natural language works across both runtimes, which makes it the safest default for prompts that might run on either agent backend.
 
 ## Write agent definition files
 
@@ -115,9 +112,8 @@ Each agent runtime expects files in a specific directory:
 |---|---|---|---|
 | Claude Code | `.claude/agents/` | `.md` | [Sub-agents](https://code.claude.com/docs/en/sub-agents) |
 | Copilot CLI | `.github/agents/` | `.agent.md` | [Custom agents](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/create-custom-agents-for-cli) |
-| Gemini CLI | `.gemini/agents/` | `.md` | [Subagents](https://geminicli.com/docs/core/subagents.md) |
 
-All three use the same general structure: YAML frontmatter defining the agent's role, followed by a Markdown body that serves as the sub-agent's system prompt. The frontmatter fields differ slightly between runtimes.
+Both use the same general structure: YAML frontmatter defining the agent's role, followed by a Markdown body that serves as the sub-agent's system prompt. The frontmatter fields differ slightly between runtimes.
 
 ### Claude Code
 
@@ -183,39 +179,11 @@ Do not make changes yourself — only report findings.
 
 Copilot agents can also be stored in `~/.copilot/agents/` for user-level agents that apply across repositories.
 
-### Gemini CLI
-
-`.gemini/agents/reviewer.md` — supports additional fields like `kind`, `temperature`, and `max_turns`:
-
-```jinja
----
-name: reviewer
-description: Reviews code changes for correctness and style
-kind: local
-tools:
-  - read_file
-  - grep_search
-  - run_shell_command
-model: gemini-2.5-pro
----
-
-You are a code reviewer. Examine the staged changes and report:
-
-1. Correctness issues — bugs, edge cases, missing error handling.
-2. Style violations — naming, formatting, idiomatic patterns.
-3. Test coverage — are the changes tested? Are edge cases covered?
-
-Run the project's lint and test suite. Report results.
-Do not make changes yourself — only report findings.
-```
-
-Gemini agents can also be stored in `~/.gemini/agents/` for user-level agents.
-
 ## Verify sub-agents are being used
 
 After running Sortie against an issue, check whether the agent invoked sub-agents. Two signals to look for:
 
-**In the agent's output log**, look for delegation markers. Claude Code logs sub-agent invocations as tool uses — you'll see `Task` tool calls with the agent name. Copilot CLI logs agent selection in its debug output. Gemini CLI shows sub-agent dispatch in its session trace.
+**In the agent's output log**, look for delegation markers. Claude Code logs sub-agent invocations as tool uses — you'll see `Task` tool calls with the agent name. Copilot CLI logs agent selection in its debug output.
 
 **In the agent's behavioral output**, look for the pattern you requested. If your prompt says "delegate to the reviewer agent," the output should contain review findings as a distinct step — not interleaved with implementation work.
 
@@ -233,4 +201,4 @@ See [how to control agent costs](/guides/control-costs/) for the full set of bud
 
 ## What we covered
 
-Sub-agents work in Sortie workflows without any Sortie configuration — clone a repo with agent files, reference the agents by name in your prompt, and the agent runtime handles discovery and routing. The invocation syntax differs by runtime, but natural language descriptions work across all three. For the full prompt template syntax, see the [prompt template guide](/guides/write-prompt-template/). For the complete front matter schema including hooks, see the [WORKFLOW.md reference](/reference/workflow-config/).
+Sub-agents work in Sortie workflows without any Sortie configuration — clone a repo with agent files, reference the agents by name in your prompt, and the agent runtime handles discovery and routing. The invocation syntax differs by runtime, but natural language descriptions work across both. For the full prompt template syntax, see the [prompt template guide](/guides/write-prompt-template/). For the complete front matter schema including hooks, see the [WORKFLOW.md reference](/reference/workflow-config/).

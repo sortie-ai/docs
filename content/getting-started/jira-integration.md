@@ -121,7 +121,13 @@ Run the validate subcommand to check for syntax errors and misconfigured fields:
 sortie validate ./WORKFLOW.md
 ```
 
-If the configuration is valid, the command exits silently with code 0 and prints nothing to the terminal. No output means no problems.
+You will see one advisory warning:
+
+```
+warning: agent.kind.no_tool_channel: agent kind "mock" has no tool execution channel: Sortie's tools are neither advertised nor callable for it
+```
+
+That is the mock agent being honest: it launches no process, so Sortie's own agent tools cannot reach it, and the first-turn prompt does not offer them. Nothing is wrong with your file. A warning leaves the configuration valid and the exit code `0`; it disappears once you swap in a real coding agent.
 
 You can confirm the exit code:
 
@@ -184,20 +190,20 @@ Start Sortie:
 sortie ./WORKFLOW.md
 ```
 
-You should see output like this:
+You should see output like this (the `tick completed` lines carry more fields than shown here):
 
 ```
 level=INFO msg="sortie starting" version=0.x.x workflow_path=/home/you/sortie-jira/WORKFLOW.md
 level=INFO msg="database path resolved" db_path=/home/you/sortie-jira/.sortie.db
 level=INFO msg="sortie started"
-level=INFO msg="tick completed" candidates=1 dispatched=1 running=1 retrying=0
+level=INFO msg="tick completed" candidates=1 dispatched=1 ... running=1 retrying=0 ...
 level=INFO msg="workspace prepared" issue_id=12345 issue_identifier=PROJ-42 workspace=…/PROJ-42
 level=INFO msg="agent session started" issue_id=12345 issue_identifier=PROJ-42 session_id=mock-session-001
 level=INFO msg="turn started" issue_id=12345 issue_identifier=PROJ-42 turn_number=1 max_turns=1
 level=INFO msg="turn completed" issue_id=12345 issue_identifier=PROJ-42 turn_number=1 max_turns=1
 level=INFO msg="worker exiting" issue_id=12345 issue_identifier=PROJ-42 exit_kind=normal turns_completed=1
 level=INFO msg="handoff transition succeeded, releasing claim" issue_id=12345 issue_identifier=PROJ-42 handoff_state="In Review"
-level=INFO msg="tick completed" candidates=0 dispatched=0 running=0 retrying=0
+level=INFO msg="tick completed" candidates=0 dispatched=0 ... running=0 retrying=0 ...
 ```
 
 Here is what happened, step by step:
@@ -220,7 +226,7 @@ Open your issue in the browser. The status should now read "In Review." If you u
 If the status did not change and you see this in the logs:
 
 ```
-level=WARN msg="handoff transition failed, scheduling continuation retry" handoff_state="In Review" error="tracker: tracker_payload: no transition to state \"In Review\" available for issue PROJ-42"
+level=WARN msg="handoff transition failed, scheduling continuation retry" handoff_state="In Review" error="tracker: tracker_payload_error: no transition to state \"In Review\" available for issue PROJ-42"
 ```
 
 This means the Jira workflow does not allow a direct transition from the issue's current status to "In Review." Sortie uses the Jira transitions API, which respects your project's workflow rules. The target status must exist and be reachable from the issue's current position in the workflow.

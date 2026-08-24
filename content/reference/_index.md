@@ -17,7 +17,7 @@ Comprehensive reference for every CLI flag, configuration field, API endpoint, a
   {{< card link="dashboard" title="Dashboard" subtitle="Embedded HTML dashboard for session monitoring." >}}
   {{< card link="prometheus-metrics" title="Prometheus Metrics" subtitle="Gauges, counters, and histograms." >}}
   {{< card link="state-machine" title="State Machine" subtitle="Orchestration states, phases, and transitions." >}}
-  {{< card link="reactions" title="Reactions" subtitle="Post-PR feedback loops: CI failure, review comments, and auto-merge." >}}
+  {{< card link="reactions" title="Reactions" subtitle="Post-PR feedback loops: CI failure, review comments, bot review, merge conflicts, auto-merge, and merge completion." >}}
   {{< card link="label-commands" title="Label Commands" subtitle="One-shot review and fix labels that dispatch agent sessions on a PR." >}}
   {{< card link="errors" title="Errors" subtitle="All error kinds and their resolution." >}}
   {{< card link="agent-extensions" title="Agent Extensions" subtitle=".sortie/status file protocol and tool contracts." >}}
@@ -36,8 +36,8 @@ Comprehensive reference for every CLI flag, configuration field, API endpoint, a
 ## Tracker adapters
 
 {{< cards >}}
-  {{< card link="adapter-jira" title="Jira Cloud" subtitle="Authentication, field mapping, JQL, and transitions." >}}
-  {{< card link="adapter-github" title="GitHub Issues" subtitle="Token auth, label filters, state mapping, and webhooks." >}}
+  {{< card link="adapter-jira" title="Jira" subtitle="Authentication, field mapping, JQL, and transitions." >}}
+  {{< card link="adapter-github" title="GitHub Issues" subtitle="Token auth, label filters, and label-driven state mapping." >}}
   {{< card link="adapter-linear" title="Linear" subtitle="API-key auth, GraphQL field mapping, and IssueFilter scoping." >}}
   {{< card link="adapter-gitea" title="Gitea" subtitle="Self-hosted REST, token auth, label-driven states, and owner/repo scoping." >}}
   {{< card link="adapter-gitlab" title="GitLab" subtitle="REST v4, PRIVATE-TOKEN auth, label-driven states, and namespace-path scoping." >}}

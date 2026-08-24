@@ -15,18 +15,21 @@ CI feedback closes the loop between your CI pipeline and Sortie's agents. When a
 - A branch-per-issue hook workflow that pushes commits — see [Setup workspace hooks](/guides/setup-workspace-hooks/)
 - CI configured on the repository (GitHub Actions, Gitea Actions, GitLab CI/CD, or any system that reports through the forge's status API)
 - An access token with the scope the CI provider needs for its status route: GitHub needs `repo`; see the [GitLab adapter reference](/reference/adapter-gitlab/#scm-and-ci-surface) and the [Gitea adapter reference](/reference/adapter-gitea/#scm-and-ci-surface) for their scopes
-- A source-control adapter, resolved from `ci_feedback.kind` when no other [PR reaction](/guides/setup-pr-reactions/) configures one; every active reaction's provider must then agree, or `sortie validate` reports a mismatch offline and Sortie exits at startup
+- A source-control adapter, resolved from `reactions.ci_failure.provider` when no other [PR reaction](/guides/setup-pr-reactions/) configures one; every active reaction's provider must then agree, or `sortie validate` reports a mismatch offline and Sortie exits at startup
 
 ## Activate CI feedback
 
-CI feedback is disabled by default. Add a `ci_feedback` block with a `kind` field to your WORKFLOW.md front matter to activate it:
+CI feedback is disabled by default. Add a `reactions.ci_failure` block with a `provider` field to your WORKFLOW.md front matter to activate it:
 
 ```yaml
-ci_feedback:
-  kind: github
+reactions:
+  ci_failure:
+    provider: github
 ```
 
-There is no `enabled` flag. Presence of `kind` activates the feature; absence disables it.
+There is no `enabled` flag. Presence of `provider` activates the feature; absence disables it.
+
+An older `ci_feedback` top-level block (with a `kind` field instead of `provider`) still works but is deprecated: Sortie logs a startup warning and folds it into `reactions.ci_failure` internally. If both are present, `reactions.ci_failure` wins. Write new WORKFLOW.md files against `reactions.ci_failure` directly.
 
 Once activated, Sortie hooks into the worker exit path. After each normal worker exit where the agent pushed code and the workspace's `.sortie/scm.json` carries a pull request number, an owner, a repository, and a branch, the orchestrator records a pending CI watch for that pull request. On each reconcile tick, it resolves the pull request's current head and polls CI status for that head. Three common outcomes:
 
@@ -41,9 +44,10 @@ If you don't see CI feedback triggering, check that your `after_run` hook writes
 ## Configure retry limits
 
 ```yaml
-ci_feedback:
-  kind: github
-  max_retries: 2  # default 2
+reactions:
+  ci_failure:
+    provider: github
+    max_retries: 2  # default 2
 ```
 
 `max_retries` controls how many CI-fix continuation dispatches Sortie attempts per issue before escalating. Default: 2. Set to 0 to escalate on the first CI failure without retrying.
@@ -53,9 +57,10 @@ Each CI failure that triggers a new dispatch increments the counter. If the agen
 ## Configure log fetching
 
 ```yaml
-ci_feedback:
-  kind: github
-  max_log_lines: 50  # default 50; 0 = disable
+reactions:
+  ci_failure:
+    provider: github
+    max_log_lines: 50  # default 50; 0 = disable
 ```
 
 `max_log_lines` controls how many lines from the first failing check run's log Sortie fetches and includes in the failure context. Default: 50. Set to 0 to disable log fetching.
@@ -65,17 +70,18 @@ When log fetching is disabled, the agent still receives structured failure data 
 ## Choose an escalation strategy
 
 ```yaml
-ci_feedback:
-  kind: github
-  escalation: label              # "label" (default) or "comment"
-  escalation_label: needs-human  # default "needs-human"
+reactions:
+  ci_failure:
+    provider: github
+    escalation: label              # "label" (default) or "comment"
+    escalation_label: needs-human  # default "needs-human"
 ```
 
 When CI-fix retries are exhausted, Sortie escalates. Two strategies are available:
 
 | Strategy | Behavior |
 |---|---|
-| `label` (default) | Adds `escalation_label` (default `needs-human`) to the issue. The label is created on demand if the tracker does not already have it. |
+| `label` (default) | Adds `escalation_label` (default `needs-human`) to the issue. The Gitea and GitLab adapters create the label on demand if the tracker does not already have it; on GitHub, the label must already exist. |
 | `comment` | Posts a comment on the issue with failure details: how many CI-fix attempts were made, which checks failed, and links to their detail pages. |
 
 Both strategies release the claim on the issue and cancel any pending retry. The issue won't be re-dispatched until its tracker state changes.
@@ -90,7 +96,7 @@ gh label create needs-human --repo myorg/myrepo --color "D93F0B"
 
 CI feedback needs a repository to query and a ref to check. It gets these from two sources, and you don't need extra config for either.
 
-**Repository coordinates** come from the tracker adapter. When `ci_feedback.kind` matches `tracker.kind`, the `tracker` block already contains `api_key` and `project` (owner/repo for GitHub and Gitea, a namespace path or numeric ID for GitLab). CI feedback reuses these credentials. No additional configuration needed.
+**Repository coordinates** come from the tracker adapter. When `reactions.ci_failure.provider` matches `tracker.kind`, the `tracker` block already contains `api_key` and `project` (owner/repo for GitHub and Gitea, a namespace path or numeric ID for GitLab). CI feedback reuses these credentials. No additional configuration needed.
 
 **The pull request identity** comes from `.sortie/scm.json` in the workspace. Your `after_run` hook writes this file after pushing code and opening the pull request. CI feedback needs `pr_number`, `owner`, and `repo` alongside `branch`; all four fields must be present for Sortie to seed a CI watch, and `branch` and `sha` alone do not qualify:
 
@@ -180,9 +186,9 @@ CI-fix dispatches are distinct from error retries and continuation retries. They
 |---|---|---|---|
 | Agent error (crash, timeout) | Exponential backoff | `agent.max_sessions` | `agent.max_retry_backoff_ms` |
 | Agent success, issue still active | 1 second | `agent.max_sessions` | None |
-| CI failure on pushed branch | 1 second | `ci_feedback.max_retries` | None |
+| CI failure on pushed branch | 1 second | `reactions.ci_failure.max_retries` | None |
 
-Both `ci_feedback.max_retries` and `agent.max_sessions` are evaluated independently. When either limit is exhausted, its corresponding escalation fires. CI-fix dispatches use a fixed 1-second delay, not exponential backoff, because CI failures are a signal to try fixing code, not a sign of transient infrastructure problems.
+Both `reactions.ci_failure.max_retries` and `agent.max_sessions` are evaluated independently. When either limit is exhausted, its corresponding escalation fires. CI-fix dispatches use a fixed 1-second delay, not exponential backoff, because CI failures are a signal to try fixing code, not a sign of transient infrastructure problems.
 
 If the agent signals `blocked` via `.sortie/status` during a CI-fix run, the orchestrator respects that signal and stops running further CI checks. A CI-fix continuation runs as an ordinary agent session, so it drives the issue's state like any normal dispatch, and the issue is [parked](/concepts/agent-communication/) with the escalation label rather than merely released. For details on the agent-to-orchestrator protocol, see the [agent extensions reference](/reference/agent-extensions/).
 
@@ -217,12 +223,13 @@ agent:
   max_concurrent_agents: 2
   stall_timeout_ms: 300000
 
-ci_feedback:
-  kind: github
-  max_retries: 2
-  max_log_lines: 50
-  escalation: label
-  escalation_label: needs-human
+reactions:
+  ci_failure:
+    provider: github
+    max_retries: 2
+    max_log_lines: 50
+    escalation: label
+    escalation_label: needs-human
 
 hooks:
   after_create: |
@@ -245,8 +252,6 @@ hooks:
   timeout_ms: 120000
 
 db_path: .sortie.db
-server:
-  port: 8642
 ---
 
 You are a senior engineer working on {{ .issue.identifier }}.
@@ -289,9 +294,10 @@ Resuming turn {{ .run.turn_number }}/{{ .run.max_turns }}.
 Set `max_log_lines: 0` to skip log fetching entirely:
 
 ```yaml
-ci_feedback:
-  kind: github
-  max_log_lines: 0
+reactions:
+  ci_failure:
+    provider: github
+    max_log_lines: 0
 ```
 
 The agent still receives check run names, conclusions, and details URLs. Log fetching requires one additional API call per failing check; disabling it saves those requests. Useful when operating under rate limits or when your CI logs are too verbose to be helpful in a prompt.
@@ -336,19 +342,7 @@ A healthy CI feedback setup shows `sortie_ci_status_checks_total{result="passing
 
 ## Configuration reference
 
-All `ci_feedback` fields in one place:
-
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `kind` | string | _(absent)_ | CI provider adapter. One of `"github"`, `"gitea"`, or `"gitlab"`. Presence activates the feature. |
-| `max_retries` | integer | `2` | Max CI-fix dispatches per issue before escalation. `0` = escalate immediately. |
-| `max_log_lines` | integer | `50` | Lines to fetch from the first failing check's log. `0` = disable log fetching. |
-| `escalation` | string | `"label"` | Escalation strategy: `"label"` or `"comment"`. |
-| `escalation_label` | string | `"needs-human"` | Label to apply when `escalation` is `"label"`. Created on demand if the tracker does not already have it. |
-
-The watch window is not a field of this block. It lives at `reactions.ci_failure.watch_window_ms`; see the [reactions reference](/reference/reactions/#reactionsci_failure) for its default and behavior.
-
-For the full WORKFLOW.md configuration reference including all sections, see [workflow config reference](/reference/workflow-config/).
+For the full `reactions.ci_failure` field list, including `watch_window_ms` and its reload behavior, see the [reactions reference](/reference/reactions/#reactionsci_failure). The deprecated `ci_feedback` block (a `kind` field instead of `provider`, no `watch_window_ms`) is documented in the [workflow config reference](/reference/workflow-config/) for existing WORKFLOW.md files that have not migrated yet.
 
 ## Related guides
 

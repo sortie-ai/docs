@@ -292,7 +292,7 @@ grep 'version=' ~/.local/share/sortie/sortie.stderr.log | tail -1
 You'll see the version in the startup log line:
 
 ```
-level=INFO msg="sortie starting" version=0.1.0 workflow_path=/Users/deploy/.config/sortie/WORKFLOW.md port=8080
+level=INFO msg="sortie starting" version=0.x.x workflow_path=/Users/deploy/.config/sortie/WORKFLOW.md server_addr=127.0.0.1:7678
 ```
 
 ## What we configured

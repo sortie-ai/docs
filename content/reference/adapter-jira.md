@@ -225,12 +225,12 @@ A colon with an empty user (`":password"`) or empty secret (`"user:"`) is reject
 All requests set:
 
 ```
-User-Agent: sortie/dev
+User-Agent: sortie/<version>
 Accept: application/json
 Content-Type: application/json
 ```
 
-The `user_agent` config key overrides the default `User-Agent` value.
+`user_agent` is not a Jira adapter config key an operator can set. Sortie sets the tracker role's value to its own version string (`sortie/<version>`), and `jira` fills no SCM or CI role, so a value supplied in a top-level `jira:` block is ignored.
 
 ### CAPTCHA lockout
 
@@ -240,168 +240,29 @@ After repeated failed authentication attempts, Jira triggers a CAPTCHA challenge
 
 ## API operations
 
-The adapter implements all seven methods of the [`TrackerAdapter` interface](/reference/workflow-config/). Each method maps to one or more Jira REST API endpoints. The base path is `/rest/api/3` (Cloud) or `/rest/api/2` (Server / Data Center).
+The adapter implements every method of the tracker contract against Jira's search, issue, transition, and comment surfaces, composing JQL for the queries it runs. Which route serves which call, and what JQL each deployment accepts, is Atlassian's to document; see [external references](#external-references). Cloud and Data Center expose that surface differently, and `api_version` selects which of the two the adapter targets. What follows is the behaviour those calls produce.
 
-### `FetchCandidateIssues`
+### Candidate polling
 
-Returns issues in configured active states for the configured project.
+The adapter composes a JQL query from the configured project, the active states, and `query_filter` when set, and asks for the fields it needs rather than the whole issue. Ordering is server-side, so the orchestrator receives candidates in a stable order and does no client-side re-sort.
 
-**Endpoint:**
-- v3: `GET /rest/api/3/search/jql`
-- v2: `GET /rest/api/2/search`
+### Batched state reads
 
-**JQL:**
+Reconciling many issues at once is batched rather than sequential: IDs are grouped into batches of 40 to keep the request URI inside a safe length, and one query serves each batch. Two consequences are worth knowing. `query_filter` is deliberately not applied to these reads, because reconciliation asks what became of an issue Sortie already claimed, not whether it still matches the filter. And an ID that is not a Jira numeric ID is skipped without an error, so a malformed ID disappears from the result rather than failing the batch.
 
-```
-project = "<project>" AND status IN ("<state1>", "<state2>", ...) [AND (<query_filter>)] ORDER BY priority ASC, created ASC
-```
+An issue that has been deleted or moved out of the project is omitted from the result map rather than reported as an error.
 
-**Requested fields:** `summary`, `status`, `priority`, `labels`, `assignee`, `issuetype`, `parent`, `issuelinks`, `created`, `updated`, `description`
+### Writes
 
-**Pagination:** Cursor-based (v3) or offset-based (v2). Page size: 50. See [pagination](#pagination).
+A transition resolves the available transitions for the issue and then applies the matching one, so a target state the workflow does not offer from the issue's current state fails as a payload error rather than silently doing nothing.
 
-**Comments:** Set to `nil` on returned issues. Callers requiring comments must use `FetchIssueByID` or `FetchIssueComments`.
+Comment bodies differ by API version: the newer surface takes a structured document, which the adapter builds around the orchestrator's text, while the older one takes the text verbatim. Reading works in the other direction, flattening a structured body back to plain text so a prompt template sees the same shape whichever deployment is behind it.
 
-### `FetchIssueByID`
+A comment failure is not fatal to the run. The orchestrator logs a warning and continues, so a token that can read but not comment degrades the run rather than ending it.
 
-Returns a single fully-populated issue including comments.
+Adding a label sends a single `PUT` to the issue resource with an `update.labels` add operation naming the label. The adapter never reads or replaces the issue's existing label list, so no label already on the issue is touched. A label failure is not fatal to the run, the same as a comment failure.
 
-**Endpoint:**
-- v3: `GET /rest/api/3/issue/{issueIdOrKey}` + `GET /rest/api/3/issue/{issueIdOrKey}/comment`
-- v2: `GET /rest/api/2/issue/{issueIdOrKey}` + `GET /rest/api/2/issue/{issueIdOrKey}/comment`
-
-**Requested fields:** Same as candidate search.
-
-The adapter fetches the issue detail first, then fetches all comments via paginated offset-based requests. Both are normalized and merged into the returned domain issue.
-
-Returns `tracker_not_found` when the issue does not exist (HTTP 404).
-
-### `FetchIssuesByStates`
-
-Returns issues in specified states. Used for startup terminal cleanup.
-
-**Endpoint:**
-- v3: `GET /rest/api/3/search/jql`
-- v2: `GET /rest/api/2/search`
-
-**JQL:**
-
-```
-project = "<project>" AND status IN ("<state1>", ...) [AND (<query_filter>)] ORDER BY created ASC
-```
-
-**Pagination:** Cursor-based (v3) or offset-based (v2). Page size: 50.
-
-Returns an empty slice when `states` is empty (short-circuits without API call).
-
-### `FetchIssueStatesByIDs`
-
-Returns the current state for each requested issue ID (Jira internal numeric ID).
-
-**Endpoint:**
-- v3: `GET /rest/api/3/search/jql`
-- v2: `GET /rest/api/2/search`
-
-**JQL:**
-
-```
-id IN (<id1>, <id2>, ...) ORDER BY key ASC
-```
-
-**Requested fields:** `status` only.
-
-**Batching:** IDs are grouped into batches of 40 to keep GET URLs within safe URI length limits. Non-numeric IDs are silently skipped.
-
-The `query_filter` is not applied. Issues not found in the tracker are omitted from the result map.
-
-### `FetchIssueStatesByIdentifiers`
-
-Returns the current state for each requested issue identifier (human-readable key like `PROJ-123`).
-
-**Endpoint:**
-- v3: `GET /rest/api/3/search/jql`
-- v2: `GET /rest/api/2/search`
-
-**JQL:**
-
-```
-key IN ("<key1>", "<key2>", ...) ORDER BY key ASC
-```
-
-**Requested fields:** `status` only.
-
-**Batching:** Identifiers are grouped into batches of 40. Issues not found are omitted from the result map. The `query_filter` is not applied.
-
-### `FetchIssueComments`
-
-Returns comments for an issue. Used for continuation runs and the agent workpad pattern.
-
-**Endpoint:**
-- v3: `GET /rest/api/3/issue/{issueIdOrKey}/comment`
-- v2: `GET /rest/api/2/issue/{issueIdOrKey}/comment`
-
-**Pagination:** Offset-based (`startAt`, `maxResults`) for both versions. Page size: 50. Ordered by creation date.
-
-Returns an empty non-nil slice when no comments exist. Returns `tracker_not_found` when the issue does not exist.
-
-### `TransitionIssue`
-
-Moves an issue to a target state by finding and executing a Jira workflow transition.
-
-**Step 1:** Fetch available transitions.
-- v3: `GET /rest/api/3/issue/{issueIdOrKey}/transitions`
-- v2: `GET /rest/api/2/issue/{issueIdOrKey}/transitions`
-
-**Step 2:** Match a transition whose `to.name` equals the target state (case-insensitive, first match).
-
-**Step 3:** Execute the matched transition.
-- v3: `POST /rest/api/3/issue/{issueIdOrKey}/transitions`
-- v2: `POST /rest/api/2/issue/{issueIdOrKey}/transitions`
-
-**Request body:**
-
-```json
-{"transition": {"id": "<matched_transition_id>"}}
-```
-
-Returns `nil` on success. Returns `tracker_payload_error` when no available transition leads to the target state from the issue's current status.
-
-### `CommentIssue`
-
-Posts a comment on an issue. Used by the orchestrator to record session lifecycle events as visible audit entries.
-
-**Endpoint:**
-- v3: `POST /rest/api/3/issue/{issueIdOrKey}/comment`
-- v2: `POST /rest/api/2/issue/{issueIdOrKey}/comment`
-
-**Request body (v3):** Atlassian Document Format (ADF). The adapter splits the plain-text input by newlines and wraps each line in a separate `paragraph` node.
-
-```json
-{
-  "body": {
-    "version": 1,
-    "type": "doc",
-    "content": [
-      {
-        "type": "paragraph",
-        "content": [{"type": "text", "text": "Sortie session started."}]
-      }
-    ]
-  }
-}
-```
-
-**Request body (v2):** A raw string body. The orchestrator-supplied text is sent verbatim.
-
-```json
-{"body": "Sortie session started."}
-```
-
-Returns `nil` on success (HTTP 201 Created). Error responses are classified by the standard [error mapping](#error-mapping) rules.
-
-Comment failures are non-fatal - the orchestrator logs WARN and continues.
-
-Requires write permissions: `write:jira-work` (classic) or `write:issue:jira` (granular) on Cloud; project-level write access on Server / Data Center.
+Writes need a token that can update issues, add comments, and label issues; see [authentication](#authentication).
 
 ---
 
@@ -624,23 +485,11 @@ Self-hosted Jira instances frequently use an internal CA or a self-signed certif
 
 ## Rate limits
 
-Rate limiting behavior differs by deployment:
+Atlassian meters the API per tenant, and the current quotas are Atlassian's to publish; see [external references](#external-references).
 
-**Jira Cloud** enforces three independent rate limiting systems:
+What decides how much Sortie spends is the poll interval and the page size: each poll reads one page of candidates, and each candidate that reaches dispatch costs a further read. With the default poll interval and page size, a project with a few hundred open issues stays well inside a normal tenant's budget; a short interval across many projects does not.
 
-| System | Scope | Limits |
-|---|---|---|
-| Points-based quota | Per hour, per tenant | 65,000 points/hour. GET operations cost 1-2 points. Resets at the top of each UTC hour. |
-| Burst rate limits | Per second, per endpoint | `GET /rest/api/3/search/jql`: 100 req/s. `GET /rest/api/3/issue/{id}`: 150 req/s. |
-| Per-issue write limits | Per issue | 20 writes/2s, 100 writes/30s. Relevant only for `TransitionIssue`. |
-
-**Jira Server / Data Center:** Rate limiting policies vary by instance configuration. The 429 error mapping applies regardless.
-
-All rate limit violations return HTTP 429 with a `Retry-After` header (seconds). The adapter maps 429 to `tracker_api_error`.
-
-With the default poll interval of 30 seconds and page size of 50, a project with fewer than 500 active issues generates 10-20 API calls per poll cycle - well within Cloud rate limits. Increase `polling.interval_ms` or narrow `query_filter` if you encounter rate limiting.
-
----
+Sortie does not throttle client-side. A throttled request fails as `tracker_api_error` and Sortie waits for the next poll. Raise `polling.interval_ms` or narrow `query_filter`.
 
 ## Network configuration
 
@@ -648,7 +497,7 @@ With the default poll interval of 30 seconds and page size of 50, a project with
 |---|---|
 | HTTP client timeout | 30 seconds |
 | Error body read limit | 512 bytes |
-| Transport | `net/http` default (HTTP/1.1, connection pooling) |
+| Transport | `net/http` default transport (`http.DefaultTransport.Clone()`), connection pooling |
 
 Context cancellation propagates through all HTTP calls. When the orchestrator cancels a poll cycle or worker, in-flight Jira requests are aborted.
 
@@ -660,7 +509,7 @@ When the HTTP server is [enabled](/reference/workflow-config/), the adapter incr
 
 | Label | Values |
 |---|---|
-| `operation` | `fetch_candidates`, `fetch_issue`, `fetch_by_states`, `fetch_states_by_ids`, `fetch_states_by_identifiers`, `fetch_comments`, `transition`, `comment` |
+| `operation` | `fetch_candidates`, `fetch_issue`, `fetch_by_states`, `fetch_states_by_ids`, `fetch_states_by_identifiers`, `fetch_comments`, `transition`, `comment`, `add_label` |
 | `result` | `success`, `error` |
 
 When the HTTP server is disabled, metrics calls are no-ops. See [Prometheus metrics reference](/reference/prometheus-metrics/) for query examples.
@@ -684,6 +533,9 @@ The adapter registers itself under kind `"jira"` via an `init` function in `inte
 | `RequiresProject` | `true` |
 | `RequiresAPIKey` | `true` |
 | `ValidateTrackerConfig` | Offline config diagnostics for `sortie validate`. |
+| `DefaultActiveStates` | `["Backlog", "Selected for Development", "In Progress"]`, applied when `active_states` is absent; see [`active_states`](#active_states). |
+| `DefaultTerminalStates` | Not declared; an absent `terminal_states` resolves to an empty list. |
+| `BlockerSource` | `candidates` — a candidate fetch already carries every blocker Jira reports; see [blocker extraction](#blocker-extraction). |
 
 The orchestrator's preflight validation uses `RequiresProject` and `RequiresAPIKey` to produce specific error messages (`tracker.project is required for tracker kind "jira"`) before attempting adapter construction. `ValidateTrackerConfig` runs the [offline validation](#offline-validation) checks without making network calls.
 
@@ -691,27 +543,9 @@ The orchestrator's preflight validation uses `RequiresProject` and `RequiresAPIK
 
 ## Jira permissions
 
-### Read-only operations
+The credential needs read access to the configured project for polling, and write access on top of that if the workflow transitions issues, posts comments, or adds labels. Which scope or permission grants each of those differs between Cloud and Data Center, and both are Atlassian's to document; see [external references](#external-references).
 
-All fetch operations require read access to the Jira project.
-
-**Cloud (v3):**
-- Classic scopes: `read:jira-work`
-- Granular scopes: `read:issue:jira`, `read:issue.property:jira`
-
-**Server / Data Center (v2):** The authenticated user (Basic) or the PAT owner (Bearer) must have Browse Projects permission on the project.
-
-### Write operations
-
-`TransitionIssue` (used by `handoff_state` and `in_progress_state`) and `CommentIssue` (used by `tracker.comments.*`) require write access.
-
-**Cloud (v3):**
-- Classic scopes: `write:jira-work`
-- Granular scopes: `write:issue:jira`
-
-**Server / Data Center (v2):** The authenticated user or PAT owner must have the relevant project-level permissions (Work on Issues for transitions, Add Comments for comments).
-
-If the credential lacks write permissions, transitions fail with `tracker_auth_error` (HTTP 403) and comments fail with `tracker_auth_error`. The orchestrator treats both as non-fatal.
+A credential that can read but not write does not fail at startup. It fails at the moment of the write: a transition returns `tracker_auth_error`, and so does a comment or a label. A failed comment or label is not fatal to the run, so a read-only credential produces a run that works and stays silent on the issue, which is the shape this misconfiguration usually takes.
 
 ---
 
@@ -775,7 +609,6 @@ tracker:
 - [Jira personal access tokens (Server / DC)](https://confluence.atlassian.com/enterprise/using-personal-access-tokens-1026032365.html) - generate and manage PATs
 - [Atlassian API tokens (Cloud)](https://id.atlassian.com/manage-profile/security/api-tokens) - generate the token used in `email:token` format
 - [JQL field reference](https://support.atlassian.com/jira-software-cloud/docs/jql-fields/) - fields and operators valid in `tracker.query_filter`
-- [Jira OAuth 2.0 scopes](https://developer.atlassian.com/cloud/jira/platform/scopes-for-oauth-2-3LO-and-forge-apps/) - classic and granular scope definitions referenced above
 
 ---
 

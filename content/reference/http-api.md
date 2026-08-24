@@ -50,7 +50,7 @@ For the full `server` extension schema, see [WORKFLOW.md configuration reference
 Server-rendered HTML page showing real-time system state. Auto-refreshes in the browser.
 
 ```sh
-curl http://localhost:8080/
+curl http://localhost:7678/
 ```
 
 The dashboard displays running sessions (identifier, state, turn count, duration, last event, tokens), the retry queue (identifier, attempt, due-in, error), summary cards (running count, retrying count, available slots, total tokens), uptime, version, aggregate runtime and token totals, and a run history table of completed sessions.
@@ -65,11 +65,11 @@ The run history table lists recently completed sessions. Each entry contains:
 |---|---|---|
 | `identifier` | string | Tracker-assigned issue identifier (e.g., `"PROJ-123"`). |
 | `attempt` | integer | One-based retry attempt number. |
-| `status` | string | Terminal outcome: `"success"` or `"failure"`. |
+| `status` | string | Terminal outcome: `"succeeded"`, `"failed"`, `"cancelled"`, `"ci_failed"`, or `"needs_person"`. |
 | `workflow_file` | string | Path to the workflow definition used for this run. |
 | `started_at` | string | Formatted start timestamp. |
 | `completed_at` | string | Formatted completion timestamp. |
-| `error` | string or null | Error message when `status` is `"failure"`. `null` on success. |
+| `error` | string or null | Error message when the run did not succeed. `null` when `status` is `"succeeded"`. |
 | `turns_completed` | integer | Number of agent turns completed before exit. |
 | `review_metadata` | object or null | Self-review outcome. `null` when self-review was not configured or did not run. |
 
@@ -92,8 +92,22 @@ Each element in `iterations`:
 | `iteration` | integer | 1-based iteration number. |
 | `diff_size_bytes` | integer | Size of the diff in bytes before truncation. |
 | `diff_truncated` | boolean | `true` when the diff was truncated to `max_diff_bytes`. |
-| `verification_results` | array | Outcome of each verification command: `command`, `exit_code`, `duration_ms`, `timed_out`. |
+| `verification_results` | array | Outcome of each verification command (see below). |
 | `verdict` | string | Parsed verdict from the agent: `"pass"`, `"iterate"`, or empty when unparseable. |
+| `verdict_raw` | string | Raw JSON content of the verdict file. Omitted when the file was absent. |
+| `verdict_parse_error` | string | Non-empty when the verdict file existed but could not be parsed, or when it was absent. Omitted otherwise. |
+
+Each element in `verification_results`:
+
+| Field | Type | Description |
+|---|---|---|
+| `command` | string | The shell command that was executed. |
+| `exit_code` | integer | Process exit code. `0` on success; `-1` when the command could not be started or timed out. |
+| `stdout` | string | Captured standard output, truncated to 65536 bytes. |
+| `stderr` | string | Captured standard error, truncated to 65536 bytes. |
+| `duration_ms` | integer | Wall-clock execution time in milliseconds. |
+| `timed_out` | boolean | `true` when the command exceeded the verification timeout. |
+| `execution_error` | string | Non-empty when the command could not be started (binary not found, permission denied). Omitted when the command ran, regardless of exit code. |
 
 Example `review_metadata` for a session that passed on the second iteration:
 
@@ -109,12 +123,16 @@ Example `review_metadata` for a session that passed on the second iteration:
         {
           "command": "go test ./...",
           "exit_code": 1,
+          "stdout": "",
+          "stderr": "--- FAIL: TestExample (0.00s)",
           "duration_ms": 3400,
           "timed_out": false
         },
         {
           "command": "go vet ./...",
           "exit_code": 0,
+          "stdout": "",
+          "stderr": "",
           "duration_ms": 820,
           "timed_out": false
         }
@@ -129,12 +147,16 @@ Example `review_metadata` for a session that passed on the second iteration:
         {
           "command": "go test ./...",
           "exit_code": 0,
+          "stdout": "",
+          "stderr": "",
           "duration_ms": 3100,
           "timed_out": false
         },
         {
           "command": "go vet ./...",
           "exit_code": 0,
+          "stdout": "",
+          "stderr": "",
           "duration_ms": 790,
           "timed_out": false
         }
@@ -161,7 +183,7 @@ sqlite3 .sortie.db "SELECT review_metadata FROM run_history WHERE review_metadat
 Returns a full runtime snapshot: running sessions, retry queue, aggregate totals, and rate limits.
 
 ```sh
-curl http://localhost:8080/api/v1/state
+curl http://localhost:7678/api/v1/state
 ```
 
 ### Response
@@ -191,10 +213,10 @@ curl http://localhost:8080/api/v1/state
         "total_tokens": 15700,
         "cache_read_tokens": 8400
       },
-      "model_name": "claude-sonnet-4-20250514",
+      "model_name": "<model-id-reported-by-the-agent>",
       "api_request_count": 12,
       "requests_by_model": {
-        "claude-sonnet-4-20250514": 12
+        "<model-id-reported-by-the-agent>": 12
       },
       "tool_time_percent": 34.7,
       "api_time_percent": 51.2,
@@ -258,7 +280,7 @@ curl http://localhost:8080/api/v1/state
 Returns issue-specific runtime and debug details. The `{identifier}` path parameter is the issue identifier (e.g., `MT-649`), not the internal issue ID.
 
 ```sh
-curl http://localhost:8080/api/v1/MT-649
+curl http://localhost:7678/api/v1/MT-649
 ```
 
 ### Response (running issue)
@@ -292,10 +314,10 @@ curl http://localhost:8080/api/v1/MT-649
       "total_tokens": 15700,
       "cache_read_tokens": 8400
     },
-    "model_name": "claude-sonnet-4-20250514",
+    "model_name": "<model-id-reported-by-the-agent>",
     "api_request_count": 12,
     "requests_by_model": {
-      "claude-sonnet-4-20250514": 12
+      "<model-id-reported-by-the-agent>": 12
     },
     "tool_time_percent": 34.7,
     "api_time_percent": 51.2,
@@ -365,7 +387,7 @@ When an issue is in the retry queue rather than actively running, `status` is `"
 Queues an immediate poll and reconciliation cycle. Useful for CI integrations that push issues and want Sortie to pick them up without waiting for the next poll interval.
 
 ```sh
-curl -X POST http://localhost:8080/api/v1/refresh
+curl -X POST http://localhost:7678/api/v1/refresh
 ```
 
 ### Response (202 Accepted)
@@ -409,7 +431,7 @@ If Sortie is shutting down, the refresh is rejected:
 Lightweight liveness check for container orchestrators. Returns `200` when the process is alive, `503` when draining.
 
 ```sh
-curl http://localhost:8080/livez
+curl http://localhost:7678/livez
 ```
 
 ### Response (200 OK)
@@ -435,7 +457,7 @@ curl http://localhost:8080/livez
 Deep readiness check that validates database connectivity, preflight configuration, and workflow loading. Use this for Kubernetes readiness probes or load balancer health checks.
 
 ```sh
-curl http://localhost:8080/readyz
+curl http://localhost:7678/readyz
 ```
 
 ### Response (200 OK)
@@ -443,7 +465,7 @@ curl http://localhost:8080/readyz
 ```json
 {
   "status": "pass",
-  "version": "0.5.0",
+  "version": "1.19.0",
   "uptime_seconds": 3742.8,
   "checks": {
     "database": "pass",
@@ -458,7 +480,7 @@ curl http://localhost:8080/readyz
 ```json
 {
   "status": "fail",
-  "version": "0.5.0",
+  "version": "1.19.0",
   "uptime_seconds": 3742.8,
   "checks": {
     "database": "pass",
@@ -490,7 +512,7 @@ Each check is independent. `status` is `"pass"` only when every individual check
 Standard Prometheus text exposition format. Available on the same port as all other endpoints when the HTTP server is enabled.
 
 ```sh
-curl http://localhost:8080/metrics
+curl http://localhost:7678/metrics
 ```
 
 Returns `text/plain` with Prometheus metric families. For the full metric catalog - names, labels, types, PromQL examples, and cardinality model - see [Prometheus metrics reference](/reference/prometheus-metrics/).
@@ -524,7 +546,7 @@ All JSON API errors use a consistent structure:
 Every endpoint enforces its allowed HTTP method. Sending the wrong method returns `405 Method Not Allowed` with an `Allow` header indicating the correct method, and a JSON error envelope - not plain text.
 
 ```sh
-curl -X DELETE http://localhost:8080/api/v1/state
+curl -X DELETE http://localhost:7678/api/v1/state
 ```
 
 ```json

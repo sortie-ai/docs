@@ -108,9 +108,6 @@ agent:
 opencode:
   model: local/your-model
   dangerously_skip_permissions: true
-
-server:
-  port: 8080
 ---
 
 You are a senior engineer working in this repository.
@@ -158,7 +155,7 @@ making changes. Do not repeat the same approach that failed.
 {{ end }}
 ```
 
-The tracker block is the Gitea block from the integration tutorial: kind `gitea`, the required endpoint, the token-verbatim `api_key`, an `owner/repo` project, and label-driven states. The `polling`, `workspace`, `hooks`, `server`, and prompt body keep the same shape as the Jira + OpenCode tutorial. The OpenCode-specific work is the highlighted `agent` and `opencode` blocks.
+The tracker block is the Gitea block from the integration tutorial: kind `gitea`, the required endpoint, the token-verbatim `api_key`, an `owner/repo` project, and label-driven states. The `polling`, `workspace`, `hooks`, and prompt body keep the same shape as the Jira + OpenCode tutorial. The OpenCode-specific work is the highlighted `agent` and `opencode` blocks.
 
 One tracker detail is worth stating where you set the states. `handoff_state: review` moves each finished issue to the `review` label, and because `review` is not one of the `terminal_states`, the issue stays open, ready for a human to open a pull request from the pushed branch. Sortie will not let `handoff_state` name a terminal state, so a handoff never closes the issue on its own. For the rest of the Gitea tracker surface, the [Gitea integration tutorial](/getting-started/gitea-integration/) is the reference.
 
@@ -170,7 +167,7 @@ Nothing about the hooks is OpenCode-specific. `workspace.root` gives each Gitea 
 
 #### Agent: OpenCode CLI
 
-`agent.kind: opencode` selects the OpenCode adapter, registered under the `opencode` kind. `agent.command: opencode` names the binary, which the adapter resolves from `PATH` when the session starts. The `opencode:` block is small because OpenCode folds provider selection into the model string: `local/your-model` means "use the `local` provider, then that model." There is no separate provider field to set. `dangerously_skip_permissions: true` is the unattended switch, the equivalent of Claude Code's bypass mode: it tells the CLI to keep working instead of pausing for approval on each action. The adapter also exposes finer tool scoping through `allowed_tools` and `denied_tools`, which is reference territory. When you need it, the [OpenCode adapter reference](/reference/adapter-opencode/) covers the full surface.
+`agent.kind: opencode` selects the OpenCode adapter, registered under the `opencode` kind. `agent.command: opencode` names the binary, which the adapter resolves from `PATH` when the session starts. The `opencode:` block is small because OpenCode folds provider selection into the model string: `local/your-model` means "use the `local` provider, then that model." There is no separate provider field to set. `dangerously_skip_permissions: true` is the unattended switch, the equivalent of Claude Code's bypass mode: it tells the CLI to approve each permissioned action itself. It is also the default. Setting it to `false` does not make the run interactive, because there is nobody to be interactive with: the runtime auto-rejects every permissioned tool call instead, and Sortie warns about that before the run. The adapter also exposes finer tool scoping through `allowed_tools` and `denied_tools`, which is reference territory. When you need it, the [OpenCode adapter reference](/reference/adapter-opencode/) covers the full surface.
 
 #### A locally served model backend
 
@@ -206,14 +203,14 @@ Start Sortie:
 sortie ./WORKFLOW.md
 ```
 
-You should see output similar to this. Timestamps, IDs, and paths will differ:
+You should see output similar to this. Timestamps, IDs, and paths will differ, and the `tick completed` lines carry more fields than shown here:
 
 ```text
 level=INFO msg="sortie starting" version=0.x.x workflow_path=/home/you/sortie-gitea-opencode-e2e/WORKFLOW.md
 level=INFO msg="database path resolved" db_path=/home/you/sortie-gitea-opencode-e2e/.sortie.db
-level=INFO msg="http server listening" address=127.0.0.1:8080
+level=INFO msg="http server listening" addr=127.0.0.1:7678
 level=INFO msg="sortie started"
-level=INFO msg="tick completed" candidates=1 dispatched=1 running=1 retrying=0
+level=INFO msg="tick completed" candidates=1 dispatched=1 ... running=1 retrying=0 ...
 level=INFO msg="running hook" hook=after_create workspace=.../workspaces/3
 level=INFO msg="running hook" hook=before_run workspace=.../workspaces/3
 level=INFO msg="workspace prepared" issue_id=3 issue_identifier=3 workspace=.../workspaces/3
@@ -230,7 +227,7 @@ level=INFO msg="turn completed" issue_id=3 issue_identifier=3 turn_number=1 max_
 level=INFO msg="running hook" hook=after_run workspace=.../workspaces/3
 level=INFO msg="worker exiting" issue_id=3 issue_identifier=3 exit_kind=normal turns_completed=1
 level=INFO msg="handoff transition succeeded, releasing claim" issue_id=3 issue_identifier=3 handoff_state=review
-level=INFO msg="tick completed" candidates=0 dispatched=0 running=0 retrying=0
+level=INFO msg="tick completed" candidates=0 dispatched=0 ... running=0 retrying=0 ...
 ```
 
 Here is the full lifecycle, step by step:
@@ -282,7 +279,7 @@ You should see a commit hash. The `sortie/3` branch is on your Gitea instance, r
 
 Open the issue in Gitea. It now carries the `review` label instead of `backlog`, and it is still open, because `review` is not a terminal state. A reviewer can open a pull request from `sortie/3`, merge it, and close the issue. That last step is intentionally human: the handoff hands work to a person, it does not close it.
 
-Open [http://127.0.0.1:8080/](http://127.0.0.1:8080/). The workflow sets `server.port: 8080`, so the dashboard is served there. You will see summary cards and a run history row for the completed session, with its issue identifier, turn count, duration, and exit status.
+Open [http://127.0.0.1:7678/](http://127.0.0.1:7678/). Sortie serves the dashboard there by default, with no configuration required. You will see summary cards and a run history row for the completed session, with its issue identifier, turn count, duration, and exit status.
 
 {{% /steps %}}
 

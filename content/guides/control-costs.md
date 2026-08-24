@@ -118,11 +118,11 @@ For the Claude Code adapter, `model` and `effort` live in the extension block:
 ```yaml
 # Claude Code adapter example
 claude-code:
-  model: claude-sonnet-4-20250514
+  model: <model-id>
   effort: medium
 ```
 
-Sonnet is significantly cheaper than Opus per token. The `effort` field controls how much reasoning work the agent invests per response. `low` reduces token usage and latency. `medium` is a good default. `high` is for tasks that need deep analysis. Each step up increases token consumption.
+A cheaper model and a lower effort setting are the two bluntest levers you have, and they cost nothing to change. Both are pass-through keys: Sortie forwards the value and does not interpret it, so which models exist, which effort levels each one accepts, and what they cost are the provider's to publish. Check the provider's own model and pricing pages before choosing, because both change often.
 
 Model pricing changes frequently. Check your provider's pricing page before making model decisions.
 
@@ -155,7 +155,7 @@ agent:
 
 claude-code:
   permission_mode: bypassPermissions
-  model: claude-sonnet-4-20250514
+  model: <model-id>
   effort: medium
   max_turns: 50
   max_budget_usd: 3
@@ -200,11 +200,12 @@ Five tools give you cost visibility without any extra infrastructure.
 Configure token rates to see cost estimates on the dashboard:
 
 ```yaml
+# Rates are yours to supply and are illustrative here.
 token_rates:
   claude-code:
-    input_per_mtok: 3.00
-    output_per_mtok: 15.00
-    cache_read_per_mtok: 0.30
+    input_per_mtok: 0.00
+    output_per_mtok: 0.00
+    cache_read_per_mtok: 0.00
 ```
 
 Without `token_rates`, the dashboard shows raw token counts only. See the [`token_rates` reference](/reference/workflow-config/#token_rates) for the full schema.

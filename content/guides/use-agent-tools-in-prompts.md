@@ -7,13 +7,34 @@ date: 2026-04-03
 weight: 200
 url: /guides/use-agent-tools-in-prompts/
 ---
-Sortie registers tools via MCP and advertises them in the first-turn prompt — the agent already knows each tool's name, input schema, and response format. This guide shows you how to add prompt instructions that make agents use those tools at the right moments: checking their turn budget, watching the token budget, reviewing prior run history, querying the tracker, escalating to a human when a decision needs one, and signaling when they're stuck.
+Where an agent kind can reach them, Sortie registers its tools via MCP and advertises them in the first-turn prompt — the agent already knows each tool's name, input schema, and response format. This guide shows you how to add prompt instructions that make agents use those tools at the right moments: checking their turn budget, watching the token budget, reviewing prior run history, querying the tracker, escalating to a human when a decision needs one, and signaling when they're stuck.
 
 ## Prerequisites
 
-- Sortie running with an MCP-compatible agent (Claude Code, Copilot CLI)
+- Sortie running with an agent kind that reaches the tools (see [pick a kind that has the tools](#pick-a-kind-that-has-the-tools))
 - A `WORKFLOW.md` with valid front matter ([write a prompt template](/guides/write-prompt-template/))
 - Familiarity with available tool schemas ([agent extensions reference](/reference/agent-extensions/))
+
+## Pick a kind that has the tools
+
+Not every agent kind can call Sortie's tools, and for two of them it depends on where the session runs. Decide this before you write a line of tool guidance into a prompt.
+
+| `agent.kind` | Local dispatch | Dispatch over SSH |
+|---|---|---|
+| `claude-code` | Tools available | Tools available |
+| `copilot-cli` | Tools available | Tools available |
+| `codex` | Tools available | No tools |
+| `opencode` | Tools available | No tools |
+| `kiro` | No tools | No tools |
+
+A session with no tools is not told about them either: Sortie withholds the first-turn advertisement rather than name a tool the agent cannot call. Nothing fails — the agent simply works without them.
+
+Two consequences for the way you write prompts:
+
+- If you run [agents over SSH](/guides/scale-agents-with-ssh/) and want tools, keep those workflows on `claude-code` or `copilot-cli`. Moving a `codex` or `opencode` workflow onto a host pool silently removes the tools from every session it dispatches.
+- Instructions you write yourself are not withheld. If a workflow can dispatch to a kind with no channel, phrase them conditionally — "If the `cost_budget` tool is available" — the way the `notify_operator` examples below do, so an agent without the tool is not left chasing one.
+
+Run [`sortie validate`](/reference/cli/#validate) to see where a workflow stands. A kind with no channel anywhere draws an `agent.kind.no_tool_channel` warning; the file stays valid and the exit code stays `0`.
 
 ## Guide the agent to check its own status
 

@@ -39,9 +39,9 @@ To disable the server entirely, pass `--port 0`. For the full `server` extension
 
 Sortie binds to `127.0.0.1` by default. The dashboard is accessible on the machine where Sortie is running - not from other hosts on the network. This is intentional: Sortie is a local orchestration tool, and the dashboard is a local monitoring surface.
 
-For container deployments or when Sortie runs on a remote host, pass `--host 0.0.0.0` to listen on all interfaces. Alternatively, place a reverse proxy such as Nginx in front of it and forward traffic to the local port. Secure the proxy with authentication; Sortie's HTTP server has no built-in auth.
+`--host` accepts any IP address; `--host 0.0.0.0` listens on all interfaces. Sortie's HTTP server has no built-in authentication on any interface it binds.
 
-For production monitoring across multiple hosts, use the [Prometheus `/metrics` endpoint](/reference/prometheus-metrics/) with a Prometheus server and [Grafana](https://prometheus.io/docs/visualization/grafana/) dashboards. Prometheus is built for aggregated, historical, alertable monitoring - the dashboard is not.
+Aggregated, historical, and alertable monitoring is served by the [Prometheus `/metrics` endpoint](/reference/prometheus-metrics/) rather than by this page.
 
 ## Header
 
@@ -50,7 +50,7 @@ The top bar displays:
 | Element | Description |
 |---|---|
 | **Sortie** | Application name. |
-| Version badge | Build version string (e.g., `1.19.0`). Shows `dev` when running an untagged build. |
+| Version badge | Build version string. Shows `dev` when running an untagged build. |
 | Uptime | Wall-clock time since the process started, formatted as `Xd Xh Xm` or `Xh Xm Xs`. |
 | Timestamp | UTC time when the snapshot was generated, in `HH:MM:SS UTC` format. |
 
@@ -120,7 +120,7 @@ Lists every agent session that is actively executing. Sorted by start time (olde
 |---|---|
 | **Workflow** | Name of the WORKFLOW.md file that dispatched this session. Shows an em dash when unavailable. |
 | **Host** | SSH host where the agent is running. This field appears only when at least one session uses an SSH host. Shows `local` for sessions running on the same machine as Sortie. |
-| **Model** | LLM model name reported by the agent (e.g., `claude-sonnet-4-20250514`). Shows an em dash when the agent has not reported a model. |
+| **Model** | LLM model name reported by the agent. Shows an em dash when the agent has not reported a model. |
 | **API Requests** | Number of API requests the agent has made to the LLM provider. |
 | **Tokens** | Total tokens consumed by this session. When cache-read tokens are nonzero, they appear in parentheses (e.g., `12,450 (8,200 cached)`). Shows `not reported` when the coding agent has reported no token usage for this session, which is distinct from a reported `0`. |
 | **Est. Cost** | Estimated cost for this session based on configured [token rates](/reference/workflow-config/#token_rates). Shows an em dash when token rates are not configured for this session's agent adapter kind, or when its **Tokens** field reads `not reported`. This field appears only when `token_rates` is configured. |
@@ -158,7 +158,7 @@ Lists recently completed session attempts - both successful and failed. Shows th
 | Column | Description |
 |---|---|
 | **Identifier** | Issue identifier. Prefixed with an expand indicator (▶). |
-| **Status** | Outcome of the attempt (e.g., `completed`, `error`, `cancelled`). |
+| **Status** | Terminal outcome of the attempt: `succeeded`, `failed`, `cancelled`, `ci_failed`, or `needs_person`. |
 | **Started** | RFC 3339 timestamp when the session started. |
 | **Duration** | Wall-clock time from start to completion. Computed from the start and completion timestamps. |
 
@@ -198,7 +198,7 @@ $$
 \text{cost} = \frac{\text{input\_tokens} \times \text{input\_per\_mtok} + \text{output\_tokens} \times \text{output\_per\_mtok} + \text{cache\_read\_tokens} \times \text{cache\_read\_per\_mtok}}{1{,}000{,}000}
 $$
 
-The aggregate cost card sums per-session costs across currently running sessions. It does not include historical sessions because the `aggregate_metrics` table stores unpartitioned global token totals without an agent-kind dimension - applying a single rate to lifetime totals would produce misleading numbers when the workspace has used multiple adapter kinds with different pricing.
+The aggregate cost card sums per-session costs across currently running sessions. Historical sessions are excluded.
 
 Each running session's cost is resolved using the agent adapter kind captured at dispatch time (e.g., `claude-code`, `copilot-cli`). When a session's adapter kind does not match any configured rate, that session contributes no cost and shows an em dash in the detail panel.
 

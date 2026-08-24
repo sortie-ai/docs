@@ -100,7 +100,7 @@ polling:
 {{ end }}
 ```
 
-Run `sortie validate ./WORKFLOW.md` to catch syntax errors before starting.
+Run `sortie validate ./WORKFLOW.md` to catch syntax errors before starting. It also reports an `agent.kind.no_tool_channel` warning here, because the mock agent launches no process for Sortie's tools to reach. The configuration stays valid and the exit code stays `0`, but it marks the edge of this rig: a prompt that calls a Sortie tool is the one thing the file adapter and the mock agent cannot exercise together. See the [`validate` command reference](/reference/cli/#validate) for the check.
 
 ### Run and observe
 

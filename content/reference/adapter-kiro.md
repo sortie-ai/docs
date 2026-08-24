@@ -48,37 +48,46 @@ agent:
 
 ### `kiro` extension section
 
-These fields are adapter-specific. The orchestrator forwards them to the adapter without validation. Each field maps to a `kiro-cli chat` flag.
+These fields are adapter-specific, and each maps to a `kiro-cli chat` flag. The trust keys are checked before any run starts; see [validate-time checks](#validate-time-checks).
 
 | Field | CLI flag | Type | Default | Description |
 |---|---|---|---|---|
 | `model` | `--model` | string | _(CLI default)_ | Model identifier passed on every turn. Pinned per turn because the `/model` slash command is unavailable headless. |
-| `trust_all_tools` | `--trust-all-tools` | boolean | `false` | Auto-approves every tool call. Mutually exclusive with `trust_tools`. |
-| `trust_tools` | `--trust-tools=<csv>` | list of strings | `[]` | Comma-joined tool allowlist. An empty list trusts nothing. Mutually exclusive with `trust_all_tools`. |
+| `trust_all_tools` | `--trust-all-tools` | boolean | `true` when neither trust key is set | Auto-approves every tool call. Mutually exclusive with `trust_tools`. |
+| `trust_tools` | `--trust-tools=<csv>` | list of strings | _(absent)_ | Comma-joined tool allowlist. Setting it is refused; see [tool trust behavior](#tool-trust-behavior). Mutually exclusive with `trust_all_tools`. |
 | `agent` | `--agent` | string | _(none)_ | Named Kiro context profile (custom agent). |
 
 ```yaml
 kiro:
-  model: claude-sonnet-4.6
-  trust_tools:
-    - read
-    - grep
-    - glob
+  model: <model-id>
 ```
-
-`trust_all_tools: true` together with a non-empty `trust_tools` list is rejected when the adapter is constructed. `parsePassthroughConfig` returns the error `trust_all_tools and trust_tools are mutually exclusive`, and the adapter fails to load.
 
 ### Tool trust behavior
 
-The adapter selects exactly one trust mode per turn and serializes it into `buildArgs`:
+The adapter resolves one trust posture from the configuration and serializes it into a single argument per turn. `trust_all_tools` resolves to `true` when the `kiro` block sets neither trust key, so a configuration that names only a model trusts every tool. An explicit value is used unmodified, including an explicit `false` and an explicit empty `trust_tools` list.
 
 | Configuration | Argument emitted | Effect |
 |---|---|---|
-| `trust_all_tools: true` | `--trust-all-tools` | Auto-approves every tool call. |
-| `trust_tools` non-empty | `--trust-tools=<comma-joined>` | Auto-approves only the listed tools. |
-| Neither configured | `--trust-tools=` | Trusts nothing. The flag is always present. |
+| Neither key set | `--trust-all-tools` | Approves every tool call. |
+| `trust_all_tools: true` | `--trust-all-tools` | Approves every tool call. |
+| `trust_all_tools: false`, or any `trust_tools` value | `--trust-tools=<comma-joined>` | Approves only the listed tools. Refused before the run. |
 
-`--trust-tools` is the default mode. When `trust_all_tools` is false, the adapter always passes `--trust-tools=<csv>`, with an empty value when `trust_tools` is unset. Kiro's built-in tool catalog includes `read`, `write`, `glob`, `grep`, and `shell`, plus aliases such as `fs_read`, `fs_write`, and `execute_bash`, and the further tools `aws`, `web_search`, `web_fetch`, `code`, and `report`. A read-only profile (`read`, `grep`, `glob`) is the least-privilege starting point; add `write` and `shell` only when the workflow requires file edits or command execution, and only inside a sandbox. The full catalog and its default permissions are documented in the Kiro adapter research notes.
+Only full trust is accepted today. What `kiro-cli chat --no-interactive` does when it meets a tool the allowlist does not cover is unestablished: observing it needs an authenticated headless turn, and the credential to drive one was not available. The conservative reading is that the CLI waits for an approval an unattended run has nobody to give, so any posture that can still reach an untrusted tool call draws the `kiro.trust_tools.untrusted` error rather than being accepted unexamined. Leave both keys unset, or set `trust_all_tools: true`, and run the agent inside a hardened sandbox.
+
+---
+
+## Validate-time checks
+
+When `agent.kind` is `kiro`, the [`sortie validate`](/reference/cli/#validate) pipeline runs Kiro-specific config checks in addition to the generic preflight validation. They construct no adapter instance and launch no subprocess, and the same checks run at startup and on every workflow reload, so the verdict is identical in all three places.
+
+### Errors
+
+| Check | Condition | Message |
+|---|---|---|
+| `kiro.trust_tools.conflict` | `trust_all_tools` is true and `trust_tools` is also non-empty | `trust_all_tools and trust_tools are mutually exclusive` |
+| `kiro.trust_tools.untrusted` | The resolved trust posture is anything short of full trust | `trust_all_tools does not resolve to true, and kiro-cli's behavior on an untrusted tool under --no-interactive is unestablished; the conservative assumption is that it waits for an approval this unattended run cannot give, so trust_all_tools: true (or leaving trust_all_tools and trust_tools both unset) is required` |
+
+The adapter constructor reports the mutual-exclusion fault with the same message, so the two paths can never disagree.
 
 ---
 
@@ -89,7 +98,7 @@ The adapter selects exactly one trust mode per turn and serializes it into `buil
 Validates the workspace path, resolves the `kiro-cli` binary, verifies the credential, and initializes per-session state. No subprocess is spawned.
 
 1. Resolves the launch target via `agentcore.ResolveLaunchTarget(params, "kiro-cli")`. This validates that the workspace path is a non-empty absolute path pointing to an existing directory, and resolves `command` via `exec.LookPath`, defaulting to `kiro-cli`. In SSH mode, it resolves the local `ssh` binary instead and stores the remote command for later use.
-2. **Local mode:** runs the credential preflight (`checkCredential`). Confirms `KIRO_API_KEY` is set, then runs a `kiro-cli whoami` canary. See [authentication](#authentication).
+2. **Local mode:** runs the credential preflight. Confirms `KIRO_API_KEY` is set, then runs a `kiro-cli whoami` canary. See [authentication](#authentication).
 3. **SSH mode:** skips the credential preflight and injects `KIRO_API_KEY` inline into the remote command, shell-quoted. See [SSH remote execution](#ssh-remote-execution).
 4. Initializes per-session state: launch target, agent config, pass-through config, logger, the `ResumeSessionID` value as `sessionID`, and a fresh per-turn stdout accumulator.
 5. Constructs the `agentcore.ForkPerTurnSession` that owns the subprocess lifecycle for this session.
@@ -157,7 +166,7 @@ stderr carries the signals the adapter classifies:
 | `Authentication failed.` | The credential is present but invalid. |
 | Warnings (for example, `Failed to retrieve MCP settings`) | Non-fatal diagnostics. Re-emitted at WARN level on failure paths. |
 
-There are no per-event timestamps in the transcript. The adapter cannot reconstruct tool-call durations, so it emits no `EventToolResult` events. These findings are documented in the Kiro adapter research notes. This section replaces the JSONL event stream, event type mapping, and result event field sections of the structured-output adapters, none of which apply to Kiro.
+There are no per-event timestamps in the transcript. The adapter cannot reconstruct tool-call durations, so it emits no tool-result events. That is the practical difference from an adapter with a structured stream: there is nothing to correlate, so tool activity does not reach Sortie's events at all.
 
 ---
 
@@ -175,18 +184,20 @@ Time-based budget enforcement is the only supported mechanism. Set `agent.turn_t
 
 ### Outcome classification
 
-The turn outcome is determined from the process exit status and the two stderr signals. The exit-0 branches and the generic non-zero branch are decided by the adapter's `OnFinalize` callback. Exit 127, signal termination, and cancellation are decided by the shared fork-per-turn skeleton before `OnFinalize` runs.
+The turn outcome is determined from the process exit status and the two stderr signals. The adapter's own classifier reports an outcome for exactly two cases - an exit-0 turn that printed the credits trailer, and an exit-0 turn whose stdout was empty and whose stderr carried the authentication marker. Everything else is decided by the shared decision table from the exit status alone, so the messages on those rows are the shared ones rather than anything Kiro-specific.
 
-| Kiro evidence | Exit reason | Error kind | Decided by |
-|---|---|---|---|
-| Exit 0 with a `▸ Credits:` trailer on stderr | `turn_completed` | _(none)_ | `OnFinalize`. Sets the resume flag for subsequent turns. |
-| Exit 0, empty stdout, no credits trailer, `Authentication failed.` on stderr | `turn_failed` | `response_error` | `OnFinalize`. Message: `kiro authentication failed`. |
-| Exit 0, no credits trailer (any other case) | `turn_failed` | `turn_failed` | `OnFinalize`. Message: `kiro exited without a credits trailer`. |
-| Any other non-zero exit | `turn_failed` | `port_exit` | `OnFinalize`. Message: `kiro exited with a non-zero status`. |
-| Exit 127 (binary not found) | `turn_failed` | `agent_not_found` | Shared skeleton. |
-| SIGTERM (143) or SIGKILL (137) | `turn_cancelled` | `turn_cancelled` | Shared skeleton. |
-| Turn context cancelled | `turn_cancelled` | `turn_cancelled` | Shared skeleton. |
-| stdout scanner error | `turn_failed` | `port_exit` | Shared skeleton. Becomes `turn_cancelled` if the context is already cancelled. |
+| Kiro evidence | Exit reason | Error kind | Message | Decided by |
+|---|---|---|---|---|
+| Exit 0 with a `▸ Credits:` trailer on stderr | `turn_completed` | _(none)_ | _(empty)_ | The adapter's classifier. Also sets the resume flag for subsequent turns. |
+| Exit 0, empty stdout, no credits trailer, `Authentication failed.` on stderr | `turn_failed` | `response_error` | `kiro authentication failed` | The adapter's classifier. |
+| Exit 0, no credits trailer, any other case | `turn_failed` | `turn_failed` | `agent exited without producing output: no credits trailer on stderr` | Shared zero-work row. |
+| Any other non-zero exit | `turn_failed` | `port_exit` | `non-zero exit` on the event, `exit code N` on the error | Shared non-zero-exit row. |
+| Exit 127 | `turn_failed` | `agent_not_found` | `agent binary not found` | Shared skeleton, before the classifier runs. |
+| Process terminated by a signal | `turn_cancelled` | `turn_cancelled` | `killed by signal` | Shared skeleton, before the classifier runs. The skeleton tests whether the process was signalled, not for a particular exit code. |
+| Turn context cancelled | `turn_cancelled` | `turn_cancelled` | `context cancelled` | Shared skeleton, before the classifier runs. |
+| stdout scanner error | `turn_failed` | `port_exit` | `stdout read error: <detail>` | Shared skeleton. Becomes `turn_cancelled` if the context is already cancelled. |
+
+Because the adapter reports no per-turn work signal of its own, the shared zero-work row is what an exit-0 turn with no credits trailer falls through to; the trailer is consumed as the success signal rather than as work evidence.
 
 ### Why exit 0 is not success
 
@@ -205,9 +216,7 @@ Continuation is cwd-scoped. The adapter does not track a session ID across turns
 
 The resume flag is gated by a per-session `resumeRequested` state that `OnFinalize` sets to true after the first turn completes with a credits trailer. From that point, `buildArgs` appends `--resume` to every turn, which attaches to the most recent conversation in the workspace directory.
 
-The adapter uses `--resume`, not `--resume-id`. The headless conversation's session ID is not enumerable through the CLI: `--list-sessions` returns empty for a conversation created by a headless turn, and the headless turn output carries no session ID. Sortie runs one conversation per workspace, so cwd-scoped `--resume` continues the correct conversation without an ID.
-
-The Kiro adapter research notes summary table lists `--resume-id <id>` as the preferred deterministic continuation. The shipped adapter uses cwd-scoped `--resume` instead, for the reasons above. This page documents the shipped adapter.
+The adapter passes no conversation identifier, because it has none to pass: the headless transcript carries no session ID and the adapter reads no local session store. The only identity a Kiro session carries is Sortie's own `ResumeSessionID`, which is reported back on the turn result and used for logging but never reaches the CLI. Sortie runs one conversation per workspace, so cwd-scoped continuation resolves to the right conversation without an ID.
 
 ---
 
@@ -246,7 +255,7 @@ SSH exit code `255` indicates a connection failure (refused, timeout, unreachabl
 
 ## Authentication
 
-The adapter consumes `KIRO_API_KEY`. The headless path requires a Kiro Pro, Pro+, or Power subscription. Sortie does not manage the credential beyond the preflight; the subprocess inherits the full parent process environment, and `kiro-cli` reads the key directly.
+The adapter consumes `KIRO_API_KEY`. Which subscription plans entitle an account to headless API-key access is Kiro's to document; see the [external references](#external-references). Sortie does not manage the credential beyond the preflight; the subprocess inherits the full parent process environment, and `kiro-cli` reads the key directly.
 
 `StartSession` runs a credential preflight in local mode (`checkCredential`):
 
@@ -264,22 +273,26 @@ The preflight defends against two distinct failure shapes:
 The presence check defends against the hang; the `whoami` canary defends against the silent exit-0 failure. It runs once per session, before any turn; a turn that goes silent afterward is ended by stall detection, and the turn timeout is the bound that remains if stall detection is disabled.
 
 {{< callout type="warning" >}}
-**MCP is unavailable on the `KIRO_API_KEY` path.** The backend profile gate returns 403 under API-key authentication and disables MCP. `StartSessionParams.MCPConfigPath` has no effect, and `--require-mcp-startup` is unreachable. See [MCP](#mcp).
+**MCP is unavailable on the `KIRO_API_KEY` path.** A server-side profile check fails under API-key authentication and the CLI disables MCP. The adapter passes no MCP flag and ignores the MCP configuration path the worker generates, so a Kiro session reaches no MCP server and none of Sortie's own tools. Its first-turn prompt carries no tool advertisement either. See [MCP](#mcp).
 {{< /callout >}}
 
 **Required environment variables:**
 
 | Variable | Required | Description |
 |---|---|---|
-| `KIRO_API_KEY` | Yes (local mode) | Headless credential. Requires a Kiro Pro, Pro+, or Power subscription. In SSH mode, the orchestrator injects it inline into the remote command. |
+| `KIRO_API_KEY` | Yes (local mode) | Headless credential. In SSH mode, the orchestrator injects it inline into the remote command. |
 
 ---
 
 ## MCP
 
-MCP is inert under `KIRO_API_KEY` authentication. The backend `GetProfile` call returns HTTP 403, the CLI logs that MCP configuration could not be checked and defaults to disabled, and it prints `Failed to retrieve MCP settings; MCP functionality disabled` to stderr on every invocation.
+MCP is inert on the `KIRO_API_KEY` path. A server-side profile check fails under API-key authentication, the CLI defaults MCP to disabled, and it writes a `Failed to retrieve MCP settings` warning to stderr on every invocation, which the adapter surfaces as an ordinary non-fatal stderr diagnostic.
 
-With MCP disabled, a workspace `mcp.json` is not loaded, `StartSessionParams.MCPConfigPath` has no effect, and `--require-mcp-startup` exit 3 is unreachable. There is no per-launch `--mcp-config` flag on `chat`. The adapter passes no MCP flag and does not depend on MCP injection. This behavior is documented in the Kiro adapter research notes, which trace it to a profile-entitlement gate rather than a missing configuration.
+With MCP disabled, a workspace `mcp.json` is not loaded and the MCP config path Sortie generates has no effect. The adapter passes no MCP flag and does not depend on MCP injection, so a Kiro session reaches no MCP server whatever the workspace holds.
+
+Because there is no channel, Sortie withholds the first-turn tool advertisement for this kind: a Kiro session is never told about tools it could not call. The absence of an "Available Sortie tools" section from a Kiro prompt is the intended behavior, not a rendering fault. [`sortie validate`](/reference/cli/#validate) states the same thing offline, as an `agent.kind.no_tool_channel` warning; the configuration stays valid and the run proceeds.
+
+Setting `kiro.mcp_config` therefore cannot reach the agent. The worker still reads the file it names and merges its servers into the generated copy, so an unreadable path or a file already declaring a `sortie-tools` server still fails the attempt, and what the merge produces goes nowhere. `sortie validate` reports that combination as a second warning, `agent.mcp_config`, naming the kind.
 
 ---
 
@@ -298,8 +311,10 @@ The adapter registers itself under kind `"kiro"` via an `init` function in `inte
 | Property | Value |
 |---|---|
 | `RequiresCommand` | `true` |
+| `ValidateAgentConfig` | the checks described in [Validate-time checks](#validate-time-checks) |
+| `MCPInjection` | `unsupported` - the adapter never delivers the generated configuration to the agent process, in any form. See [MCP](#mcp). |
 
-The orchestrator's preflight validation uses this metadata to require a non-empty `agent.command` field for `agent.kind: kiro`. Binary lookup happens during `StartSession` via `exec.LookPath`, with `kiro-cli` as the default command.
+The orchestrator's preflight validation uses `RequiresCommand` to require a non-empty `agent.command` field for `agent.kind: kiro`. Binary lookup happens during `StartSession` via `exec.LookPath`, with `kiro-cli` as the default command.
 
 ---
 
@@ -321,8 +336,8 @@ The orchestrator's preflight validation uses this metadata to require a non-empt
 | Inner turn limit | `claude-code.max_turns` | `copilot-cli.max_autopilot_continues` | None | None exposed by the adapter | None exposed by the adapter |
 | Exit-code reliability | Structured result event plus exit | Structured `result.exitCode` plus exit | JSON-RPC turn status | Terminal stdout `error` can still exit `0` | Exit `0` is ambiguous; success requires the credits trailer on stderr |
 | Credential preflight | None | Env vars + `gh auth status` | `account/read` over JSON-RPC | None | `kiro-cli whoami` canary at session start |
-| MCP availability | `--mcp-config` sidecar | `--additional-mcp-config` sidecar | `dynamicTools` on `thread/start` | None injected by the adapter | Inert under `KIRO_API_KEY` (profile gate disables) |
-| Authentication | `ANTHROPIC_API_KEY` (+ Bedrock, Vertex) | `COPILOT_GITHUB_TOKEN` / `GH_TOKEN` / `GITHUB_TOKEN` / `gh auth` | `CODEX_API_KEY` or cached Codex auth | OpenCode-managed provider auth | `KIRO_API_KEY` (Kiro Pro, Pro+, or Power) |
+| Sortie's tools | Generated config path on `--mcp-config` | Generated config path on `--additional-mcp-config` | Generated servers re-expressed as command-line overrides, local launch only | Generated servers re-expressed as an inline configuration document, local launch only | None; the profile gate disables MCP under `KIRO_API_KEY`, and the first-turn advertisement is withheld |
+| Authentication | `ANTHROPIC_API_KEY` (+ Bedrock, Vertex) | `COPILOT_GITHUB_TOKEN` / `GH_TOKEN` / `GITHUB_TOKEN` / `gh auth` | `CODEX_API_KEY` or cached Codex auth | OpenCode-managed provider auth | `KIRO_API_KEY` |
 
 ---
 

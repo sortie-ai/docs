@@ -82,7 +82,7 @@ mkdir sortie-kiro-e2e && cd sortie-kiro-e2e
 
 Create `WORKFLOW.md` with the configuration below. Replace `yourorg/yourrepo` with your repository in the three places it appears: the tracker project, the clone URL, and the pull-request target.
 
-```jinja {filename="WORKFLOW.md",hl_lines=["39-44","46-53"]}
+```jinja {filename="WORKFLOW.md",hl_lines=["39-44","46-47"]}
 ---
 tracker:
   kind: github
@@ -130,15 +130,6 @@ agent:
 
 kiro:
   model: claude-sonnet-4.6
-  trust_tools:
-    - read
-    - grep
-    - glob
-    - write
-    - shell
-
-server:
-  port: 8642
 ---
 
 You are a senior engineer working in this repository.
@@ -186,7 +177,7 @@ making changes. Do not repeat the same approach that failed.
 {{ end }}
 ```
 
-If you arrived from the Copilot tutorial, the tracker, polling, workspace, hooks, and server sections will look familiar. The Kiro-specific work sits in the highlighted `agent` and `kiro` blocks. Three things are worth a closer look.
+If you arrived from the Copilot tutorial, the tracker, polling, workspace, and hooks sections will look familiar. The Kiro-specific work sits in the highlighted `agent` and `kiro` blocks. Three things are worth a closer look.
 
 ### Agent: Kiro CLI instead of Copilot
 
@@ -199,10 +190,12 @@ The `kiro:` block is the adapter-specific pass-through. If you came from the Cop
 | Setting | `copilot-cli:` block | `kiro:` block |
 |---|---|---|
 | Model | `model: gpt-4.1` | `model: claude-sonnet-4.6` |
-| Tool permissions | on by default | `trust_tools: [read, grep, glob, write, shell]` |
+| Tool permissions | on by default | on by default; both trust keys left unset |
 | Inner step budget | `max_autopilot_continues: 50` | none; bounded by `turn_timeout_ms` |
 
-Two Kiro specifics drive that block. The model must be pinned with `model:`, because Kiro's interactive `/model` switch does not exist in headless mode; the adapter passes `--model` on every turn. Pin one of the names `--list-models` returned earlier. The `trust_tools` list is the set of tools the agent may run without a confirmation prompt, which matters because a headless turn has no human to approve anything. A read-only set (`read`, `grep`, `glob`) is the least-privilege starting point, and this task has to create a file and run tests, so we add `write` and `shell`. The block also accepts `trust_all_tools` and a custom `agent` selector; those, and how the trust mode is serialized, live in the [Kiro adapter reference](/reference/adapter-kiro/).
+One Kiro specific drives that block: the model must be pinned with `model:`, because Kiro's interactive `/model` switch does not exist in headless mode, and the adapter passes `--model` on every turn. Pin one of the names `--list-models` returned earlier.
+
+We set no tool-trust key. With neither `trust_all_tools` nor `trust_tools` present the adapter passes `--trust-all-tools`, so the agent runs every tool without a confirmation prompt, which a headless turn needs because no one is there to approve anything. A narrower allowlist is refused today: what `kiro-cli` does when it meets a tool it does not trust under `--no-interactive` has not been established, and the conservative assumption is that it waits for an approval that never arrives. Full trust means running this inside a hardened sandbox. The [Kiro adapter reference](/reference/adapter-kiro/#tool-trust-behavior) covers the trust posture and the `agent` selector the block also accepts.
 
 ### Authentication and budgeting
 
@@ -235,7 +228,13 @@ Check for syntax errors and misconfigured fields before running:
 sortie validate ./WORKFLOW.md
 ```
 
-No output means no errors. Confirm with `echo $?`, which should print `0`.
+One advisory warning is expected here:
+
+```
+warning: agent.kind.no_tool_channel: agent kind "kiro" has no tool execution channel: Sortie's tools are neither advertised nor callable for it
+```
+
+Kiro's runtime disables MCP under the API-key credential this tutorial uses, so Sortie's own agent tools cannot reach the session and its first-turn prompt does not offer them. The agent still reads the issue, writes code, and pushes a branch, which is everything this walkthrough needs. A warning leaves the configuration valid: confirm with `echo $?`, which should print `0`. Anything printed with an `error:` prefix is a real problem to fix before running.
 
 ### Run Sortie
 
@@ -245,14 +244,14 @@ Start Sortie:
 sortie ./WORKFLOW.md
 ```
 
-You should see output similar to this (timestamps and IDs will differ):
+You should see output similar to this (timestamps and IDs will differ, and the `tick completed` lines carry more fields than shown here):
 
 ```
 level=INFO msg="sortie starting" version=0.x.x workflow_path=/home/you/sortie-kiro-e2e/WORKFLOW.md
 level=INFO msg="database path resolved" db_path=/home/you/sortie-kiro-e2e/.sortie.db
-level=INFO msg="http server listening" address=127.0.0.1:8642
+level=INFO msg="http server listening" addr=127.0.0.1:7678
 level=INFO msg="sortie started"
-level=INFO msg="tick completed" candidates=1 dispatched=1 running=1 retrying=0
+level=INFO msg="tick completed" candidates=1 dispatched=1 ... running=1 retrying=0 ...
 level=INFO msg="workspace created" issue_id=7 issue_identifier=7
 level=INFO msg="hook started" hook=after_create issue_identifier=7
 level=INFO msg="hook completed" hook=after_create issue_identifier=7
@@ -273,7 +272,7 @@ level=INFO msg="hook started" hook=after_run issue_identifier=7
 level=INFO msg="hook completed" hook=after_run issue_identifier=7
 level=INFO msg="worker exiting" issue_id=7 issue_identifier=7 exit_kind=normal turns_completed=1
 level=INFO msg="handoff transition succeeded, releasing claim" issue_id=7 issue_identifier=7 handoff_state=review
-level=INFO msg="tick completed" candidates=0 dispatched=0 running=0 retrying=0
+level=INFO msg="tick completed" candidates=0 dispatched=0 ... running=0 retrying=0 ...
 ```
 
 Here is the full lifecycle, step by step:
@@ -343,11 +342,11 @@ gh pr list --repo yourorg/yourrepo --head "sortie/7"
 
 You should see one open pull request from `sortie/7` into `main`.
 
-If the label did not change, check the Sortie logs for the transition error. A missing `review` label is not the cause — GitHub creates one on demand when Sortie applies it. The usual culprit is a token without Issues write permission on the repository.
+If the label did not change, check the Sortie logs for the transition error. The usual culprit is a token without Issues write permission on the repository.
 
 ### Check the dashboard
 
-Open [http://127.0.0.1:8642/](http://127.0.0.1:8642/) in a browser while Sortie is running, the port from `server.port`. You will see summary cards and a run history table with the completed session: its issue identifier, turn count, duration, and exit status. The token total reads zero, which is expected for Kiro, as the budgeting note above explains.
+Open [http://127.0.0.1:7678/](http://127.0.0.1:7678/) in a browser while Sortie is running, on Sortie's default port. You will see summary cards and a run history table with the completed session: its issue identifier, turn count, duration, and exit status. The token total reads zero, which is expected for Kiro, as the budgeting note above explains.
 
 ### Troubleshooting
 

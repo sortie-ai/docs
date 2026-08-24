@@ -17,7 +17,7 @@ This guide configures Sortie to poll issues from a Linear team, dispatch agents,
 
 ## Authenticate with a personal API key
 
-Create a personal API key in Linear under **Settings > Account > Security & Access**. Restrict it to the team you plan to point Sortie at, with Read and Write access, so the key can read issues and transition them.
+Create a personal API key in Linear, restricted to the team you plan to point Sortie at, with read and write access, so the key can read issues and transition them. Where key creation and scoping live in Linear's own settings is Linear's to document; see its [API and webhooks docs](https://linear.app/docs/api-and-webhooks).
 
 Store the key in an environment variable so it stays out of your `WORKFLOW.md`:
 
@@ -35,7 +35,7 @@ tracker:
 
 `kind` and `api_key` are the only fields needed to authenticate. The `endpoint` field defaults to `https://api.linear.app/graphql`, so you omit it for hosted Linear.
 
-Linear reads the key from the `Authorization` header **verbatim, with no `Bearer` prefix**. This is the most common Linear integration mistake. A `Bearer`-prefixed key is rejected with an HTTP 400 whose body tells you to remove the prefix. Sortie passes the key through unchanged, so the value in `SORTIE_LINEAR_API_KEY` must be the bare key, no scheme and no surrounding whitespace. `sortie validate` warns when the resolved key carries leading or trailing whitespace, or when it lacks the `lin_api_` prefix that personal keys start with.
+Linear reads the key from the `Authorization` header **verbatim, with no `Bearer` prefix**. This is the most common Linear integration mistake. Sortie passes the key through unchanged, so the value in `SORTIE_LINEAR_API_KEY` must be the bare key, no scheme and no surrounding whitespace. `sortie validate` warns when the resolved key carries leading or trailing whitespace, or when it lacks the `lin_api_` prefix that personal keys start with.
 
 Prove the key works before you wire it in. The `viewer` query is the cheapest call that identifies the acting user:
 
@@ -195,7 +195,7 @@ This configuration polls every 60 seconds, picks up issues labeled `agent-ready`
 sortie validate ./WORKFLOW.md
 ```
 
-`sortie validate` parses the front matter, compiles the prompt template, and runs the offline Linear checks: an `api_key` is present, `project` has no whitespace or stray `/`, state names are neither empty nor padded with whitespace, `active_states` and `terminal_states` do not overlap, and `handoff_state` collides with neither list. That last one is an error rather than a warning: Sortie will not start on it. It does not contact Linear. It cannot tell you whether the key works or whether the team and state names exist, because those are construction-time checks.
+`sortie validate` parses the front matter, compiles the prompt template, and runs the offline Linear checks: an `api_key` is present, `endpoint` (if set) is a valid absolute http(s) URL with a host, `project` has no whitespace or stray `/`, state names are neither empty nor padded with whitespace, `active_states` and `terminal_states` do not overlap, and `handoff_state` collides with neither list. That last one is an error rather than a warning: Sortie will not start on it. It does not contact Linear. It cannot tell you whether the key works or whether the team and state names exist, because those are construction-time checks.
 
 ### Run one read-only poll
 

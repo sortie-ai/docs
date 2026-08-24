@@ -6,9 +6,9 @@ date: 2026-03-30
 weight: 130
 url: /reference/adapter-github/
 ---
-The GitHub adapter connects Sortie to **GitHub Issues** via the GitHub REST API (version `2026-03-10`). It fetches candidate issues from the issues list endpoint (or the search endpoint when `query_filter` is configured), derives Sortie states from issue labels, normalizes responses to the domain issue model, paginates using `Link` header navigation, and maps HTTP errors to Sortie's normalized error categories. Registered under kind `"github"`.
+The GitHub adapter connects Sortie to **GitHub Issues** via the GitHub REST API. It fetches candidate issues from the issues list endpoint (or the search endpoint when `query_filter` is configured), derives Sortie states from issue labels, normalizes responses to the domain issue model, paginates using `Link` header navigation, and maps HTTP errors to Sortie's normalized error categories. Registered under kind `"github"`.
 
-GitHub Enterprise Server is supported. Set `endpoint` to your GHES base URL. The sub-issue (`parent`) and dependency (`blocked_by`) endpoints are available on all GitHub plans; the adapter degrades gracefully to `nil` and `[]` respectively when the endpoints return 404.
+GitHub Enterprise Server is supported. Set `endpoint` to your GHES base URL. The sub-issue (`parent`) and dependency (`blocked_by`) endpoints are available on all GitHub plans. A 404 on the parent endpoint degrades gracefully to `nil` - there is legitimately no parent. A 404 on the dependency endpoint is treated as a failure instead: see [blocker extraction](#blocker-extraction).
 
 See also: [WORKFLOW.md configuration](/reference/workflow-config/) for the full tracker schema, [error reference](/reference/errors/) for all tracker error kinds, [environment variables](/reference/environment/) for `$VAR` expansion behavior.
 
@@ -33,7 +33,9 @@ The adapter reads its configuration from the `tracker` section of the [WORKFLOW.
 
 ### `endpoint`
 
-The GitHub API base URL. The default value is `https://api.github.com`. For GitHub Enterprise Server, set this to your instance's API root (for example, `https://github.mycompany.com`). Trailing slashes are stripped.
+The GitHub API base URL. The default value is `https://api.github.com`. For GitHub Enterprise Server, set this to your instance's API root (for example, `https://github.mycompany.com`). Surrounding whitespace and trailing slashes are trimmed.
+
+A present value must parse as an absolute `http` or `https` URL carrying a hostname, with neither a query nor a fragment; anything else is rejected before any client is built, rather than surfacing later as a network error. A port-only value such as `http://:80` has no hostname and is rejected for the same reason. An IPv6 literal must be bracketed - `http://[fd00::1]:3000`, not `http://fd00::1:3000` - since the unbracketed form cannot be told apart from a host with a trailing port.
 
 Accepts [`$VAR` indirection](/reference/environment/#var-indirection-in-workflowmd) when the entire value is a variable reference.
 
@@ -100,6 +102,7 @@ When `tracker.kind` is `github`, the [`sortie validate`](/reference/cli/#validat
 
 | Check | Condition | Message |
 |---|---|---|
+| `tracker.endpoint.invalid` | A non-empty `tracker.endpoint` does not parse as an absolute http(s) URL with a hostname, or carries a query or a fragment | `tracker.endpoint must be an absolute http(s) URL with a host (e.g. "https://github.example.com/api/v3")` |
 | `tracker.project.format` | `tracker.project` is non-empty but does not contain exactly one `/`, or either segment is empty after trimming | `tracker.project must be in owner/repo format (e.g. "sortie-ai/sortie")` |
 | `tracker.project.format` | `owner` or `repo` segment contains whitespace | `tracker.project owner and repo must not contain whitespace` |
 
@@ -136,7 +139,7 @@ Additional fixed headers on all requests:
 | Header | Value |
 |---|---|
 | `Accept` | `application/vnd.github+json` |
-| `X-GitHub-Api-Version` | `2026-03-10` |
+| `X-GitHub-Api-Version` | A REST API version the adapter pins. Sortie is therefore insulated from a newer API version's changes until the pin moves. |
 | `User-Agent` | `sortie/<version>` on tracker requests; the configured `user_agent` value on SCM and CI requests, defaulting to `sortie/dev` |
 
 The HTTP client has a 30-second per-request timeout. Context cancellation is propagated - a cancelled context causes the in-flight request to return immediately with `context.Canceled`.
@@ -177,112 +180,40 @@ All comparisons are case-insensitive. A label named `"In-Progress"` matches the 
 
 ## API operations
 
-The adapter implements all eight methods of the `TrackerAdapter` interface.
+The adapter implements every method of the tracker contract against GitHub's issues, search, and comments surfaces. Which route serves which call is GitHub's to document; see [external references](#external-references). What follows is the behaviour those calls produce, which is Sortie's.
 
-### `FetchCandidateIssues`
+### Candidate polling
 
-Returns issues in configured active states.
+Without `query_filter`, the adapter reads open issues and filters them by state label on the client. With `query_filter` set, it moves to the search surface and lets GitHub apply the filter, composing your expression with a repository and open-issue constraint. That choice is the one with operational consequences: search is metered far more tightly, so a filter plus a short poll interval is what exhausts a budget. See [rate limits](#rate-limits).
 
-**When `query_filter` is empty (default - issues endpoint):**
+Pull requests are removed from every response. GitHub's issues surface returns both, and Sortie drops the pull-request entries rather than dispatching an agent against one.
 
-- **Endpoint:** `GET /repos/{owner}/{repo}/issues`
-- **Parameters:** `state=open`, `sort=created`, `direction=asc`, `per_page=50`
-- All open issues are fetched and filtered client-side by state label. Pull requests are filtered out via the `pull_request` field marker.
+Paging is bounded. The adapter reads 50 records per page and stops at 200 pages, so a single poll sees at most 10,000 issues. On reaching that ceiling it logs a warning and returns what it has rather than failing, which means a repository larger than the ceiling is silently truncated at the tail. A search response that reports incomplete results also logs a warning and is used rather than discarded.
 
-**When `query_filter` is set (search endpoint):**
+Comments are not fetched during candidate polling. They are `nil` on those issues and are read on demand.
 
-- **Endpoint:** `GET /search/issues`
-- **Query (`q`):** `repo:{owner}/{repo} type:issue state:open {query_filter}`
-- **Parameters:** `sort=created`, `order=asc`, `per_page=50`
-- `incomplete_results: true` in the response body produces a WARN log but does not abort the request.
+### Single-issue reads
 
-**Pagination:** Link header-based (`rel="next"`). Page size: 50. Maximum 200 pages (10,000 issues). When the page limit is reached, a WARN is logged and accumulated results are returned without error.
+Fetching one issue by ID issues several requests, because state, labels, and blocker relationships live on different surfaces. Naming a pull request number directly is an error rather than a silent miss.
 
-**Comments:** Set to `nil` on returned issues.
+Fetching the states of many issues is sequential rather than batched: there is no bulk state endpoint, so the cost grows linearly with the number of issues in flight. An issue that has been deleted or moved is omitted from the result rather than failing the batch.
 
-**Pull request filtering:** Applied to all responses. The `pull_request` field on a list entry is non-nil for pull requests; those entries are skipped.
+### Terminal-state reconciliation
 
-### `FetchIssueByID`
+At startup the adapter resolves terminal states through the search surface, one query per terminal-state label. Each of those queries draws on the search budget, so a workflow with many terminal states pays for them at every reconciliation.
 
-Returns a single fully-populated issue. The `issueID` parameter is the issue number as a string, equal to the `Identifier` field.
+### Writes
 
-**Four requests:**
-
-1. `GET /repos/{owner}/{repo}/issues/{issueID}` - issue body and labels.
-2. `GET /repos/{owner}/{repo}/issues/{issueID}/dependencies/blocked_by` - blocker list. Returns `[]` on 404.
-3. `GET /repos/{owner}/{repo}/issues/{issueID}/parent` - parent issue. Returns `nil` on 404.
-4. `GET /repos/{owner}/{repo}/issues/{issueID}/comments` - comments, Link-header paginated.
-
-Returns `tracker_not_found` when the issue does not exist (HTTP 404) or when the resolved entity is a pull request.
-
-### `FetchIssuesByStates`
-
-Returns issues in specified Sortie states. Used for startup terminal cleanup.
-
-**Active states:** Issues endpoint with `state=open`, client-side label filtering.
-
-**Terminal states:** Search endpoint, one query per terminal-state label: `repo:{owner}/{repo} type:issue state:closed label:{terminal_label}`. Server-side filtering avoids scanning all closed issues in the repository.
-
-Returns an empty slice when `states` is empty.
-
-### `FetchIssueStatesByIDs`
-
-Returns the current state for each requested issue ID. Since `ID == Identifier == issue number` for this adapter, the IDs are used directly as issue numbers in individual API calls.
-
-**Endpoint (per issue):** `GET /repos/{owner}/{repo}/issues/{number}`
-
-**Batching:** None. Sequential individual requests. 404 responses are omitted from the result map without error.
-
-### `FetchIssueStatesByIdentifiers`
-
-Structurally identical to `FetchIssueStatesByIDs`. Since `ID == Identifier` for this adapter, both methods share the same internal implementation.
-
-### `FetchIssueComments`
-
-Returns all comments for an issue.
-
-**Endpoint:** `GET /repos/{owner}/{repo}/issues/{issueID}/comments`
-
-**Pagination:** Link header-based. Page size: 50. Maximum 200 pages.
-
-Returns `tracker_not_found` when the issue does not exist.
-
-### `TransitionIssue`
-
-Applies a state transition by manipulating issue labels and the open/closed native state.
-
-**Steps:**
-
-1. `GET /repos/{owner}/{repo}/issues/{issueID}` - read current labels and native state.
-2. `DELETE /repos/{owner}/{repo}/issues/{issueID}/labels/{old_label}` - remove the current state label, if present and different from the target. Label names are URL path-escaped. A 404 here is treated as a no-op (label already absent).
-3. `POST /repos/{owner}/{repo}/issues/{issueID}/labels` - add the target state label.
-4. If the target is a terminal state and the issue is open: `PATCH /repos/{owner}/{repo}/issues/{issueID}` with `{"state": "closed", "state_reason": "completed"}`.
-5. If the target is an active state and the issue is closed: `PATCH /repos/{owner}/{repo}/issues/{issueID}` with `{"state": "open"}`.
-
-**Atomicity:** The steps are not atomic. A failure at any step causes the adapter to return an error; the orchestrator retries on the next tick. Label operations are idempotent - retries converge to the correct state without creating duplicates.
-
-**Label case:** Target labels are sent as configured (lowercased). GitHub label matching is case-insensitive.
-
-### `CommentIssue`
-
-Posts a plain-text comment on an issue.
-
-**Endpoint:** `POST /repos/{owner}/{repo}/issues/{issueID}/comments`
-
-**Request body:** `{"body": "<text>"}`. No ADF conversion - GitHub natively accepts Markdown.
-
-Returns `nil` on success (HTTP 201).
-
----
+A transition sets the state label and removes the ones it replaces. A comment is appended rather than edited. Both require a token that can write to issues; see [authentication](#authentication).
 
 ## Field mapping
 
 | Domain field | GitHub source | Normalization |
 |---|---|---|
-| `ID` | `number` | `strconv.Itoa(number)`. Same value as `Identifier`. |
-| `Identifier` | `number` | `strconv.Itoa(number)`. Human-readable issue number (e.g., `"42"`). |
+| `ID` | `number` | The issue number as a string. Same value as `Identifier`. |
+| `Identifier` | `number` | The issue number as a string, for example `"42"`. |
 | `Title` | `title` | String, as-is. |
-| `Description` | `body` | Pointer dereferenced. `nil` → `""`. Markdown pass-through - no ADF conversion. |
+| `Description` | `body` | Pointer dereferenced. `nil` → `""`. Markdown pass-through. |
 | `Priority` | _(not available)_ | Always `nil`. GitHub issues have no native priority field. |
 | `State` | `labels` + `state` | Derived via [state derivation algorithm](#state-derivation). |
 | `BranchName` | _(not available)_ | Always `""`. Issues API does not expose branch metadata. |
@@ -292,7 +223,7 @@ Returns `nil` on success (HTTP 201).
 | `IssueType` | `type.name` | String, as-is. Empty string when `type` is null (organization-level issue types not configured). |
 | `Parent` | `/issues/{id}/parent` | `nil` in list normalization; populated by `FetchIssueByID`. `nil` on 404. |
 | `Comments` | `/issues/{id}/comments` | `nil` in list normalization; populated by `FetchIssueByID` and `FetchIssueComments`. |
-| `BlockedBy` | `/issues/{id}/dependencies/blocked_by` | Empty `[]BlockerRef{}` in list normalization; populated by `FetchIssueByID`. Empty on 404. |
+| `BlockedBy` | `/issues/{id}/dependencies/blocked_by` | Empty `[]BlockerRef{}` in list normalization; populated by `FetchIssueByID` or, for a candidate, by the shared blocker resolver. See [blocker extraction](#blocker-extraction). |
 | `CreatedAt` | `created_at` | ISO-8601 string, as-is. |
 | `UpdatedAt` | `updated_at` | ISO-8601 string, as-is. |
 
@@ -304,10 +235,33 @@ Both `ID` and `Identifier` map to the GitHub issue number. The global integer `i
 
 | Domain field | GitHub source | Normalization |
 |---|---|---|
-| `ID` | `id` | `strconv.FormatInt(id, 10)`. |
+| `ID` | `id` | The numeric ID as a string. |
 | `Author` | `user.login` | String, as-is. |
 | `Body` | `body` | Markdown pass-through. |
 | `CreatedAt` | `created_at` | ISO-8601 string, as-is. |
+
+### Blocker extraction
+
+`FetchCandidateIssues` does not call the dependencies route. Every candidate is marked unresolved by default, and a shared resolution layer between the registry and the orchestrator reads `FetchIssueBlockers` per candidate once the cheaper dispatch checks pass, bounded by a per-poll budget shared across every candidate that needs a read. `FetchIssueByID` still reads the route directly and resolves the candidate's list immediately.
+
+Each candidate list response carries a per-issue dependency summary:
+
+```json
+{
+  "issue_dependencies_summary": {
+    "blocked_by": 0,
+    "blocking": 0,
+    "total_blocked_by": 2,
+    "total_blocking": 0
+  }
+}
+```
+
+A candidate whose summary reports `total_blocked_by: 0` is resolved from that field alone, at no extra request. Every other shape, including a missing or null summary, needs the separate read. `blocked_by` in the summary counts only dependencies GitHub still considers open, which is not the question dispatch asks (a closed dependency can still sit in an active Sortie state), so the adapter reads `total_blocked_by` instead.
+
+`GET /repos/{owner}/{repo}/issues/{issue_number}/dependencies/blocked_by` returns a JSON array of full issue objects blocking the queried one. Each becomes a `BlockerRef` with `ID` and `Identifier` set to the blocker's issue number, `DisplayID` set to the qualified `owner/repo#N` form, and `State` derived from the blocker's own labels the same way the adapter derives any issue's state.
+
+A 404, or any other non-2xx response, is a failure rather than an empty list: the route answers a genuinely empty blocker list with `200` and `[]`, so a 404 means the issue or the route itself is gone, which the adapter is not entitled to read as "no blockers." A candidate whose read fails this way is held out of dispatch and retried on a later poll. See [candidate eligibility](/reference/state-machine/#candidate-eligibility) for the dispatch-side effect and the [Prometheus metrics reference](/reference/prometheus-metrics/#counters) for the `sortie_candidate_holds_total` counter this produces.
 
 ---
 
@@ -322,6 +276,8 @@ Both `ID` and `Identifier` map to the GitHub issue number. The global integer `i
 | 403 | Rate limited (secondary) - body contains `"rate limit"` | `tracker_api_error` |
 | 403 | Insufficient permissions | `tracker_auth_error` |
 | 404 | Resource not found | `tracker_not_found` |
+| 405 | Method not allowed | `tracker_api_error` |
+| 409 | Conflict | `tracker_api_error` |
 | 410 | Gone (for example, deleted repository) | `tracker_api_error` |
 | 422 | Validation failed | `tracker_payload_error` |
 | 429 | Rate limited | `tracker_api_error` |
@@ -359,22 +315,17 @@ The adapter follows `rel="next"` links directly - it does not construct URLs man
 
 ## Rate limits
 
-GitHub enforces two independent rate limit buckets.
+GitHub meters the REST API and its search endpoint on separate budgets, and search is the tighter of the two. The current quotas are GitHub's to publish; see [external references](#external-references).
 
-| Bucket | Limit | Used by this adapter |
-|---|---|---|
-| Primary (REST) | 5,000 requests/hour per token | All operations except search |
-| Search | 30 requests/minute per token | `FetchCandidateIssues` when `query_filter` is set; `FetchIssuesByStates` terminal-state queries (startup only) |
+What decides how much of either budget Sortie spends is the poll interval and whether `query_filter` is set. Without a filter, candidate polling uses the issues endpoint. With one, it uses search, which is metered far more tightly, so a short `polling.interval_ms` combined with a filter is the configuration most likely to exhaust a budget. Terminal-state reconciliation at startup also uses search.
 
-At the default 30-second poll interval with `max_concurrent_agents: 10`, typical usage is well within the primary rate limit. The search budget applies only when `query_filter` is configured or during the one-time startup terminal-state cleanup.
-
-Rate limit violations return HTTP 429 or HTTP 403. Both are mapped to `tracker_api_error`. The orchestrator logs the error and waits for the next poll interval.
-
----
+Sortie does not throttle client-side. When a budget is exhausted the request fails as `tracker_api_error` and Sortie waits for the next poll. Raise `polling.interval_ms` or drop the filter.
 
 ## SCM and CI surface
 
 The `github` kind also provides an SCM adapter and a CI status provider, so a GitHub-backed deployment drives the pull-request reactions: review-comment feedback, CI-failure escalation, auto-merge, branch cleanup, and post-merge issue closure. The reaction kinds and their lifecycle are provider-agnostic and documented in the [reactions reference](/reference/reactions/); `provider: github` on a reaction block activates this adapter, and [how to set up PR reactions](/guides/setup-pr-reactions/) covers the operator procedure. This section documents only the GitHub-specific behavior.
+
+Both surfaces read `endpoint` from a top-level `github:` block first, the same [adapter pass-through configuration](/reference/workflow-config/#adapter-pass-through-configuration) mechanism the [`user_agent` field](#configuration) uses, and fall back to `tracker.endpoint` when the block omits it and `tracker.kind` is also `github`. Either way the resolved value is validated exactly like `tracker.endpoint`: a value that is not an absolute http(s) URL with a hostname is rejected at construction, before either adapter builds a client. `sortie validate` only inspects `tracker.endpoint`, so a `github:` block override that would fail this check is not caught offline.
 
 ### Mergeability
 
@@ -393,6 +344,50 @@ The pull request read supplies the draft flag, the head SHA (the CI ref), the he
 The merge commit identifier comes from a second read, `PullRequest.mergeCommit.oid` on the GraphQL API. The pinned REST API version no longer carries `merge_commit_sha` on the pull request payload. The GraphQL read is issued only for a pull request the REST payload reports as merged, and a pull request GitHub reports with no merge commit yields an empty identifier rather than an error.
 
 The GraphQL endpoint is `/graphql` on the configured host, or `/api/graphql` when `endpoint` ends in the GitHub Enterprise Server `/api/v3` suffix. A deployment that configures the [`merge_completion` reaction](/reference/reactions/#reactionsmerge_completion) needs a credential that can reach it, since that kind latches on the merge commit identifier. A failed GraphQL read surfaces as an error, and the reaction retries it with backoff. A successful read that reports no merge commit yields an empty identifier instead, which the reaction tolerates for 30 minutes before it stops polling and escalates rather than transitioning the issue.
+
+### CI status provider
+
+The package registers a CI status provider under kind `github`, the role that drives the [`ci_failure` reaction](/reference/reactions/#reactionsci_failure). `FetchCIStatus` reads the ref's check runs (`GET /repos/{owner}/{repo}/commits/{ref}/check-runs`, paginated) and reduces them through the same aggregate rule every forge provider shares; neither the route's own `total_count` nor a platform-computed verdict is trusted.
+
+Two of the conclusion mappings are Sortie's own policy rather than a pass-through of GitHub's check-run conclusion: a run reporting `action_required` maps to failing, because the agent cannot perform the manual UI action a check like this is waiting on, and a run reporting `stale` maps to pending, because the check run that superseded it carries the conclusion that actually matters. Every other recognized conclusion maps to its direct domain equivalent; an unrecognized value maps to pending.
+
+On a failing verdict, the provider fetches a log excerpt only for a failing run whose `app.slug` is `github-actions` - a failing run from a third-party GitHub App check has no log to fetch through this route. GitHub Actions creates one check run per workflow job, so the check run ID doubles as the job ID for the Actions job-logs route. The excerpt is the sanitized tail of that job's log, stripped of ANSI escapes and per-line timestamps and capped by the `max_log_lines` budget; a `max_log_lines` of zero omits it.
+
+### SCM write operations
+
+The write surface is `MergePR`, `DeleteBranch`, and `RemoveLabel`. The supported merge strategies are `merge`, `squash`, and `rebase`, the same set the auto-merge [`strategy` field](/reference/reactions/#reactionsauto_merge) accepts; the value is sent as-is as the merge method.
+
+`MergePR` sends `PUT /repos/{owner}/{repo}/pulls/{number}/merge` carrying the commit title, the commit message, the merge method, and the expected head SHA as a stale-merge precondition.
+
+| Merge outcome | GitHub response | Mapping |
+|---|---|---|
+| Merged | HTTP 200, `merged: true` | Success, carrying the merge commit SHA. |
+| HTTP 200, `merged: false` | n/a | Conflict error directly, with no "already merged" marker. |
+| Already merged, or the expected head SHA is stale | HTTP 405 or 409 | Conflict error. The caller re-reads the pull request and attaches the "already merged" marker only when that re-read confirms it merged. |
+
+The already-merged marker is never read from GitHub's rejection text: the adapter re-reads the pull request after any 405 or 409 and attaches the marker only when the re-read shows the merge landed.
+
+`DeleteBranch` calls `DELETE /repos/{owner}/{repo}/git/refs/heads/{branch}`. An already-gone branch (HTTP 404) is returned as a not-found error, which the caller treats as a successful no-op.
+
+`RemoveLabel` calls `DELETE /repos/{owner}/{repo}/issues/{number}/labels/{label}`. An already-absent label (HTTP 404) is a no-op; any other failure surfaces as an error.
+
+### Token scope for auto-merge
+
+`VerifyAutoMergeScopes` calls `GET /rate_limit` and reads the `X-OAuth-Scopes` response header. Classic personal access tokens populate that header; fine-grained tokens and GitHub App installation tokens do not, and an absent or empty header is the "unable to verify" result - the caller fails open and lets auto-merge proceed. When the header is present, the legacy `repo` scope satisfies every requirement by itself; otherwise the check looks for `pull_requests:write` (required for `MergePR`) and, when the workflow's auto-merge configuration also deletes the branch, `contents:write` (required for `DeleteBranch`).
+
+---
+
+## Adapter registration
+
+The combined tracker-and-SCM package `internal/scm/github` registers three kinds under `"github"` via `init` functions: the tracker adapter, the SCM adapter, and the CI status provider. Tracker registration metadata declares:
+
+| Property | Value |
+|---|---|
+| `RequiresProject` | `true` |
+| `RequiresAPIKey` | `true` |
+| `ValidateTrackerConfig` | Offline config diagnostics for `sortie validate`. |
+
+The orchestrator's preflight validation uses `RequiresProject` and `RequiresAPIKey` to produce specific error messages before adapter construction, and resolves the adapter through the registry rather than by importing the package. The SCM adapter and CI status provider carry no equivalent metadata and no offline validate hook; a misconfiguration on either surfaces only when Sortie starts or on the first request.
 
 ---
 

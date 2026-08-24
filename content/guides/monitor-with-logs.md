@@ -27,15 +27,17 @@ Sortie supports two log formats: **text** (default) and **JSON**.
 Sortie uses `slog.TextHandler`. Every line is a flat `key=value` record:
 
 ```
-time=2026-03-26T14:30:01.305+00:00 level=INFO msg="tick completed" candidates=2 dispatched=2 running=2 retrying=0
+time=2026-03-26T14:30:01.305+00:00 level=INFO msg="tick completed" candidates=2 dispatched=2 ... running=2 retrying=0 ...
 ```
+
+The `tick completed` line carries more fields than shown above and below throughout this guide — dispatch-rule breakdown (`dispatched_by_rule`, `dispatched_by_default`, `dispatched_by_fallback`) and blocker-hold counters (`held_by_blockers`, `blockers_unresolved`, `blockers_not_read`, `blockers_incomplete`) also appear on every line. This guide calls out only the fields relevant to each example.
 
 ### JSON format
 
 When `--log-format json` is active (or `logging.format: json` in the workflow file), each line is a self-contained JSON object:
 
 ```json
-{"time":"2026-03-26T14:30:01.305+00:00","level":"INFO","msg":"tick completed","candidates":2,"dispatched":2,"running":2,"retrying":0}
+{"time":"2026-03-26T14:30:01.305+00:00","level":"INFO","msg":"tick completed","candidates":2,"dispatched":2,"dispatched_by_rule":0,"dispatched_by_default":2,"dispatched_by_fallback":0,"running":2,"retrying":0,"held_by_blockers":0,"blockers_unresolved":0,"blockers_not_read":0,"blockers_incomplete":0}
 ```
 
 JSON format is designed for log aggregation systems (Loki, Datadog, CloudWatch, ELK) that ingest newline-delimited JSON. See [switch to JSON format](#switch-to-json-format) below.
@@ -88,7 +90,7 @@ Here are the log messages that matter most, grouped by lifecycle phase.
 ### Poll cycle
 
 ```
-time=2026-03-26T14:30:01.305+00:00 level=INFO msg="tick completed" candidates=2 dispatched=2 running=2 retrying=0
+time=2026-03-26T14:30:01.305+00:00 level=INFO msg="tick completed" candidates=2 dispatched=2 ... running=2 retrying=0 ...
 ```
 
 This is the heartbeat. It fires every poll interval and tells you how many issues were found (`candidates`), how many were dispatched this tick (`dispatched`), how many agents are active (`running`), and how many issues are awaiting retry (`retrying`). When `candidates=0 dispatched=0`, Sortie is idle.
@@ -101,6 +103,16 @@ time=2026-03-26T14:30:02.150+00:00 level=INFO msg="workspace prepared" issue_id=
 
 Sortie created (or reused) a workspace directory and ran any configured hooks. The `workspace` field shows the absolute path.
 
+### MCP configuration
+
+```
+time=2026-03-26T14:30:02.310+00:00 level=INFO msg="mcp config written" issue_id=abc123 issue_identifier=MT-649 mcp_config_path=/tmp/sortie_workspaces/MT-649/.sortie/mcp.json agent_kind=codex operator_mcp_config_path=/srv/sortie/mcp-servers.json
+```
+
+Sortie wrote the session's MCP configuration into the workspace. `agent_kind` is the agent kind this session was dispatched with, and `operator_mcp_config_path` is the `mcp_config` value resolved from that kind's own block, empty when the block sets none. Read the two together when a session reaches servers you did not expect: they name the block the servers came from.
+
+The file is written for every kind, but not every session can reach it.
+
 ### Agent session
 
 ```
@@ -110,6 +122,16 @@ time=2026-03-26T14:31:45.800+00:00 level=INFO msg="turn completed" issue_id=abc1
 ```
 
 Each issue gets a session with one or more turns. `turn_number` and `max_turns` show where the agent is in its work budget.
+
+When the session's kind and launch mode deliver no tool channel, one more line lands between `agent session started` and `turn started`. Sortie says so once, on the first turn, and leaves the tool advertisement out of the prompt:
+
+```
+time=2026-03-26T14:30:03.420+00:00 level=INFO msg="agent session started" issue_id=abc123 issue_identifier=MT-649 session_id=session-abc-001
+time=2026-03-26T14:30:03.425+00:00 level=INFO msg="no tool execution channel for this session, withholding tool advertisement" issue_id=abc123 issue_identifier=MT-649 session_id=session-abc-001 agent_kind=codex remote=true
+time=2026-03-26T14:30:03.500+00:00 level=INFO msg="turn started" issue_id=abc123 issue_identifier=MT-649 turn_number=1 max_turns=5
+```
+
+This is the line to look for when an agent never mentions Sortie's tools. `remote=true` means the session was dispatched to an SSH host, which is the whole reason on a `codex` or `opencode` session; on `kiro` the line appears with `remote=false` too. Nothing is failing — the agent was deliberately not told about tools it could not call. See [delivery by agent kind](/reference/agent-extensions/#delivery-by-agent-kind).
 
 ### Tool calls
 
@@ -171,12 +193,24 @@ If the issue had already reached a terminal state by the time the worker exited,
 time=2026-03-26T14:35:21.480+00:00 level=INFO msg="handoff suppressed for terminal issue" issue_id=abc123 issue_identifier=MT-649 state=Done state_source=verified handoff_state="In Review"
 ```
 
-This is the line to look for when an issue you closed mid-run did not get overwritten, and the line to look for when you expected a handoff and did not get one. `state` is the state Sortie saw, and `state_source` tells you where it saw it: `reconcile` from a reconciliation pass, `worker` from the worker's own per-turn refresh, `snapshot` from the state recorded at dispatch, or `verified` from the extra read Sortie performs immediately before the write. The claim is released and no retry is scheduled. Each of these also increments `sortie_handoff_transitions_total` with `result="skipped"`.
+This is the line to look for when an issue you closed mid-run did not get overwritten, and the line to look for when you expected a handoff and did not get one. `state` is the state Sortie saw, and `state_source` tells you where it saw it: `reconcile` from a reconciliation pass, `worker` from the worker's own per-turn refresh, `snapshot` from the state recorded at dispatch, or `verified` from an extra read Sortie takes before acting, either immediately before the write or immediately before recording a withheld handoff. The claim is released and no retry is scheduled. Each of these also increments `sortie_handoff_transitions_total` with `result="skipped"`.
 
 That extra read can fail on its own, and Sortie proceeds with the handoff rather than assuming the issue is closed:
 
 ```
 time=2026-03-26T14:35:21.470+00:00 level=WARN msg="handoff verification read failed, proceeding with handoff" issue_id=abc123 issue_identifier=MT-649 error="tracker request timeout" state_source=worker
+```
+
+The [handoff-evidence policy](/reference/state-machine/#handoff-evidence) takes a read of its own before recording a withheld handoff. When that read finds the issue terminal, the withheld outcome is discarded and you get this line, followed by the `handoff suppressed for terminal issue` line above carrying `state_source=verified`:
+
+```
+time=2026-03-26T14:35:21.475+00:00 level=INFO msg="withheld handoff suppressed for terminal issue" issue_id=abc123 issue_identifier=MT-649 state=Done state_source=verified handoff_state="In Review" policy=observed verdict="absence of work observed" reason="workspace commit and working tree match the run baseline" turns_completed=2
+```
+
+This is the line to look for when a run that produced nothing on an issue somebody finished mid-run left no failure behind: no failed run is recorded, no failure comment is posted, no retry is scheduled, and the consecutive-absence count does not move. When that read fails instead, Sortie records the withheld handoff as it otherwise would:
+
+```
+time=2026-03-26T14:35:21.472+00:00 level=WARN msg="withheld handoff verification read failed, recording withheld handoff" issue_id=abc123 issue_identifier=MT-649 error="tracker request timeout" state_source=worker
 ```
 
 ### Tracker comments

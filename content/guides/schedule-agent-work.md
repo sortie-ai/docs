@@ -218,29 +218,23 @@ for the current timing and default-branch behavior.
 
 ## Create scheduled work items with Jira Automation
 
-Create a Jira Automation rule from **Project settings → Automation → Create
-rule**. The rule should have four components in this order:
+Build a Jira Automation rule with a scheduled trigger and three actions, in
+order: look up an unfinished issue from this schedule, stop if one exists, and
+otherwise create the next one. Building rules, choosing a trigger, and wiring
+actions together in Jira's automation UI is Atlassian's own interface to
+document; see its [automation
+overview](https://support.atlassian.com/cloud-automation/docs/) for how to
+create a rule and add actions. What follows is the shape this rule needs to
+have so it produces an issue Sortie will actually pick up.
 
-1. **Scheduled trigger**
-2. **Lookup work items**
-3. **Smart values condition**
-4. **Create work item**
+**Schedule.** A weekly trigger, for example every Monday at 09:17, with an
+explicit timezone. Leave any "run for each work item in the query" option
+disabled — that repeats the rule's actions per result, which is not the
+"only create when none exist" guard this rule depends on.
 
-### 1. Configure the schedule
-
-Choose the **Scheduled** trigger and either:
-
-- set a fixed schedule, such as every week on Monday at 09:17; or
-- use the cron expression `0 17 9 ? * MON *` for the same weekly schedule.
-
-Select the intended timezone explicitly in the trigger. Leave **Run a JQL
-search and execute actions for each work item in the query** disabled. That
-option repeats the following actions for every result; it is not an
-"only create when none exist" guard.
-
-### 2. Look for an unfinished issue from this schedule
-
-Add a **Lookup work items** action with this JQL:
+**Duplicate guard.** A lookup for an unfinished issue from this schedule,
+scoped by the schedule-specific label so it does not collide with other
+recurring tasks:
 
 ```
 project = "PROJ"
@@ -248,25 +242,11 @@ AND labels = "scheduled-dependency-report"
 AND statusCategory != Done
 ```
 
-The schedule-specific label makes this lookup independent from other recurring
-tasks.
+Followed by a condition that stops the rule when that lookup finds anything:
+the lookup's result count equals `0`. When a prior issue is still open, the
+condition fails and the rule ends without creating a duplicate.
 
-### 3. Stop when a prior issue is unfinished
-
-Add a **Smart values condition**:
-
-| Field | Value |
-|---|---|
-| First value | `{{lookupIssues.size}}` |
-| Condition | equals |
-| Second value | `0` |
-
-When the lookup finds an unfinished work item, the condition fails and the rule
-ends without creating a duplicate.
-
-### 4. Create the work item
-
-Add a **Create work item** action with values that match your Sortie workflow:
+**Issue creation.** Field values that match your Sortie workflow:
 
 | Field | Example |
 |---|---|
@@ -277,7 +257,7 @@ Add a **Create work item** action with values that match your Sortie workflow:
 | Description | The task scope, acceptance criteria, and required validation |
 
 Confirm that a newly created Task starts in `To Do`, or another status listed
-in `tracker.active_states`. The rule actor needs permission to browse the
+in `tracker.active_states`. The rule's actor needs permission to browse the
 project and create this work type.
 
 Turn on the rule, let it run once, and inspect the automation audit log. The
@@ -287,9 +267,9 @@ the lookup should find one item and the condition should report that no actions
 were performed. After the item reaches a status in the Done category, the next
 scheduled run can create a new one.
 
-Jira evaluates the trigger in the timezone selected in the Scheduled component,
-but date smart values such as `{{now}}` are UTC by default. If you add
-date-based conditions, convert them explicitly, for example
+The trigger evaluates in whatever timezone the rule's schedule is set to, but
+date smart values such as `{{now}}` are UTC by default. If you add date-based
+conditions, convert them explicitly, for example
 `{{now.convertToTimeZone("America/New_York")}}`. Also monitor the audit log:
 Jira disables a scheduled rule after ten consecutive failed executions.
 
@@ -297,7 +277,8 @@ See Atlassian's [Scheduled trigger
 reference](https://support.atlassian.com/cloud-automation/docs/jira-automation-triggers/)
 and [automation actions
 reference](https://support.atlassian.com/cloud-automation/docs/jira-automation-actions/)
-for the current UI and field names. Its [date and time smart values
+for how to configure the trigger and each action in the current UI. Its [date
+and time smart values
 reference](https://support.atlassian.com/cloud-automation/docs/jira-smart-values-date-and-time/)
 documents time zone conversion.
 
