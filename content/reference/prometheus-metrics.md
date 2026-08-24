@@ -19,7 +19,7 @@ Point-in-time values. Sortie updates these after every state mutation - dispatch
 |---|---|---|---|
 | `sortie_sessions_running` | - | Currently running agent sessions. | Coordination |
 | `sortie_sessions_retrying` | - | Issues awaiting retry. Includes error retries, continuation retries, and stall retries sitting in the timer queue. | Coordination |
-| `sortie_slots_available` | - | Remaining dispatch slots: `max_concurrent_agents - running - claimed`. Reaches 0 when the orchestrator is at capacity. | Coordination |
+| `sortie_slots_available` | - | Remaining dispatch slots: `max_concurrent_agents - running`. Reaches 0 when the orchestrator is at capacity. | Coordination |
 | `sortie_active_sessions_elapsed_seconds` | - | Sum of wall-clock elapsed seconds across all running sessions. Recomputed from each session's `started_at` timestamp on every poll cycle. Use this to detect active work even when no sessions have recently completed (the runtime counter only increments on session end). | Coordination |
 | `sortie_ssh_host_usage` | `host` | Active workers on a given SSH host. Only populated when [`extensions.worker.ssh_hosts`](/reference/workflow-config/) is configured. | Coordination |
 
@@ -38,8 +38,8 @@ Monotonically increasing. Apply `rate()` or `increase()` to extract per-second o
 | `sortie_retries_total` | `trigger` | Retry scheduling events. `trigger` is `error` (failed attempt), `continuation` (successful turn, more work remains), `timer` (retry timer fired), or `stall` (stall timeout detected). | Coordination |
 | `sortie_reconciliation_actions_total` | `action` | Reconciliation outcomes per issue checked. `action` is `stop` (issue state no longer active), `cleanup` (terminal state, workspace removed), `keep` (still active, no action), `sweep_cleanup` (terminal state, workspace removed by the periodic sweep), or `sweep_expired` (workspace removed by the sweep's age-based retention bound). | Coordination |
 | `sortie_poll_cycles_total` | `result` | Poll tick outcomes. `result` is `success` (fetched and dispatched), `error` (tracker fetch failed), or `skipped` (preflight validation failed, dispatch skipped). | Coordination |
-| `sortie_tracker_requests_total` | `operation`, `result` | Tracker adapter API calls. Each adapter method increments this independently - the orchestrator never touches it. `operation` is `fetch_candidates`, `fetch_issue`, `fetch_comments`, `transition`, or `comment`. `result` is `success` or `error`. | Integration |
-| `sortie_handoff_transitions_total` | `result` | Handoff state transition outcomes. `result` is `success` (issue transitioned), `error` (transition API failed, retry scheduled as fallback), `skipped` (a handoff state is configured but no transition was performed, because the issue had already reached a terminal state or had left the active set), or `withheld` (the handoff was suppressed because the run's evidence verdict withheld it, and the run is recorded as failed). Never recorded when `handoff_state` is unset. | Coordination |
+| `sortie_tracker_requests_total` | `operation`, `result` | Tracker adapter API calls. Each adapter method increments this independently - the orchestrator never touches it. `operation` includes `fetch_candidates`, `fetch_issue`, `fetch_comments`, `fetch_blockers` (the per-candidate blocker read on GitHub and Gitea), `transition`, and `comment`. `result` is `success` or `error`. | Integration |
+| `sortie_handoff_transitions_total` | `result` | Handoff state transition outcomes. `result` is `success` (issue transitioned), `error` (transition API failed, retry scheduled as fallback), `skipped` (a handoff state is configured but no transition was performed, for one of three reasons this label does not distinguish: the issue had already reached a terminal state, it had left the active set, or the run's evidence verdict withheld the handoff and the verification read taken before recording that outcome reported the issue terminal), or `withheld` (the evidence verdict withheld the handoff and that verification read did not report a terminal state, so the run is recorded as failed). Never recorded when `handoff_state` is unset. | Coordination |
 | `sortie_issue_parks_total` | `reason` | Issue park events. `reason` is `handoff_absence` (the consecutive handoff-absence ceiling was reached) or `agent_blocked` (the agent reported itself blocked). | Coordination |
 | `sortie_dispatch_transitions_total` | `result` | Dispatch-time in-progress transition outcomes. `result` is `success` (issue transitioned at dispatch), `error` (transition API failed; worker continues to workspace preparation), or `skipped` (issue was already in the target state). Only recorded when [`tracker.in_progress_state`](/reference/workflow-config/) is configured. | Coordination |
 | `sortie_tracker_comments_total` | `lifecycle`, `result` | Tracker comment attempts. `lifecycle` is `dispatch`, `completion`, or `failure`. `result` is `success` or `error`. Only recorded when [`tracker.comments.*`](/reference/workflow-config/) flags are enabled. Comment failures are non-fatal - they increment the `error` result but never block the orchestrator. | Coordination |
@@ -49,7 +49,12 @@ Monotonically increasing. Apply `rate()` or `increase()` to extract per-second o
 | `sortie_reactions_auto_merge_total` | `result` | Auto-merge reaction outcomes. `result` is `merged` (PR merged), `escalated` (retry budget exhausted, issue labeled or commented for a human), or `error` (a merge precondition or API call failed and the attempt is retried). Precondition-fail re-enqueues are not counted. Only recorded when [`reactions.auto_merge`](/reference/reactions/#reactionsauto_merge) is configured. | Coordination |
 | `sortie_review_checks_total` | `result` | Review-comment check outcomes, one per reconciliation pass that acts. `result` is `dispatched` (actionable reviewer comments found, continuation turn dispatched) or `error` (the SCM review fetch failed and is retried with backoff). Passes with no actionable comments, a duplicate fingerprint, or an active debounce window do not increment this counter. Only recorded when [`reactions.review_comments`](/reference/reactions/#reactionsreview_comments) is configured. | Coordination |
 | `sortie_review_escalations_total` | `action` | Review escalation actions taken when review-fix continuation turns are exhausted. `action` is `label`, `comment`, or `error`. Only recorded when `reactions.review_comments` is configured. | Coordination |
+| `sortie_bot_review_checks_total` | `result` | Bot-review check outcomes. `result` is `dispatched` (actionable bot comments found, continuation turn dispatched) or `error` (the SCM comment fetch failed and is retried). Only recorded when [`reactions.bot_review`](/reference/reactions/#reactionsbot_review) is configured. | Coordination |
+| `sortie_bot_review_escalations_total` | `action` | Bot-review escalation actions taken when bot-review continuation turns are exhausted. `action` is `label`, `comment`, or `error`. Only recorded when `reactions.bot_review` is configured. | Coordination |
+| `sortie_merge_conflict_checks_total` | `result` | Merge-conflict reaction check outcomes. `result` is `dispatched` (a rebase continuation turn was dispatched), `clear` (the PR returned to a non-conflicted state), `unknown` (mergeability not yet computed; the entry defers), or `error` (the mergeability fetch failed). Only recorded when [`reactions.merge_conflicts`](/reference/reactions/#reactionsmerge_conflicts) is configured. | Coordination |
+| `sortie_merge_conflict_escalations_total` | `action` | Merge-conflict escalation actions taken when the episode's retry budget is exhausted. `action` is `label`, `comment`, or `error`. Only recorded when `reactions.merge_conflicts` is configured. | Coordination |
 | `sortie_dispatch_rule_match_total` | `layer`, `rule` | Dispatch routing resolutions, one per dispatched issue. `layer` is `rule` (a named dispatch rule matched), `default` (the dispatch `default` block supplied the selection), or `fallback` (neither matched; the workflow-wide agent and body template were used). `rule` is the matched rule name, `default` when the default block fired, or `<none>` for the fallback layer. | Coordination |
+| `sortie_candidate_holds_total` | `reason` | Candidates the dispatch loop held instead of starting. `reason` is `blocked_by` (a blocker has not reached a terminal state), `blockers_unresolved` (the blocker read for this candidate failed, or this poll had already given up on further reads after an earlier failure), `blockers_not_read` (this poll's per-candidate blocker-read budget was already spent), or `blockers_incomplete` (the blocker list was not authoritative and nothing was available to complete it). Incremented once per held candidate; never incremented for a candidate rejected by a basic eligibility or capacity check. See [candidate eligibility](/reference/state-machine/#candidate-eligibility). | Coordination |
 | `sortie_self_review_iterations_total` | `verdict` | Self-review iterations by outcome. `verdict` is `pass` (verification succeeded), `iterate` (agent re-prompted for another attempt), or `none` (no verdict produced). Only recorded when [`self_review.enabled: true`](/reference/workflow-config/) is set. When self-review is disabled, this counter remains at zero. | Coordination |
 | `sortie_self_review_sessions_total` | `final_verdict` | Self-review sessions by final outcome. `final_verdict` is `pass`, `iterate`, or `none`. One increment per completed self-review session. Only recorded when self-review is enabled. | Coordination |
 | `sortie_self_review_cap_reached_total` | - | Self-review sessions that hit the iteration cap without passing. A sustained non-zero rate means verification commands are consistently failing - check your `self_review.verify_commands` configuration. Only recorded when self-review is enabled. | Coordination |
@@ -61,7 +66,7 @@ Distribution summaries with pre-defined buckets. Query percentiles with `histogr
 | Name | Labels | Description | Buckets | Producing layer |
 |---|---|---|---|---|
 | `sortie_poll_duration_seconds` | - | Wall-clock time per complete poll cycle (tracker fetch through dispatch). | Exponential from 0.1s, factor 2, 10 buckets (0.1s → 51.2s) | Coordination |
-| `sortie_worker_duration_seconds` | `exit_type` | Wall-clock time per worker session, from spawn to exit. `exit_type` is `normal`, `error`, or `cancelled`. | Exponential from 10s, factor 2, 12 buckets (10s → ~5.7h) | Coordination |
+| `sortie_worker_duration_seconds` | `exit_type` | Wall-clock time per worker session, from spawn to exit. `exit_type` takes the same values as `sortie_worker_exits_total`: `normal`, `error`, `cancelled`, or `soft_stop`. | Exponential from 10s, factor 2, 12 buckets (10s → ~5.7h) | Coordination |
 | `sortie_self_review_verification_duration_seconds` | `command` | Wall-clock time per verification command execution during self-review. `command` is the first 64 characters of the shell command. Only recorded when self-review is enabled. | Exponential from 10s, factor 2, 12 buckets (10s → ~5.7h) | Coordination |
 
 The poll duration histogram is tuned for O(seconds) cycles - tracker API latency plus dispatch overhead. The worker duration histogram covers the full range from quick failures (tens of seconds) to long-running agent sessions (hours).
@@ -215,6 +220,14 @@ Percentage of dispatches that matched neither a named rule nor the `default` blo
 sum(rate(sortie_dispatch_rule_match_total[1h])) by (layer, rule)
 ```
 
+### Candidate holds by reason
+
+```promql
+sum(rate(sortie_candidate_holds_total[1h])) by (reason)
+```
+
+Candidates held per second, broken down by reason. A sustained `blocked_by` rate reflects real open dependencies in the tracker. A sustained `blockers_unresolved` or `blockers_not_read` rate on GitHub or Gitea points at a read problem instead - a token missing the dependency scope, a rate limit, or a candidate volume that regularly exceeds the four-request-per-poll budget - and is worth checking against `sortie_tracker_requests_total{operation="fetch_blockers"}`.
+
 ## Grafana dashboard
 
 A reference Grafana dashboard JSON is available for import at [`grafana-dashboard.json`](/downloads/grafana-dashboard.json). It is tested against Grafana 10+ and uses the `sortie_` metrics documented on this page.
@@ -236,21 +249,21 @@ The dashboard organizes panels into nine collapsible rows. Each panel maps to on
 | Reliability | Reconciliation actions | `sortie_reconciliation_actions_total` | Time series (rate) by `action` |
 | Integration | Tracker API | `sortie_tracker_requests_total` | Time series (rate) by `operation` × `result` |
 | Integration | Handoff transitions | `sortie_handoff_transitions_total` | Stat counters by `result` |
-| Integration | Issue parks | `sortie_issue_parks_total` | Stat counters by `reason` |
 | Integration | Dispatch transitions | `sortie_dispatch_transitions_total` | Stat counters by `result` |
 | Integration | Tracker comments | `sortie_tracker_comments_total` | Time series (rate) by `lifecycle` × `result` |
 | CI Feedback | CI status checks | `sortie_ci_status_checks_total` | Time series (rate) by `result` |
 | CI Feedback | CI escalations | `sortie_ci_escalations_total` | Time series (rate) by `action` |
 | Agent | Tool calls | `sortie_tool_calls_total` | Time series (rate) by `tool` |
 | Agent | SSH host utilization | `sortie_ssh_host_usage` | Bar gauge per `host` (hidden when no SSH hosts configured) |
-| Self-Review | Review pass rate | `sortie_self_review_sessions_total` | Stat (pass % gauge) |
-| Self-Review | Iteration verdicts | `sortie_self_review_iterations_total` | Time series (rate) by `verdict` |
-| Self-Review | Verification duration | `sortie_self_review_verification_duration_seconds` | Heatmap + p50/p95 percentile lines |
-| Self-Review | Cap reached | `sortie_self_review_cap_reached_total` | Stat counter (hidden when self-review is disabled) |
+| Self-Review | Self-Review Sessions | `sortie_self_review_sessions_total` | Time series (rate) by `final_verdict` |
+| Self-Review | Self-Review Iterations | `sortie_self_review_iterations_total` | Time series (rate) by `verdict` |
+| Self-Review | Self-Review Verification Duration | `sortie_self_review_verification_duration_seconds` | Time series, p95 by `command` |
+| Self-Review | Self-Review Cap Reached | `sortie_self_review_cap_reached_total` | Time series (rate) |
 | Reactions & Routing | Auto-merge reactions | `sortie_reactions_auto_merge_total` | Time series (rate) by `result` |
 | Reactions & Routing | Review checks | `sortie_review_checks_total` | Time series (rate) by `result` |
 | Reactions & Routing | Review escalations | `sortie_review_escalations_total` | Time series (rate) by `action` |
 | Reactions & Routing | Dispatch rule matches | `sortie_dispatch_rule_match_total` | Time series (rate) by `layer` |
+| Reactions & Routing | Candidate holds | `sortie_candidate_holds_total` | Time series (rate) by `reason` |
 
 Import the JSON file in Grafana via **Dashboards → Import → Upload JSON file**. Set your Prometheus data source when prompted.
 

@@ -50,7 +50,7 @@ tracker:
 
 ### `endpoint`
 
-The instance base URL, for example `https://gitlab.example.com`. Optional: an empty or whitespace-only value becomes `https://gitlab.com`, so a GitLab.com workflow omits the field entirely. The adapter validates the value as an absolute `http` or `https` URL with a host, trims trailing slashes, and appends `/api/v4`, tolerating a value that already ends in `/api/v4` without appending it twice. A value that fails the URL check fails construction with `tracker_payload_error` before any network call.
+The instance base URL, for example `https://gitlab.example.com`. Optional: an empty or whitespace-only value becomes `https://gitlab.com`, so a GitLab.com workflow omits the field entirely. The adapter validates a present value as an absolute `http` or `https` URL carrying a hostname, with neither a query nor a fragment, trims trailing slashes, and appends `/api/v4`, tolerating a value that already ends in `/api/v4` without appending it twice. A value that fails the URL check - including a port-only authority such as `http://:80`, which has no hostname, and a bare IPv6 host, which must be bracketed as `http://[fd00::1]:3000` - fails construction with `tracker_payload_error` before any network call.
 
 Plain-`http` endpoints send the token in cleartext in the `PRIVATE-TOKEN` header. `sortie validate` warns on an `http` endpoint and on a value already ending in `/api/v4`.
 
@@ -96,8 +96,8 @@ Classic GitLab access tokens carry coarse scopes, and there is no finer-grained 
 | Token type | Identity | Access scope | Notes |
 |---|---|---|---|
 | Personal access token | The owning human user | Everything that user can reach | Works. Couples automation to a person's account and their whole project set. |
-| **Project access token** | A generated bot user | Exactly one project, enforced by the server | **Least privilege.** A sibling project in the same group returns 404. Available at any license on self-managed; on GitLab.com it requires a Premium or Ultimate subscription. |
-| Group access token | A generated bot user | Every project in the group | Appropriate when one workflow spans a group. Same GitLab.com paid-tier requirement as the project access token. |
+| **Project access token** | A generated bot user | Exactly one project, enforced by the server | **Least privilege.** A sibling project in the same group returns 404. Available on any self-managed license tier; on GitLab.com it is gated by the namespace's subscription plan. See [Personal access tokens](https://docs.gitlab.com/user/profile/personal_access_tokens/) for which plans grant it. |
+| Group access token | A generated bot user | Every project in the group | Appropriate when one workflow spans a group. Same GitLab.com subscription gating as the project access token. |
 | OAuth 2.0 access token | The authorizing user | The granted scopes | Not used. Sortie runs headless and implements no interactive authorization-code flow. |
 
 Project and group access tokens are created with an `access_level` that must permit issue writes. Their generated bot usernames take the form `project_<id>_bot_<hex>` and `group_<id>_bot_<hex>`, which is the identity a `query_filter` naming `assignee_username` must use.
@@ -206,37 +206,19 @@ Before building any per-issue request path, the adapter parses the supplied iden
 
 ## API operations
 
-The adapter implements the nine methods of the `TrackerAdapter` interface. Every per-issue route uses the `iid`.
+The adapter implements every method of the tracker contract against GitLab's issues, notes, and labels surfaces, addressing each issue by its project-scoped internal ID rather than its global one. Which route serves which call is GitLab's to document; see [external references](#external-references). What follows is the behaviour those calls produce.
 
-| Method | GitLab route(s) |
-|---|---|
-| `FetchCandidateIssues` | `GET /projects/{project}/issues?state=opened&issue_type=issue&scope=all&per_page=100&order_by=created_at&sort=asc` |
-| `FetchIssueByID` | `GET .../issues/{iid}`, then the notes route below |
-| `FetchIssuesByStates` | `GET .../issues?state=opened&...` and `GET .../issues?state=closed&...` |
-| `FetchIssueStatesByIDs` | `GET .../issues?iids[]=N&iids[]=M&state=all&scope=all&per_page=100`, one request per batch |
-| `FetchIssueStatesByIdentifiers` | Same as `FetchIssueStatesByIDs` |
-| `FetchIssueComments` | `GET .../issues/{iid}/notes?activity_filter=only_comments&sort=asc&per_page=100` |
-| `TransitionIssue` | `GET .../issues/{iid}`, then one `PUT .../issues/{iid}` |
-| `CommentIssue` | `POST .../issues/{iid}/notes` |
-| `AddLabel` | `GET .../labels`, then `PUT .../issues/{iid}` with `add_labels` |
+### Candidate polling
 
-Preflight routes: `GET /personal_access_tokens/self`, `GET /projects/{project}`, and `GET /projects/{project}/labels?per_page=100`.
+The adapter constrains the candidate query rather than relying on the surface's defaults, and both constraints are load-bearing. It asks for open issues only, because the list surface returns every state by default and an unconstrained query would put terminal issues into the candidate set. It also asks for issues specifically, because the same surface returns tasks, incidents, and test cases alongside them, and an unconstrained query would dispatch agents against checklist items. Results come back oldest-first from the server, so the orchestrator does no client-side re-sort, and pages are requested at the server maximum.
 
-### Candidate polling parameters
+State filtering stays on the client. The configured state labels are never pushed into a server-side label filter, because that filter is an AND across names while candidate selection needs an OR: an issue in any one active state is a candidate.
 
-Each parameter the adapter sets on the candidate query earns its place.
+The type guard is applied a second time on the client, on every read path, and a per-issue route that returns an entity of another type is reported as `tracker_not_found` rather than normalized into a fake issue.
 
-| Parameter | Reason |
-|---|---|
-| `state=opened` | The list route's default state is **all**, not open. Omitting it would put terminal issues in the candidate set. The value is `opened`, not `open`; `state=open` returns HTTP 400. |
-| `issue_type=issue` | GitLab's issue list also returns tasks, incidents, and test cases. Omitting it would dispatch agents against checklist items. |
-| `scope=all` | Removes any dependence on the route's default scope. |
-| `per_page=100` | The server maximum. See [pagination](#pagination). |
-| `order_by=created_at`, `sort=asc` | Hands the orchestrator oldest-first candidates, so no client-side re-sort is needed. The server default is `sort=desc`. |
+### Preflight
 
-State filtering stays client-side. The configured state labels are never pushed into the `labels` parameter: that filter is AND across names, and candidate selection needs OR across several active states, which the route does not offer.
-
-The adapter keeps a client-side `issue_type` guard on every read path in addition to the server-side filter, and returns `tracker_not_found` when a per-issue route resolves to a non-issue work item. `Comments` is nil on issues returned by list operations.
+Construction verifies the token, the project, and the project's labels before the first poll, so a misconfigured deployment fails at startup rather than on the first dispatch.
 
 ---
 
@@ -343,7 +325,7 @@ The filter merges into candidate polling and into the `state=opened` half of `Fe
 | `labels` case | Case-sensitive. `labels=BACKLOG` and `labels=backlog` are different filters. |
 | Unresolvable `labels` name | Returns an **empty** set rather than dropping the filter, so a misspelling shows up as "no candidates" instead of "every candidate". |
 | `None` and `Any` | Wildcards on the non-negated `labels` parameter. Under `not[labels]` GitLab treats them as literal names. |
-| `assignee_username` cardinality | Community Edition accepts exactly **one** value and returns HTTP 400 for two. GitLab.com accepts several. |
+| `assignee_username` cardinality | Community Edition accepts exactly **one** value and returns HTTP 400 for two, unless the filter repeats the key with the `[]` suffix. A GitLab.com namespace's subscription plan may lift this restriction; consult GitLab's own Issues API documentation for the current behavior on a given plan. |
 
 At construction the adapter warns once per distinct `labels` name that no project or group label matches by exact, case-sensitive comparison. The warning does not block construction, because an operator may reference a label that does not exist yet. `None` and `Any` are skipped on the non-negated form. A catalog read failure at this point logs a WARN and construction continues.
 
@@ -365,25 +347,9 @@ Unlike Gitea's comments route, the GitLab notes route **is** paginated, and the 
 
 ## Rate limiting
 
-Two products, two answers, and the self-managed default is the opposite of what the SaaS behavior suggests.
+GitLab meters requests per user, and the hosted service and a self-managed instance are metered differently, with the hosted service the stricter of the two on comment creation. The current quotas are GitLab's to publish, and a self-managed administrator can change them; see the [GitLab REST API documentation](https://docs.gitlab.com/api/rest/).
 
-| | Self-managed Community Edition | GitLab.com |
-|---|---|---|
-| General API throttling | **Disabled by default** | Enabled |
-| Documented budget | 7,200 requests per hour per user, once enabled | 2,000 authenticated API requests per minute |
-| `RateLimit-*` headers | Absent while throttling is off | Present |
-| Note-creation limit | 300 per minute | **60 per minute** |
-| Search API limit | 30 per minute | 10 per minute per IP |
-
-The hosted product is the **stricter** one on note creation, so a deployment tuned against a self-managed instance can hit the comment limit on GitLab.com.
-
-GitLab.com returns the IETF-style headers `RateLimit-Limit`, `RateLimit-Name`, `RateLimit-Observed`, `RateLimit-Remaining`, and `RateLimit-Reset`. GitLab documents two more on a 429, `RateLimit-ResetTime` and `Retry-After`. These are **not** GitHub's `X-RateLimit-*` names; header names copied from the GitHub adapter match nothing here.
-
-The adapter parses **no** `RateLimit-*` header and applies no preemptive throttling. On a 429 it reads `Retry-After` only to log a WARN, maps the status to `tracker_api_error`, and leaves backoff to the orchestrator's retry classification. Poll cadence is the pressure control.
-
-A self-managed 429 body is not guaranteed to be JSON: the response text is an operator-configurable instance setting. The adapter never requires a parseable body to classify a 429.
-
----
+The adapter parses no rate-limit header and does not throttle preemptively. Poll cadence is the only control, so a deployment tuned against a permissive self-managed instance can exhaust a hosted budget on comment writes alone. A throttled response maps to `tracker_api_error` and is retried with backoff; its body is not guaranteed to be JSON, so the adapter falls back to a bounded snippet for the message.
 
 ## Error model
 
@@ -392,13 +358,13 @@ The adapter maps the HTTP status to a `domain.TrackerErrorKind`.
 | HTTP status | Condition | Error kind |
 |---|---|---|
 | 2xx | Success | _(none)_ |
-| 400 | Parameter or model validation, including a parameter enum missing an Enterprise Edition value | `tracker_payload_error` |
+| 400 | Parameter or model validation | `tracker_payload_error` |
 | 401 | Missing, invalid, revoked, or expired token | `tracker_auth_error` |
-| 403 | Insufficient token scope, a license-gated feature, or a route requiring administrator | `tracker_auth_error` |
+| 403 | Insufficient token scope, or a route the credential may not reach | `tracker_auth_error` |
 | 404 | Missing issue, missing project, or a project the credential cannot see | `tracker_not_found` |
-| 409 | Conflict | `tracker_api_error`. Not exercised: no 409 was provoked on any adapter route during research. |
-| 414 | Request URI too large, from an over-long `iids[]` batch | `tracker_payload_error`. Documented by GitLab, not observed; the adapter prevents it by chunking. |
-| 422 | Unprocessable entity | `tracker_payload_error`. Not exercised: validation failures arrived as 400 on the issue surface. |
+| 409 | Conflict | `tracker_api_error`. |
+| 414 | Request URI too large, from an over-long `iids[]` batch | `tracker_payload_error`. The adapter prevents it by chunking. |
+| 422 | Unprocessable entity | `tracker_payload_error`. |
 | 429 | Rate limited. Logs `Retry-After` when present | `tracker_api_error` |
 | 5xx | Server error | `tracker_transport_error` |
 | Any other status | Unexpected status | `tracker_api_error` |
@@ -499,14 +465,14 @@ The adapter never reports [`unstable`](/reference/reactions/#normalized-mergeabi
 
 ### Review decision
 
-Community Edition carries no `approvals_required` and no `approvals_left` on the merge request object, and the richer `approval_state` route that would answer "is review required" is Enterprise Edition only, returning 404 on Community Edition. The approvals payload alone can say only whether a merge request has been approved, never whether approval is required, so `GetReviewDecision` folds the decision from two reads, the per-reviewer states and the approvals payload, evaluated in this order:
+`GetReviewDecision` reads no aggregate review-decision field. It folds the decision from two reads, the per-reviewer states and the merge request's approvals payload, evaluated in this order:
 
 1. Any reviewer's state is `requested_changes` → `CHANGES_REQUESTED`, decided before the approvals read.
 2. The approvals payload reports `approved: true` → `APPROVED`.
 3. The merge request has at least one reviewer → `REVIEW_REQUIRED`.
 4. No reviewers and no approval → `NOT_REQUIRED`.
 
-The changes-requested arm is checked first and returns unconditionally, so a later approval from a second reviewer can never clear an outstanding change request. The last arm is the one Community Edition operators should read closely: Community Edition has no approval rules, so it can never *require* an approval, and a merge request with no reviewer assigned is genuinely unreviewed rather than pending. `NOT_REQUIRED` lets auto-merge proceed on such a merge request. An operator who wants review enforced on Community Edition must assign a reviewer; the platform offers no server-side alternative.
+The changes-requested arm is checked first and returns unconditionally, so a later approval from a second reviewer can never clear an outstanding change request. The last arm is the one to read closely: the fold treats a merge request with no reviewer assigned as unreviewed rather than pending, and `NOT_REQUIRED` lets auto-merge proceed on it. Assigning a reviewer is what moves such a merge request to `REVIEW_REQUIRED`. Whether the instance can also require approval by rule is a GitLab subscription question; the adapter reads no approval-rule route and never consults one.
 
 ### Bot classification
 
@@ -683,65 +649,31 @@ The project checks are evaluated in that order and report the first fault that a
 
 ## Community Edition, Enterprise Edition, and GitLab.com
 
-**Every `TrackerAdapter` operation is available on self-managed Community Edition 19.2.1, verified live, with exactly one degradation in the normalized issue model and none in behavior.** That degradation is `BlockedBy`. GitLab's blocking issue-link types are a paid feature, so the relation is structurally unavailable on Community Edition and `domain.Issue.BlockedBy` normalizes to a non-nil empty slice. The adapter does not populate it from `relates_to` links: a "relates to" edge carries no direction and no blocking semantics, and inventing blockers would suppress dispatch for merely cross-referenced issues.
+Community Edition is the compatibility floor: the adapter depends only on what Community Edition provides, and no minimum GitLab version is claimed. Every tracker operation works there, with one degradation in the normalized issue model.
 
-Community Edition is the compatibility floor. The adapter depends only on what it provides. No minimum GitLab version is claimed; the facts on this page hold for the pinned version's defaults.
+That degradation is `BlockedBy`. GitLab's blocking issue-link type is not available on Community Edition, so the adapter normalizes blockers to an empty slice and no issue is ever held out of dispatch for a blocker. Sortie does not synthesize a blocker from a generic relation, because a related issue is not a blocking one. A GitLab.com namespace on a lower subscription plan can hit the same gap through licence gating instead of absence, which fails differently for the same reason - the value exists but the license check rejects it, an authorization-shaped failure rather than a parameter-validation one.
 
-Two caveats belong with that verdict. **No self-managed Enterprise Edition instance was available during adapter research**, so every Enterprise Edition claim rests on documentation and upstream source reading rather than observation. And GitLab.com, though built from the Enterprise Edition codebase, is not a self-managed Enterprise Edition deployment; the two are not interchangeable. GitLab.com on the Free plan is likewise **not** Community Edition: it gates features by namespace subscription plan rather than by which code is loaded, so the same gap surfaces as a different error.
-
-| Product | Codebase | Feature gating |
-|---|---|---|
-| Self-managed Community Edition | Community Edition only | Nothing to gate. Enterprise routes and parameters are absent from the running API. |
-| Self-managed Enterprise Edition | Community Edition plus the Enterprise tree | License tier gates features at the service layer. |
-| GitLab.com | Enterprise Edition | Namespace subscription plan gates features. |
-
-### Surface the adapter avoids
-
-| Feature | Community Edition behavior |
-|---|---|
-| Blocking issue links (`link_type=blocks`, `is_blocked_by`) | HTTP 400: the value is not in the enum. On GitLab.com Free the same request returns 403 naming the license. |
-| Issue `weight`, write and filter | Not an accepted update parameter; silently ignored as a filter. |
-| `epic_id`, `epic_iid` | Absent from the accepted parameter set. |
-| Multiple assignees | HTTP 400 for a second `assignee_username` value. |
-| Scoped-label mutual exclusion | Not enforced; both labels coexist. |
-| `iteration_id`, `iteration_title`, `health_status` | Declared only in the Enterprise tree. |
-| `blocking_issues_count` issue field | Absent from the issue object. |
-
----
+Which features each GitLab edition and tier includes is GitLab's to document, and the adapter avoids the licence-gated surface entirely rather than degrading against it.
 
 ## Key differences from the Gitea and GitHub adapters
 
-All three are forge platforms with label-driven state, but nearly every value a reader looks up differs.
+Most of what separates these three is their own API surface, which each vendor documents. Four differences change what you configure or what you can rely on:
 
-| Aspect | GitHub | Gitea | GitLab |
-|---|---|---|---|
-| Default host | `https://api.github.com` | None; `endpoint` is required | `https://gitlab.com`; `endpoint` is optional |
-| Auth header | `Authorization: Bearer <token>` | `Authorization: token <key>` | `PRIVATE-TOKEN: <key>` (Bearer also accepted; adapter sends `PRIVATE-TOKEN`) |
-| Token shape | Prefixed (`ghp_`, `github_pat_`) | 40 hex characters, no prefix | Prefixed, but the prefix is an instance setting, so no shape check |
-| Least-privilege token | Fine-grained PAT, per-repository | Scopes only | **Project access token**, single project enforced by the server |
-| Permission model | Per-resource permissions | `read:` / `write:` scopes | Coarse `api` / `read_api` only |
-| Token introspection | n/a | Scopes visible only inside a 403 body | `GET /personal_access_tokens/self`: scopes, active, revoked, expiry |
-| Issue identifier | Repo-scoped number | Repo-scoped index | Project-scoped `iid`; a global `id` exists and is inaccessible |
-| Project scoping | `owner/repo`, one slash | `owner/repo`, one slash | Numeric ID or percent-encoded path, **any number of slashes** |
-| Non-issue items in the list | Pull requests, excluded by a key check | Pull requests, excluded by `type=issues` | Tasks, incidents, test cases, excluded by `issue_type=issue` |
-| Default list state | Open | Open | **All**; must be set explicitly |
-| `labels` filter | AND, case-insensitive | AND, case-sensitive, unresolvable name **drops the filter** | AND, case-sensitive, unresolvable name returns an **empty** set |
-| Unknown query parameter | Error | Ignored; adapter warns and forwards | **Silently ignored**; adapter rejects at construction against an allowlist |
-| Unknown label on attach | HTTP 200, label created by the endpoint | HTTP 200, silently ignored | **HTTP 200, label created by the server** |
-| Label case handling | Case-insensitive | Case-sensitive | Case-sensitive **and** auto-creating, so a case variant creates a duplicate |
-| Transition cost | Several requests | Up to five requests | One read plus **one** `PUT` |
-| Batch state lookup | Per-issue or search | Per-issue loop | **One request** per 50 `iids` |
-| Comments route | Paginated | Unpaginated | Paginated, **and system notes must be filtered** |
-| Comment default order | n/a | Oldest-first | **Newest-first**; `sort=asc` requested |
-| Page-size maximum | 100 (`per_page`) | 50 (`limit`) | 100 (`per_page`) |
-| Rate limits | 5,000/hr core plus 30/min search | None built-in | **Off by default self-managed**; 2,000/min on GitLab.com with a stricter 60/min note-creation limit |
-| Rate-limit header names | `X-RateLimit-*` | None | `RateLimit-*` (IETF style), absent when throttling is off |
-| `BlockedBy` | Dependencies endpoint | Dependencies endpoint | **Unavailable on Community Edition**; always empty |
-| Error envelope | Varied shapes | Uniform `{"message", "url"}` | **Four shapes**; `message` and `error` both read |
-| Unauthorized resource | 404 | 404 | 404, byte-identical to a missing project |
-| GraphQL | Available, used for review decisions | Not available | Available, **not needed** for the tracker |
+| Difference | Consequence for a Sortie configuration |
+|---|---|
+| `endpoint` defaults to the hosted service | Self-managed instances set it; Gitea always requires it. |
+| `project` takes a namespace path of any depth, or a numeric ID | Subgroups need the full path, and a numeric ID survives a rename. |
+| Blockers are structurally unavailable | `BlockedBy` is always empty, so no issue is ever held out of dispatch for a blocker. |
+| A merge token needs one coarse scope | The write path requires `api`; there is no finer scope that works. |
 
-See the [GitHub adapter reference](/reference/adapter-github/) and the [Gitea adapter reference](/reference/adapter-gitea/).
+## External references
+
+- [GitLab REST API](https://docs.gitlab.com/api/rest/) - base URL, pagination, and request conventions
+- [REST API authentication](https://docs.gitlab.com/api/rest/authentication/) - how the token is presented and which token types are accepted
+- [Issues API](https://docs.gitlab.com/api/issues/) - the issue surface this adapter reads and writes, including its filter parameters
+- [Notes API](https://docs.gitlab.com/api/notes/) - the comment surface behind `tracker.comments`
+- [Merge requests API](https://docs.gitlab.com/api/merge_requests/) - the surface behind the SCM role
+- [Personal access tokens](https://docs.gitlab.com/user/profile/personal_access_tokens/) - creating a token and what each scope covers
 
 ---
 

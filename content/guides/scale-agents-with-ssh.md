@@ -52,6 +52,11 @@ This tells Sortie to run agents on `build01` and `build02` instead of locally. E
 
 If you also have `agent.max_concurrent_agents` set, total concurrency is the lower of the two limits. With `max_concurrent_agents: 3` and two hosts at 2 each, you get 3 concurrent agents — the global cap wins.
 
+> [!WARNING]
+> **On `codex` and `opencode`, moving to SSH removes Sortie's agent tools.** Both runtimes accept no MCP configuration path, so Sortie normally hands them the servers by writing them into the launch itself. Over SSH the only route left is the remote command string, which is the local `ssh` process's argument list — readable by every other user of the orchestrator host, and the configuration carries your tracker credential. Sortie declines to publish it. A remote session on either kind reaches no tool, and Sortie withholds the first-turn tool advertisement rather than name one the agent cannot call. Nothing fails; the agent works without `tracker_api`, `sortie_status`, `workspace_history`, `cost_budget`, and `notify_operator` if you configured it.
+>
+> If your prompts depend on those tools, keep the host pool on `claude-code` or `copilot-cli`, which hand over the generated file itself and are unaffected. See [delivery by agent kind](/reference/agent-extensions/#delivery-by-agent-kind).
+
 ## Update hooks for remote execution
 
 Sortie runs the agent command remotely over SSH, but hooks still execute locally on the orchestrator. When SSH mode is active, Sortie injects `SORTIE_SSH_HOST` into every hook's environment with the hostname assigned to that issue.
@@ -129,7 +134,7 @@ Sortie exposes per-host usage through two channels.
 **The state API** returns `ssh_host` on each running session. Hit the endpoint while agents are active:
 
 ```bash
-curl -s localhost:8080/api/v1/state | jq '.running[] | {identifier, ssh_host}'
+curl -s localhost:7678/api/v1/state | jq '.running[] | {identifier, ssh_host}'
 ```
 
 ```json
@@ -213,5 +218,6 @@ The key pieces:
 - **`SORTIE_SSH_HOST`** in hooks — the bridge between local orchestration and remote preparation
 - **Least-loaded dispatch** — Sortie balances work across hosts automatically
 - **Retry affinity** — failed sessions prefer the same host on retry, avoiding redundant workspace setup
+- **Agent tools** — available on `claude-code` and `copilot-cli` remotely; withheld on `codex` and `opencode`, which reach them only on a local launch
 
 For the full SSH configuration schema, see the [WORKFLOW.md reference](/reference/workflow-config/). For environment variables injected into hooks during SSH dispatch, see the [environment variables reference](/reference/environment/).

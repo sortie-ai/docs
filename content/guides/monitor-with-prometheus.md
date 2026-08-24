@@ -81,19 +81,14 @@ Paste these queries into the Prometheus expression browser to confirm data is ar
 **`sortie_build_info`** — returns a single series with value 1 and labels `version` and `go_version`. This confirms Sortie's version metadata is reaching Prometheus:
 
 ```
-sortie_build_info{version="0.5.0", go_version="go1.24.1"} 1
+sortie_build_info{version="1.21.0", go_version="go1.26.1"} 1
 ```
 
 If all three queries return data, your scrape pipeline is working.
 
 ### Import the Grafana dashboard
 
-Sortie ships a reference Grafana dashboard that visualizes the full metric set.
-
-1. Open Grafana and navigate to **Dashboards > Import**.
-2. Upload [`grafana-dashboard.json`](/downloads/grafana-dashboard.json) or paste its contents.
-3. Select your Prometheus data source when prompted.
-4. Click **Import**.
+Sortie ships a reference Grafana dashboard that visualizes the full metric set: [`grafana-dashboard.json`](/downloads/grafana-dashboard.json). Import it as a JSON dashboard against your Prometheus data source; see Grafana's own documentation for how to import a dashboard.
 
 The dashboard includes these panels, grouped into collapsible rows:
 
@@ -122,7 +117,7 @@ The dashboard includes these panels, grouped into collapsible rows:
 | SSH host utilization | Per-host session gauge (hidden when no SSH hosts are configured) |
 | Build info | Version and Go version |
 
-The dashboard is tested against Grafana 10+. Panels auto-adapt to your scrape interval.
+Panels auto-adapt to your scrape interval.
 
 ### Alerting queries
 

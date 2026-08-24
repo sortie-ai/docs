@@ -112,11 +112,8 @@ agent:
 
 claude-code:
   permission_mode: bypassPermissions
-  model: claude-sonnet-4-20250514
+  model: claude-sonnet-4-5
   max_turns: 30
-
-server:
-  port: 8080
 ---
 
 You are a senior engineer working in this repository.
@@ -181,14 +178,7 @@ Three hooks automate git operations at different lifecycle points:
 
 **`after_run`** runs after every agent attempt. It stages all changes, commits them if there are any, and pushes the branch. `--force-with-lease` is safe for automation — it pushes only if nobody else modified the remote branch.
 
-Hooks receive environment variables from the orchestrator. We use `SORTIE_ISSUE_IDENTIFIER` to name the branch. The full set of hook variables:
-
-| Variable | Example | Description |
-|---|---|---|
-| `SORTIE_ISSUE_ID` | `10042` | Tracker-internal ID |
-| `SORTIE_ISSUE_IDENTIFIER` | `PROJ-55` | Human-readable ticket key |
-| `SORTIE_WORKSPACE` | `/home/you/sortie-e2e/workspaces/PROJ-55` | Absolute workspace path |
-| `SORTIE_ATTEMPT` | `0` | Current attempt number |
+Hooks receive environment variables from the orchestrator. This workflow only needs `SORTIE_ISSUE_IDENTIFIER`, to name the branch, but every hook also gets `SORTIE_ISSUE_ID`, `SORTIE_WORKSPACE`, and `SORTIE_ATTEMPT`. See the [environment variable reference](/reference/environment/#hook-subprocess-environment) for the complete set, including the SSH-only variable that appears when a workflow uses [SSH worker mode](/guides/scale-agents-with-ssh/).
 
 `timeout_ms: 120000` gives hooks two minutes to finish. The default is 60 seconds, but cloning a large repository can take longer.
 
@@ -206,8 +196,8 @@ The **`agent`** section configures the orchestrator's scheduling behavior:
 
 The **`claude-code`** section is a pass-through to the Claude Code CLI:
 
-- `permission_mode: bypassPermissions` — auto-approve all tool calls. This is the value to use for unattended operation. Leaving the field out does not make the session interactive: the adapter falls back to the deprecated `--dangerously-skip-permissions`, which bypasses the same checks. What does stall the session is setting `permission_mode: default`, because Claude Code then prompts for confirmation on file edits and command execution and waits until the stall timeout kills it.
-- `model: claude-sonnet-4-20250514` — the model Claude Code uses.
+- `permission_mode: bypassPermissions` — auto-approve all tool calls. This is the value to use for unattended operation, and the only one Sortie accepts. Leaving the field out does not make the session interactive: the adapter falls back to the deprecated `--dangerously-skip-permissions`, which bypasses the same checks. Every other mode, `default` included, can stop and prompt, and an unattended run has nobody to answer, so Sortie refuses it before the run starts rather than letting the session reach the prompt.
+- `model: claude-sonnet-4-5` — the model Claude Code uses. `model` is a pass-through string Sortie forwards to the CLI without checking it, so replace this with whatever model identifier your Claude Code installation currently supports.
 - `max_turns: 30` — Claude Code's internal turn budget. This is how many steps Claude Code takes *within a single Sortie turn*. The agent might read files, write code, run tests, and fix errors — each step counts as one Claude Code turn.
 
 The distinction matters: `agent.max_turns` is how many times Sortie invokes the agent. `claude-code.max_turns` is how many internal steps the agent takes per invocation. Three Sortie turns with 30 internal turns each gives the agent up to 90 total steps to complete the task.
@@ -246,14 +236,14 @@ Start Sortie:
 sortie ./WORKFLOW.md
 ```
 
-You should see output similar to this (timestamps and IDs will differ):
+You should see output similar to this (timestamps and IDs will differ, and the `tick completed` lines carry more fields than shown here):
 
 ```
 level=INFO msg="sortie starting" version=0.x.x workflow_path=/home/you/sortie-e2e/WORKFLOW.md
 level=INFO msg="database path resolved" db_path=/home/you/sortie-e2e/.sortie.db
-level=INFO msg="http server listening" address=127.0.0.1:8080
+level=INFO msg="http server listening" addr=127.0.0.1:7678
 level=INFO msg="sortie started"
-level=INFO msg="tick completed" candidates=1 dispatched=1 running=1 retrying=0
+level=INFO msg="tick completed" candidates=1 dispatched=1 ... running=1 retrying=0 ...
 level=INFO msg="workspace created" issue_id=10042 issue_identifier=PROJ-55
 level=INFO msg="hook started" hook=after_create issue_identifier=PROJ-55
 level=INFO msg="hook completed" hook=after_create issue_identifier=PROJ-55
@@ -274,7 +264,7 @@ level=INFO msg="hook started" hook=after_run issue_identifier=PROJ-55
 level=INFO msg="hook completed" hook=after_run issue_identifier=PROJ-55
 level=INFO msg="worker exiting" issue_id=10042 issue_identifier=PROJ-55 exit_kind=normal turns_completed=1
 level=INFO msg="handoff transition succeeded, releasing claim" issue_id=10042 issue_identifier=PROJ-55 handoff_state="In Review"
-level=INFO msg="tick completed" candidates=0 dispatched=0 running=0 retrying=0
+level=INFO msg="tick completed" candidates=0 dispatched=0 ... running=0 retrying=0 ...
 ```
 
 Here is the full lifecycle, step by step:
@@ -336,7 +326,7 @@ If the status did not change and you see a handoff warning in the logs, the Jira
 
 ### Check the dashboard
 
-Open [http://127.0.0.1:8080/](http://127.0.0.1:8080/) in a browser. The workflow sets `server.port: 8080`, so the dashboard is available at that port. You will see:
+Open [http://127.0.0.1:7678/](http://127.0.0.1:7678/) in a browser. Sortie serves the dashboard there by default, with no configuration required. You will see:
 
 - **Summary cards** at the top: running sessions, retry queue size, free slots, total tokens consumed.
 - **Run history** table showing the completed session — its issue identifier, turn count, duration, and exit status.

@@ -38,7 +38,7 @@ curl -sSL https://get.sortie-ai.com/install.sh | sh -s -- --help
 
 | Flag | Variable | Effect |
 |---|---|---|
-| `-v`, `--version <version>` | `SORTIE_VERSION` | Pin a specific release (e.g. `1.19.0`). Without it, the latest release is used. |
+| `-v`, `--version <version>` | `SORTIE_VERSION` | Pin a specific release (e.g. `1.21.0`). Without it, the latest release is used. |
 | `-d`, `--install-dir <dir>` | `SORTIE_INSTALL_DIR` | Override the install directory. |
 | `--no-verify` | `SORTIE_NO_VERIFY=1` | Skip SHA-256 checksum verification (not recommended). |
 | `-b`, `--binary <path>` | — | Install a binary already on disk instead of downloading one. |
@@ -48,14 +48,14 @@ Example — install a specific version to a custom directory:
 
 ```bash
 curl -sSL https://get.sortie-ai.com/install.sh | sh -s -- \
-  --version 1.19.0 --install-dir /opt/bin
+  --version 1.21.0 --install-dir /opt/bin
 ```
 
 The same thing with environment variables, which is the only form available
 when you cannot pass arguments:
 
 ```bash
-SORTIE_VERSION=1.19.0 SORTIE_INSTALL_DIR=/opt/bin \
+SORTIE_VERSION=1.21.0 SORTIE_INSTALL_DIR=/opt/bin \
   curl -sSL https://get.sortie-ai.com/install.sh | sh
 ```
 
@@ -94,14 +94,14 @@ Set these as environment variables before running the one-liner:
 
 | Variable | Effect |
 |---|---|
-| `SORTIE_VERSION` | Pin a specific release (e.g. `1.19.0`). Without it, the latest release is used. |
+| `SORTIE_VERSION` | Pin a specific release (e.g. `1.21.0`). Without it, the latest release is used. |
 | `SORTIE_INSTALL_DIR` | Override the install directory. |
 | `SORTIE_NO_VERIFY` | Set to `1` to skip SHA-256 checksum verification (not recommended). |
 
 Example — install a specific version to a custom directory:
 
 ```powershell
-$env:SORTIE_VERSION = '1.19.0'
+$env:SORTIE_VERSION = '1.21.0'
 $env:SORTIE_INSTALL_DIR = 'C:\tools\sortie'
 irm 'https://get.sortie-ai.com/install.ps1' | iex
 ```
@@ -269,7 +269,7 @@ sortie --version
 You should see output like:
 
 ```
-sortie 1.19.0 (commit: 0651d1f, built: 2026-07-11, go1.26.1, linux/amd64)
+sortie 0.x.x (commit: xxxxxxx, built: yyyy-mm-dd, go1.26.x, linux/amd64)
 ```
 
 ## Troubleshooting
@@ -318,4 +318,4 @@ Delete the file and download again. If the problem persists, open an
 
 ## Next steps
 
-- [Quick start](/getting-started/quick-start/) — run Sortie end-to-end with a mock agent and local issues
+- [Quick start](/getting-started/quick-start/) — run Sortie end-to-end against local issues, with no coding agent to install

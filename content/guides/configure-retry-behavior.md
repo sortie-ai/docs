@@ -13,7 +13,7 @@ Make Sortie's retries match your operational needs — cap runaway loops, tune b
 
 - A working Sortie setup ([quick start](/getting-started/quick-start/))
 - A `WORKFLOW.md` with an `agent` block configured
-- Familiarity with running `sortie start` and reading its logs
+- Familiarity with running `sortie` and reading its logs
 
 ## Stop runaway retries on stuck issues
 
@@ -86,7 +86,7 @@ Release a parked issue with any one of three gestures:
 
 If [`tracker.query_filter`](/reference/workflow-config/#tracker) excludes the parking label from the issues Sortie fetches, Sortie can never confirm the label is present, so removing it never releases the park either. Release those issues by moving them to a different state instead.
 
-A review-comment or CI continuation retry is never stopped by this ceiling; it runs on its own retry budget. The consecutive-absence count is neither kept nor consulted when `tracker.handoff_evidence` is `off`. And a run that ends with no evidence verdict at all, such as an agent that reports itself blocked, leaves the count exactly where it stood: it neither advances it nor resets it.
+A review-comment or CI continuation retry is never stopped by this ceiling; it runs on its own retry budget. The consecutive-absence count is neither kept nor consulted when `tracker.handoff_evidence` is `off`. And a run that ends with no evidence verdict at all, such as an agent that reports itself blocked, leaves the count exactly where it stood: it neither advances it nor resets it. So does a run whose withheld verdict Sortie discarded because the issue had reached a terminal state by the time the outcome was recorded - a finished issue does not move toward the ceiling.
 
 ## Tune backoff timing
 
@@ -226,7 +226,7 @@ grep "handoff withheld by evidence policy" sortie.log
 grep "issue parked" sortie.log
 ```
 
-**Dry run.** `sortie start --dry-run` runs a single poll tick and shows which issues are eligible for dispatch. It doesn't test retry behavior directly (retries happen over multiple ticks), but it confirms your config parses correctly and issues are visible.
+**Dry run.** `sortie --dry-run` runs a single poll tick and shows which issues are eligible for dispatch. It doesn't test retry behavior directly (retries happen over multiple ticks), but it confirms your config parses correctly and issues are visible.
 
 ## What we configured
 

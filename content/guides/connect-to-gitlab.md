@@ -78,6 +78,8 @@ Written through an environment variable, that line is safe to keep in a GitLab.c
 
 Give the instance root, not the API path. The adapter validates the value as an absolute `http` or `https` URL with a host, trims a trailing slash, and appends `/api/v4`. It tolerates a value that already ends in `/api/v4` without appending it twice, and `sortie validate` warns when it finds the suffix, since you can drop it. Use `https`: the token travels in a request header, and a plain-`http` endpoint sends it in cleartext, which `sortie validate` flags as `tracker.endpoint uses http; the access token travels in cleartext in the PRIVATE-TOKEN header, use https`.
 
+If your self-managed instance sits on a bare IPv6 address, bracket it: `http://[fd00::1]:3000`, not `http://fd00::1:3000`. The unbracketed form is exactly how the address prints from `ip addr`, but it reads as a hostname with a trailing port, so both `sortie validate` and Sortie itself reject it before making any request.
+
 ## Set the project
 
 `tracker.project` is the project's namespace path or its numeric project ID:
@@ -98,7 +100,7 @@ The path nests to any depth. Both `group/project` and `group/subgroup/project` a
 
 Write the plain path. The adapter percent-encodes it once for the route, and a value you encoded yourself is a validation error rather than a working shortcut.
 
-The numeric project ID is the alternative, and GitLab shows it on the project overview page and under **Settings > General**. Prefer it when the deployment must survive a rename: moving or renaming a project changes its path and keeps its ID.
+The numeric project ID is the alternative, and GitLab surfaces it on the project itself. Prefer it when the deployment must survive a rename: moving or renaming a project changes its path and keeps its ID.
 
 `sortie validate` rejects these shape faults offline, which are the ones an operator actually hits:
 

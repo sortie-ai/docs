@@ -89,7 +89,7 @@ Generic naming applies everywhere in core, but this package is where the kind st
 
 ### Register the adapter
 
-Registration runs from `init()` and binds your kind string to a constructor. Use `RegisterWithMeta` so you can declare that the agent needs a launch command.
+Registration runs from `init()` and binds your kind string to a constructor. Use `RegisterWithMeta` so you can declare that the agent needs a launch command, what your adapter does with the MCP configuration Sortie generates for its own tools, and whether any of your own pass-through keys stops the agent resuming a session.
 
 ```go {filename="acme.go"}
 package acme
@@ -102,6 +102,7 @@ import (
 func init() {
 	registry.Agents.RegisterWithMeta("acme", NewACMEAdapter, registry.AgentMeta{
 		RequiresCommand: true,
+		MCPInjection:    registry.MCPInjectionUnsupported,
 	})
 }
 
@@ -119,6 +120,31 @@ func NewACMEAdapter(config map[string]any) (domain.AgentAdapter, error) {
 ```
 
 The kind string `"acme"` is the exact value an operator writes in `agent.kind` in WORKFLOW.md. Registry lookup is exact-match and case-sensitive, so `acme` and `Acme` are different agents. `RequiresCommand: true` tells the orchestrator preflight to reject a workflow that selects this agent without an `agent.command`. The `var _ domain.AgentAdapter = (*ACMEAdapter)(nil)` line is a compile-time assertion: if your type stops satisfying the interface, the build fails here with a clear message. The constructor signature is fixed: `func(config map[string]any) (domain.AgentAdapter, error)`, where `config` is the raw map from your WORKFLOW.md extension block.
+
+`MCPInjection` declares what your adapter does with the MCP configuration the worker generates for Sortie's own tools. Three values name a delivery, and the zero value names an adapter that has declared nothing:
+
+| Value | Meaning | Sortie's tools reach the session |
+|---|---|---|
+| `MCPInjectionSupported` | Your adapter hands the generated file's path to the runtime. | Local and SSH |
+| `MCPInjectionTranslated` | Your runtime accepts no config path, so your adapter re-expresses the declared servers in the form it does parse. | Local only |
+| `MCPInjectionUnsupported` | Your adapter never delivers the configuration to the agent process. | Never |
+
+Declare the truth about what your adapter does today, not what the CLI could theoretically be made to do. The declaration is load-bearing in both directions: it decides whether the runtime is pointed at the tool sidecar *and* whether Sortie writes the first-turn tool advertisement, so a session is never told about a tool it cannot call. Leaving the field at its zero value, `MCPInjectionUndeclared`, delivers no channel either, so an undeclared adapter silently gets no tools and no advertisement. Declare it explicitly: start at `MCPInjectionUnsupported` and change the value when you wire delivery up. [`sortie validate`](/reference/cli/#validate) reports any kind with no channel as an `agent.kind.no_tool_channel` warning, which is how an operator finds out.
+
+`SessionResumeBlockedBy` is optional and reports which of *your* pass-through keys, under the pass-through Sortie hands it, stops your runtime continuing a session across separate agent launches. Return the operator-visible key name; return the empty string when the configuration resumes normally. Leave the field out entirely when your runtime has no such key at all - that is the safe answer, and it is what the built-in Codex, Copilot CLI, OpenCode, Kiro and mock kinds do.
+
+```go {filename="acme.go"}
+SessionResumeBlockedBy: func(passthrough map[string]any) string {
+	if typeutil.BoolFrom(passthrough, "keep_history", true) {
+		return ""
+	}
+	return "keep_history"
+},
+```
+
+Declare it if the key exists, because Sortie re-dispatches an issue carrying its earlier session after a retry, a continuation, a stall, or a restart, and without the declaration a workflow that sets such a key validates cleanly and then fails on every resumed turn. With it declared, [`sortie validate`](/reference/cli/#validate) and startup preflight refuse the workflow with an `agent.kind.session_resume` error naming your key. The check is generic: the message text and severity belong to Sortie, and your declaration supplies only the key. Read the value with the same helper and default your own constructor uses, so the verdict cannot disagree with the launch your adapter would actually build, and do not modify the map you are handed.
+
+`MCPInjectionTranslated` is `local only` for a reason worth knowing before you pick it, and the reason is not the one people expect. Per-turn arguments do cross an SSH launch: `sshutil.BuildSSHArgs` shell-quotes each one onto the remote command string, and the remote agent receives them. That string is itself an argument of the local `ssh` process, so anything you put in it, per-turn arguments included, lands on an argument list every other user of the orchestrator host can read. `LaunchTarget.Args`, the initial-argument slot a translating adapter would otherwise use, is empty in SSH mode for the same reason it has nothing to hold: the local command is `ssh`, not your agent. There is no route to the remote agent that keeps the configuration's credential values off the local argument list, so an adapter that translates must deliver nothing on a remote launch.
 
 **Verify:** a one-line test confirms the kind resolves.
 
@@ -372,7 +398,7 @@ Make the agent's capabilities and limitations visible to operators, because they
 
 Token-usage emission is optional. If the CLI reports tokens, drive a `UsageAccumulator` and emit `EventTokenUsage`; this feeds token-based budgets. If it reports none, leave `TurnResult.Usage` at the zero value, emit no `EventTokenUsage`, and the agent is budgeted by time only, through `agent.turn_timeout_ms`. Kiro is the worked example: its headless path reports an abstract credits figure, never token counts, so token budgets are inert and `agent.turn_timeout_ms` is the time-based budget that remains.
 
-Tool permissions are surfaced through the passthrough config, with a least-privilege default. Kiro exposes a `trust_tools` allowlist (the read-only set of `read`, `grep`, `glob` is the safe starting point) and a mutually exclusive `trust_all_tools` switch. Expose only the flags your CLI actually has.
+Tool permissions are surfaced through the passthrough config. Every run is unattended, so the default has to be a posture the runtime can carry through a turn without stopping to ask, and a pass-through value that reopens the interactive path is refused through the shared configuration-diagnostic channel rather than accepted. Kiro is the worked example again: it exposes a `trust_tools` allowlist and a mutually exclusive `trust_all_tools` switch, resolves to full trust when neither is set, and refuses any narrower posture, because what `kiro-cli` does when it meets an untrusted tool under `--no-interactive` is unestablished. Expose only the flags your CLI actually has, and declare a diagnostic for each one that could let the agent stop and wait.
 
 State these capabilities and limitations in two places so operators find them: the adapter package doc comment, and the agent's docs-site reference page. An operator who reads "this agent reports no token usage; budget it with `turn_timeout_ms`" before they deploy avoids a confusing first run.
 

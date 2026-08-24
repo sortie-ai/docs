@@ -222,7 +222,7 @@ journalctl -u sortie -n 5 | grep version
 You'll see the version in the startup log line:
 
 ```
-level=INFO msg="sortie starting" version=0.1.0 workflow_path=/etc/sortie/WORKFLOW.md port=8080
+level=INFO msg="sortie starting" version=0.x.x workflow_path=/etc/sortie/WORKFLOW.md server_addr=127.0.0.1:7678
 ```
 
 ## What we configured

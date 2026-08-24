@@ -359,7 +359,7 @@ kubectl port-forward svc/sortie 7678:7678
 Open `http://localhost:7678` to view the [dashboard](/reference/dashboard/), or query the API:
 
 ```sh
-curl -s http://localhost:7678/api/status | jq .
+curl -s http://localhost:7678/api/v1/state | jq .
 ```
 
 {{% /steps %}}

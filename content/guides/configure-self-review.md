@@ -64,7 +64,7 @@ self_review:
 
 `max_iterations` sets the hard cap on review cycles. Default: 3. Range: 1 to 10.
 
-Each iteration consists of one review turn and, if the verdict is "iterate," one fix turn. So `max_iterations: 3` means up to 5 additional agent turns in the worst case (3 review + 2 fix). Research on LLM self-debugging (Chen et al., ICLR 2024; Gou et al., ICLR 2024) shows that tool-grounded self-correction completes productively within 3 turns. Going higher costs tokens with diminishing returns.
+Each iteration consists of one review turn and, if the verdict is "iterate," one fix turn. So `max_iterations: 3` means up to 5 additional agent turns in the worst case (3 review + 2 fix). Going higher costs tokens with diminishing returns for most tasks.
 
 When the cap is reached without a "pass" verdict, the worker exits normally. The review metadata records `cap_reached: true` and gets persisted in run history. This is logged as a warning, not an error, because the iteration cap is a budget guard, not a failure signal.
 
@@ -227,11 +227,12 @@ self_review:
   verification_timeout_ms: 180000   # 3 min per command
   max_diff_bytes: 102400            # 100 KB
 
-ci_feedback:
-  kind: github
-  max_retries: 2
-  escalation: label
-  escalation_label: needs-human
+reactions:
+  ci_failure:
+    provider: github
+    max_retries: 2
+    escalation: label
+    escalation_label: needs-human
 
 hooks:
   after_create: |
@@ -278,8 +279,6 @@ hooks:
   timeout_ms: 120000
 
 db_path: .sortie.db
-server:
-  port: 8642
 ---
 
 You are a senior engineer working on {{ .issue.identifier }}.

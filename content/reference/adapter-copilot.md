@@ -8,7 +8,7 @@ url: /reference/adapter-copilot/
 ---
 The Copilot CLI adapter connects Sortie to the [GitHub Copilot CLI](https://docs.github.com/en/copilot/using-github-copilot/using-github-copilot-in-the-command-line) via subprocess management. It launches the `copilot` binary with `--output-format json`, reads newline-delimited JSON from stdout, and normalizes events into domain types. Registered under kind `"copilot-cli"`.
 
-Each `RunTurn` call spawns an independent subprocess. The adapter is safe for concurrent use: one adapter instance serves all sessions, with per-session state held in an opaque internal handle. Node.js 22+ is required - a canary check runs `copilot --version` at session start to verify the binary is functional.
+Each `RunTurn` call spawns an independent subprocess. The adapter is safe for concurrent use: one adapter instance serves all sessions, with per-session state held in an opaque internal handle. `StartSession` runs a canary check and a credential preflight before it returns a session; both are local-mode only.
 
 See also: [WORKFLOW.md configuration](/reference/workflow-config/) for the full `agent` schema, [environment variables](/reference/environment/) for GitHub token variables, [error reference](/reference/errors/#agent-errors) for all agent error kinds, [how to write a prompt template](/guides/write-prompt-template/) for template authoring.
 
@@ -46,25 +46,25 @@ agent:
 
 ### `copilot-cli` extension section
 
-These fields are adapter-specific. The orchestrator forwards them to the adapter without validation. Each field maps to a Copilot CLI flag.
+These fields are adapter-specific, and each maps to a Copilot CLI flag. The orchestrator forwards them as written, and the four tool-scoping keys draw an advisory warning because setting any of them changes the permission posture; see [validate-time checks](#validate-time-checks).
 
 | Field | CLI flag | Type | Default | Description |
 |---|---|---|---|---|
-| `model` | `--model` | string | _(CLI default)_ | LLM model identifier (e.g., `gpt-4.1`). |
+| `model` | `--model` | string | _(CLI default)_ | LLM model identifier, forwarded unchanged. See `copilot --help` on your installed version for the accepted values. |
 | `max_autopilot_continues` | `--max-autopilot-continues` | integer | `50` | Maximum autopilot continuation steps within a single `RunTurn` invocation. |
 | `agent` | `--agent` | string | _(none)_ | Agent persona to use. |
 | `allowed_tools` | `--allow-tool` | string | _(none)_ | Tool to allow explicitly. |
 | `denied_tools` | `--deny-tool` | string | _(none)_ | Tool to deny explicitly. |
 | `available_tools` | `--available-tools` | string | _(none)_ | Set of available tools. |
 | `excluded_tools` | `--excluded-tools` | string | _(none)_ | Set of excluded tools. |
-| `mcp_config` | `--additional-mcp-config` | string | _(none)_ | Path to an MCP server configuration file. |
+| `mcp_config` | `--additional-mcp-config` | string | _(none)_ | Path to, or inline JSON for, an operator-supplied MCP server configuration. Sortie does not forward this value unchanged when it also has its own tools to wire in; see [Sortie's own tools and the mcp_config field](#sorties-own-tools-and-the-mcp_config-field). |
 | `disable_builtin_mcps` | `--disable-builtin-mcps` | boolean | `false` | Disable built-in MCP servers. |
 | `no_custom_instructions` | `--no-custom-instructions` | boolean | `false` | Skip custom instruction files. |
 | `experimental` | `--experimental` | boolean | `false` | Enable experimental features. |
 
 ```yaml
 copilot-cli:
-  model: gpt-4.1
+  model: <model-id>
   max_autopilot_continues: 100
   agent: coding-agent
   mcp_config: ./mcp-servers.json
@@ -88,7 +88,33 @@ Setting `max_autopilot_continues` too low causes Copilot to exit mid-task. Setti
 
 When no explicit tool scoping flags are configured (`allowed_tools`, `denied_tools`, `available_tools`, and `excluded_tools` are all empty), the adapter passes `--allow-all` to auto-approve all tool calls. When any scoping flag is set, `--allow-all` is omitted and the explicit scoping flags take effect instead.
 
-Every invocation also includes `--autopilot` and `--no-ask-user`, which are always present regardless of tool scoping configuration.
+Every invocation also includes `--autopilot` and `--no-ask-user`, which are always present regardless of tool scoping configuration. `--no-ask-user` closes the CLI's route for putting a question to a person, so a request the runtime cannot satisfy on its own is always a request for consent to act rather than a question.
+
+### Sortie's own tools and the `mcp_config` field
+
+Sortie generates one MCP server configuration per session, declaring a `sortie-tools` stdio server that exposes Sortie's own tools to the agent. When that generated file exists, the adapter passes it to `--additional-mcp-config` as `@<path>`, regardless of whether `copilot-cli.mcp_config` is also set.
+
+When `copilot-cli.mcp_config` names an operator-supplied file, Sortie reads it, inserts the `sortie-tools` entry into its `mcpServers` object, and writes the merged result - the same merge the Claude Code adapter performs, since both read from the orchestrator-generated config. A relative path resolves against the directory containing `WORKFLOW.md`. A server already named `sortie-tools` in the operator's file fails generation with a name-collision error rather than being silently overwritten.
+
+Only when no such merge has taken place - `MCPConfigPath` is empty - does the adapter fall back to forwarding `copilot-cli.mcp_config` directly to `--additional-mcp-config`. In that fallback path the adapter also decides how to present the value to the flag: a value starting with `{` is passed through as inline JSON, a value already starting with `@` is passed through unchanged, and any other value is treated as a file path and prefixed with `@`, matching the flag's own file-vs-inline convention.
+
+### Runtime-denied permission requests
+
+The CLI answers a permission request under its own non-interactive policy rather than handing it to Sortie: it denies the call, reports the denial as a `tool.execution_complete` event carrying the error code `denied`, and continues the session. The adapter recognizes that code and reports it as a `notification` event naming the reason. The turn is not ended, and no consent was granted. This is the path a tool call excluded by `allowed_tools`, `denied_tools`, `available_tools`, or `excluded_tools` takes.
+
+---
+
+## Validate-time checks
+
+When `agent.kind` is `copilot-cli`, the [`sortie validate`](/reference/cli/#validate) pipeline runs a Copilot CLI-specific config check in addition to the generic preflight validation. It constructs no adapter instance and launches no subprocess, and the same check runs at startup and on every workflow reload, so the verdict is identical in all three places.
+
+### Warnings
+
+| Check | Condition | Message |
+|---|---|---|
+| `copilot-cli.tool_scoping.interactive` | Any of `allowed_tools`, `denied_tools`, `available_tools`, or `excluded_tools` is set | `copilot-cli tool scoping (allowed_tools, denied_tools, available_tools, or excluded_tools) displaces --allow-all; a tool call the scoping excludes is denied and the run continues, rather than being auto-approved` |
+
+This is a warning rather than an error. Warnings leave `valid` true and the exit code `0`. Tool scoping narrows what the agent may do, and a call it excludes is denied and the session goes on, so the configuration never leaves a turn waiting for a person.
 
 ---
 
@@ -100,8 +126,8 @@ Validates the workspace path, resolves the agent binary, runs a canary check, an
 
 1. Validates that `WorkspacePath` is a non-empty absolute path pointing to an existing directory.
 2. Resolves the `command` via `exec.LookPath`. In SSH mode, resolves the local `ssh` binary instead; the agent command resolves on the remote host.
-3. **Canary check (local mode only):** runs `copilot --version` with a 5-second timeout to verify the binary is functional and Node.js 22+ is available.
-4. **Authentication preflight (local mode only):** checks for `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN` environment variables. Falls back to `gh auth status` (2-second timeout) if no env var is set.
+3. **Canary check (local mode only):** runs `copilot --version` with a 5-second timeout. Any non-zero exit or timeout fails the session with `agent_not_found`; the adapter does not read the version it printed.
+4. **Credential preflight (local mode only):** accepts a non-empty `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN`. With none of them set, it falls back to `gh auth status` (2-second timeout), and only when `gh` itself is on `PATH`. The adapter tests only that a source exists; it never inspects the token's value.
 5. Adopts `ResumeSessionID` for continuation sessions. The session ID may remain empty until the first `result` event populates it.
 6. Returns an opaque `Session` handle containing workspace path, resolved binary, session ID, and SSH configuration.
 
@@ -112,7 +138,7 @@ Validates the workspace path, resolves the agent binary, runs a canary check, an
 | Empty or non-existent workspace path | `invalid_workspace_cwd` |
 | Workspace path is not a directory | `invalid_workspace_cwd` |
 | Agent binary not found in `PATH` | `agent_not_found` |
-| Binary found but not functional (Node.js missing) | `agent_not_found` |
+| Canary `copilot --version` timed out or exited non-zero | `agent_not_found` |
 | No GitHub authentication source found | `agent_not_found` |
 | SSH binary not found (SSH mode) | `agent_not_found` |
 
@@ -120,10 +146,12 @@ Validates the workspace path, resolves the agent binary, runs a canary check, an
 
 Spawns a Copilot CLI subprocess, reads JSONL events from stdout, and delivers normalized events via the `OnEvent` callback.
 
+The subprocess lifecycle belongs to the shared fork-per-turn skeleton in `internal/agent/agentcore`, which the Claude Code and Kiro adapters use as well; the Copilot CLI adapter supplies the argument list, the line parser, and the end-of-turn classifier.
+
 1. Builds the CLI argument list from session state and pass-through configuration.
-2. Always includes: `-p <prompt>`, `--output-format json`, `-s`, `--autopilot`, `--no-ask-user`.
+2. Always includes: `-p <prompt>`, `--output-format json`, `-s`, `--autopilot`, `--no-ask-user`, and `--max-autopilot-continues <n>` (`50` when `copilot-cli.max_autopilot_continues` is unset or not positive).
 3. Applies session management flags (see [session resume mechanism](#session-resume-mechanism)).
-4. Spawns the subprocess with `exec.Command` (not `exec.CommandContext` - see [process shutdown](#process-shutdown) for rationale).
+4. Spawns the subprocess with `exec.CommandContext`, overriding its default cancel behavior - see [process shutdown](#process-shutdown) for how.
 5. Sets `cmd.Dir` to the workspace path and `cmd.Env` to the full parent process environment.
 6. Emits `session_started` event before the scan loop begins.
 7. Reads stdout line by line via a buffered scanner (64 KB initial buffer, 10 MB max line).
@@ -149,55 +177,19 @@ Returns `nil`. The adapter delivers all events synchronously through the `OnEven
 
 ## Process shutdown
 
-The adapter uses `exec.Command` instead of `exec.CommandContext`. This is intentional.
-
-`exec.CommandContext` sends an immediate kill signal on context cancellation by default. The agent process cannot flush output buffers, close network connections, or emit final token-usage events. Instead, the adapter sends a graceful shutdown signal first (POSIX: `SIGTERM`; Windows: `CTRL_BREAK_EVENT` via the process group) and escalates to a force kill after 5 seconds (POSIX: `SIGKILL`; Windows: `TerminateJobObject`), preserving the agent's opportunity for a clean exit.
+`exec.CommandContext` sends an immediate kill signal on context cancellation by default. The agent process would have no chance to flush output buffers, close network connections, or emit final token-usage events. The adapter overrides that default: `cmd.Cancel` is set to send a graceful shutdown signal instead of a kill (POSIX: `SIGTERM`; Windows: `CTRL_BREAK_EVENT` via the process group), and `cmd.WaitDelay` bounds how long `Wait` gives the process to exit after that signal - 5 seconds - before force-killing it (POSIX: `SIGKILL`; Windows: `TerminateJobObject`). This covers both orchestrator-initiated cancellation (reconciliation kill, stall detection) and shutdown signals, since all of them reach the subprocess through the same context.
 
 On all platforms, the subprocess is placed in its own process group at launch. On Windows, the subprocess is additionally assigned to a Job Object with `KILL_ON_JOB_CLOSE`, so the entire process tree (including MCP servers and other children) is terminated on shutdown or if Sortie crashes.
 
-A dedicated goroutine monitors `ctx.Done()` and calls the graceful-kill sequence when the context is cancelled. This covers both orchestrator-initiated cancellation (reconciliation kill, stall detection) and shutdown signals.
+`StopSession` follows the same shape independently of context cancellation: it sends the graceful signal, waits up to 5 seconds, and force-kills the process group if the wait times out.
 
 ---
 
-## JSONL event stream
+## Event stream
 
-Copilot CLI emits one JSON object per line on stdout when invoked with `--output-format json`. The adapter parses each line and maps it to a normalized domain event.
+Copilot CLI emits one JSON object per line on stdout. The adapter parses each line and maps it onto Sortie's [normalized event vocabulary](/guides/write-custom-agent-adapter/), so what reaches the orchestrator, the logs, and the dashboard is the same set of events every adapter produces. The CLI's own event types and result payload are Copilot's to define; see [external references](#external-references).
 
-### Event type mapping
-
-| Copilot CLI event | Domain event type | Notes |
-|---|---|---|
-| `assistant.message_delta` | `notification` | Stall timer reset. Ephemeral streaming content. |
-| `assistant.message` | `token_usage` + `notification` | Extracts `outputTokens` from data as an in-turn output estimate, accumulated cumulatively. Summarizes content or tool requests. |
-| `assistant.turn_start` | `notification` | Turn boundary marker. |
-| `assistant.turn_end` | `notification` | Turn boundary marker. |
-| `tool.execution_start` | `notification` | Records tool name and timestamp in in-flight map. |
-| `tool.execution_complete` | `tool_result` | Correlates with in-flight `tool.execution_start` for duration. Includes `ToolError` from `success` field. |
-| `session.warning` | `notification` | Logs at warn level. Extracts message from data. |
-| `session.info` | `notification` | Informational message. Extracts message from data. |
-| `session.task_complete` | `notification` | Task completion summary. Extracts summary from data. |
-| `session.mcp_server_status_changed` | _(debug log only)_ | Not emitted as domain event. |
-| `session.mcp_servers_loaded` | _(debug log only)_ | Not emitted as domain event. |
-| `session.tools_updated` | _(debug log only)_ | Not emitted as domain event. |
-| `user.message` | _(debug log only)_ | Not emitted as domain event. |
-| `result` | `turn_completed` or `turn_failed` | Final event. Contains session ID, exit code, usage stats. |
-| _(parse failure)_ | `malformed` | Unparseable line, truncated to 500 characters. |
-| _(unknown type)_ | `other_message` | Unrecognized event type. |
-
-### Result event fields
-
-The `result` event carries turn-level metadata at the top level (no `data` wrapper):
-
-| Field | Type | Description |
-|---|---|---|
-| `sessionId` | string | Copilot CLI session ID. Captured for subsequent turns. |
-| `exitCode` | integer | Process-level exit code. `0` = success. |
-| `usage.premiumRequests` | integer | Number of premium API requests in this session. |
-| `usage.totalApiDurationMs` | integer | Aggregate API response wait time in milliseconds. |
-| `usage.sessionDurationMs` | integer | Wall-clock session duration in milliseconds. |
-| `usage.codeChanges.linesAdded` | integer | Lines of code added. |
-| `usage.codeChanges.linesRemoved` | integer | Lines of code removed. |
-| `usage.codeChanges.filesModified` | array of strings | Files modified in this session. |
+Most of the stream is informational and reaches the logs as `notification` events. A tool call the runtime denies is reported as a `notification` and the turn continues, with no consent granted; see [runtime-denied permission requests](#runtime-denied-permission-requests).
 
 ---
 
@@ -238,7 +230,7 @@ The adapter observes tool execution by correlating `tool.execution_start` and `t
 
 1. A `tool.execution_start` event records the tool name and a monotonic timestamp in an in-flight map, keyed by `toolCallId`.
 2. A `tool.execution_complete` event looks up the matching `toolCallId` in the in-flight map.
-3. When a match is found, the adapter emits a `tool_result` event with `ToolName`, `ToolDurationMS` (elapsed since the start timestamp), and `ToolError` (inverted from the `success` field: `ToolError = !success`).
+3. The adapter emits a `tool_result` event with `ToolName`, `ToolDurationMS`, and `ToolError` (inverted from the `success` field: `ToolError = !success`). On a match, `ToolName` and the elapsed duration come from the in-flight entry. With no match - the completion arrived without a recorded start - the event still fires, carrying the tool name from the completion event and a duration of `0`.
 
 ### Tool error detail
 
@@ -248,18 +240,23 @@ The adapter observes tool execution by correlating `tool.execution_start` and `t
 
 ## Error handling
 
-### Exit code mapping
+### Turn outcome
 
-| Exit code | Condition | Error kind | Description |
-|---|---|---|---|
-| `0` | No result event, output tokens > 0 | _(none)_ | Treated as success. Agent produced output but no result event (partial output). |
-| `0` | No result event, output tokens = 0 | `turn_failed` | Agent exited without producing output. Retryable with exponential backoff. Check WARN-level logs for stderr content. |
-| `0` | Result event with `exitCode: 0` | _(none)_ | Normal completion. |
-| `0` | Result event with `exitCode != 0` | `turn_failed` | Non-zero exit in result event despite clean process exit. |
-| `127` | - | `agent_not_found` | Binary not found on local or remote host. |
-| Non-zero (non-127) | No result event | `port_exit` | Unexpected subprocess exit. |
-| Signal termination | - | `turn_cancelled` | Process killed by signal (graceful or forced). |
-| Context cancelled | - | `turn_cancelled` | Orchestrator cancelled the turn. |
+The outcome is not decided by the exit code alone. The shared decision table evaluates evidence in a fixed order and returns on the first match, so a `result` event outranks the process exit status.
+
+| Evidence, in evaluation order | Exit reason | Error kind |
+|---|---|---|
+| Orchestrator cancelled the turn, or the process was killed by a signal | `turn_cancelled` | `turn_cancelled` |
+| Exit code `127` | `turn_failed` | `agent_not_found` |
+| `result` event carrying `exitCode: 0` | `turn_completed` | _(none)_ |
+| `result` event carrying any other `exitCode`, or carrying no `exitCode` field | `turn_failed` | `turn_failed` |
+| No `result` event, non-zero exit | `turn_failed` | `port_exit` |
+| No `result` event, exit `0`, this turn reported no output tokens | `turn_failed` | `turn_failed` |
+| No `result` event, exit `0`, this turn reported output tokens | `turn_completed` | _(none)_ |
+
+The cancellation and exit-`127` rows are decided before the adapter's own classifier runs. The output-token test reads this turn's own count, not the run-cumulative figure. Stderr from a failing turn is re-emitted at WARN level.
+
+`--no-ask-user` is on every invocation, so this adapter has no path to `turn_input_required`: the runtime cannot put a question to a person, and a denied tool call continues the session instead of ending the turn.
 
 ### Stdout scanner failure
 
@@ -295,7 +292,7 @@ When the worker configuration includes `ssh_hosts`, the adapter launches Copilot
 
 1. `StartSession` resolves the local `ssh` binary via `exec.LookPath`. The agent command is stored for remote execution rather than resolved locally. The canary check and authentication preflight are skipped in SSH mode.
 2. `RunTurn` builds an SSH command that wraps the remote Copilot CLI invocation.
-3. The remote command is: `cd '<workspace_path>' && '<agent_command>' <args...>`
+3. The remote command is: `cd -- '<workspace_path>' && <agent_command> <args...>`, with the workspace path and each argument individually single-quoted; `<agent_command>` is inserted as configured, unquoted.
 
 ### SSH options
 
@@ -311,7 +308,7 @@ The adapter uses these SSH options:
 
 ### Shell quoting
 
-All arguments in the remote command string are single-quoted with embedded single-quote escaping (the standard POSIX `'\''` pattern). This prevents injection when SSH passes the remote command through the remote shell.
+The workspace path and each per-turn CLI argument are single-quoted with embedded single-quote escaping (the standard POSIX `'\''` pattern) before being placed in the remote command string. This prevents injection when SSH passes the remote command through the remote shell. The configured agent command itself is not quoted this way, since it may legitimately be more than one shell token.
 
 ### Exit codes
 
@@ -328,23 +325,23 @@ Authentication check order at `StartSession` (local mode only):
 1. `COPILOT_GITHUB_TOKEN` environment variable.
 2. `GH_TOKEN` environment variable.
 3. `GITHUB_TOKEN` environment variable.
-4. `gh auth status` (2-second timeout, fallback). If `gh` is authenticated, the adapter logs a warning and proceeds.
+4. `gh auth status` (2-second timeout), attempted only when `gh` resolves on `PATH`. If it exits cleanly, the adapter logs a warning and proceeds.
 
 If none are found, `StartSession` returns `agent_not_found` with a descriptive message listing the expected variables.
 
 At runtime, the Copilot CLI handles its own authentication using whichever token is available in the process environment.
 
 {{< callout type="warning" >}}
-**Classic PATs do not work with Copilot CLI**
+**A present token does not guarantee a working one**
 
-Copilot CLI requires a **fine-grained personal access token** (prefix `github_pat_`) with the **Copilot Requests** permission enabled. Classic PATs (prefix `ghp_`) fail authentication silently - the CLI falls through all token variables and reports no valid credential. OAuth tokens (`gho_` from `copilot auth login`) and GitHub App user-to-server tokens (`ghu_`) also work. If you see authentication failures despite having a token set, check the token prefix.
+Sortie's preflight only checks that one of the token variables is set, or that `gh auth status` succeeds - it does not inspect the token's type or scopes. Whether a given token authenticates with Copilot CLI, and what type and permission it needs, is GitHub's to document; see [managing your personal access tokens](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens) in the external references. A token that satisfies Sortie's preflight can still be rejected by the CLI itself at runtime.
 {{< /callout >}}
 
 ---
 
 ## Concurrency safety
 
-The adapter is safe for concurrent use. One `CopilotAdapter` instance serves all sessions. Per-session state (workspace path, session ID, process handle) is isolated in the opaque `Session.Internal` field. A mutex guards the subprocess handle for concurrent access from `StopSession` and the graceful-kill goroutine.
+The adapter is safe for concurrent use. One `CopilotAdapter` instance serves all sessions. Per-session state (workspace path, session ID, process handle) is isolated in the opaque `Session.Internal` field. A mutex guards the subprocess handle for concurrent access between `RunTurn` and `StopSession`.
 
 No adapter-level serialization is needed for `RunTurn` calls - each spawns an independent subprocess with its own stdout pipe and scanner.
 
@@ -357,8 +354,10 @@ The adapter registers itself under kind `"copilot-cli"` via an `init` function i
 | Property | Value |
 |---|---|
 | `RequiresCommand` | `true` |
+| `ValidateAgentConfig` | the check described in [Validate-time checks](#validate-time-checks) |
+| `MCPInjection` | `supported` - the adapter hands the generated configuration file's path to the agent process, on a local launch and over SSH alike. See [Sortie's own tools and the `mcp_config` field](#sorties-own-tools-and-the-mcp_config-field). |
 
-The orchestrator's preflight validation uses this to produce a specific error message if the binary cannot be found before attempting session creation.
+The orchestrator's preflight validation uses `RequiresCommand` to produce a specific error message if the binary cannot be found before attempting session creation.
 
 ---
 

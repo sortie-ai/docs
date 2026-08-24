@@ -143,14 +143,14 @@ The most convincing verification is a manual test:
 
 ```bash
 # Start Sortie
-sortie start ./WORKFLOW.md
+sortie ./WORKFLOW.md
 
 # Wait for it to dispatch at least one issue (watch the logs)
 # Then stop it
 # Ctrl+C
 
 # Restart immediately
-sortie start ./WORKFLOW.md
+sortie ./WORKFLOW.md
 ```
 
 After restart, confirm in the logs that:

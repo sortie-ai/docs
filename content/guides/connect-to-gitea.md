@@ -19,7 +19,7 @@ For a guided walkthrough of this setup against a disposable local instance, see 
 
 ## Create an access token
 
-Create the token in Gitea under **Settings > Applications > Generate New Token**. Name it (`sortie` works), and grant the three scopes Sortie needs:
+Create an access token in Gitea, name it (`sortie` works), and grant the three scopes Sortie needs. Where the token settings live is Gitea's to document; see [API usage](https://docs.gitea.com/development/api-usage).
 
 - `write:issue` covers every issue operation: reading issues, posting comments, and reading, creating, and applying labels. On Gitea a write scope implies its read, so this one scope carries the whole tracker surface.
 - `read:user` backs the credential check Sortie runs at startup against `GET /user`, which also identifies the automation account.
@@ -71,6 +71,8 @@ tracker:
 ```
 
 Give the instance root, not the API path. The adapter appends `/api/v1` for you, and it tolerates a value that already ends in `/api/v1` without appending it twice (`sortie validate` warns when it finds the suffix, since you can drop it). Use `https`: the token travels in a request header, and a plain-`http` endpoint sends it in cleartext, which `sortie validate` flags with a warning.
+
+If your instance sits on a bare IPv6 address, bracket it: `http://[fd00::1]:3000`, not `http://fd00::1:3000`. The unbracketed form is exactly how the address prints from `ip addr`, but it is indistinguishable from a hostname with a trailing port, so both `sortie validate` and Sortie itself reject it before making any request.
 
 ## Set the repository
 
@@ -159,7 +161,7 @@ A key outside Gitea's known issue-list parameters (`labels`, `q`, `milestones`, 
 
 Once your agents open pull requests, the same `gitea` kind reacts to them: a "Request changes" review or a failing CI check dispatches a fix continuation turn, review-bot comments route back to the agent, and an approved, mergeable, CI-green PR merges automatically with its branch cleaned up. The mechanics are provider-agnostic and live elsewhere: [how to set up PR reactions](/guides/setup-pr-reactions/) covers the shared machinery, including the `.sortie/scm.json` PR metadata your hook writes, and the [reactions reference](/reference/reactions/) documents every kind, field, and default. This section is the Gitea-specific wiring.
 
-Activate a reaction kind by giving it `provider: gitea`. Every active SCM reaction in one workflow must name the same provider. Because the tracker is already `kind: gitea`, the reactions reuse the tracker's `endpoint`, `api_key`, and `project`, so you repeat no credentials; to point them at a different instance or repository, set overrides in a top-level `gitea:` block ([adapter pass-through configuration](/reference/workflow-config/#adapter-pass-through-configuration)).
+Activate a reaction kind by giving it `provider: gitea`. Every active SCM reaction in one workflow must name the same provider. Because the tracker is already `kind: gitea`, the reactions reuse the tracker's `endpoint`, `api_key`, and `project`, so you repeat no credentials; to point them at a different instance or repository, set overrides in a top-level `gitea:` block ([adapter pass-through configuration](/reference/workflow-config/#adapter-pass-through-configuration)). A malformed `endpoint` in that block is rejected the moment Sortie starts, the same check `tracker.endpoint` gets - but since `sortie validate` only inspects `tracker.endpoint`, an override here is not caught offline.
 
 ```yaml
 reactions:

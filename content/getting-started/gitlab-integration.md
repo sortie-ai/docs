@@ -21,13 +21,11 @@ We use the mock agent on purpose. The quick start taught you how Sortie works wi
 
 ### Create the project and issues
 
-Sign in to GitLab.com and create a new project. Give it a name, leave the visibility at whatever you prefer, and create it. GitLab drops you on the project overview page.
+You need a GitLab.com project you can write issues and labels to. See GitLab's own instructions for [creating a project](https://docs.gitlab.com/user/project/) if you don't already have one to test against.
 
-Two values on that page both work as `tracker.project`, and you will pick one in a moment. The **namespace path** is the part of the URL after the host, `your-username/adapter-lab` for a personal project or `group/subgroup/project` for a nested one. The **numeric project ID** comes from the overview page's **Actions** menu in the upper-right corner, under **Copy project ID**. The path is readable in a workflow file; the numeric ID survives a rename. This tutorial uses the path.
+Sortie's `tracker.project` field accepts either form GitLab exposes for a project: the **namespace path** (`your-username/adapter-lab` for a personal project, `group/subgroup/project` for a nested one) or the **numeric project ID**, both visible from the project's own overview page. The path is readable in a workflow file; the numeric ID survives a rename. This tutorial uses the path.
 
-Now create the label Sortie will poll on. Open **Manage > Labels**, select **New label**, name it `backlog`, pick any color, and create it. Lowercase matters here, and the next step explains why.
-
-Create two issues and apply the `backlog` label to both. Titles like "Add a health-check endpoint" and "Document the configuration options" are enough; the mock agent never reads them. GitLab numbers them `#1` and `#2` within the project.
+Create a label named `backlog` on the project — see GitLab's [label documentation](https://docs.gitlab.com/user/project/labels/) — and apply it to two open issues. Titles like "Add a health-check endpoint" and "Document the configuration options" are enough; the mock agent never reads them. GitLab numbers them `#1` and `#2` within the project.
 
 Your project now has two open, labeled issues waiting for Sortie to find.
 
@@ -112,9 +110,6 @@ tracker:
 polling:
   interval_ms: 30000
 
-server:
-  port: 8642
-
 agent:
   kind: mock
   max_turns: 1
@@ -136,7 +131,7 @@ A few GitLab-specific lines to notice:
 - `active_states` and `terminal_states` are label names, matched case-insensitively when Sortie reads them. You pre-created only `backlog`. GitLab creates any other label the moment Sortie names it in a write, so `review` appears on its own after the first handoff. Case is the one thing GitLab is strict about: label names are case-sensitive on the server, and attaching `Review` to a project that already holds `review` creates a second label rather than matching the first. Sortie reads the project's label catalog at startup and sends the stored casing for every configured state, so it never grows that duplicate for you.
 - `handoff_state: review` moves each finished issue to the `review` label. Because `review` is not a terminal state, the issue stays open.
 - `agent.kind: mock` runs the built-in mock agent, which simulates a session with no subprocess and no file changes. `max_turns: 1` gives it a single turn, enough to prove the loop.
-- `polling.interval_ms: 30000` polls GitLab every 30 seconds, and `server.port: 8642` serves the dashboard at `http://localhost:8642`.
+- `polling.interval_ms: 30000` polls GitLab every 30 seconds.
 
 ### Validate the configuration
 
@@ -146,7 +141,13 @@ Check the file before you run it:
 sortie validate ./WORKFLOW.md
 ```
 
-`sortie validate` runs entirely offline. It catches a malformed endpoint, a project value that is percent-encoded or otherwise malformed, and a `query_filter` naming a parameter outside the adapter's allowlist, and it warns when your active and terminal state lists overlap or the token resolves empty. On the configuration above it prints nothing and exits 0.
+`sortie validate` runs entirely offline. It catches a malformed endpoint, a project value that is percent-encoded or otherwise malformed, and a `query_filter` naming a parameter outside the adapter's allowlist, and it warns when your active and terminal state lists overlap or the token resolves empty. The tracker half of the configuration above is clean, so the one line it prints is about the agent:
+
+```
+warning: agent.kind.no_tool_channel: agent kind "mock" has no tool execution channel: Sortie's tools are neither advertised nor callable for it
+```
+
+That is the mock agent being honest: it launches no process, so Sortie's own agent tools cannot reach it, and the first-turn prompt does not offer them. A warning leaves the configuration valid and the exit code `0`; it disappears once you swap in a real coding agent.
 
 Validation never contacts GitLab, so it cannot tell you whether the token works or whether the project exists. A wrong token or an inaccessible project fails the construction preflight the moment Sortie starts, when the adapter introspects the credential and reads the project.
 
@@ -158,20 +159,20 @@ Start Sortie:
 sortie ./WORKFLOW.md
 ```
 
-You should see output like this:
+You should see output like this (the `tick completed` lines carry more fields than shown here):
 
 ```
 level=INFO msg="sortie starting" version=0.x.x workflow_path=/home/you/sortie-gitlab/WORKFLOW.md
 level=INFO msg="database path resolved" db_path=/home/you/sortie-gitlab/.sortie.db
 level=INFO msg="sortie started"
-level=INFO msg="tick completed" candidates=2 dispatched=2 running=2 retrying=0
+level=INFO msg="tick completed" candidates=2 dispatched=2 ... running=2 retrying=0 ...
 level=INFO msg="workspace prepared" issue_id=1 issue_identifier=1 workspace=…/1
 level=INFO msg="agent session started" issue_id=1 issue_identifier=1 session_id=mock-session-001
 level=INFO msg="turn started" issue_id=1 issue_identifier=1 turn_number=1 max_turns=1
 level=INFO msg="turn completed" issue_id=1 issue_identifier=1 turn_number=1 max_turns=1
 level=INFO msg="worker exiting" issue_id=1 issue_identifier=1 exit_kind=normal turns_completed=1
 level=INFO msg="handoff transition succeeded, releasing claim" issue_id=1 issue_identifier=1 handoff_state=review
-level=INFO msg="tick completed" candidates=0 dispatched=0 running=0 retrying=0
+level=INFO msg="tick completed" candidates=0 dispatched=0 ... running=0 retrying=0 ...
 ```
 
 The first `tick completed` line reports `candidates=2 dispatched=2`: Sortie found both `backlog` issues and started a mock session for each. The lines that follow trace issue 1 from workspace to handoff. Issue 2 moves through the identical sequence in the same tick, and because Sortie runs the two sessions concurrently, the two issues' lines interleave in your terminal. By the next poll, neither issue sits in an active state, so the second `tick completed` reports `candidates=0` and Sortie goes idle.
@@ -182,7 +183,7 @@ Press **Ctrl+C** to stop Sortie.
 
 ### Verify the results
 
-Open the dashboard at `http://localhost:8642`. The run history shows the two completed mock sessions, one per issue.
+Open the dashboard at `http://localhost:7678`. The run history shows the two completed mock sessions, one per issue.
 
 Now open the project in GitLab and look at the two issues. Each one carries the `review` label instead of `backlog`, and both are still open, because `review` is not a terminal state. Had the transition targeted `done` or `wontfix`, Sortie would have closed the issue in the same request that swapped the label. Notice a `review` label you never created in the project's label list: GitLab created it when Sortie first named it in a write.
 

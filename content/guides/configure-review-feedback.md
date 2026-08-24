@@ -242,8 +242,6 @@ hooks:
   timeout_ms: 120000
 
 db_path: .sortie.db
-server:
-  port: 8642
 ---
 
 You are a senior engineer working on {{ .issue.identifier }}.

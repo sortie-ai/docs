@@ -6,9 +6,9 @@ date: 2026-04-26
 weight: 130
 url: /reference/adapter-opencode/
 ---
-The OpenCode adapter connects Sortie to the [OpenCode CLI](https://opencode.ai/docs/cli/) via subprocess management. It launches `opencode run --format json`, reads newline-delimited stdout envelopes, tolerates plain-text permission warnings mixed into stdout, and normalizes the stream into domain event types. Registered under kind `"opencode"`.
+The OpenCode adapter connects Sortie to the [OpenCode CLI](https://opencode.ai/docs/cli/) via subprocess management. It launches `opencode run --format json`, reads newline-delimited stdout envelopes, reads the runtime's permission warnings from stderr, and normalizes the stream into domain event types. Registered under kind `"opencode"`.
 
-Each `RunTurn` call spawns a fresh subprocess. One reader goroutine owns stdout, the adapter emits activity-visible events so the orchestrator stall watchdog can observe progress, per-session state is mutex-guarded, and `StartSession` performs no binary canary check or authentication preflight.
+Each `RunTurn` call spawns a fresh subprocess. One reader goroutine owns stdout, the adapter emits activity-visible events so the orchestrator stall watchdog can observe progress, per-session state is mutex-guarded, and `StartSession` performs no binary canary check or authentication preflight. The CLI accepts no MCP configuration path, so on a local launch the adapter translates the generated configuration into OpenCode's own form and delivers it in the turn's environment; see [MCP](#mcp).
 
 See also: [WORKFLOW.md configuration](/reference/workflow-config/) for the full `agent` schema, [environment variables](/reference/environment/) for runtime environment behavior, [error reference](/reference/errors/#agent-errors) for all agent error kinds, [how to write a prompt template](/guides/write-prompt-template/) for template authoring.
 
@@ -31,7 +31,7 @@ These fields control the orchestrator's scheduling behavior. They are not passed
 | `max_concurrent_agents` | integer | `10` | Global concurrency limit across all issues. |
 | `max_concurrent_agents_by_state` | map | `{}` | Per-state concurrency limits. Keys are state names, lowercased for matching. Non-positive or non-numeric entries are silently ignored. |
 | `turn_timeout_ms` | integer | `3600000` (1 hour) | Total timeout for a single `RunTurn` call. The orchestrator cancels the turn context when exceeded. |
-| `read_timeout_ms` | integer | `5000` (5 seconds) | Timeout for startup and synchronous operations. |
+| `read_timeout_ms` | integer | `5000` (5 seconds) | Bounds the wait for the turn's first JSON envelope, and, doubled and capped at 30 seconds, the post-turn `export` and `models` subprocesses. It does not bound anything after the first envelope arrives. Falls back to 30 seconds when unset or not positive. |
 | `stall_timeout_ms` | integer | `300000` (5 minutes) | Maximum time between consecutive emitted events before the orchestrator treats the turn as stalled. `0` or negative disables stall detection. |
 | `max_retry_backoff_ms` | integer | `300000` (5 minutes) | Maximum delay cap for exponential backoff between retry attempts. |
 
@@ -58,17 +58,18 @@ These fields are adapter-specific. Some map to OpenCode CLI flags. Others map to
 | `agent` | `--agent` | string | _(none)_ | OpenCode agent name passed through unchanged. |
 | `variant` | `--variant` | string | _(none)_ | Provider-specific reasoning variant passed through unchanged. |
 | `thinking` | `--thinking` | boolean | `false` | Requests reasoning blocks in stdout output. |
-| `pure` | `--pure` | boolean | `false` | Runs OpenCode without external plugins. This flag is present in the shipped CLI even though it is omitted from the public CLI docs page. |
-| `dangerously_skip_permissions` | `--dangerously-skip-permissions` | boolean | `true` | Auto-approves permission requests that are not explicitly denied by policy. Omitted when `false`. |
+| `pure` | `--pure` | boolean | `false` | Runs OpenCode without external plugins. |
+| `dangerously_skip_permissions` | `--dangerously-skip-permissions` | boolean | `true` | Auto-approves permission requests that are not explicitly denied by policy. Omitted when `false`, which makes the runtime auto-reject every permissioned tool call; see [validate-time checks](#validate-time-checks). |
 | `disable_autocompact` | `OPENCODE_DISABLE_AUTOCOMPACT` | boolean | `true` | Managed environment override applied to both `run` and `export` subprocesses. |
 | `allowed_tools` | `OPENCODE_PERMISSION` | list of strings | `[]` | Builds an allowlist policy. Listed permission keys become `allow`. Every known key not listed becomes `deny`. Unknown keys are forwarded unchanged. |
 | `denied_tools` | `OPENCODE_PERMISSION` | list of strings | `[]` | Adds `deny` entries to the managed permission policy. When combined with `allowed_tools`, denied keys override allowed keys. Overlap is rejected during adapter construction. |
+| `mcp_config` | _(none; read by the worker)_ | string | _(none)_ | Path to an operator-supplied MCP server configuration file, resolved relative to the WORKFLOW.md directory when not absolute. Its servers are merged into the generated configuration, and the adapter translates the merged result into OpenCode's own configuration document on a local launch. See [MCP](#mcp). |
 
-The adapter always adds `run --format json --dir <workspace> -- <prompt>`. It does not expose `--attach`, `--port`, `--command`, `--file`, `--title`, `--continue`, or `--fork`.
+The adapter always adds `run --format json --dir <workspace> -- <prompt>`.
 
 ```yaml
 opencode:
-  model: anthropic/claude-sonnet-4-5
+  model: <provider>/<model-id>
   variant: high
   pure: true
   dangerously_skip_permissions: true
@@ -124,7 +125,7 @@ The adapter's known permission-key set is:
 | `webfetch` | Yes |
 | `websearch` | Yes |
 
-`list` and `todowrite` are included even though the public OpenCode permissions page does not list them. The adapter mirrors the runtime schema, not only the rendered docs page.
+This is the set this version of the adapter knows about, not a catalogue of OpenCode's tools. A key OpenCode adds later is unknown to the adapter until the adapter learns it, and an unknown key you write is forwarded unchanged.
 
 The adapter also manages these environment variables on every subprocess:
 
@@ -136,7 +137,31 @@ The adapter also manages these environment variables on every subprocess:
 | `OPENCODE_DISABLE_LSP_DOWNLOAD` | `true` |
 | `OPENCODE_PERMISSION` | JSON-encoded policy, only when tool scoping is configured |
 
-Before adding its managed value, the adapter removes any inherited `OPENCODE_PERMISSION` entry from the parent process environment. It does not remove permission rules from `opencode.json`, so OpenCode still deep-merges the adapter policy with on-disk configuration.
+The adapter also sets `OPENCODE_CONFIG_CONTENT` on a local turn subprocess when the session carries a translated MCP configuration; see [MCP](#mcp). It is not part of the managed set above and is never prefixed onto an SSH remote command.
+
+Before adding its managed values, the adapter strips all five of those variables, and `OPENCODE_CONFIG_CONTENT`, out of the inherited environment, so an operator-side value never reaches the subprocess. It does not remove permission rules from `opencode.json`, so OpenCode still deep-merges the adapter policy with on-disk configuration.
+
+---
+
+## Validate-time checks
+
+When `agent.kind` is `opencode`, the [`sortie validate`](/reference/cli/#validate) pipeline runs OpenCode-specific config checks in addition to the generic preflight validation. They construct no adapter instance and launch no subprocess, and the same checks run at startup and on every workflow reload, so the verdict is identical in all three places.
+
+### Errors
+
+| Check | Condition | Message |
+|---|---|---|
+| `opencode.allowed_tools.overlap` | `allowed_tools` and `denied_tools` name at least one of the same keys | `allowed_tools and denied_tools overlap: <keys>` |
+
+The adapter constructor reports the overlap with the same message, so the two paths can never disagree.
+
+### Warnings
+
+| Check | Condition | Message |
+|---|---|---|
+| `opencode.dangerously_skip_permissions.auto_reject` | `dangerously_skip_permissions` is explicitly `false` | `opencode.dangerously_skip_permissions is set to false, so the runtime auto-rejects every permissioned tool call and reports each rejection as a warning rather than performing the call` |
+
+This is a warning rather than an error. Warnings leave `valid` true and the exit code `0`. The runtime rejects the request itself and the session goes on, so the setting never leaves a turn waiting for a person; it does stop the agent from using any permissioned tool. An absent or `true` value draws nothing.
 
 ---
 
@@ -148,8 +173,9 @@ Validates the workspace path, resolves the launch target, and initializes adapte
 
 1. Validates that `WorkspacePath` is a non-empty absolute path pointing to an existing directory.
 2. Resolves the configured command via `exec.LookPath`, defaulting to `opencode` when `agent.command` is empty. In SSH mode, resolves the local `ssh` binary instead and stores the remote command string for later use.
-3. Copies `ResumeSessionID` into session state when continuation is requested.
-4. Returns an opaque `Session` handle with per-session state, no running PID, and no started subprocess.
+3. On a local launch, reads the generated MCP configuration and renders it into OpenCode's own configuration document, holding the result for every turn of the session. Skipped entirely in SSH mode. See [MCP](#mcp).
+4. Copies `ResumeSessionID` into session state when continuation is requested.
+5. Returns an opaque `Session` handle with per-session state, no running PID, and no started subprocess.
 
 `StartSession` performs no version canary, no provider-auth probe, and no remote OpenCode binary check.
 
@@ -162,6 +188,7 @@ Validates the workspace path, resolves the launch target, and initializes adapte
 | Agent command is empty or whitespace-only | `agent_not_found` |
 | Local OpenCode binary not found in `PATH` | `agent_not_found` |
 | SSH binary not found (SSH mode) | `agent_not_found` |
+| Generated MCP configuration unreadable or not expressible | `response_error` |
 
 ### `RunTurn`
 
@@ -170,13 +197,13 @@ Spawns one OpenCode subprocess, reads stdout through a single reader goroutine, 
 1. Builds the managed environment and the per-turn argument list.
 2. Adds `run --format json --dir <workspace>` to every invocation.
 3. Adds `--session <id>` when the session already has an OpenCode session ID.
-4. Launches the subprocess locally or through SSH, with `cmd.Dir` set to the workspace and `cmd.Env` set to the inherited environment plus managed `OPENCODE_*` overrides.
+4. Launches the subprocess locally or through SSH, with `cmd.Dir` set to the workspace and `cmd.Env` set to the inherited environment plus managed `OPENCODE_*` overrides, and, on a local launch carrying one, the translated MCP configuration document.
 5. Configures process-group isolation before start, then sets `cmd.Cancel` to a graceful process-group signal and `cmd.WaitDelay` to 5 seconds.
 6. Starts one stderr collector goroutine, one stdout reader goroutine, and one wait goroutine.
 7. Applies a startup timer derived from `read_timeout_ms`. Plain-text stdout lines reset the timer before the first JSON envelope arrives.
 8. On the first JSON envelope with `sessionID`, adopts the session ID if unset or verifies it matches the resumed session. Emits `session_started` once per session.
 9. Maps JSON envelopes and tolerated plain-text lines into domain events.
-10. After stdout drains and the process exits, runs `opencode export --sanitize <sessionID>` to recover final token usage.
+10. After stdout drains and the process exits, runs `opencode export --sanitize <sessionID>` to recover final token usage, and, on a masked failure, `opencode models` to reconstruct the diagnostic; see [masked failures](#masked-failures).
 11. Returns a `TurnResult` based on the terminal error envelope, cancellation state, startup timeout, or process exit status.
 
 ### `StopSession`
@@ -199,7 +226,7 @@ Returns `nil`. The adapter delivers all events synchronously through `RunTurn`'s
 
 ## Process shutdown
 
-The OpenCode adapter uses `exec.CommandContext`, not `exec.Command`. This is a deliberate deviation from the earlier CLI adapters.
+The OpenCode adapter uses `exec.CommandContext` with its default cancel behavior overridden - the same pattern the shared `agentcore.ForkPerTurnSession` skeleton uses for the Claude Code, Copilot CLI, and Kiro adapters. This adapter implements the pattern itself rather than going through that skeleton, because `RunTurn` needs a deadline on the first stdout line rather than on the whole turn, and a post-exit subprocess query to recover usage that the skeleton has no hook for.
 
 Before start, the adapter places the subprocess in its own process group via the shared `procutil` package. It also overrides `cmd.Cancel` to send a graceful signal to the process group and sets `cmd.WaitDelay` to 5 seconds. On Unix, graceful shutdown is `SIGTERM` and force kill is `SIGKILL` to the process group. On Windows, graceful shutdown is `CTRL_BREAK_EVENT` to the process group, and `AssignProcess` attaches a Job Object with `KILL_ON_JOB_CLOSE` so force termination kills the full descendant tree.
 
@@ -211,45 +238,11 @@ Shutdown is turn-scoped, not session-scoped. `StopSession` performs an explicit 
 
 The adapter reads stdout as newline-delimited envelopes. Most lines are JSON objects from `opencode run --format json`. Permission rejection warnings can also appear as plain text on stdout even in JSON mode. The stdout scanner allows up to 10 MB per line to accommodate large tool payloads.
 
-### Event type mapping
+### What the adapter emits
 
-| OpenCode stdout line | Domain event type | Notes |
-|---|---|---|
-| First JSON envelope with `sessionID` on a session that has no stored ID | `session_started` | Synthetic adapter event. Emitted once per session. |
-| `step_start` | `notification` | Emits message `step started`. |
-| `text` | `notification` | Emits `part.text`, truncated to 500 runes. |
-| `reasoning` | `other_message` | Emits fixed message `reasoning block`. Requires `--thinking`. |
-| `tool_use` with `part.state.status = "completed"` | `tool_result` | Emits `ToolName`, `ToolDurationMS`, and `ToolError=false`. |
-| `tool_use` with `part.state.status = "error"` | `tool_result` | Emits `ToolName`, `ToolDurationMS`, `ToolError=true`, and truncated `part.state.error`. |
-| `step_finish` | `notification` | Emits message `step finished: <reason>`. Step token payload is ignored for final accounting. |
-| `error` | `turn_failed` | Message comes from `error.data.message`, falling back to `error.name`. |
-| `! permission requested: ...` plain-text line | `notification` | Passed through verbatim. This is a documented drift case in `--format json` mode. |
-| Unknown JSON `type` | `malformed` | Emits `unknown event type: <type>`. |
-| Known JSON `type` with invalid payload | `malformed` | Emits `invalid <event> payload`. |
-| Any other non-JSON stdout line | `malformed` | Emits the raw line, truncated to 500 runes. |
+The adapter maps each envelope onto Sortie's [normalized event vocabulary](/guides/write-custom-agent-adapter/), so what reaches the orchestrator, the logs, and the dashboard is the same set of events every adapter produces. OpenCode's own envelope types and their fields are OpenCode's to define; see [external references](#external-references).
 
-### Result event fields
-
-OpenCode does not emit a dedicated final result envelope. The adapter reads these terminal fields from the envelopes that determine session identity, tool status, and failure state.
-
-| Field path | Type | Description |
-|---|---|---|
-| `sessionID` | string | Session identifier on every JSON envelope. Adopted from the first event or verified against the resumed session ID. |
-| `error.name` | string | Fallback terminal error name when `error.data.message` is absent. |
-| `error.data.message` | string | Preferred terminal failure message for `turn_failed`. |
-| `part.reason` | string | Step-finish reason used in notification text. |
-| `part.text` | string | Text notification body, truncated to 500 runes. |
-| `part.tool` | string | Tool name for `tool_result`. |
-| `part.state.status` | string | `completed` or `error`. Drives `ToolError`. |
-| `part.state.error` | string | Tool error detail, truncated to 500 runes when emitted. |
-| `part.state.time.start` | integer | Tool start time in milliseconds since epoch. |
-| `part.state.time.end` | integer | Tool end time in milliseconds since epoch. |
-
-### Non-JSON output handling
-
-If a stdout line fails JSON parsing and begins with `! permission requested:`, the adapter emits a `notification` event instead of treating the line as a protocol failure. This compensates for the documented drift where OpenCode prints permission warnings to stdout before the JSON `tool_use` error envelope.
-
-Any other non-JSON line becomes `malformed`. Before the first JSON envelope arrives, all plain-text lines still reset the startup `read_timeout_ms` timer.
+Two behaviours are the adapter's own. Every stdout line that fails to parse becomes a `malformed` event, truncated, rather than failing the turn, and a plain-text line still resets the startup read timer. A permission request the runtime auto-rejects surfaces twice, as a `tool_result` carrying the tool error and as a `notification`; the turn is not ended and no consent was granted. Sortie scans stderr for those rejections only after the process exits.
 
 ---
 
@@ -261,7 +254,7 @@ The adapter does not trust `step_finish.part.tokens` as the final turn total. It
 
 1. After the main `opencode run` subprocess exits, the adapter launches a second subprocess with `opencode export --sanitize <sessionID>` in the same workspace, when a session ID is known.
 2. The export subprocess runs with the same managed environment as the turn subprocess: `OPENCODE_AUTO_SHARE=false`, `OPENCODE_DISABLE_AUTOCOMPACT=<bool>`, `OPENCODE_DISABLE_AUTOUPDATE=true`, `OPENCODE_DISABLE_LSP_DOWNLOAD=true`, and optional `OPENCODE_PERMISSION=<json>`.
-3. The export subprocess timeout is `min(2 * read_timeout_ms, 30s)`. With the workflow default `read_timeout_ms: 5000`, the export timeout is 10 seconds.
+3. The export subprocess timeout is `min(2 * read_timeout_ms, 30s)`, where an unset or non-positive `read_timeout_ms` counts as 30 seconds. With the workflow default `read_timeout_ms: 5000`, the export timeout is 10 seconds.
 4. The parser unmarshals the export JSON and sums **every** `assistant` message whose `info.sessionID` matches the current session, not just the most recent one. When the run resumed an existing session, messages created before the run started are excluded, so a resumed session's earlier spend never lands in this run's total.
 5. From each message it reads `info.tokens.input`, `info.tokens.output`, and the optional `info.tokens.reasoning`, `info.tokens.cache.read`, and `info.tokens.cache.write`. A message with no `tokens` object, or without both `input` and `output`, is skipped.
 6. `input_tokens` is `input + cache.read + cache.write`; `output_tokens` is `output + reasoning`; `cache_read_tokens` carries `cache.read` separately as a subset of input; `total_tokens` is computed as `input_tokens + output_tokens` rather than read from `tokens.total`, which counts cache and reasoning tokens on a different basis.
@@ -290,7 +283,7 @@ OpenCode's CLI envelope already carries terminal tool state. The adapter does no
 1. Parses the `tool_use` envelope.
 2. Reads the tool name from `part.tool`.
 3. Computes duration from `part.state.time.end - part.state.time.start`.
-4. Sets `ToolError` when `part.state.status` equals `error`.
+4. Sets `ToolError` when `part.state.status` equals `error`, compared case-insensitively.
 
 `callID` is parsed but not used for cross-event correlation.
 
@@ -298,26 +291,31 @@ OpenCode's CLI envelope already carries terminal tool state. The adapter does no
 
 When `part.state.status` is `error`, the adapter copies `part.state.error` into the normalized event message and truncates it to 500 runes. It does not strip XML wrappers, ANSI sequences, or stderr text.
 
-Permission rejections surface as OpenCode reports them, for example: `The user rejected permission to use this specific tool call.`
+A rejected permission request reaches the message field as whatever the runtime wrote into `part.state.error`; the adapter neither recognizes nor rewrites that text. The separate `notification` for a rejection comes from a stderr line beginning `! permission requested:`, matched after the process exits.
 
 ---
 
 ## Error handling
 
-### Exit code mapping
+### Turn outcome
+
+An error kind is absent only on a `turn_completed` outcome; every other outcome carries one.
 
 | Condition | Exit reason | Error kind | Description |
 |---|---|---|---|
-| Stdout `error` envelope observed, process exits `0` | `turn_failed` | _(none)_ | Structured logical failure. Compensates for OpenCode returning exit code `0` on failure. |
-| Stdout `error` envelope observed, process exits non-zero | `turn_failed` | _(none)_ | Structured error still takes precedence over the process exit status. |
-| No `error` envelope, clean exit `0`, at least one `text`, `reasoning`, or `tool_use` part parsed | `turn_completed` | _(none)_ | Normal completion. |
-| No `error` envelope, clean exit `0`, no such part parsed | `turn_failed` | `turn_failed` | The model produced nothing this turn. Message is `agent exited without producing output: no assistant output on the run stream`. |
-| No `error` envelope, non-zero exit after the first JSON envelope | `turn_failed` | `port_exit` | Process-level failure. Message is `exit code N`. |
-| Process exits before the first JSON envelope | `turn_failed` | `port_exit` | Startup or protocol failure before session establishment. |
-| Turn context cancelled | `turn_cancelled` | _(none)_ | Cancellation wins over process-exit classification. |
-| Session stopped via `StopSession` | `turn_cancelled` | _(none)_ | Closed-session teardown path. |
+| No JSON envelope arrived within `read_timeout_ms` of launch | `turn_failed` | `response_timeout` | Message is `timed out waiting for first opencode json event`. The subprocess is killed and its stderr re-emitted at WARN level. |
+| A JSON envelope carried a `sessionID` other than the one already adopted | `turn_failed` | `response_error` | Message is `session id mismatch: expected "...", got "..."`. The turn is aborted rather than reconciled. |
+| Stdout `error` envelope observed, whatever the process exit status | `turn_failed` | `turn_failed` | Structured logical failure, authoritative over the exit code. Message is the envelope's own detail; see [masked failures](#masked-failures). |
+| Turn context cancelled, or session stopped via `StopSession` | `turn_cancelled` | `turn_cancelled` | Message is `turn cancelled`. Cancellation outranks the process-exit classification. |
+| No `error` envelope, exit `0`, at least one `text`, `reasoning`, or `tool_use` part parsed | `turn_completed` | _(none)_ | Normal completion. |
+| No `error` envelope, exit `0`, no such part parsed | `turn_failed` | `turn_failed` | The model produced nothing this turn. Message is `agent exited without producing output: no assistant output on the run stream`. |
+| No `error` envelope, non-zero exit | `turn_failed` | `port_exit` | Process-level failure. Message is `exit code N`. |
 
 The adapter never trusts exit code `0` as sufficient proof of success. A terminal stdout `error` envelope is authoritative.
+
+### Masked failures
+
+When the only failure detail on the stream is OpenCode's generic server-error placeholder, the adapter runs a third subprocess - `opencode models`, in the same workspace, under the same managed environment and the same timeout as the export - and compares the configured `opencode.model` against the catalog it prints. When the model is absent from a non-empty catalog, the terminal message is replaced with `Model not found: <model>`. The lookup is skipped when no model is configured, and any other masked cause reaches the operator as the placeholder unchanged.
 
 ### Stdout scanner failure
 
@@ -348,7 +346,6 @@ OpenCode continuation is flag-based. The adapter persists the OpenCode session I
 | Subsequent turn in the same worker session | Known | `--session <sessionID>` |
 | Continuation after worker restart | `ResumeSessionID` from orchestrator | `--session <sessionID>` |
 
-The adapter never uses `--continue` or `--fork`.
 
 If a resumed turn emits a different `sessionID` from the one already stored, the adapter aborts the turn with `response_error` and emits `turn_failed`. `session_started` is emitted only once per session, on the first accepted JSON envelope.
 
@@ -361,7 +358,7 @@ When the worker configuration includes `ssh_hosts`, the adapter launches the loc
 ### How it works
 
 1. `StartSession` resolves the local `ssh` binary. It does not validate the remote `opencode` binary at this stage.
-2. `RunTurn` prefixes managed `OPENCODE_*` variables onto the remote command string.
+2. `RunTurn` prefixes managed `OPENCODE_*` variables onto the remote command string. The translated MCP configuration document is not among them and is never rendered onto a remote command; see [MCP](#mcp).
 3. `sshutil.BuildSSHArgs` wraps the turn command as `cd -- '<workspace>' && <remoteCommand> 'run' '--format' 'json' ...`.
 4. `queryExportUsage` uses the same SSH path with `export --sanitize <sessionID>`.
 
@@ -389,27 +386,33 @@ SSH exit codes `255` and `127` are not special-cased. They fall through the adap
 
 ## Authentication
 
-In local mode, the adapter launches OpenCode with the parent process environment plus managed `OPENCODE_*` overrides. OpenCode then resolves provider credentials from its own environment, auth store, project `.env`, or `opencode.json` provider config. In SSH mode, the adapter prefixes only managed `OPENCODE_*` variables on the remote command. Provider credentials are not forwarded to the remote host.
-
-`StartSession` performs no authentication preflight. It checks no provider environment variables and does not call `opencode providers`, `opencode auth`, or any provider-specific login command.
-
-The research notes explicitly evidence these provider environment-variable families and configuration entry points:
-
-| Provider or source | Variables or config | Adapter behavior |
-|---|---|---|
-| Anthropic direct | `ANTHROPIC_API_KEY` | Passed through unchanged in local mode. Must already exist on the remote host in SSH mode. |
-| OpenAI direct | `OPENAI_API_KEY` | Passed through unchanged in local mode. Must already exist on the remote host in SSH mode. |
-| Google direct | `GOOGLE_API_KEY` | Passed through unchanged in local mode. Must already exist on the remote host in SSH mode. |
-| AWS-backed providers | `AWS_*` | Passed through unchanged in local mode. Must already exist on the remote host in SSH mode. |
-| GitLab Duo | `GITLAB_TOKEN` | Passed through unchanged in local mode. Must already exist on the remote host in SSH mode. |
-| Cloudflare-backed providers | `CLOUDFLARE_*` | Passed through unchanged in local mode. Must already exist on the remote host in SSH mode. |
-| Google / Vertex-backed providers | `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CLOUD_PROJECT`, `VERTEX_LOCATION` | Passed through unchanged in local mode. Must already exist on the remote host in SSH mode. |
-| OpenCode provider config injection | `OPENCODE_CONFIG`, `OPENCODE_CONFIG_DIR`, `OPENCODE_CONFIG_CONTENT` | Points OpenCode at config content without modifying the repository workspace. |
-| Interactive auth store | `~/.local/share/opencode/auth.json` from `opencode providers login` or `opencode auth login` | Used by OpenCode itself. The adapter does not inspect it. In SSH mode, the remote host uses its own store. |
+Sortie does not manage OpenCode credentials and runs no authentication preflight for this adapter. The subprocess inherits the Sortie process environment, so whichever provider credentials OpenCode expects must already be present there. Which providers OpenCode supports, and which variable each one reads, is OpenCode's to document; see [external references](#external-references).
 
 {{< callout type="warning" >}}
-**SSH mode does not forward provider credentials.** The adapter only prefixes managed `OPENCODE_*` variables on the remote command. `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `AWS_*`, `GITLAB_TOKEN`, `CLOUDFLARE_*`, `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CLOUD_PROJECT`, and `VERTEX_LOCATION` must already exist on the remote host, or the remote OpenCode install must already be authenticated through its own config or auth store.
+**SSH mode forwards no provider credentials.** The adapter prefixes only the managed `OPENCODE_*` variables onto the remote command, so the remote host must already be authenticated for the model you select. A run that works locally can fail on a remote host for this reason alone.
 {{< /callout >}}
+
+---
+
+## MCP
+
+The OpenCode CLI accepts no MCP configuration path as an argument, and it does not read the `mcpServers` key the generated `.sortie/mcp.json` is written under. The adapter delivers the servers rather than the file: on a local launch, `StartSession` reads the generated configuration and renders its servers into OpenCode's own configuration document, keyed under `mcp`, with a stdio server becoming a local entry and an HTTP server a remote one. A server entry that omits its enable flag is rendered enabled, matching the runtime's own default.
+
+`RunTurn` sets that document on the turn subprocess through the runtime's inline-configuration environment variable, `OPENCODE_CONFIG_CONTENT`. The runtime merges it with whatever project or global configuration the operator already has, rather than replacing it. The variable is added to the turn subprocess's environment only. The auxiliary `export` and `models` invocations the adapter also runs rebuild their environment without it, so neither spawns a tool sidecar of its own. Any `OPENCODE_CONFIG_CONTENT` inherited from the orchestrator's own environment is stripped first, on every one of the three.
+
+### SSH mode delivers nothing
+
+A remote session receives no document. This adapter renders its managed environment as `KEY=<value>` onto the remote command string, and doing the same with the generated configuration would publish its credential values on the local `ssh` process's own argument list, where any other user of the orchestrator host can read them. The adapter delivers nothing rather than pay that price, so an OpenCode session on an SSH host reaches none of Sortie's tools and its first-turn prompt carries no tool advertisement.
+
+### Startup failures
+
+The run projection this adapter reads carries no MCP startup signal, so a server that fails to start produces no distinct diagnostic here. It surfaces only indirectly, as the agent's own tool calls failing.
+
+### `mcp_config`
+
+`opencode.mcp_config` names an operator-supplied MCP server configuration file. The worker reads it, merges its servers with the `sortie-tools` entry into the generated copy, and the adapter translates the merged result, so an operator's own servers reach a local OpenCode session alongside Sortie's. A relative path resolves against the directory containing `WORKFLOW.md`. An unreadable path, a file that is not valid JSON, or a file already declaring a server named `sortie-tools` fails the attempt before the session starts.
+
+Two more conditions fail the session with `response_error` when the merged configuration reaches the adapter, and the message names the offending server: an entry that carries neither `command` nor `url`, carries both, or declares a `type` contradicting the fields it carries; and an entry carrying a key outside the modeled set, which is `type`, `command`, `args`, `env`, `url`, `headers`, and `enabled`. Both are the shared parser's, so a file that fails here fails a `codex` session the same way. A header on an HTTP entry is carried into the document as written, which a `codex` session does not do; see the [Codex adapter reference](/reference/adapter-codex/#http-headers).
 
 ---
 
@@ -428,8 +431,10 @@ The adapter registers itself under kind `"opencode"` via an `init` function in `
 | Property | Value |
 |---|---|
 | `RequiresCommand` | `true` |
+| `ValidateAgentConfig` | the checks described in [Validate-time checks](#validate-time-checks) |
+| `MCPInjection` | `translated` - the adapter re-expresses the generated configuration's servers in the form its runtime parses, and delivers that on a local launch only. See [MCP](#mcp). |
 
-The orchestrator's preflight validation uses this metadata to require a non-empty `agent.command` field for `agent.kind: opencode`. Binary lookup still happens during `StartSession` via `exec.LookPath`.
+The orchestrator's preflight validation uses `RequiresCommand` to require a non-empty `agent.command` field for `agent.kind: opencode`. Binary lookup still happens during `StartSession` via `exec.LookPath`.
 
 ---
 
@@ -439,7 +444,7 @@ The orchestrator's preflight validation uses this metadata to require a non-empt
 |---|---|---|---|---|
 | Kind | `claude-code` | `copilot-cli` | `codex` | `opencode` |
 | Default command | `claude` | `copilot` | `codex app-server` | `opencode` |
-| Subprocess model | New process per turn | New process per turn | Persistent process across turns | New process per turn, plus a second `export` subprocess after each turn |
+| Subprocess model | New process per turn | New process per turn | Persistent process across turns | New process per turn, plus an `export` subprocess after each turn and a `models` subprocess after a masked failure |
 | Protocol | CLI flags + JSONL stdout | CLI flags + JSONL stdout | JSON-RPC 2.0 over stdin/stdout | CLI flags + newline-delimited stdout envelopes |
 | Output format flag | `--output-format stream-json` | `--output-format json` | JSON-RPC notifications | `--format json` |
 | Session ID source | UUID generated by adapter | Discovered from `result` event | Thread ID from `thread/start` response | Discovered from the first JSON envelope, or resumed via `--session` |
@@ -449,7 +454,7 @@ The orchestrator's preflight validation uses this metadata to require a non-empt
 | Token accounting source | Result event `modelUsage`, with top-level `usage` fallback | Session-state journal on disk, with stream output tokens as the in-turn estimate | `thread/tokenUsage/updated` notification | Separate `export` subprocess after main turn exit |
 | Permission control | `--permission-mode` or `--dangerously-skip-permissions` | `--autopilot` + `--no-ask-user` + explicit tool scoping | `approvalPolicy` and sandbox policy in JSON-RPC | `--dangerously-skip-permissions` plus synthesized `OPENCODE_PERMISSION` JSON |
 | Sandbox enforcement | None at adapter level | None at adapter level | OS-level sandbox plus configurable policy | No adapter-level sandbox; permission policy only |
-| Dynamic tools | MCP sidecar via `--mcp-config` | MCP sidecar via `--additional-mcp-config` | `dynamicTools` on `thread/start` | None injected by this adapter |
+| Sortie's tools | Generated config path on `--mcp-config` | Generated config path on `--additional-mcp-config` | Generated servers re-expressed as command-line overrides, local launch only | Generated servers re-expressed as an inline configuration document in the turn environment, local launch only - see [MCP](#mcp) |
 | Authentication | `ANTHROPIC_API_KEY` and provider routing flags | GitHub token variables or `gh auth` | `CODEX_API_KEY` or cached Codex auth | OpenCode-managed provider auth from env, auth store, `.env`, or `opencode.json`; SSH mode does not forward provider env vars |
 | Provider multiplexing | Anthropic direct, Bedrock, Vertex | GitHub only | OpenAI or cached Codex auth | Multi-provider through OpenCode model/provider config |
 | Inner turn limit | `claude-code.max_turns` | `copilot-cli.max_autopilot_continues` | None | None exposed by the adapter |

@@ -255,7 +255,7 @@ Agent adapters spawn subprocesses that inherit the **full** parent process envir
 | `GITHUB_TOKEN` | `copilot-cli` adapter | GitHub token common in CI environments. Third priority for Copilot CLI authentication. |
 | `COPILOT_HOME` | `copilot-cli` adapter (optional) | Root directory the Copilot CLI writes its per-session state under. Default: `~/.copilot`. Sortie reads it too: the adapter resolves `<COPILOT_HOME>/session-state/<session id>/events.jsonl`, the [session-state journal](/reference/adapter-copilot/#session-state-journal) that supplies the run's token counts. An empty or unset value resolves to the default. |
 | `CODEX_API_KEY` | `codex` adapter | OpenAI API key for the Codex CLI. The `codex app-server` subprocess reads this on startup. If the variable is unset, the adapter falls back to cached credentials in `~/.codex/auth.json` on the target host. |
-| `KIRO_API_KEY` | `kiro` adapter | API key the Kiro CLI reads on the headless path; requires a Kiro Pro, Pro+, or Power subscription. The adapter preflights it at session start (presence plus a usability check), so a missing or invalid credential surfaces as a startup error rather than a hang or a silent empty turn. |
+| `KIRO_API_KEY` | `kiro` adapter | API key the Kiro CLI reads on the headless path. The adapter preflights it at session start (presence plus a usability check), so a missing or invalid credential surfaces as a startup error rather than a hang or a silent empty turn. |
 
 **A missing `ANTHROPIC_API_KEY` is the most common `claude-code` deployment failure.** Sortie starts and polls the tracker normally, but every agent session fails at launch with an auth error. The Sortie logs show a worker exit with `exit_type=error`; the root cause is only visible in the agent's stderr output.
 
@@ -273,27 +273,15 @@ Copilot CLI requires a **fine-grained personal access token** (prefix `github_pa
 
 | Variable | Purpose | Description |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | Anthropic provider auth | API key for Anthropic-backed OpenCode models. |
-| `OPENAI_API_KEY` | OpenAI provider auth | API key for OpenAI-backed OpenCode models. |
-| `GOOGLE_API_KEY` | Google direct provider auth | API key for Google-backed OpenCode models that use direct API-key authentication. |
-| `AWS_*` | AWS-backed provider auth | AWS credentials, profiles, or bearer-token settings used by Bedrock-backed providers. |
-| `GITLAB_TOKEN` | GitLab Duo auth | GitLab token for Duo-backed models. |
-| `CLOUDFLARE_*` | Cloudflare-backed provider auth | Cloudflare credentials and account settings for Cloudflare-backed providers. |
-| `GOOGLE_APPLICATION_CREDENTIALS` | Google / Vertex provider auth | Path to a Google service-account credentials file when OpenCode uses ADC-based Google or Vertex authentication. |
-| `GOOGLE_CLOUD_PROJECT` | Google / Vertex provider config | Google Cloud project ID. |
-| `VERTEX_LOCATION` | Google / Vertex provider config | Vertex AI region. |
-| `OPENCODE_CONFIG` | Config injection | Path to an OpenCode config file. |
-| `OPENCODE_CONFIG_DIR` | Config injection | Directory containing OpenCode config. |
-| `OPENCODE_CONFIG_CONTENT` | Config injection | Inline JSON config content. |
 | `OPENCODE_PERMISSION` | Permission policy | Inline JSON permission policy. When `opencode.allowed_tools` or `opencode.denied_tools` is configured, Sortie removes any inherited value and writes its managed policy instead. |
 | `OPENCODE_AUTO_SHARE` | Session sharing | Auto-share on completion. Sortie-managed runs force this to `false`. |
 | `OPENCODE_DISABLE_AUTOCOMPACT` | Context compaction | Managed by `opencode.disable_autocompact`. |
 | `OPENCODE_DISABLE_AUTOUPDATE` | Self-update | Sortie-managed runs force this to `true`. |
 | `OPENCODE_DISABLE_LSP_DOWNLOAD` | LSP download | Sortie-managed runs force this to `true`. |
 
-In local mode, provider credentials come from the parent environment or from OpenCode's own auth/config state, while the managed `OPENCODE_*` values above are injected by the adapter. In SSH mode, Sortie prefixes only the managed `OPENCODE_*` variables onto the remote command. Provider credentials such as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `AWS_*`, `GITLAB_TOKEN`, `CLOUDFLARE_*`, `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CLOUD_PROJECT`, and `VERTEX_LOCATION` must already exist on the remote host or in the remote host's OpenCode auth/config state.
+In local mode the adapter injects only the managed `OPENCODE_*` values above; every provider credential, and any OpenCode config-discovery variable such as `OPENCODE_CONFIG`, comes from the parent environment or from OpenCode's own auth and config state, unmanaged by Sortie. In SSH mode the adapter prefixes only those managed variables onto the remote command, so whichever provider credentials your model selection needs must already exist on the remote host.
 
-**For `kiro`, authentication is a single credential.** The adapter reads `KIRO_API_KEY`, which requires a Kiro Pro, Pro+, or Power subscription, and validates it at `StartSession` before any turn runs, so a missing or invalid key surfaces as a startup error. In SSH mode the adapter injects `KIRO_API_KEY` inline into the remote command because OpenSSH drops local environment variables. See the [Kiro CLI adapter reference](/reference/adapter-kiro/) for the credential preflight and headless behavior.
+**For `kiro`, authentication is a single credential.** The adapter reads `KIRO_API_KEY` and validates it at `StartSession` before any turn runs, so a missing or invalid key surfaces as a startup error. In SSH mode the adapter injects `KIRO_API_KEY` inline into the remote command because OpenSSH drops local environment variables. See the [Kiro CLI adapter reference](/reference/adapter-kiro/) for the credential preflight and headless behavior.
 
 ---
 
@@ -337,7 +325,7 @@ For the Linear adapter, the conventions are `$SORTIE_LINEAR_API_KEY` for `tracke
 
 For the Gitea adapter, the conventions are `$SORTIE_GITEA_TOKEN` for `tracker.api_key` (a Gitea access token, a 40-character hex string with no identifying prefix, sent verbatim in the `Authorization: token <key>` header with no `Bearer` prefix, so surrounding whitespace fails authentication; this is the name `sortie validate` suggests), `$SORTIE_GITEA_ENDPOINT` for `tracker.endpoint` (the instance base URL, required because Gitea is self-hosted and has no default host), and `$SORTIE_GITEA_PROJECT` for `tracker.project` (an `owner/repo` string). See the [Gitea adapter reference](/reference/adapter-gitea/#configuration) for per-field semantics.
 
-For the GitLab adapter, the conventions are `$SORTIE_GITLAB_TOKEN` for `tracker.api_key` (a GitLab access token, sent verbatim in the `PRIVATE-TOKEN` header, neither `Authorization: Bearer` nor `Authorization: token`, so surrounding whitespace fails authentication; the adapter checks neither prefix nor length, because a GitLab administrator can change the access-token prefix through an application setting and a shape check would reject valid tokens on a customized instance; this is the name `sortie validate` suggests, and it is the tracker credential, not the `GITLAB_TOKEN` OpenCode provider credential listed under [agent runtime variables](#agent-runtime-variables)), `$SORTIE_GITLAB_ENDPOINT` for `tracker.endpoint` (the instance base URL, optional because the adapter defaults to `https://gitlab.com`, so set it only to reach a self-managed instance), and `$SORTIE_GITLAB_PROJECT` for `tracker.project` (the project's namespace path, which nests to any depth, such as `group/project` or `group/subgroup/project`, or its numeric project ID). See the [GitLab adapter reference](/reference/adapter-gitlab/#configuration) for per-field semantics.
+For the GitLab adapter, the conventions are `$SORTIE_GITLAB_TOKEN` for `tracker.api_key` (a GitLab access token, sent verbatim in the `PRIVATE-TOKEN` header, neither `Authorization: Bearer` nor `Authorization: token`, so surrounding whitespace fails authentication; the adapter checks neither prefix nor length, because a GitLab administrator can change the access-token prefix through an application setting and a shape check would reject valid tokens on a customized instance; this is the name `sortie validate` suggests, and it is the tracker credential; do not confuse it with a bare `GITLAB_TOKEN`, which Sortie does not read), `$SORTIE_GITLAB_ENDPOINT` for `tracker.endpoint` (the instance base URL, optional because the adapter defaults to `https://gitlab.com`, so set it only to reach a self-managed instance), and `$SORTIE_GITLAB_PROJECT` for `tracker.project` (the project's namespace path, which nests to any depth, such as `group/project` or `group/subgroup/project`, or its numeric project ID). See the [GitLab adapter reference](/reference/adapter-gitlab/#configuration) for per-field semantics.
 
 ### Behavior when a variable is unset or empty
 
@@ -442,7 +430,7 @@ When the same variable name exists in both the parent environment (via `SORTIE_*
 
 ## MCP server environment
 
-The MCP tool server (`sortie mcp-server`) runs as a child process of the agent runtime, not of the Sortie orchestrator. The agent runtime constructs the MCP server's environment exclusively from the `env` field in `.sortie/mcp.json` - variables not listed in that block do not reach the server. The worker writes per-session context variables and all `SORTIE_*`-prefixed process environment variables into this block before launching the agent.
+The MCP tool server (`sortie mcp-server`) runs as a child process of the agent runtime, not of the Sortie orchestrator. The agent runtime constructs the MCP server's environment from the names in the `env` field of `.sortie/mcp.json` - a variable not listed in that block does not reach the server. Where the adapter re-expresses the file rather than handing over its path, a listed name can be delivered as a name alone, its value resolved from the agent runtime's own process environment: see [translated delivery](#translated-delivery-and-the-env-block). The worker writes per-session context variables and all `SORTIE_*`-prefixed process environment variables into this block before launching the agent. It writes the file for every agent kind, but the chain runs end to end only where the adapter delivers those servers to its runtime - directly as the file's path, or re-expressed in the form that runtime parses. Where it delivers neither, nothing spawns the server and the `env` block reaches nobody; see [delivery by agent kind](/reference/agent-extensions/#delivery-by-agent-kind).
 
 ### Environment composition
 
@@ -474,7 +462,13 @@ The `.sortie/mcp.json` file is written with `0o600` permissions (owner read/writ
 
 ### Controlled environment
 
-Unlike the [hook subprocess environment](#hook-subprocess-environment), which uses a POSIX allowlist plus `SORTIE_*` prefix filter on the parent process, the MCP server receives its environment entirely from the config file's `env` block. Non-`SORTIE_*` variables from the orchestrator's process (e.g., `PATH`, `HOME`, `ANTHROPIC_API_KEY`) are not passed to the MCP server. The `SORTIE_*` prefix acts as a bounded namespace - no non-Sortie secrets leak into the config file.
+Unlike the [hook subprocess environment](#hook-subprocess-environment), which uses a POSIX allowlist plus `SORTIE_*` prefix filter on the parent process, the MCP server's environment is the one the `env` block names. Where an adapter re-expresses the configuration rather than passing its path, a name in that block can be resolved against the agent runtime's own process environment instead of against a value written into the configuration; see [translated delivery](#translated-delivery-and-the-env-block). Either way the names come from the `env` block. Sortie writes no variable outside the `SORTIE_*` namespace into the configuration and asks for none by name, so a non-`SORTIE_*` variable of the orchestrator's process (e.g., `PATH`, `HOME`, `ANTHROPIC_API_KEY`) is not one Sortie hands to the MCP server. The prefix acts as a bounded namespace - no non-Sortie secrets leak into the config file.
+
+### Translated delivery and the `env` block
+
+An adapter that re-expresses the generated configuration rather than passing its path can deliver an `env` entry by name instead of by value. The `codex` adapter does: when its own process already holds a variable of that name under the same value, it renders the name into the runtime's environment-passthrough key and writes no value, and the runtime resolves the value from the app-server's process environment when it spawns the server. Every other entry is written out with its value.
+
+The reason is the delivery route. That adapter's configuration travels on the app-server's command line, and a value written there would sit on an argument list any other user of the host can read. A credential Sortie already holds therefore travels as a name. See the [Codex adapter reference](/reference/adapter-codex/#environment-values) for the rendering, and [delivery by agent kind](/reference/agent-extensions/#delivery-by-agent-kind) for which kinds translate.
 
 ### Relationship to hook variables
 

@@ -129,7 +129,7 @@ self_review:
     - "go vet ./..."
   verification_timeout_ms: 120000          # per-command timeout
   max_diff_bytes: 102400                   # diff truncation limit
-  reviewer: "same"                         # only "same" in v1
+  reviewer: "same"                         # only supported value is "same"
 
 # --- Notifications (notify_operator backends; optional) ------------
 notifications:
@@ -142,7 +142,7 @@ notifications:
 # --- Claude Code adapter (pass-through) ------------------------------
 claude-code:
   permission_mode: bypassPermissions  # Auto-approve tool calls
-  model: claude-sonnet-4-20250514
+  model: <model-id>
   max_turns: 50                       # CLI --max-turns (not agent.max_turns)
   max_budget_usd: 5                   # Per-invocation cost cap (x agent.max_turns per session)
 
@@ -496,7 +496,7 @@ Coding agent adapter, concurrency, timeouts, and retry behavior. These fields co
 
 | Field                            | Type    | Default         | Description                                                                           |
 | -------------------------------- | ------- | --------------- | ------------------------------------------------------------------------------------- |
-| `kind`                           | string  | `claude-code`   | Agent adapter identifier. Built-in adapters: `claude-code`, `copilot-cli`, `codex`, `opencode`, `kiro`, `mock`.   |
+| `kind`                           | string  | `claude-code`   | Agent adapter identifier. Built-in adapters: `claude-code`, `copilot-cli`, `codex`, `opencode`, `kiro`, and `mock`, which simulates a session for local testing and launches no process. |
 | `command`                        | string  | adapter-defined | Command to launch the agent for adapters that run as a local subprocess (`claude-code`, `copilot-cli`, `codex`, `opencode`, `kiro`). Adapters that do not start a local process ignore this field. |
 | `max_turns`                      | integer | `20`            | Maximum turns per worker session. The worker re-checks tracker state after each turn. |
 | `max_sessions`                   | integer | `0` (unlimited) | Maximum completed sessions per issue before the orchestrator stops retrying. Must be non-negative. |
@@ -508,7 +508,7 @@ Coding agent adapter, concurrency, timeouts, and retry behavior. These fields co
 | `stall_timeout_ms`               | integer | `300000` (5m)   | Inactivity timeout based on event stream gaps. `0` or negative disables stall detection. |
 | `max_retry_backoff_ms`           | integer | `300000` (5m)   | Maximum delay cap for exponential backoff on retries.                                 |
 
-`max_concurrent_agents`, `max_concurrent_agents_by_state`, `max_retry_backoff_ms`, `max_sessions`, and `max_tokens` reload dynamically without restart; `max_tokens` takes effect at the next retry evaluation. All other fields apply to future dispatches only, except where the [dynamic reload table](#dynamic-reload) below states a finer-grained answer.
+`max_concurrent_agents`, `max_concurrent_agents_by_state`, `max_retry_backoff_ms`, `max_sessions`, and `max_tokens` reload dynamically without restart; `max_tokens` takes effect at the next retry evaluation. All other fields apply to future dispatches only, except where the per-field Dynamic reload table at the end of this document states a finer-grained answer.
 
 ```yaml
 agent:
@@ -548,7 +548,7 @@ Each entry in `rules` accepts:
 | `agent`    | string | _(fallback)_ | Agent kind for matching issues. Must name a registered adapter. Falls through to `default.agent`, then `agent.kind`. |
 | `template` | string | _(fallback)_ | Prompt template path, relative to the WORKFLOW.md directory. Falls through to `default.template`, then the body template. |
 
-A rule whose `agent` differs from the top-level `agent.kind` requires the matching [adapter pass-through block](#adapter-pass-through-configuration) to be present in the front matter.
+A session a rule routes to an agent kind other than the top-level `agent.kind` reads the matching [adapter pass-through block](#adapter-pass-through-configuration) and no other. With that block absent the session still dispatches, on the shared `agent` settings and the adapter's own defaults for everything else; neither `sortie validate` nor startup preflight reports the absence.
 
 ### Match predicates
 
@@ -702,7 +702,7 @@ Self-review configuration. When enabled, Sortie runs an orchestrator-controlled 
 | `verification_commands`    | list of strings | _(none)_   | Shell commands to run during each review iteration. Required and non-empty when `enabled: true`.           |
 | `verification_timeout_ms`  | integer         | `120000`   | Per-command timeout in milliseconds. Timed-out commands are killed via process group signal.                |
 | `max_diff_bytes`           | integer         | `102400`   | Maximum bytes of diff included in the review prompt. Larger diffs are truncated with a note.                |
-| `reviewer`                 | string          | `"same"`   | Which agent runs the review turns. Only `"same"` (reuse existing session) is supported in v1.               |
+| `reviewer`                 | string          | `"same"`   | Which agent runs the review turns. `"same"` (reuse existing session) is the only supported value.               |
 
 `enabled: true` with empty or absent `verification_commands` produces a `ConfigError`. `max_iterations` outside [1, 10] produces a `ConfigError`. `reviewer` values other than `"same"` produce a `ConfigError`. All integer fields accept quoted string integers (e.g., `"3"`) following the same coercion rules as other integer config fields.
 
@@ -738,7 +738,7 @@ self_review:
     - "golangci-lint run"
   verification_timeout_ms: 120000    # default 2 min per command
   max_diff_bytes: 102400             # default 100 KB
-  reviewer: "same"                   # only "same" in v1
+  reviewer: "same"                   # only supported value is "same"
 ```
 
 For operational guidance on setting up self-review, choosing verification commands, and verifying the loop, see [how to configure self-review](/guides/configure-self-review/).
@@ -765,7 +765,7 @@ Polls `CHANGES_REQUESTED` review comments on Sortie-created PRs and dispatches c
 | `debounce_ms`            | integer | `60000`        | Wait time after last detected comment before dispatch. Non-negative.                                 |
 | `max_continuation_turns` | integer | `3`            | Hard cap on review-triggered continuations per PR. Positive integer.                                 |
 
-`provider` is required when `reactions.review_comments` is present; omitting it does not produce an error, but review polling is inactive without a provider. `max_retries` must be non-negative. `escalation` must be `"label"` or `"comment"`; other values produce a configuration error. `poll_interval_ms` has a minimum of `30000`; values below are rejected. `max_continuation_turns` must be positive.
+`provider` is required when `reactions.review_comments` is present; omitting it does not produce an error, but review polling is inactive without a provider. `max_retries` must be non-negative. `escalation` must be `"label"` or `"comment"`; other values produce a configuration error. `poll_interval_ms` has a minimum of `30000`; values below are rejected. `max_continuation_turns` must be positive. When more than one SCM reaction kind is active, every active kind must name the same `provider`; a mismatch is a fatal startup error.
 
 Review feedback requires `.sortie/scm.json` in the workspace to contain `pr_number` (integer > 0), `owner`, and `repo` fields. The agent or `after_run` hook writes these. When any field is missing or zero, review polling is skipped for that workspace. No error is logged; the feature degrades silently.
 
@@ -898,7 +898,7 @@ When more than one entry sets `max_per_session`, the effective cap is the maximu
 > [!NOTE]
 > Environment variable overrides for `notifications` fields are not supported. Backend configuration must come from WORKFLOW.md; environment values reach a backend only through `$VAR` references inside its entry.
 
-The `webhook` backend is an outbound POST to an operator-supplied endpoint. It is unrelated to inbound tracker webhooks, which trigger reconciliation.
+The `webhook` backend is an outbound POST to an operator-supplied endpoint. Sortie has no inbound webhook receiver of its own - it discovers tracker state only by polling - so this is the only kind of webhook Sortie has.
 
 ```yaml
 notifications:
@@ -934,25 +934,31 @@ db_path: /var/lib/sortie/state.db
 
 ## Adapter pass-through configuration
 
-Each adapter reads additional settings from a top-level block named after its `kind` value. The orchestrator forwards these blocks to the adapter without validation.
+Each adapter reads additional settings from a top-level block named after its `kind` value. The orchestrator forwards these blocks to the adapter as written, with two exceptions, both checked before any run starts. Either draws an error or a warning at startup, on every workflow reload, and from [`sortie validate`](/reference/cli/#validate). Each adapter reference page lists its own checks.
+
+The first exception is a value that would let the agent stop and wait for a person. Every agent runs unattended, so nobody is there to answer. The affected keys are `codex.approval_policy`, `claude-code.permission_mode`, `copilot-cli`'s four tool-scoping keys, `opencode.dangerously_skip_permissions`, and `kiro.trust_all_tools` with `kiro.trust_tools`.
+
+The second exception is a value that stops the agent kind resuming a session across separate agent launches. Sortie re-dispatches an issue carrying its earlier session after a retry, a continuation, a stall, or a restart, so such a value makes every resumed turn fail. `claude-code.session_persistence` set to `false` is the only key any built-in adapter declares this way; the refusal is an `agent.kind.session_resume` error and carries no condition on `agent.max_turns` or on any other core setting.
+
+A session that a [`dispatch` rule](#dispatch) routed to an agent kind other than the workflow default reads that kind's own block, on every attempt of that session. The block named by `agent.kind` applies only to sessions no rule routed elsewhere.
 
 ### `claude-code`
 
 | Field | Type | Default | CLI flag | Description |
 |---|---|---|---|---|
-| `permission_mode` | string | _(absent)_ | `--permission-mode` | Claude Code permission mode. Values: `acceptEdits`, `auto`, `bypassPermissions`, `default`, `dontAsk`, `manual` (an alias for `default`), `plan`. When absent, the adapter passes `--dangerously-skip-permissions` instead. |
+| `permission_mode` | string | _(absent)_ | `--permission-mode` | Claude Code permission mode. `bypassPermissions` is the only value Sortie accepts; any other value is refused before the run. When absent, the adapter passes `--dangerously-skip-permissions` instead. See [validate-time checks](/reference/adapter-claude-code/#validate-time-checks). |
 | `model` | string | _(CLI default)_ | `--model` | Model for agent sessions. Accepts an alias such as `sonnet`, or a full model name. |
 | `fallback_model` | string | _(none)_ | `--fallback-model` | Model to switch to when the primary is overloaded, unavailable, or returns another non-retryable server error. Accepts a comma-separated chain, capped at three models. Authentication, billing, rate-limit, request-size, and transport errors never trigger a switch, and the switch lasts one turn only. See [Fallback model scope](/reference/adapter-claude-code/#fallback-model-scope). |
 | `max_turns` | integer | _(CLI default)_ | `--max-turns` | Claude Code's internal agentic turn budget per invocation. |
 | `max_budget_usd` | number | _(none)_ | `--max-budget-usd` | Per-invocation cost cap. Resets each turn. |
-| `effort` | string | _(CLI default)_ | `--effort` | Inference effort level. Values: `low`, `medium`, `high`, `xhigh`, `max`, and `ultracode`, which starts the session at `xhigh` with ultracode enabled. The accepted set depends on the model; an unrecognized value falls back to the default effort with a warning. |
+| `effort` | string | _(CLI default)_ | `--effort` | Inference effort level, forwarded unchanged. Which levels the CLI accepts depends on the model and is Claude Code's to document. |
 | `allowed_tools` | string | _(none)_ | `--allowedTools` | Comma- or space-separated list of tools that run without a permission prompt, including scoped rules such as `Bash(git diff *)`. |
 | `disallowed_tools` | string | _(none)_ | `--disallowedTools` | Comma- or space-separated list of tools to deny. A bare tool name removes the tool from the model's context; a scoped rule denies only matching calls. |
 | `system_prompt` | string | _(none)_ | `--append-system-prompt` | Text appended to Claude Code's default system prompt rather than replacing it. |
 | `mcp_config` | string | _(none)_ | `--mcp-config` | Path to an MCP server configuration file, resolved relative to the WORKFLOW.md directory when not absolute. Sortie reads that file and passes a generated copy carrying its own `sortie-tools` server, leaving the original unmodified; a file already declaring `sortie-tools` fails the attempt. |
-| `session_persistence` | boolean | `true` | `--no-session-persistence` | Whether Claude Code saves session history to disk. When `false`, the flag is passed and no session file is written. The adapter continues a session on later turns with `--resume <session_id>`, which reads the persisted session, so with persistence off every turn after the first fails with `No conversation found with session ID`. |
+| `session_persistence` | boolean | `true` | `--no-session-persistence` | Whether Claude Code saves session history to disk. When `false`, the flag is passed and no session file is written. The adapter continues a session on later turns with `--resume <session_id>`, which reads the persisted session, so `false` is refused before the run. See [session persistence and resume](/reference/adapter-claude-code/#session-persistence-and-resume). |
 
-The adapter validates none of these values. What the CLI does with an invalid one differs per flag: `--permission-mode` is rejected at launch, `--effort` falls back to the default effort with a warning, and an unknown model name reaches the API and fails there. A key whose YAML value has the wrong type is ignored and the default applies.
+`permission_mode` and `session_persistence` are the keys checked before the run. The rest reach the CLI unvalidated, and what it does with an invalid value differs per flag: `--effort` falls back to the default effort with a warning, and an unknown model name reaches the API and fails there. A key whose YAML value has the wrong type is ignored and the default applies.
 
 > [!WARNING]
 > `agent.max_turns` (orchestrator turn-loop limit) and `claude-code.max_turns` (CLI internal turn budget) are distinct values with different semantics. The orchestrator limit controls how many turns the worker runs before exiting. The adapter limit controls the Claude Code CLI's internal turn budget per invocation.
@@ -960,8 +966,8 @@ The adapter validates none of these values. What the CLI does with an invalid on
 ```yaml
 claude-code:
   permission_mode: bypassPermissions
-  model: claude-sonnet-4-20250514
-  fallback_model: claude-haiku-4-5
+  model: <model-id>
+  fallback_model: <fallback-model-id>
   max_turns: 50
   max_budget_usd: 5
   effort: high
@@ -973,7 +979,7 @@ claude-code:
 
 | Field                     | Type    | Description                                                                 |
 | ------------------------- | ------- | --------------------------------------------------------------------------- |
-| `model`                   | string  | LLM model identifier (e.g., `claude-sonnet-4.5`, `gpt-5`).                |
+| `model`                   | string  | LLM model identifier, forwarded unchanged. See `copilot --help` on your installed version for the accepted values.                |
 | `max_autopilot_continues` | integer | Maximum autonomous continuation steps. Default: `50`.                       |
 | `agent`                   | string  | Custom agent name for routing.                                              |
 | `allowed_tools`           | string  | Tools permitted without confirmation (glob patterns).                       |
@@ -988,11 +994,11 @@ claude-code:
 > [!WARNING]
 > `agent.max_turns` (orchestrator turn-loop limit) and `copilot-cli.max_autopilot_continues` (CLI autonomy budget) are distinct values with different semantics. The orchestrator limit controls how many turns the worker runs before exiting. The adapter limit controls how many autonomous continuation steps Copilot CLI takes within a single `RunTurn` invocation.
 
-When any tool-scoping flag (`allowed_tools`, `denied_tools`, `available_tools`, `excluded_tools`) is configured, the adapter omits `--allow-all` and uses the scoped flags instead. When none are set, `--allow-all` is passed for unattended operation.
+When any tool-scoping flag (`allowed_tools`, `denied_tools`, `available_tools`, `excluded_tools`) is configured, the adapter omits `--allow-all` and uses the scoped flags instead. When none are set, `--allow-all` is passed for unattended operation. Setting any one of the four draws the `copilot-cli.tool_scoping.interactive` warning rather than an error: the CLI denies a tool call the scoping excludes and the session keeps going, so the narrower configuration limits what the agent may do without leaving it waiting for a person. See [validate-time checks](/reference/adapter-copilot/#validate-time-checks).
 
 ```yaml
 copilot-cli:
-  model: claude-sonnet-4.5
+  model: <model-id>
   max_autopilot_continues: 100
   mcp_config: ./mcp-servers.json
 ```
@@ -1001,21 +1007,25 @@ copilot-cli:
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `model` | string | _(API default)_ | Model override (e.g., `o3`, `gpt-5.4`). Maps to `model` on `thread/start`. |
-| `effort` | string | _(API default)_ | Reasoning effort: `low`, `medium`, `high`. Maps to `effort` on `turn/start`. |
-| `approval_policy` | string | `never` | Approval policy for thread and turn. Values: `never`, `onRequest`, `unlessTrusted`, `always`. |
-| `thread_sandbox` | string | `workspaceWrite` | Thread sandbox mode. Values: `workspaceWrite`, `readOnly`, `dangerFullAccess`, `externalSandbox`. |
+| `model` | string | _(API default)_ | Model override, forwarded unchanged. Maps to `model` on `thread/start`. See `codex --help` on your installed version for the accepted values. |
+| `effort` | string | _(API default)_ | Reasoning effort, forwarded unchanged. |
+| `approval_policy` | string | `never` | Approval policy for the thread. Maps to `approvalPolicy` on `thread/start`, which governs every turn. `never` is the only value Sortie accepts. See [validate-time checks](/reference/adapter-codex/#validate-time-checks). |
+| `thread_sandbox` | string | `workspaceWrite` | Thread sandbox mode, forwarded unchanged. The default confines writes to the workspace and allows no network access. |
 | `personality` | string | _(none)_ | Personality preset. Maps to `personality` on `thread/start`. |
 | `turn_sandbox_policy` | map | _(none)_ | Per-turn sandbox policy override. Keys such as `networkAccess`, `writableRoots`. |
+| `mcp_config` | string | _(none)_ | Path to an MCP server configuration file, resolved relative to the WORKFLOW.md directory when not absolute. Its servers are merged into the copy Sortie generates for its own tool sidecar; the original is never modified, and a file already declaring `sortie-tools` fails the attempt. |
 
-The Codex adapter uses a persistent subprocess model: the `codex app-server` is launched once in `StartSession` and kept alive across turns. This differs from Claude Code, Copilot CLI, and OpenCode, which spawn a new subprocess per turn. See the [Codex adapter reference](/reference/adapter-codex/) for the full lifecycle.
+The Codex adapter uses a persistent subprocess model: the `codex app-server` is launched once in `StartSession` and kept alive across turns. This differs from Claude Code, Copilot CLI, and OpenCode, which spawn a new subprocess per turn. The runtime accepts no MCP configuration path, so instead of handing over the generated file the adapter re-expresses its servers as configuration overrides on the app-server command line. That happens on a local launch only; an SSH session receives none, and reaches no Sortie tool. See the [Codex adapter reference](/reference/adapter-codex/) for the full lifecycle and [MCP](/reference/adapter-codex/#mcp) for the delivery detail.
 
 > [!WARNING]
 > `approval_policy: never` allows arbitrary command execution within the sandbox boundary. Use only in sandboxed environments. The default `thread_sandbox: workspaceWrite` restricts writes to the workspace path with no network access.
 
+> [!WARNING]
+> Keep `approval_policy` at its default. `untrusted` and `on-request` let the app-server stop and ask for a decision an unattended run has nobody to give, so both are refused with the `codex.approval_policy.interactive` error before any run starts. A value outside all three is not ignored either: the app-server rejects `thread/start` and the session never starts. Codex accepts an object form of this policy too, a `granular` member whose booleans decide each approval category, but this field is read as a string, so a map value is dropped and the thread starts under `never`. What the adapter does when an approval request arrives anyway is described in the [Codex adapter reference](/reference/adapter-codex/#approval-policy-and-sandbox).
+
 ```yaml
 codex:
-  model: o3
+  model: <model-id>
   effort: medium
   approval_policy: never
   thread_sandbox: workspaceWrite
@@ -1033,10 +1043,13 @@ codex:
 | `variant` | string | _(none)_ | Provider-specific reasoning variant passed through unchanged. |
 | `thinking` | boolean | `false` | Adds the `--thinking` flag. |
 | `pure` | boolean | `false` | Adds the `--pure` flag. |
-| `dangerously_skip_permissions` | boolean | `true` | Adds `--dangerously-skip-permissions` when true. Omitted when false. |
+| `dangerously_skip_permissions` | boolean | `true` | Adds `--dangerously-skip-permissions` when true. Omitted when false, which makes the runtime auto-reject every permissioned tool call; that draws the `opencode.dangerously_skip_permissions.auto_reject` warning. See [validate-time checks](/reference/adapter-opencode/#validate-time-checks). |
 | `disable_autocompact` | boolean | `true` | Sets the managed `OPENCODE_DISABLE_AUTOCOMPACT` environment variable for both `run` and `export` subprocesses. |
 | `allowed_tools` | list of strings | `[]` | Builds the managed `OPENCODE_PERMISSION` allowlist. Listed keys become `allow`; every known key not listed becomes `deny`. Unknown keys are forwarded unchanged. |
 | `denied_tools` | list of strings | `[]` | Adds deny rules to `OPENCODE_PERMISSION`. Overlap with `allowed_tools` is rejected during adapter construction. |
+| `mcp_config` | string | _(none)_ | Path to an MCP server configuration file, resolved relative to the WORKFLOW.md directory when not absolute. Its servers are merged into the copy Sortie generates for its own tool sidecar; the original is never modified, and a file already declaring `sortie-tools` fails the attempt. |
+
+The OpenCode runtime accepts no MCP configuration path either, so the adapter re-expresses the generated servers as the runtime's own configuration document and sets it in the turn's environment. That happens on a local launch only; an SSH session receives none, and reaches no Sortie tool. See [MCP](/reference/adapter-opencode/#mcp).
 
 The OpenCode adapter always adds `run --format json --dir <workspace> -- <prompt>`. It does not expose `--attach`, `--port`, `--command`, `--file`, `--title`, `--continue`, or `--fork` through WORKFLOW.md.
 
@@ -1047,7 +1060,7 @@ The OpenCode adapter spawns one `opencode run --format json` subprocess per turn
 
 ```yaml
 opencode:
-  model: anthropic/claude-sonnet-4-5
+  model: <provider>/<model-id>
   variant: high
   pure: true
   dangerously_skip_permissions: true
@@ -1063,22 +1076,18 @@ opencode:
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `model` | string | _(none)_ | Maps to `--model`. The model must be pinned here because the `/model` slash command is unavailable in headless mode. |
-| `trust_all_tools` | boolean | `false` | Maps to `--trust-all-tools`, auto-approving every tool call. Mutually exclusive with `trust_tools`. |
-| `trust_tools` | list of strings | `[]` | Maps to `--trust-tools=<comma-joined>`. An empty list trusts nothing. Mutually exclusive with `trust_all_tools`. |
+| `trust_all_tools` | boolean | `true` when neither trust key is set | Maps to `--trust-all-tools`, auto-approving every tool call. Mutually exclusive with `trust_tools`. |
+| `trust_tools` | list of strings | _(absent)_ | Maps to `--trust-tools=<comma-joined>`. Setting it is refused today, because any posture short of full trust can still reach a tool the CLI does not trust, and what `kiro-cli chat --no-interactive` does there is unestablished. Mutually exclusive with `trust_all_tools`. |
 | `agent` | string | _(none)_ | Maps to `--agent`, an optional custom-agent selector. |
 
-The Kiro adapter spawns one `kiro-cli chat --no-interactive` subprocess per turn. The headless path reports no token counts, so budget enforcement is time-based through `agent.turn_timeout_ms`, and MCP is unavailable on the `KIRO_API_KEY` path. See the [Kiro CLI adapter reference](/reference/adapter-kiro/) for the full lifecycle.
+The Kiro adapter spawns one `kiro-cli chat --no-interactive` subprocess per turn. The headless path reports no token counts, so budget enforcement is time-based through `agent.turn_timeout_ms`, and MCP is unavailable on the `KIRO_API_KEY` path. Because there is no channel, a Kiro session reaches none of Sortie's tools and its first-turn prompt does not advertise them; [`sortie validate`](/reference/cli/#validate) reports that as an `agent.kind.no_tool_channel` warning. See the [Kiro CLI adapter reference](/reference/adapter-kiro/) for the full lifecycle.
 
 > [!WARNING]
-> `kiro.trust_all_tools: true` combined with a non-empty `kiro.trust_tools` list is rejected at adapter construction. Use `--trust-all-tools` only inside a hardened sandbox; prefer a least-privilege `trust_tools` allowlist.
+> Leave both trust keys unset, or set `kiro.trust_all_tools: true`, and run the agent inside a hardened sandbox. A configuration that does not resolve to full trust is refused, and so is `kiro.trust_all_tools: true` combined with a non-empty `kiro.trust_tools` list. See [validate-time checks](/reference/adapter-kiro/#validate-time-checks).
 
 ```yaml
 kiro:
-  model: claude-sonnet-4.6
-  trust_tools:
-    - read
-    - grep
-    - glob
+  model: <model-id>
 ```
 
 ### `file` (file-based tracker)
@@ -1216,7 +1225,7 @@ worker:
 
 The markdown body after the closing `---` is a Go `text/template` rendered per issue. The template engine runs in strict mode (`missingkey=error`): referencing an undefined variable or function fails rendering immediately.
 
-The template receives five top-level variables: `.issue`, `.attempt`, `.run`, `.ci_failure`, and `.review_comments`.
+The template receives three core top-level variables on every render, `.issue`, `.attempt`, and `.run`, plus six reaction continuation variables that are `nil` except on the first turn of the matching reaction-triggered dispatch: `.ci_failure`, `.review_comments`, `.bot_review_comments`, `.merge_conflict`, `.label_review`, and `.label_fix`. Every continuation variable defaults to `nil` so a template referencing it renders under `missingkey=error` even when the corresponding reaction is never configured.
 
 ### `.issue`
 
@@ -1237,7 +1246,7 @@ Normalized issue object. All fields are present regardless of the underlying tra
 | `.issue.branch_name` | string          | Tracker-provided branch metadata. Empty string when absent.                        |
 | `.issue.parent`      | object or nil   | Parent issue reference. `nil` when no parent. Has `.id` and `.identifier`.         |
 | `.issue.comments`    | list or nil     | Comment records. `nil` means not fetched; empty list means no comments exist. Each comment has `.id`, `.author`, `.body`, and `.created_at`. |
-| `.issue.blocked_by`  | list of objects | Blocker references. Each has `.id`, `.identifier`, `.state`. Non-nil empty list when no blockers. |
+| `.issue.blocked_by`  | list of objects | Blocker references, each with `.id`, `.identifier`, `.state`, and `.display_id`. Non-nil empty list when no blockers. Sortie holds an issue out of dispatch until this list is resolved, so it is always authoritative by the time a session starts. `.display_id` is the qualified form when the tracker's own identifier is ambiguous (for example GitHub's `owner/repo#5` against an `identifier` of `5`), and empty otherwise. |
 | `.issue.created_at`  | string          | ISO-8601 creation timestamp. Empty string when absent.                             |
 | `.issue.updated_at`  | string          | ISO-8601 last-update timestamp. Empty string when absent.                          |
 
@@ -1295,19 +1304,64 @@ A list of maps, one per actionable review comment. Outdated comments (referring 
 {{ end }}
 ```
 
+### `.bot_review_comments`
+
+Available only on the first turn of a bot-review-fix continuation dispatch, triggered by [`reactions.bot_review`](/reference/reactions/#reactionsbot_review). `nil` on normal dispatches and non-bot-review retries.
+
+Same per-element shape as [`.review_comments`](#review_comments): a list of maps with `.id`, `.file`, `.start_line`, `.end_line`, `.reviewer` (the bot's login), and `.body`.
+
+### `.merge_conflict`
+
+Available only on the first turn of a merge-conflict-resolution continuation dispatch, triggered by [`reactions.merge_conflicts`](/reference/reactions/#reactionsmerge_conflicts). `nil` on normal dispatches and non-conflict retries.
+
+| Field                        | Type    | Description                                                                    |
+| ---------------------------- | ------- | -------------------------------------------------------------------------------- |
+| `.merge_conflict.pr_number`  | integer | Pull request number.                                                             |
+| `.merge_conflict.branch`     | string  | PR head branch the agent rebases.                                                |
+| `.merge_conflict.head_sha`   | string  | Latest commit SHA on the PR head branch.                                         |
+| `.merge_conflict.base`       | string  | PR's actual base branch, read live from the PR object; the rebase target.        |
+
+### `.label_review`
+
+Available only on the first turn of a read-only label-review dispatch, triggered when an operator applies [`reactions.label_commands.review_label`](#reactionslabel_commands) to a Sortie-managed PR. `nil` on every other dispatch.
+
+| Field                          | Type    | Description                                            |
+| ------------------------------- | ------- | -------------------------------------------------------- |
+| `.label_review.pr_number`      | integer | Pull request number to review.                           |
+| `.label_review.owner`          | string  | Repository owner.                                         |
+| `.label_review.repo`           | string  | Repository name.                                          |
+| `.label_review.actor`          | string  | Login of the operator who applied the review label.       |
+| `.label_review.requested_at`   | string  | RFC 3339 timestamp of the labeling gesture.                |
+
+The orchestrator injects only these coordinates. It never fetches the PR diff and never posts a comment itself; a template that omits `{{ if .label_review }}` produces no review on a label-review dispatch.
+
+### `.label_fix`
+
+Available only on the first turn of a fix dispatch, triggered when an operator applies [`reactions.label_commands.fix_label`](#reactionslabel_commands) to a Sortie-managed PR. `nil` on every other dispatch.
+
+| Field                       | Type    | Description                                              |
+| ----------------------------- | ------- | ------------------------------------------------------------ |
+| `.label_fix.pr_number`       | integer | Pull request number to fix.                                  |
+| `.label_fix.owner`           | string  | Repository owner.                                             |
+| `.label_fix.repo`            | string  | Repository name.                                              |
+| `.label_fix.branch`          | string  | PR head branch to check out and push to.                      |
+| `.label_fix.actor`           | string  | Login of the operator who applied the fix label.               |
+| `.label_fix.requested_at`    | string  | RFC 3339 timestamp of the labeling gesture.                     |
+
+The orchestrator injects only these coordinates. It never fetches review comments and never pushes or comments itself; a template that omits `{{ if .label_fix }}` runs the normal work prompt against a real checkout with push capability instead of producing a fix.
+
 ### Turn semantics
 
-The full template is rendered on every turn. The runtime passes the complete rendered result to the agent regardless of turn number. Template authors branch on `.attempt`, `.run.is_continuation`, `.ci_failure`, and `.review_comments` to vary content.
+The full template is rendered on every turn. The runtime passes the complete rendered result to the agent regardless of turn number. Template authors branch on `.attempt`, `.run.is_continuation`, and each continuation variable to vary content.
 
-| Scenario             | `.attempt`       | `.run.is_continuation` | `.ci_failure`         | `.review_comments`      |
-| -------------------- | ---------------- | ---------------------- | --------------------- | ----------------------- |
-| First run            | `0`              | `false`                | `nil`                 | `nil`                   |
-| Continuation         | same as turn 1   | `true`                 | `nil`                 | `nil`                   |
-| Retry after error    | `>= 1`           | `false`                | `nil`                 | `nil`                   |
-| CI-fix dispatch      | same as previous  | `false`               | map with failure data | `nil`                   |
-| Review-fix dispatch  | same as previous  | `false`               | `nil`                 | list of comment maps    |
+| Scenario                     | `.attempt`        | `.run.is_continuation` | The dispatch's own continuation variable | Every other continuation variable |
+| ----------------------------- | ----------------- | ----------------------- | ------------------------------------------ | ------------------------------------ |
+| First run                    | `0`                | `false`                  | n/a                                          | `nil`                                 |
+| Continuation                  | same as turn 1     | `true`                   | n/a                                          | `nil`                                 |
+| Retry after error             | `>= 1`             | `false`                  | n/a                                          | `nil`                                 |
+| Reaction-triggered dispatch (CI-fix, review-fix, bot-review-fix, merge-conflict, label-review, label-fix) | same as previous   | `false`                  | populated (see the variable's own section above) | `nil`                                 |
 
-On continuation turns, if the rendered prompt is empty, Sortie substitutes a built-in default continuation prompt. On the first turn, an empty rendered prompt is passed through as-is.
+Only the one continuation variable matching the triggering reaction is non-nil on that dispatch's first turn; the other five are `nil`. On continuation turns, if the rendered prompt is empty, Sortie substitutes a built-in default continuation prompt. On the first turn, an empty rendered prompt is passed through as-is.
 
 ### Template functions
 
@@ -1321,17 +1375,7 @@ On continuation turns, if the rendered prompt is empty, Sortie substitutes a bui
 
 ### Built-in actions
 
-All standard Go `text/template` actions are available:
-
-| Action | Purpose |
-| ------ | ------- |
-| `{{ if COND }}...{{ else }}...{{ end }}`  | Conditional branching. |
-| `{{ range LIST }}...{{ end }}`            | Iteration over lists and maps. |
-| `{{ with VALUE }}...{{ end }}`            | Scope dot to value if non-empty. |
-| `eq`, `ne`, `lt`, `le`, `gt`, `ge`       | Comparison. |
-| `and`, `or`, `not`                        | Logical operators. |
-| `len`, `index`                            | Length and index access. |
-| `print`, `printf`, `println`             | Formatted output. |
+Every action, control structure, and comparison function of Go's [`text/template`](https://pkg.go.dev/text/template) package is available unmodified. Sortie adds no restrictions and no additional actions beyond the three functions above.
 
 > [!NOTE]
 > Inside `{{ range }}`, the dot (`.`) rebinds to the current element. Use `{{ $.issue.identifier }}` to access top-level variables from within a range block. `sortie validate` detects references to `.issue`, `.attempt`, or `.run` inside `{{ range }}` and `{{ with }}` blocks and emits a `dot_context` warning.

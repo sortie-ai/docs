@@ -63,13 +63,11 @@ GitHub Issues has only two native states: open and closed. Sortie maps richer wo
 Create them with the `gh` CLI (replace `owner/repo` with your repository):
 
 ```bash
-gh label create backlog --repo owner/repo --color "0E8A16"
-gh label create in-progress --repo owner/repo --color "1D76DB"
-gh label create review --repo owner/repo --color "FBCA04"
-gh label create done --repo owner/repo --color "5319E7"
+gh label create backlog --repo owner/repo
+gh label create in-progress --repo owner/repo
+gh label create review --repo owner/repo
+gh label create done --repo owner/repo
 ```
-
-Or create them through the GitHub web UI under **Settings → Labels**.
 
 These are the label names the GitHub adapter ships as defaults. In the `WORKFLOW.md` we write next, `backlog` and `in-progress` are the active states, `review` is the handoff target, and `done` is the terminal state. You can use different names — match them in `WORKFLOW.md` and Sortie will follow your naming.
 
@@ -141,7 +139,13 @@ Run the validate subcommand to check for syntax errors and misconfigured fields:
 sortie validate ./WORKFLOW.md
 ```
 
-If the configuration is valid, the command exits silently with code 0 and prints nothing. No output means no problems.
+You will see one advisory warning:
+
+```
+warning: agent.kind.no_tool_channel: agent kind "mock" has no tool execution channel: Sortie's tools are neither advertised nor callable for it
+```
+
+That is the mock agent being honest: it launches no process, so Sortie's own agent tools cannot reach it, and the first-turn prompt does not offer them. Nothing is wrong with your file. A warning leaves the configuration valid and the exit code `0`; it disappears once you swap in a real coding agent.
 
 Confirm the exit code:
 
@@ -204,20 +208,20 @@ Start Sortie:
 sortie ./WORKFLOW.md
 ```
 
-You should see output like this:
+You should see output like this (the `tick completed` lines carry more fields than shown here — only the ones relevant to this walkthrough are called out):
 
 ```
 level=INFO msg="sortie starting" version=0.x.x workflow_path=/home/you/sortie-github/WORKFLOW.md
 level=INFO msg="database path resolved" db_path=/home/you/sortie-github/.sortie.db
 level=INFO msg="sortie started"
-level=INFO msg="tick completed" candidates=1 dispatched=1 running=1 retrying=0
+level=INFO msg="tick completed" candidates=1 dispatched=1 ... running=1 retrying=0 ...
 level=INFO msg="workspace prepared" issue_id=1 issue_identifier=1 workspace=…/1
 level=INFO msg="agent session started" issue_id=1 issue_identifier=1 session_id=mock-session-001
 level=INFO msg="turn started" issue_id=1 issue_identifier=1 turn_number=1 max_turns=1
 level=INFO msg="turn completed" issue_id=1 issue_identifier=1 turn_number=1 max_turns=1
 level=INFO msg="worker exiting" issue_id=1 issue_identifier=1 exit_kind=normal turns_completed=1
 level=INFO msg="handoff transition succeeded, releasing claim" issue_id=1 issue_identifier=1 handoff_state=review
-level=INFO msg="tick completed" candidates=0 dispatched=0 running=0 retrying=0
+level=INFO msg="tick completed" candidates=0 dispatched=0 ... running=0 retrying=0 ...
 ```
 
 Here is what happened, step by step:
@@ -249,7 +253,7 @@ Verify three things:
 
 Notice that the issue did not close. Handoff parks the issue for a human instead of finishing it, so closing stays a decision someone makes after reading the work.
 
-If the label did not change: review the Sortie logs for error messages and confirm your token has `repo` scope. A label missing from the repository is not the cause — GitHub creates one on demand when Sortie applies it.
+If the label did not change: review the Sortie logs for error messages and confirm your token has `repo` scope.
 
 {{% /steps %}}
 
@@ -257,13 +261,13 @@ If the label did not change: review the Sortie logs for error messages and confi
 
 We connected Sortie to a live GitHub repository and ran the full orchestration cycle against a real issue. Sortie polled GitHub for open issues, matched one by its `backlog` label, dispatched a mock agent session, and handed the issue off to "review" — removing the old label and adding the new one, with the issue left open for a human.
 
-The key difference from Jira: GitHub has no native workflow states beyond open and closed, so Sortie manages state entirely through labels. More flexible, because there is no workflow to configure on the tracker side. The `active_states` labels still have to exist first, since an issue can only carry a label someone already created, but labels Sortie applies itself, such as `review`, are created on demand.
+The key difference from Jira: GitHub has no native workflow states beyond open and closed, so Sortie manages state entirely through labels. More flexible, because there is no workflow to configure on the tracker side. The `active_states` labels still have to exist first, since an issue can only carry a label someone already created.
 
 The workflow file you wrote here is nearly complete for production. To move from testing to real automation, replace `agent.kind: mock` with `agent.kind: claude-code` and configure the agent section. The tracker configuration stays the same.
 
 What happens next:
 
-- [Run the full cycle with Claude Code](/getting-started/jira-claude-end-to-end/) to swap in a real agent, set up workspace hooks, and push code to a branch.
+- [Run the full cycle with Copilot CLI](/getting-started/github-copilot-end-to-end/) or [Kiro](/getting-started/github-kiro-end-to-end/) to swap in a real agent, set up workspace hooks, and push code to a branch.
 - [Write a prompt template](/guides/write-prompt-template/) to give the agent detailed instructions using issue fields, conditionals, and template functions.
 - Consult the [GitHub connection guide](/guides/connect-to-github/) for query filters, Enterprise Server setup, and advanced state configuration.
 - Browse the [WORKFLOW.md configuration reference](/reference/workflow-config/) for every available field and its default value.

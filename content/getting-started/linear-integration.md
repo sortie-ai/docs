@@ -21,7 +21,7 @@ We use the mock agent on purpose. The quick start taught you how Sortie works wi
 
 ### Create a Linear API key
 
-Sortie authenticates with a personal API key. In Linear, open **Settings > Account > Security & Access** and create a new personal API key. Scope it to the team you will point Sortie at, with Read and Write access, so it can read issues and transition them. Copy the key. It starts with `lin_api_`.
+Sortie authenticates with a personal API key. Create one in Linear, scoped to the team you will point Sortie at, with read and write access, so it can read issues and transition them. Copy the key. It starts with `lin_api_`. See Linear's own [API and webhooks docs](https://linear.app/docs/api-and-webhooks) for where personal API keys are created and scoped.
 
 Export it as the environment variable the adapter reads:
 
@@ -77,9 +77,6 @@ tracker:
 polling:
   interval_ms: 30000
 
-server:
-  port: 8642
-
 agent:
   kind: mock
   max_turns: 1
@@ -103,7 +100,6 @@ A few things to notice:
 - `agent.kind: mock` uses the built-in mock agent. It simulates a session without launching any subprocess or modifying files.
 - `max_turns: 1` limits each mock session to a single turn, enough to prove the flow works.
 - `polling.interval_ms: 30000` polls Linear every 30 seconds.
-- `server.port: 8642` serves the dashboard on `127.0.0.1:8642`. We open it at the end.
 
 ### Validate the configuration
 
@@ -113,7 +109,13 @@ Check the workflow file before connecting to Linear:
 sortie validate ./WORKFLOW.md
 ```
 
-This runs offline. It parses the front matter, compiles the prompt template, and checks the config shape: that `api_key` resolves, that `project` is a plausible team key, that no state name is empty, and that your state lists do not overlap. A clean file exits 0 and prints nothing.
+This runs offline. It parses the front matter, compiles the prompt template, and checks the config shape: that `api_key` resolves, that `project` is a plausible team key, that no state name is empty, and that your state lists do not overlap. The tracker half of your file is clean, so the one line it prints is about the agent:
+
+```
+warning: agent.kind.no_tool_channel: agent kind "mock" has no tool execution channel: Sortie's tools are neither advertised nor callable for it
+```
+
+That is the mock agent being honest: it launches no process, so Sortie's own agent tools cannot reach it, and the first-turn prompt does not offer them. A warning leaves the configuration valid and the exit code `0`; it disappears once you swap in a real coding agent.
 
 ```bash
 echo $?
@@ -129,21 +131,21 @@ Start Sortie:
 sortie ./WORKFLOW.md
 ```
 
-You should see output like this:
+You should see output like this (the `tick completed` lines carry more fields than shown here):
 
 ```
 level=INFO msg="sortie starting" version=0.x.x workflow_path=/home/you/sortie-linear/WORKFLOW.md
 level=INFO msg="database path resolved" db_path=/home/you/sortie-linear/.sortie.db
-level=INFO msg="http server listening" addr=127.0.0.1:8642
+level=INFO msg="http server listening" addr=127.0.0.1:7678
 level=INFO msg="sortie started"
-level=INFO msg="tick completed" candidates=1 dispatched=1 running=1 retrying=0
+level=INFO msg="tick completed" candidates=1 dispatched=1 ... running=1 retrying=0 ...
 level=INFO msg="workspace prepared" issue_id=a7c4f8e2-1b9d-4e3a-8f2c-6d5e4a3b2c1f issue_identifier=ENG-42 workspace=…/ENG-42
 level=INFO msg="agent session started" issue_id=a7c4f8e2-1b9d-4e3a-8f2c-6d5e4a3b2c1f issue_identifier=ENG-42 session_id=mock-session-001
 level=INFO msg="turn started" issue_id=a7c4f8e2-1b9d-4e3a-8f2c-6d5e4a3b2c1f issue_identifier=ENG-42 turn_number=1 max_turns=1
 level=INFO msg="turn completed" issue_id=a7c4f8e2-1b9d-4e3a-8f2c-6d5e4a3b2c1f issue_identifier=ENG-42 turn_number=1 max_turns=1
 level=INFO msg="worker exiting" issue_id=a7c4f8e2-1b9d-4e3a-8f2c-6d5e4a3b2c1f issue_identifier=ENG-42 exit_kind=normal turns_completed=1
 level=INFO msg="handoff transition succeeded, releasing claim" issue_id=a7c4f8e2-1b9d-4e3a-8f2c-6d5e4a3b2c1f issue_identifier=ENG-42 handoff_state="In Review"
-level=INFO msg="tick completed" candidates=0 dispatched=0 running=0 retrying=0
+level=INFO msg="tick completed" candidates=0 dispatched=0 ... running=0 retrying=0 ...
 ```
 
 Here is what happened, step by step:
@@ -169,7 +171,7 @@ Press **Ctrl+C** to stop Sortie.
 
 ### Verify the results
 
-While Sortie is running, open the dashboard at [http://127.0.0.1:8642](http://127.0.0.1:8642) to watch the session live. The port matches the `server.port` from your workflow file.
+While Sortie is running, open the dashboard at [http://127.0.0.1:7678](http://127.0.0.1:7678) to watch the session live. Sortie serves it there by default, with no configuration required.
 
 Now open your team in Linear in the browser. The test issue has moved to the `In Review` column. On a board view, the card sits under `In Review`; on a list view, its status reads `In Review`.
 

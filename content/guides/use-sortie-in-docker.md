@@ -52,23 +52,22 @@ FROM ghcr.io/sortie-ai/sortie:<version> AS sortie
 
 This pattern keeps Sortie agent-agnostic: it does not dictate your OS, package manager, or runtime environment. You pick the base image your agent requires.
 
-## Build a Claude Code image
+## Build an agent image
 
-Claude Code requires Node.js and npm. Its `--dangerously-skip-permissions` mode refuses to run as root, so the container must use a non-root user.
+Sortie's own image is distroless and holds only the binary, so the image you run is your agent's runtime with Sortie copied into it. The recipe is the same whichever agent you pick: start from the published image as a named stage, choose a base that provides the agent's runtime, install the agent, create a non-root user, copy the binary across, and make Sortie the entrypoint.
 
-Create `Dockerfile.claude`:
+Create `Dockerfile.agent`:
 
 ```dockerfile
 FROM ghcr.io/sortie-ai/sortie:latest AS sortie
 
 FROM node:24-slim
 
-# Install Claude Code.
-RUN npm install -g @anthropic-ai/claude-code@latest \
-    && npm cache clean --force
+# Install your agent CLI here. The maintained example Dockerfiles carry a
+# working install step for each supported agent.
 
-# Create a non-root user at UID 1000. The node base image already has
-# a "node" user at that UID — remove it first.
+# Create a non-root user at UID 1000. A Node base image already has a
+# "node" user at that UID - remove it first.
 RUN userdel -r node 2>/dev/null; \
     useradd --create-home --shell /bin/bash --uid 1000 sortie
 
@@ -88,132 +87,16 @@ ENTRYPOINT ["/usr/bin/sortie", "--host", "0.0.0.0", "--log-format", "json"]
 Build the image:
 
 ```sh
-docker build -f Dockerfile.claude -t sortie-claude .
+docker build -f Dockerfile.agent -t sortie-agent .
 ```
 
-## Build a Copilot image
+Only the base image and the install step differ per agent, and how to install an agent is its vendor's to publish. Take the install step from the [maintained example Dockerfiles](#example-dockerfiles) and drop it into the placeholder above. Three differences change the shape of the image rather than one line of it:
 
-GitHub Copilot Coding Agent also requires Node.js. The same pattern applies, with a different npm package:
-
-Create `Dockerfile.copilot`:
-
-```dockerfile
-FROM ghcr.io/sortie-ai/sortie:latest AS sortie
-
-FROM node:24-slim
-
-RUN npm install -g @github/copilot@latest \
-    && npm cache clean --force
-
-RUN userdel -r node 2>/dev/null; \
-    useradd --create-home --shell /bin/bash --uid 1000 sortie
-
-COPY --from=sortie /usr/bin/sortie /usr/bin/sortie
-
-USER sortie
-WORKDIR /home/sortie
-
-EXPOSE 7678
-
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget -qO /dev/null http://localhost:7678/readyz || exit 1
-
-ENTRYPOINT ["/usr/bin/sortie", "--host", "0.0.0.0", "--log-format", "json"]
-```
-
-Build the image:
-
-```sh
-docker build -f Dockerfile.copilot -t sortie-copilot .
-```
-
-## Build a Codex image
-
-The Codex CLI is a statically linked Rust binary with no runtime dependencies. No Node.js or npm is required.
-
-Create `Dockerfile.codex`:
-
-```dockerfile
-FROM ghcr.io/sortie-ai/sortie:latest AS sortie
-
-FROM debian:bookworm-slim
-
-# Install git and the download tools Codex needs.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git ca-certificates curl wget && \
-    rm -rf /var/lib/apt/lists/*
-
-# Install Codex CLI for the current Debian architecture.
-RUN set -eux; \
-    debian_arch="$(dpkg --print-architecture)"; \
-    case "${debian_arch}" in \
-    amd64) codex_arch="x86_64-unknown-linux-musl" ;; \
-    arm64) codex_arch="aarch64-unknown-linux-musl" ;; \
-    *) echo "unsupported Codex architecture: ${debian_arch}" >&2; exit 1 ;; \
-    esac; \
-    curl -fsSL "https://github.com/openai/codex/releases/latest/download/codex-${codex_arch}.tar.gz" \
-    | tar -xz -C /usr/local/bin codex; \
-    chmod +x /usr/local/bin/codex
-
-RUN useradd --create-home --shell /bin/bash --uid 1000 sortie
-
-COPY --from=sortie /usr/bin/sortie /usr/bin/sortie
-
-USER sortie
-WORKDIR /home/sortie
-
-EXPOSE 7678
-
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget -qO /dev/null http://localhost:7678/readyz || exit 1
-
-ENTRYPOINT ["/usr/bin/sortie", "--host", "0.0.0.0", "--log-format", "json"]
-```
-
-Build the image:
-
-```sh
-docker build -f Dockerfile.codex -t sortie-codex .
-```
-
-## Build an OpenCode image
-
-OpenCode requires Node.js, npm, and git. Authentication is provider-specific. In unattended runs, forward the provider variables that match your selected OpenCode model.
-
-Create `Dockerfile.opencode`:
-
-```dockerfile
-FROM ghcr.io/sortie-ai/sortie:latest AS sortie
-
-FROM node:24-slim
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git wget && \
-    rm -rf /var/lib/apt/lists/*
-
-RUN npm install -g opencode-ai@latest && npm cache clean --force
-
-RUN userdel -r node 2>/dev/null; \
-    useradd --create-home --shell /bin/bash --uid 1000 sortie
-
-COPY --from=sortie /usr/bin/sortie /usr/bin/sortie
-
-USER sortie
-WORKDIR /home/sortie
-
-EXPOSE 7678
-
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget -qO /dev/null http://localhost:7678/readyz || exit 1
-
-ENTRYPOINT ["/usr/bin/sortie", "--host", "0.0.0.0", "--log-format", "json"]
-```
-
-Build the image:
-
-```sh
-docker build -f Dockerfile.opencode -t sortie-opencode .
-```
+| Agent | What changes |
+|---|---|
+| Claude Code | Its permission bypass refuses to run as root, so the non-root user is required rather than a hardening choice. |
+| Codex | Ships as a self-contained binary and needs no language runtime, so a plain Debian base is enough. |
+| OpenCode | Authenticates per provider, so the image needs `git` and the run must forward the provider credentials your model selection uses. |
 
 ## Run the container
 
@@ -423,7 +306,7 @@ logging:
 With JSON active, each log line becomes a self-contained JSON object:
 
 ```json
-{"time":"2026-04-07T14:30:00.000Z","level":"INFO","msg":"tick completed","candidates":3,"dispatched":2,"running":2,"retrying":0}
+{"time":"2026-04-07T14:30:00.000Z","level":"INFO","msg":"tick completed","candidates":3,"dispatched":2,"dispatched_by_rule":0,"dispatched_by_default":2,"dispatched_by_fallback":0,"running":2,"retrying":0,"held_by_blockers":0,"blockers_unresolved":0,"blockers_not_read":0,"blockers_incomplete":0}
 ```
 
 All structured fields (`issue_id`, `session_id`, `error`, etc.) appear as top-level keys, ready for indexed search in your aggregation system.
@@ -463,32 +346,7 @@ The builder stage runs on the host architecture and uses Go's native cross-compi
 
 ## Adapt for a different agent
 
-The pattern is the same for any agent:
-
-1. Start from the distroless image as a named stage.
-2. Pick a base image that provides your agent's runtime (Node.js, Python, etc.).
-3. Install the agent.
-4. Create a non-root user.
-5. Copy the Sortie binary from the named stage.
-6. Set the entrypoint to Sortie.
-
-Example skeleton for a Python-based agent:
-
-```dockerfile
-FROM ghcr.io/sortie-ai/sortie:latest AS sortie
-
-FROM python:3.12-slim
-
-RUN pip install --no-cache-dir your-agent-package
-
-RUN useradd --create-home --shell /bin/bash --uid 1000 sortie
-COPY --from=sortie /usr/bin/sortie /usr/bin/sortie
-
-USER sortie
-WORKDIR /home/sortie
-
-ENTRYPOINT ["/usr/bin/sortie", "--host", "0.0.0.0"]
-```
+Nothing in the recipe is specific to Node. An agent distributed as a Python package needs a Python base image and its own install step, and the rest of the Dockerfile is unchanged: the named distroless stage, the non-root user, the copied binary, and the Sortie entrypoint. The same holds when Sortie reaches the agent over SSH rather than running it in the container: the image then carries an `ssh` client and no agent runtime at all.
 
 ## Verify the setup
 

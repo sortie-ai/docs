@@ -18,22 +18,20 @@ This guide configures Sortie to poll issues from a GitHub repository, dispatch a
 
 ## Create a personal access token
 
-You have two options:
+Sortie needs a token that can read and write issues and labels on the repository you configure. A classic token scoped to the repository works, and so does a fine-grained token granted issue read and write plus repository metadata read. GitHub documents how to create either and what each scope covers; see [managing personal access tokens](https://docs.github.com/en/authentication/keeping-your-account-secure/managing-your-personal-access-tokens).
 
-**Classic PAT** — broader access, faster to set up. Go to Settings → Developer settings → Personal access tokens → Tokens (classic). Select the `repo` scope, which grants read/write access to issues, labels, and repository content. Generate the token.
-
-**Fine-grained PAT** — scoped to specific repositories. Go to Settings → Developer settings → Personal access tokens → Fine-grained tokens. Select the target repository (or all repos in your org), and grant **Issues: Read and Write** permission. This is the minimum Sortie needs — label-based transitions and comments both operate through the Issues API.
+Nothing else is required for the tracker. Auto-merge and branch cleanup need a token that can also write to the repository.
 
 Store the token in an environment variable:
 
 ```bash
-export SORTIE_GITHUB_TOKEN="ghp_abc123def456ghi789jkl012mno345pqr678"
+export SORTIE_GITHUB_TOKEN="<your-token>"
 ```
 
-No endpoint variable is needed for github.com. For GitHub Enterprise Server, also export:
+No endpoint override is needed for github.com. For GitHub Enterprise Server, set `endpoint` in the `tracker` block of `WORKFLOW.md` to your instance's API base URL, or override it at deploy time with the generic tracker env var:
 
 ```bash
-export SORTIE_GITHUB_ENDPOINT="https://github.yourcompany.com/api/v3"
+export SORTIE_TRACKER_ENDPOINT="https://github.yourcompany.com/api/v3"
 ```
 
 ## Write the minimum configuration
@@ -74,15 +72,7 @@ This is the key difference from Jira. GitHub has no native workflow states beyon
 
 All comparisons are case-insensitive. Config values are lowercased at startup, so `"In-Progress"` and `"in-progress"` behave identically.
 
-**Create the `active_states` labels before you start.** An issue can only carry a label that already exists, and those labels are what make an issue eligible for dispatch. Labels Sortie applies itself, such as `handoff_state`, are created on demand in GitHub's default gray, so pre-creating them is only a matter of choosing the color and description. Use the `gh` CLI:
-
-```bash
-gh label create backlog --repo myorg/myrepo --color "0E8A16"
-gh label create in-progress --repo myorg/myrepo --color "1D76DB"
-gh label create review --repo myorg/myrepo --color "FBCA04"
-gh label create done --repo myorg/myrepo --color "5319E7"
-gh label create wontfix --repo myorg/myrepo --color "E4E669"
-```
+**Create the `active_states` labels before you start.** An issue can only carry a label that already exists, and those labels are what make an issue eligible for dispatch. Create one label per entry in `active_states` and `terminal_states` — GitHub's own documentation covers creating labels through the web UI or the `gh` CLI: [managing labels](https://docs.github.com/en/issues/using-labels-and-milestones-to-track-work/managing-labels).
 
 ### How state derivation works
 
@@ -122,7 +112,7 @@ query_filter: "assignee:octocat"
 query_filter: "label:agent-ready assignee:octocat"
 ```
 
-One tradeoff: the search endpoint has a stricter rate limit (30 requests/min) compared to the issues endpoint (5,000 requests/hour). Only use `query_filter` when you need server-side filtering.
+One tradeoff: the search endpoint is metered far more tightly than the issues endpoint, so use `query_filter` only when you need server-side filtering. Only use `query_filter` when you need server-side filtering.
 
 ## Configure handoff state
 
@@ -192,7 +182,7 @@ Check your configuration without making API calls:
 sortie validate ./WORKFLOW.md
 ```
 
-This parses front matter, compiles the prompt template, and runs preflight checks. It catches missing fields, bad `owner/repo` format, env vars that resolve to empty strings, state labels that are empty or padded with whitespace, state overlap between `active_states` and `terminal_states`, and a `handoff_state` that appears in either list. When `GITHUB_TOKEN` is set but `api_key` is empty, it hints at the available token. See [validate-time checks](/reference/adapter-github/#validate-time-checks) for the full list of GitHub-specific diagnostics.
+This parses front matter, compiles the prompt template, and runs preflight checks. It catches missing fields, a malformed `endpoint`, bad `owner/repo` format, env vars that resolve to empty strings, state labels that are empty or padded with whitespace, state overlap between `active_states` and `terminal_states`, and a `handoff_state` that appears in either list. When `GITHUB_TOKEN` is set but `api_key` is empty, it hints at the available token. See [validate-time checks](/reference/adapter-github/#validate-time-checks) for the full list of GitHub-specific diagnostics.
 
 ### Test connectivity
 
@@ -202,22 +192,22 @@ Run a single poll cycle without dispatching agents:
 sortie --dry-run ./WORKFLOW.md
 ```
 
-Watch the logs. A successful poll produces:
+Watch the logs. A successful run produces one `dry-run: candidate` line per matching issue, followed by a summary:
 
 ```
-level=INFO msg="tick completed" candidates=3 dispatched=0 running=0 retrying=0
+level=INFO msg="dry-run: complete" candidates_fetched=3 would_dispatch=2 ineligible=1 max_concurrent_agents=3
 ```
 
-`candidates=3` means Sortie found 3 issues matching your active states (and `query_filter`, if set). `dispatched=0` is expected in dry-run mode.
+`candidates_fetched=3` means Sortie found 3 issues matching your active states (and `query_filter`, if set). `would_dispatch` counts how many of those it would have dispatched; dry-run mode never actually spawns an agent.
 
-If `candidates=0` and you expected results, check that your active-state labels exist on the issues you expect Sortie to pick up.
+If `candidates_fetched=0` and you expected results, check that your active-state labels exist on the issues you expect Sortie to pick up.
 
 ## Troubleshoot errors
 
 ### Wrong token or expired
 
 ```
-level=ERROR msg="poll failed" error="tracker: tracker_auth_error: GET /repos/myorg/myrepo/issues: 401"
+level=ERROR msg="failed to fetch candidate issues" error="tracker: tracker_auth_error: GET /repos/myorg/myrepo/issues: 401"
 ```
 
 Verify the token is valid:
@@ -232,7 +222,7 @@ If this returns your profile, the token works. If it returns 401, generate a new
 ### Insufficient permissions
 
 ```
-level=ERROR msg="poll failed" error="tracker: tracker_auth_error: GET /repos/myorg/myrepo/issues: 403 insufficient permissions"
+level=ERROR msg="failed to fetch candidate issues" error="tracker: tracker_auth_error: GET /repos/myorg/myrepo/issues: 403 insufficient permissions"
 ```
 
 A 403 that isn't rate limiting means the token lacks the required scope. For a classic PAT, enable `repo`. For a fine-grained PAT, grant Issues: Read and Write.
@@ -240,38 +230,38 @@ A 403 that isn't rate limiting means the token lacks the required scope. For a c
 ### Rate limiting (primary)
 
 ```
-level=ERROR msg="poll failed" error="tracker: tracker_api: GET /repos/myorg/myrepo/issues: 403 rate limited (primary)"
+level=ERROR msg="failed to fetch candidate issues" error="tracker: tracker_api_error: GET /repos/myorg/myrepo/issues: 403 rate limited (primary)"
 ```
 
-Happens when `x-ratelimit-remaining` hits zero. At 5,000 requests/hour, this is uncommon for small repos. If you hit it, increase `polling.interval_ms` or add a `query_filter` to reduce the number of issues fetched per tick.
+Happens when `x-ratelimit-remaining` hits zero. This is uncommon for small repos. If you hit it, increase `polling.interval_ms` or add a `query_filter` to reduce the number of issues fetched per tick.
 
 ### Rate limiting (search)
 
 ```
-level=ERROR msg="poll failed" error="tracker: tracker_api: GET /search/issues: 429 rate limited"
+level=ERROR msg="failed to fetch candidate issues" error="tracker: tracker_api_error: GET /search/issues: 429 rate limited"
 ```
 
-The search endpoint allows 30 requests/min. If you're using `query_filter`, consider increasing `polling.interval_ms`.
+The search endpoint is metered far more tightly than the issues endpoint. If you're using `query_filter`, consider increasing `polling.interval_ms`.
 
 ### Repository not found
 
 ```
-level=ERROR msg="poll failed" error="tracker: tracker_not_found: GET /repos/myorg/myrepo/issues: 404"
+level=ERROR msg="failed to fetch candidate issues" error="tracker: tracker_not_found: GET /repos/myorg/myrepo/issues: 404"
 ```
 
 Check that `project` is in `owner/repo` format and that the token has access to the repo. Private repositories require explicit token access — a fine-grained PAT must be scoped to the repo, and a classic PAT must have `repo` scope.
 
 ### Transition does not change the label
 
-A missing target label is not the cause. Sortie adds the label through GitHub's add-labels endpoint, which creates a label it does not recognize instead of rejecting it. Check the token instead: applying and removing labels needs write access to issues on the repository. A label named in `active_states` is the one case that still has to exist beforehand, because an issue cannot carry a label nobody created, and an issue without an active-state label never becomes a candidate.
+Check the token first: applying and removing labels needs write access to issues on the repository. A label named in `active_states` is the one case that still has to exist beforehand, because an issue without an active-state label never becomes a candidate for dispatch in the first place.
 
 ### Issue is a pull request
 
 ```
-level=ERROR msg="fetch failed" error="tracker: tracker_not_found: resource is a pull request, not an issue: 42"
+tracker: tracker_not_found: resource is a pull request, not an issue: 42
 ```
 
-GitHub's issues API co-mingles pull requests. Sortie filters PRs automatically in list operations, but returns an error if you explicitly reference a PR number via `FetchIssueByID`.
+GitHub's issues API co-mingles pull requests with issues. Sortie filters them out when it polls for candidates, but naming a pull request number directly is an error rather than a silent miss.
 
 ## Full production example
 

@@ -7,7 +7,7 @@ date: 2026-04-03
 weight: 220
 url: /guides/write-custom-agent-tool/
 ---
-This guide walks you through creating a new tool that agents can call during Sortie sessions. You'll implement the `AgentTool` interface, register your tool in the MCP server, and test it — making it available to agents via the MCP `tools/list` and `tools/call` endpoints.
+This guide walks you through creating a new tool that agents can call during Sortie sessions. You'll implement the `AgentTool` interface, register your tool in the MCP server, and test it — making it available on the MCP `tools/list` and `tools/call` endpoints, and in the first-turn prompt, for every session that reaches the server at all. Whether a given session reaches it is the agent adapter's decision, not your tool's: see [delivery by agent kind](/reference/agent-extensions/#delivery-by-agent-kind).
 
 **Prerequisites:**
 

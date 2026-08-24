@@ -160,11 +160,11 @@ Expected output (PIDs will differ):
 If you configured server ports, query each dashboard:
 
 ```bash
-curl -s http://localhost:8642/api/status | head -1
-curl -s http://localhost:8643/api/status | head -1
+curl -s http://localhost:8642/api/v1/state | head -1
+curl -s http://localhost:8643/api/v1/state | head -1
 ```
 
-Each responds with a JSON status object showing its own running workers, candidates, and config.
+Each responds with a JSON status object showing its own running workers and candidates.
 
 ## Isolation rules
 

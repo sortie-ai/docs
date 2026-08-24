@@ -79,7 +79,7 @@ The command semantics follow from that model:
 - **Acknowledgment by removal.** After scheduling a dispatch, Sortie removes the command label. Present means queued and not yet picked up; disappearance means accepted (or retracted by you); re-applying is the single gesture for the next command. A failed removal (a missing write scope or a transport error) is a logged warning only: correctness rests on the journal position, so deduplication is already committed, but the stale label lingers and must be removed manually before the next command.
 - **No cancel after dispatch.** Once a dispatch is scheduled, removing the label does not cancel the running session. The retraction window closes at detection time.
 
-The journal read is bounded. On an event-heavy PR the adapter pages from the newest entries backward under a fixed cap of 20 pages and logs a warning naming the PR when the journal exceeds the cap, so a real command is never silently dropped.
+The journal read is bounded, but the bound and the traversal direction are provider-specific because each provider's journal endpoint paginates differently. GitHub's issue-events endpoint has no since-filter and returns oldest-first, so the adapter walks from the newest page backward and stops after a fixed number of pages, keeping the tail where a command and its retraction signal live. Gitea's issue timeline and GitLab's resource-label-event route page forward from the oldest entry instead, each under its own page ceiling. Every adapter logs a warning identifying the pull request when a fetch hits its cap, so a real command is never silently dropped on an event-heavy PR.
 
 A journal entry the adapter retains but cannot read fails the whole poll. An entry whose timestamp is absent or is not a valid RFC 3339 value is never assigned a substituted time, because the timestamp is half of the stored position and a substituted value would sort the entry behind the mark and drop the command it carries. Sortie logs a warning naming the PR and the error, backs the PR off, and re-reads on the next due tick; no command on that PR dispatches while the forge keeps serving that entry. The retry carries no budget and escalates nothing. It ends when the forge serves a parseable value, or when the linked issue reaches a terminal state and the pending entry is discarded.
 
@@ -124,7 +124,7 @@ The dispatch injects the PR coordinates on turn one through the `label_review` c
 
 A confirmed fix command dispatches a fresh session that checks out the PR head branch and pushes review-feedback fixes to it. Unlike the review posture, the fix session pushes commits, so it takes the same workspace path a normal dispatch takes: the operator `after_create` and `before_run` setup hooks run, cloning the per-issue directory when it is absent and reusing the existing checkout when it is present, and the `after_run` teardown hook runs on every exit path, including panic recovery. Sortie never checks out a branch itself; the agent checks out the PR head branch with its own git tooling, told the branch through the `label_fix` continuation key. A stale `.sortie/status` in the reused directory is cleared before the first turn. The session starts with no resume identifier.
 
-The fix command requires the content-write scope. At startup the orchestrator runs a one-shot scope preflight for the fix command: the push needs `contents:write` and `pull_requests:write` (the classic `repo` scope covers both). The preflight is advisory. A missing scope or a transport failure is a logged warning, not an error, because the fix command is on by default; a provider that returns no scope information (a fine-grained token or a GitHub App installation) passes the preflight, and a genuine gap surfaces later as the fix session's push failure and a label-removal warning.
+The fix command requires the content-write scope. At startup the orchestrator runs a one-shot scope preflight for the fix command: the push needs `contents:write` and `pull_requests:write`. The preflight is advisory. A missing scope or a transport failure is a logged warning, not an error, because the fix command is on by default; a provider that returns no scope information passes the preflight, and a genuine gap surfaces later as the fix session's push failure and a label-removal warning.
 
 The fix path suppresses the same issue-work side effects the review path suppresses (the linked issue of a PR under review is typically not in an active work state, and the fix session must not re-drive it):
 
@@ -159,7 +159,7 @@ The dispatch injects the PR coordinates and the head branch through the `label_f
 
 ## Authorization
 
-The platform's label permission is the authorization gate. On GitHub, applying a label requires the triage role or higher, a real gate that comments lack. A triage-level user who cannot push code can command an agent session that pushes to the PR head branch through the fix command. The risk is bounded: the branch lands only through the ordinary review and merge gates, and the per-issue session and token ceilings cap the compute a PR can be commanded into. Sortie records the acting user, read from the journal, in the dispatch context and the informational dispatch log.
+The platform's own label permission is the authorization gate, and Sortie adds none of its own: any account the forge permits to apply the label can issue the command. On every supported forge that permission is separable from push access, so a user who cannot push code can command an agent session that pushes to the PR head branch through the fix command. Consult the forge's permission documentation for which roles carry it. The risk is bounded: the branch lands only through the ordinary review and merge gates, and the per-issue session and token ceilings cap the compute a PR can be commanded into. Sortie records the acting user, read from the journal, in the dispatch context and the informational dispatch log.
 
 > [!WARNING]
 > Because a fix command dispatches a session that pushes to the PR branch, a user with only the label permission can direct code changes onto a PR they cannot push to directly. Confirm that the review and merge protections on Sortie-managed PRs match the trust level of everyone who can apply the `fix_label`.
@@ -172,7 +172,7 @@ Detection covers Sortie-managed PRs only, identified by the workspace `.sortie/s
 
 When the linked issue reaches a terminal state, the issue-wide reaction cleanup removes the pending entries and fingerprint rows for that issue across every kind. Commands on such PRs are ignored thereafter.
 
-Sortie never creates command labels. The operator creates both labels (write access on GitHub) or points the configuration at existing ones. The defaults are namespaced with the `sortie:` prefix to stay clear of team label vocabularies.
+Sortie never creates command labels. The operator creates both labels on the forge or points the configuration at existing ones. The defaults are namespaced with the `sortie:` prefix to stay clear of team label vocabularies.
 
 ---
 

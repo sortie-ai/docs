@@ -71,7 +71,7 @@ mkdir sortie-opencode-e2e && cd sortie-opencode-e2e
 
 Create `WORKFLOW.md` with the full configuration. Replace `PROJ` with your Jira project key and the git clone URL with your repository:
 
-```jinja {filename="WORKFLOW.md",hl_lines=["33-48"]}
+```jinja {filename="WORKFLOW.md",hl_lines=["33-42"]}
 ---
 tracker:
   kind: jira
@@ -114,9 +114,6 @@ agent:
 opencode:
   model: anthropic/claude-sonnet-4-5
   dangerously_skip_permissions: true
-
-server:
-  port: 8080
 ---
 
 You are a senior engineer working in this repository.
@@ -164,7 +161,7 @@ making changes. Do not repeat the same approach that failed.
 {{ end }}
 ```
 
-This file should feel familiar if you finished the Claude tutorial. The tracker, polling, workspace, hooks, server, and prompt body stay in the same shape. The OpenCode-specific work is concentrated in the `agent` block and the `opencode` block.
+This file should feel familiar if you finished the Claude tutorial. The tracker, polling, workspace, hooks, and prompt body stay in the same shape. The OpenCode-specific work is concentrated in the `agent` block and the `opencode` block.
 
 > [!WARNING]
 > The `tracker` section is the one you already validated, so `In Review` should exist in your workflow and be reachable from `To Do`. If you changed projects since then, check **Project settings → Workflows** again. A handoff target that Jira cannot reach leaves the issue where it is and Sortie retries the transition on every poll cycle.
@@ -179,9 +176,9 @@ Nothing changes here. `workspace.root` still gives each Jira issue its own clone
 
 #### Agent: OpenCode CLI instead of Claude Code
 
-`agent.kind: opencode` selects the OpenCode adapter registered in Sortie under the `opencode` kind. `agent.command: opencode` tells Sortie which binary to launch, and the adapter resolves that command from `PATH` when the session starts. The `opencode:` block is smaller than the `claude-code:` block from the Claude tutorial because OpenCode rolls provider selection into the model string itself: `anthropic/claude-sonnet-4-5` means "use Anthropic, then use that model." There is no separate `provider:` field to set.
+`agent.kind: opencode` selects the OpenCode adapter registered in Sortie under the `opencode` kind. `agent.command: opencode` tells Sortie which binary to launch, and the adapter resolves that command from `PATH` when the session starts. The `opencode:` block is smaller than the `claude-code:` block from the Claude tutorial because OpenCode rolls provider selection into the model string itself: `anthropic/claude-sonnet-4-5` means "use Anthropic, then use that model." There is no separate `provider:` field to set. `opencode.model` is a pass-through string Sortie never validates, so swap in whatever provider/model pair OpenCode currently supports; the [OpenCode adapter reference](/reference/adapter-opencode/) and OpenCode's own provider docs list the current options.
 
-The other OpenCode-specific field here is `dangerously_skip_permissions: true`. This is the unattended equivalent of Claude Code's `permission_mode: bypassPermissions`: it tells the CLI to keep moving instead of waiting for someone to approve each action. The adapter also supports deeper tool-scoping controls, but that is reference territory. When you need it, the [OpenCode adapter reference](/reference/adapter-opencode/) covers the full surface.
+The other OpenCode-specific field here is `dangerously_skip_permissions: true`. This is the unattended equivalent of Claude Code's `permission_mode: bypassPermissions`: it tells the CLI to approve each permissioned action itself. It is also the default. Setting it to `false` does not make the run wait for someone; nobody is there. The runtime auto-rejects every permissioned tool call instead, and Sortie warns about that before the run. The adapter also supports deeper tool-scoping controls, but that is reference territory. When you need it, the [OpenCode adapter reference](/reference/adapter-opencode/) covers the full surface.
 
 #### Authentication: OpenCode multi-provider model
 
@@ -215,14 +212,14 @@ Start Sortie:
 sortie ./WORKFLOW.md
 ```
 
-You should see output similar to this. Timestamps, IDs, and paths will differ:
+You should see output similar to this. Timestamps, IDs, and paths will differ, and the `tick completed` lines carry more fields than shown here:
 
 ```text
 level=INFO msg="sortie starting" version=0.x.x workflow_path=/home/you/sortie-opencode-e2e/WORKFLOW.md
 level=INFO msg="database path resolved" db_path=/home/you/sortie-opencode-e2e/.sortie.db
-level=INFO msg="http server listening" address=127.0.0.1:8080
+level=INFO msg="http server listening" addr=127.0.0.1:7678
 level=INFO msg="sortie started"
-level=INFO msg="tick completed" candidates=1 dispatched=1 running=1 retrying=0
+level=INFO msg="tick completed" candidates=1 dispatched=1 ... running=1 retrying=0 ...
 level=INFO msg="workspace created" issue_id=10042 issue_identifier=PROJ-55
 level=INFO msg="hook started" hook=after_create issue_identifier=PROJ-55
 level=INFO msg="hook completed" hook=after_create issue_identifier=PROJ-55
@@ -243,7 +240,7 @@ level=INFO msg="hook started" hook=after_run issue_identifier=PROJ-55
 level=INFO msg="hook completed" hook=after_run issue_identifier=PROJ-55
 level=INFO msg="worker exiting" issue_id=10042 issue_identifier=PROJ-55 exit_kind=normal turns_completed=1
 level=INFO msg="handoff transition succeeded, releasing claim" issue_id=10042 issue_identifier=PROJ-55 handoff_state="In Review"
-level=INFO msg="tick completed" candidates=0 dispatched=0 running=0 retrying=0
+level=INFO msg="tick completed" candidates=0 dispatched=0 ... running=0 retrying=0 ...
 ```
 
 Here is the full lifecycle, step by step:
@@ -305,7 +302,7 @@ If the status did not change and you see a handoff warning in the logs, the Jira
 
 ### Check the dashboard
 
-Open [http://127.0.0.1:8080/](http://127.0.0.1:8080/) in a browser. The workflow sets `server.port: 8080`, so the dashboard is available at that port. You will see summary cards at the top, plus a run history table showing the completed session with its issue identifier, turn count, duration, and exit status.
+Open [http://127.0.0.1:7678/](http://127.0.0.1:7678/) in a browser. Sortie serves the dashboard there by default, with no configuration required. You will see summary cards at the top, plus a run history table showing the completed session with its issue identifier, turn count, duration, and exit status.
 
 {{% /steps %}}
 

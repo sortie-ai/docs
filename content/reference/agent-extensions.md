@@ -102,17 +102,35 @@ The complete normative spec lives in [agent-to-orchestrator-protocol.md](https:/
 
 ## Execution channel
 
-Sortie delivers tools to agents via an MCP stdio server running as a sidecar process.
+Sortie delivers tools to agents via an MCP stdio server running as a sidecar process. Whether a given session reaches it depends on the agent kind and on where the session runs.
 
-Before each agent session, the worker generates `.sortie/mcp.json` inside the workspace directory. This file declares the `sortie-tools` MCP server entry with the absolute path to the `sortie` binary, the workflow path, and session environment variables. The worker passes this config to the agent via `--mcp-config` (Claude Code), `--additional-mcp-config` (Copilot CLI), or as a `dynamicTools` registration (Codex).
+Before each agent session, the worker generates `.sortie/mcp.json` inside the workspace directory. This file declares the `sortie-tools` MCP server entry with the absolute path to the `sortie` binary, the workflow path, and session environment variables. What each adapter does with it differs; see [delivery by agent kind](#delivery-by-agent-kind).
 
 The agent runtime spawns `sortie mcp-server` as its own child process - the orchestrator worker does not manage the MCP server lifecycle. Any MCP-compatible agent can call tools without adapter-specific integration.
 
 Session context (issue ID, workspace path, database path, credentials) flows to the MCP server via the `env` block in `.sortie/mcp.json`. Credentials (`SORTIE_*` variables from the orchestrator process) are explicitly included in this block - they do not rely on process inheritance. See [MCP server environment](/reference/environment/#mcp-server-environment) for the full variable table.
 
-If the operator specifies a custom `mcp_config` in WORKFLOW.md, Sortie merges it with the `sortie-tools` entry. The operator's config must not use the reserved server name `sortie-tools`.
+If the agent block belonging to the session's own agent kind specifies `mcp_config`, Sortie merges the file it names with the `sortie-tools` entry. The operator's config must not use the reserved server name `sortie-tools`. The merge happens before the session starts, so an unreadable path or a config declaring `sortie-tools` fails the attempt whether or not the adapter goes on to forward the result.
 
-Sortie also appends tool documentation to the first-turn prompt for discoverability alongside MCP `tools/list`. If the agent calls an unrecognized tool name, the MCP server returns an error response and continues the session - it does not stall or crash.
+Sortie also appends tool documentation to the first-turn prompt for discoverability alongside MCP `tools/list`. That advertisement is written only for a session that has a channel; a session without one is told nothing about tools. If the agent calls an unrecognized tool name, the MCP server returns an error response and continues the session - it does not stall or crash.
+
+### Delivery by agent kind
+
+The worker writes `.sortie/mcp.json` for every agent kind. Getting its servers to the runtime is the adapter's part, and there are three outcomes.
+
+| Agent kind | Session reaches the tools | How the servers are delivered |
+|---|---|---|
+| `claude-code` | Local and SSH | The generated file's path on `--mcp-config`. See [Claude Code adapter reference](/reference/adapter-claude-code/#sorties-own-tools-and-the-mcp_config-field). |
+| `copilot-cli` | Local and SSH | The generated file's path on `--additional-mcp-config` as `@<path>`. See [Copilot CLI adapter reference](/reference/adapter-copilot/#sorties-own-tools-and-the-mcp_config-field). |
+| `codex` | Local launch only | The runtime accepts no config path, so the generated servers are re-expressed as configuration overrides on the app-server command line. See [Codex adapter reference](/reference/adapter-codex/#mcp). |
+| `opencode` | Local launch only | The runtime accepts no config path, so the generated servers are re-expressed as the runtime's own configuration document, delivered in the turn's environment. See [OpenCode adapter reference](/reference/adapter-opencode/#mcp). |
+| `kiro` | Never | The backend profile gate disables MCP under API-key authentication, so there is nothing to deliver to. See [Kiro adapter reference](/reference/adapter-kiro/#mcp). |
+
+The two `local launch only` kinds withhold delivery on an SSH launch deliberately: every route to a remote agent passes through the local `ssh` command line, so delivering there would put the configuration's credential values on an argument list any other user of the orchestrator host can read. A remote `codex` or `opencode` session therefore reaches no tool, and its first-turn prompt names none.
+
+A session that reaches no tools receives no advertisement either, whichever row it falls in. That is what keeps the prompt and the channel consistent: Sortie does not name a tool it cannot deliver.
+
+For a kind whose adapter delivers the configuration in no form at all, an `mcp_config` value in that kind's own block cannot reach the agent. The worker still reads that file and merges its servers into the generated copy, so an unreadable path or a file declaring a `sortie-tools` server still fails the attempt, and what the merge produces goes nowhere. [`sortie validate`](/reference/cli/#validate) reports that combination as an `agent.mcp_config` warning naming the kind. Separately, it reports any kind with no channel as an `agent.kind.no_tool_channel` warning. Both leave the configuration valid, and the run proceeds.
 
 ---
 
@@ -246,7 +264,7 @@ Lists active-state issues in the configured project. No parameters beyond `opera
 ]
 ```
 
-Each entry has the same shape as a `fetch_issue` response. Only issues matching the configured `active_states` are returned - the candidates for dispatch, not every issue in the project.
+Each entry has the same shape as a `fetch_issue` response, with one exception: `blocked_by` can be `null` instead of `[]`. This operation lists tracker candidates directly and does not run the per-issue blocker read the dispatch loop performs before starting a session, so on a tracker that cannot carry blockers with its candidate list, an issue whose dependencies have not been read yet reports `null` rather than an empty list. On Gitea, every `search_issues` entry reports `blocked_by: null`, because that read never happens on this path. On GitHub, an entry reports `[]` when the tracker's own dependency count already proves the issue has no dependencies, and `null` otherwise. `fetch_issue` on the same issue always reads the dependencies route directly and returns `[]` or a populated array, never `null`. Jira, Linear, and the file adapter are unaffected: their candidate lists already carry a resolved `blocked_by`. Only issues matching the configured `active_states` are returned - the candidates for dispatch, not every issue in the project.
 
 ---
 
@@ -454,7 +472,7 @@ Per entry:
 | `agent_adapter` | string | Which agent adapter was used (e.g., `claude-code`). |
 | `started_at` | string | ISO-8601 timestamp. |
 | `completed_at` | string | ISO-8601 timestamp. |
-| `status` | string | Terminal status: `succeeded`, `failed`, `cancelled`, `ci_failed`. |
+| `status` | string | Terminal status: `succeeded`, `failed`, `cancelled`, `ci_failed`, or `needs_person`. `needs_person` marks a run that stopped because the agent asked for a decision only a person could give; it is distinct from `failed` and takes no retry. |
 | `error` | string or null | Error message if failed; `null` on success. |
 
 ### Example response
@@ -687,7 +705,7 @@ The `webhook` backend posts the notification as a single JSON object with generi
 }
 ```
 
-`attempt` is `null` on the first run and a number afterwards. `category` is omitted when the agent did not set one. This outbound webhook backend is unrelated to inbound tracker webhooks that trigger reconciliation: same word, opposite direction.
+`attempt` is `null` on the first run and a number afterwards. `category` is omitted when the agent did not set one. This outbound webhook backend is unrelated to tracker webhooks: Sortie has no inbound webhook receiver and discovers tracker state only by polling, so the word describes an outbound POST here and nothing else.
 
 The `slack` backend posts a Slack incoming-webhook body whose `text` field renders the message with the severity uppercased:
 
@@ -754,7 +772,7 @@ All tools provide structured `error.kind` values for programmatic handling. The 
 
 ## Using tools in prompt templates
 
-Sortie appends tool documentation to the first-turn prompt automatically - you don't need to reproduce schemas or describe the tools' existence. The agent discovers tools through both the prompt text and MCP `tools/list`.
+Sortie appends tool documentation to the first-turn prompt automatically - you don't need to reproduce schemas or describe the tools' existence. Both the prompt text and MCP `tools/list` reach a session that has an execution channel, and neither reaches one that does not (see [delivery by agent kind](#delivery-by-agent-kind)). Task-specific guidance you write yourself is not gated that way: it renders into the prompt whatever kind the session runs, so phrase it conditionally if a workflow can dispatch to a kind with no channel.
 
 You can add task-specific guidance about *when* to use tools in your prompt template. Write this in natural language:
 
@@ -768,7 +786,7 @@ You have access to Sortie tools via MCP. Use them to:
 - Transition the issue when done with the tracker_api tool (transition_issue operation)
 ```
 
-Do not include JSON tool call syntax in prompt templates. The agent calls tools through its MCP client, not by writing JSON into the prompt. Natural language instructions are sufficient - the agent already knows the schemas.
+Do not include JSON tool call syntax in prompt templates. An agent with an MCP client calls tools through it, not by writing JSON into the prompt. Natural language instructions are sufficient - the schemas travel with the advertisement.
 
 For detailed patterns and worked examples, see [how to use agent tools in prompts](/guides/use-agent-tools-in-prompts/).
 

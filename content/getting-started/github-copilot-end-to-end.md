@@ -19,7 +19,7 @@ The GitHub integration tutorial proved that Sortie can talk to your issue tracke
     copilot --version
     ```
 
-    You should see a version string. If the command is not found, install the [Copilot CLI](https://docs.github.com/en/copilot/using-github-copilot/using-github-copilot-in-the-command-line). Node.js 22+ is required.
+    You should see a version string. If the command is not found, install the [Copilot CLI](https://docs.github.com/en/copilot/using-github-copilot/using-github-copilot-in-the-command-line) and follow its own prerequisites.
 
 - GitHub authentication for Copilot CLI — the adapter checks for tokens in this order: `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`. If none are set, it falls back to `gh auth status`. The fastest path is to reuse the token you already have:
 
@@ -108,9 +108,6 @@ agent:
 copilot-cli:
   model: gpt-4.1
   max_autopilot_continues: 50
-
-server:
-  port: 8888
 ---
 
 You are a senior engineer working in this repository.
@@ -166,7 +163,7 @@ If you followed the [Claude Code end-to-end tutorial](/getting-started/jira-clau
 
 ### Agent: Copilot CLI instead of Claude Code
 
-`agent.kind: copilot-cli` uses the Copilot CLI adapter. Where the Claude Code tutorial sets `permission_mode: bypassPermissions`, Copilot CLI runs with `--autopilot`, `--no-ask-user`, and `--allow-all` by default — no extra permission field needed.
+`agent.kind: copilot-cli` uses the Copilot CLI adapter. Where the Claude Code tutorial sets `permission_mode: bypassPermissions`, Copilot CLI always runs with `--autopilot` and `--no-ask-user`, and adds `--allow-all` too as long as you leave `allowed_tools`/`denied_tools` unset — no extra permission field needed.
 
 The `copilot-cli` section is a pass-through to the Copilot CLI binary. `max_autopilot_continues: 50` is the inner turn budget, analogous to `claude-code.max_turns`. With three Sortie turns and 50 autopilot continues each, the agent gets up to 150 total steps to finish the task. `model: gpt-4.1` selects the LLM model. Replace it with your preferred model.
 
@@ -206,14 +203,14 @@ Start Sortie:
 sortie ./WORKFLOW.md
 ```
 
-You should see output similar to this (timestamps and IDs will differ):
+You should see output similar to this (timestamps and IDs will differ, and the `tick completed` lines carry more fields than shown here):
 
 ```
 level=INFO msg="sortie starting" version=0.x.x workflow_path=/home/you/sortie-github-e2e/WORKFLOW.md
 level=INFO msg="database path resolved" db_path=/home/you/sortie-github-e2e/.sortie.db
-level=INFO msg="http server listening" address=127.0.0.1:8888
+level=INFO msg="http server listening" addr=127.0.0.1:7678
 level=INFO msg="sortie started"
-level=INFO msg="tick completed" candidates=1 dispatched=1 running=1 retrying=0
+level=INFO msg="tick completed" candidates=1 dispatched=1 ... running=1 retrying=0 ...
 level=INFO msg="workspace created" issue_id=5 issue_identifier=5
 level=INFO msg="hook started" hook=after_create issue_identifier=5
 level=INFO msg="hook completed" hook=after_create issue_identifier=5
@@ -236,7 +233,7 @@ level=INFO msg="hook started" hook=after_run issue_identifier=5
 level=INFO msg="hook completed" hook=after_run issue_identifier=5
 level=INFO msg="worker exiting" issue_id=5 issue_identifier=5 exit_kind=normal turns_completed=1
 level=INFO msg="handoff transition succeeded, releasing claim" issue_id=5 issue_identifier=5 handoff_state=review
-level=INFO msg="tick completed" candidates=0 dispatched=0 running=0 retrying=0
+level=INFO msg="tick completed" candidates=0 dispatched=0 ... running=0 retrying=0 ...
 ```
 
 Here is the full lifecycle, step by step:
@@ -300,11 +297,11 @@ gh issue view 5 --repo yourorg/yourrepo
 
 Verify three things: the issue is still open, the `backlog` label is gone, and the `review` label is present. Handoff parks the issue for a human rather than finishing it, so closing it is a call you make after reading the branch.
 
-If the label did not change: review the Sortie logs for error messages and confirm your token has `repo` scope. A label missing from the repository is not the cause — GitHub creates one on demand when Sortie applies it.
+If the label did not change: review the Sortie logs for error messages and confirm your token has `repo` scope.
 
 ### Check the dashboard
 
-Open `http://127.0.0.1:8888/` in a browser while Sortie is running. You will see summary cards (running sessions, retry queue, free slots, total tokens) and a run history table showing the completed session with its issue identifier, turn count, duration, and exit status.
+Open `http://127.0.0.1:7678/` in a browser while Sortie is running. You will see summary cards (running sessions, retry queue, free slots, total tokens) and a run history table showing the completed session with its issue identifier, turn count, duration, and exit status.
 
 {{% /steps %}}
 

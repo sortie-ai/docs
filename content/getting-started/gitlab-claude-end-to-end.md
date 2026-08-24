@@ -106,12 +106,9 @@ agent:
 
 claude-code:
   permission_mode: bypassPermissions
-  model: claude-sonnet-4-6
+  model: claude-sonnet-4-5
   max_turns: 30
   max_budget_usd: 5
-
-server:
-  port: 8080
 ---
 
 You are a senior engineer working in this repository.
@@ -159,13 +156,13 @@ making changes. Do not repeat the same approach that failed.
 {{ end }}
 ```
 
-The tracker block is the GitLab block from the integration tutorial: kind `gitlab`, no `endpoint` line because the adapter defaults to `https://gitlab.com`, the token-verbatim `api_key` that travels in the `PRIVATE-TOKEN` header, an unencoded namespace-path project, and label-driven states. On the self-managed path, add `endpoint: $SORTIE_GITLAB_ENDPOINT` and give the instance root. The `polling`, `workspace`, `hooks`, `server`, and prompt body keep the same shape as the Jira + Claude Code tutorial. The Claude Code work is the highlighted `agent` and `claude-code` blocks.
+The tracker block is the GitLab block from the integration tutorial: kind `gitlab`, no `endpoint` line because the adapter defaults to `https://gitlab.com`, the token-verbatim `api_key` that travels in the `PRIVATE-TOKEN` header, an unencoded namespace-path project, and label-driven states. On the self-managed path, add `endpoint: $SORTIE_GITLAB_ENDPOINT` and give the instance root. The `polling`, `workspace`, `hooks`, and prompt body keep the same shape as the Jira + Claude Code tutorial. The Claude Code work is the highlighted `agent` and `claude-code` blocks.
 
 One tracker detail is worth stating where you set the states. `handoff_state: review` moves each finished issue to the `review` label, and because `review` is not one of the `terminal_states`, the issue stays open. Sortie will not let `handoff_state` name a terminal state, so a handoff never closes the issue on its own. That is what leaves the merge request in your hands. For the rest of the GitLab tracker surface, the [GitLab integration tutorial](/getting-started/gitlab-integration/) is the reference.
 
 ### Workspace and hooks
 
-Nothing about the hooks is Claude-Code-specific. `workspace.root` gives each GitLab issue its own clone under `./workspaces/`, and the three hooks clone the repository, cut a clean branch, commit the agent's work, and push it upstream. For the hook-by-hook walkthrough and the full table of hook environment variables, read the [workspace and hooks section of the Jira + Claude Code tutorial](/getting-started/jira-claude-end-to-end/#workspace-and-hooks).
+Nothing about the hooks is Claude-Code-specific. `workspace.root` gives each GitLab issue its own clone under `./workspaces/`, and the three hooks clone the repository, cut a clean branch, commit the agent's work, and push it upstream. For the hook-by-hook walkthrough, read the [workspace and hooks section of the Jira + Claude Code tutorial](/getting-started/jira-claude-end-to-end/#workspace-and-hooks); for the complete hook environment variable set, see [how to use hook environment variables](/guides/setup-workspace-hooks/#use-hook-environment-variables).
 
 One GitLab detail surfaces right where `before_run` names the branch. `SORTIE_ISSUE_IDENTIFIER` for GitLab is the project-scoped `iid`, a bare number, so the branch comes out as `sortie/2` rather than `sortie/PROJ-55` as it would on Jira. That is the same number GitLab shows as `#2` inside the project. GitLab's fully qualified display form for the same issue is `group/project#2`, but the identifier Sortie stores, logs, and hands to your hooks is the `iid` alone.
 
@@ -183,7 +180,11 @@ The adapter runs no authentication preflight and never touches your API key. It 
 
 #### Permission mode
 
-`permission_mode: bypassPermissions` auto-approves all tool calls, and it is the value to use for unattended operation. Leaving the field out does not make the session interactive: the adapter falls back to the deprecated `--dangerously-skip-permissions`, which bypasses the same checks. What does stall the session is setting `permission_mode: default`, because Claude Code then prompts for confirmation on file edits and command execution and waits until the stall timeout kills it.
+`permission_mode: bypassPermissions` auto-approves all tool calls. It is the value to use for unattended operation, and the only one Sortie accepts. Leaving the field out does not make the session interactive: the adapter falls back to the deprecated `--dangerously-skip-permissions`, which bypasses the same checks. Every other mode, `default` included, can stop and prompt, and an unattended run has nobody to answer, so Sortie refuses it before the run starts rather than letting the session reach the prompt.
+
+#### Model
+
+`model` is a pass-through string: Sortie forwards it to the `claude` CLI without checking it against anything. `claude-sonnet-4-5` is this tutorial's example, not a fixed requirement — replace it with whatever model identifier your Claude Code installation currently supports.
 
 #### Turn and budget limits
 
@@ -213,14 +214,14 @@ Start Sortie:
 sortie ./WORKFLOW.md
 ```
 
-You should see output similar to this. Timestamps, IDs, and paths will differ:
+You should see output similar to this. Timestamps, IDs, and paths will differ, and the `tick completed` lines carry more fields than shown here:
 
 ```text
 level=INFO msg="sortie starting" version=0.x.x workflow_path=/home/you/sortie-gitlab-claude-e2e/WORKFLOW.md
 level=INFO msg="database path resolved" db_path=/home/you/sortie-gitlab-claude-e2e/.sortie.db
-level=INFO msg="http server listening" address=127.0.0.1:8080
+level=INFO msg="http server listening" addr=127.0.0.1:7678
 level=INFO msg="sortie started"
-level=INFO msg="tick completed" candidates=1 dispatched=1 running=1 retrying=0
+level=INFO msg="tick completed" candidates=1 dispatched=1 ... running=1 retrying=0 ...
 level=INFO msg="running hook" hook=after_create workspace=.../workspaces/2
 level=INFO msg="running hook" hook=before_run workspace=.../workspaces/2
 level=INFO msg="workspace prepared" issue_id=2 issue_identifier=2 workspace=.../workspaces/2
@@ -237,7 +238,7 @@ level=INFO msg="turn completed" issue_id=2 issue_identifier=2 turn_number=1 max_
 level=INFO msg="running hook" hook=after_run workspace=.../workspaces/2
 level=INFO msg="worker exiting" issue_id=2 issue_identifier=2 exit_kind=normal turns_completed=1
 level=INFO msg="handoff transition succeeded, releasing claim" issue_id=2 issue_identifier=2 handoff_state=review
-level=INFO msg="tick completed" candidates=0 dispatched=0 running=0 retrying=0
+level=INFO msg="tick completed" candidates=0 dispatched=0 ... running=0 retrying=0 ...
 ```
 
 Here is the full lifecycle, step by step:
@@ -291,7 +292,7 @@ Now open the issue in GitLab. It carries the `review` label, the `backlog` label
 
 Neither change shows up as a comment on the issue. GitLab records a label swap and a state change as system notes in the activity feed, and Sortie filters system notes out when it reads an issue's comments, so nothing Sortie did here pollutes the thread an agent would later read.
 
-Open [http://127.0.0.1:8080/](http://127.0.0.1:8080/). The workflow sets `server.port: 8080`, so the dashboard is served there. You will see summary cards and a run history row for the completed session, with its issue identifier, turn count, duration, and exit status.
+Open [http://127.0.0.1:7678/](http://127.0.0.1:7678/). Sortie serves the dashboard there by default, with no configuration required. You will see summary cards and a run history row for the completed session, with its issue identifier, turn count, duration, and exit status.
 
 The loop is closed, and the last step is honestly yours. The `sortie/2` branch is pushed and ready, the issue is sitting in `review` with a link to the work, and opening the merge request from that branch is one click in GitLab.
 

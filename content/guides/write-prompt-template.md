@@ -53,35 +53,11 @@ The description often contains multiline Markdown. The template inserts it as-is
 
 ## Use all available issue fields
 
-The `.issue` object is normalized across tracker backends:
+The `.issue` object is normalized across tracker backends, so the same field names work whether you're polling Jira, Linear, or a forge's issues. Common fields you'll reach for: `.issue.identifier` (the human-readable key, like `PROJ-123`), `.issue.title`, `.issue.description`, `.issue.labels` (a lowercase list), and `.issue.blocked_by` (never nil, resolved before every session starts). `.issue.priority` is an integer or nil depending on whether the tracker supplies one — `{{ if .issue.priority }}` guards both cases.
 
-| Variable | Type | Notes |
-|---|---|---|
-| `.issue.id` | string | Internal tracker ID |
-| `.issue.identifier` | string | Human-readable key (`PROJ-123`) |
-| `.issue.title` | string | Issue summary |
-| `.issue.description` | string | Body text; empty when absent |
-| `.issue.priority` | integer or nil | Lower = higher priority; nil when unavailable. `{{ if .issue.priority }}` guards both |
-| `.issue.state` | string | Current tracker state |
-| `.issue.branch_name` | string | Tracker-provided branch; empty when absent |
-| `.issue.url` | string | Web link to the issue |
-| `.issue.labels` | list of strings | Lowercase; empty (non-nil) list when none |
-| `.issue.assignee` | string | Identity from the tracker; empty when absent |
-| `.issue.issue_type` | string | Bug, Story, Task, etc.; empty when absent |
-| `.issue.parent` | object or nil | `.parent.id`, `.parent.identifier` |
-| `.issue.comments` | list or nil | Each has `.id`, `.author`, `.body`, `.created_at`. `nil` = not fetched; `[]` = no comments |
-| `.issue.blocked_by` | list of objects | Each has `.id`, `.identifier`, `.state`. Never nil; empty when no blockers |
-| `.issue.created_at` | string | ISO-8601 timestamp |
-| `.issue.updated_at` | string | ISO-8601 timestamp |
+For the complete field list with every type and nil/empty distinction, see the [`.issue` table in the workflow config reference](/reference/workflow-config/#issue).
 
-Two other top-level variables are available on every render alongside `.issue`:
-
-| Variable | Type | Purpose |
-|---|---|---|
-| `.attempt` | integer | `0` on first try, `>= 1` on retry |
-| `.run.turn_number` | integer | Current turn within the session |
-| `.run.max_turns` | integer | Configured maximum turns |
-| `.run.is_continuation` | boolean | `true` on turns 2+ of a multi-turn session |
+Two other top-level variables are available on every render alongside `.issue`: `.attempt` (`0` on the first try, `>= 1` on retry) and `.run` (`.run.turn_number`, `.run.max_turns`, `.run.is_continuation`). See the [`.attempt` and `.run` reference](/reference/workflow-config/#attempt) for the full field list.
 
 Reaction dispatches add one more top-level variable each, carrying the context that triggered them. They are `nil` on an ordinary dispatch, so `{{ if .ci_failure }}` is safe to write in a template that also serves primary runs. See [configure CI feedback](/guides/configure-ci-feedback/) and [configure review feedback](/guides/configure-review-feedback/) for their fields.
 

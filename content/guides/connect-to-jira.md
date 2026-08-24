@@ -125,7 +125,7 @@ tracker:
 Sortie uses the Jira transitions API: it fetches available transitions for the issue, finds one whose target status matches `handoff_state` (case-insensitive), and executes it. If no matching transition exists (because the Jira workflow does not allow it from the current status), Sortie logs an error:
 
 ```
-level=ERROR msg="transition failed" error="tracker: tracker_payload: no transition to state \"Human Review\" available for issue PROJ-42"
+level=WARN msg="handoff transition failed, scheduling continuation retry" handoff_state="Human Review" error="tracker: tracker_payload_error: no transition to state \"Human Review\" available for issue PROJ-42"
 ```
 
 Three constraints:
@@ -173,7 +173,7 @@ tracker:
 
 Each flag is independent. Enable only the events you care about. All default to `false`.
 
-Comment failures are non-fatal. Sortie logs a warning and continues. The API token needs the same write permissions as `handoff_state` (`write:jira-work` or `write:issue:jira`).
+Comment failures are non-fatal. Sortie logs a warning and continues. The API token needs the same write access as `handoff_state`.
 
 See the [workflow config reference](/reference/workflow-config/) for comment content details.
 
@@ -197,10 +197,10 @@ Run a single poll cycle without dispatching agents:
 sortie --dry-run ./WORKFLOW.md
 ```
 
-Watch the logs. A successful poll produces:
+Watch the logs. A successful poll produces (the `tick completed` line carries more fields than shown here — only the ones relevant to this check are called out):
 
 ```
-level=INFO msg="tick completed" candidates=3 dispatched=0 running=0 retrying=0
+level=INFO msg="tick completed" candidates=3 dispatched=0 ... running=0 retrying=0 ...
 ```
 
 `candidates=3` means Sortie found 3 issues in your active states (and matching your `query_filter`, if set). `dispatched=0` is expected in dry-run mode; no agents are launched.
@@ -212,7 +212,7 @@ If `candidates=0` and you expected results, check that your `active_states` valu
 ### Wrong credentials or expired token
 
 ```
-level=ERROR msg="poll failed" error="tracker: tracker_auth_error: GET /rest/api/3/search/jql: 401"
+level=ERROR msg="failed to fetch candidate issues" error="tracker: tracker_auth_error: GET /rest/api/3/search/jql: 401"
 ```
 
 Verify your token is valid by testing it directly:
@@ -227,15 +227,15 @@ If this returns your user profile, the token works. If it returns 401, regenerat
 ### CAPTCHA lockout
 
 ```
-level=ERROR msg="poll failed" error="tracker: tracker_auth_error: GET /rest/api/3/search/jql: 401 (CAPTCHA challenge triggered; log in via browser to resolve)"
+level=ERROR msg="failed to fetch candidate issues" error="tracker: tracker_auth_error: GET /rest/api/3/search/jql: 401 (CAPTCHA challenge triggered — log in via browser to resolve)"
 ```
 
-Jira locked the account after repeated failed attempts. Log in to Jira through a browser, complete the CAPTCHA, then restart Sortie.
+Jira locked the account after repeated failed attempts (this is a Jira Server / Data Center response; Jira Cloud does not send it). Log in to Jira through a browser, complete the CAPTCHA, then restart Sortie.
 
 ### Project not found
 
 ```
-level=ERROR msg="poll failed" error="tracker: tracker_not_found: GET /rest/api/3/search/jql: not found"
+level=ERROR msg="failed to fetch candidate issues" error="tracker: tracker_not_found: GET /rest/api/3/search/jql: not found"
 ```
 
 The `project` key does not match any project in your Jira instance. Verify the key in Jira's project settings; it is the short prefix, not the project name.
@@ -243,7 +243,7 @@ The `project` key does not match any project in your Jira instance. Verify the k
 ### Rate limiting
 
 ```
-level=WARN msg="poll failed" error="tracker: tracker_api: GET /rest/api/3/search/jql: rate limited (retry after 30 seconds)"
+level=ERROR msg="failed to fetch candidate issues" error="tracker: tracker_api_error: GET /rest/api/3/search/jql: rate limited (retry after 30 seconds)"
 ```
 
 Jira enforces rate limits on API calls. Sortie does not throttle client-side; it logs the response and waits for the next poll interval. If you hit this repeatedly, increase `polling.interval_ms` or narrow your `query_filter` to reduce result set size. Sortie paginates with a page size of 50, so large projects generate multiple API calls per poll.
@@ -251,7 +251,7 @@ Jira enforces rate limits on API calls. Sortie does not throttle client-side; it
 ### Unreachable handoff transition
 
 ```
-level=ERROR msg="transition failed" error="tracker: tracker_payload: no transition to state \"Human Review\" available for issue PROJ-42"
+level=WARN msg="handoff transition failed, scheduling continuation retry" handoff_state="Human Review" error="tracker: tracker_payload_error: no transition to state \"Human Review\" available for issue PROJ-42"
 ```
 
 The target state isn't reachable from the issue's current status in your Jira workflow. Open the Jira workflow editor and confirm that a transition exists from the expected source status to your `handoff_state`.

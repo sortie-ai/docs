@@ -36,8 +36,8 @@ agent:
   max_turns: 5
 
 claude-code:
-  model: claude-sonnet-4-20250514
-  permission_mode: acceptEdits
+  model: <model-id>
+  permission_mode: bypassPermissions
 
 codex:                       # required: a rule routes to codex below
   approval_policy: never
@@ -102,7 +102,7 @@ Sortie rejects unsafe paths at load time: absolute paths, `~`-prefixed paths, an
 
 ## Declare every agent kind a rule references
 
-When a rule's `agent` differs from the top-level `agent.kind`, the adapter's configuration block must be present in the front matter. The example above routes to `codex`, so it includes a `codex:` block. Without it, `sortie validate` and startup preflight fail with an error naming the missing block.
+When a rule's `agent` differs from the top-level `agent.kind`, give that kind its own configuration block in the front matter. The example above routes to `codex`, so it includes a `codex:` block. A routed session reads that block and no other, on every attempt of the session; the block named by `agent.kind` does not stand in for it. Leave the block out and the session still dispatches, on the adapter's own defaults, and neither `sortie validate` nor startup preflight says anything about it.
 
 The shared `agent.*` settings (`max_turns`, `turn_timeout_ms`, `max_sessions`, concurrency caps) stay workflow-wide. Rules override the agent kind and the template only, not these budgets.
 
@@ -213,7 +213,7 @@ sortie --dry-run WORKFLOW.md
 
 **Validation reports "unreachable rules".** A catch-all rule (one with no `match` block) sits before other rules. Move it to the end of the list, or replace it with a `dispatch.default` block.
 
-**Validation rejects an unknown agent kind.** The `agent` value must name a registered adapter, and the adapter's config block must be present. A rule with `agent: codex` requires a `codex:` block in the front matter when the top-level `agent.kind` is something else.
+**Validation rejects an unknown agent kind.** The `agent` value must name a registered adapter. Its configuration block is not required for validation to pass, but a session the rule routes reads only that block, so a rule with `agent: codex` and no `codex:` block runs on the adapter's defaults.
 
 **A match key is ignored or rejected.** Unknown match keys are configuration errors, not warnings, so a typo like `lables:` fails `validate` instead of silently disabling the rule. Use only `labels`, `issue_type`, `priority`, `identifier`, and `assignee`.
 
@@ -221,44 +221,9 @@ sortie --dry-run WORKFLOW.md
 
 ## Dispatch rule fields
 
-The `dispatch` block accepts `rules` and `default`:
+The `dispatch` block accepts a `rules` list, evaluated first-match-wins in YAML order, and a `default` fallback for when nothing matches. Each rule pairs a `match` predicate (keys: `labels`, `issue_type`, `priority`, `identifier`, `assignee`) with the `agent` and `template` to use, falling through to `default` and then to the top-level `agent.kind` when a rule leaves them unset. The `priority` predicate takes exactly one numeric operator (`eq`, `in`, `lt`, `lte`, `gt`, `gte`).
 
-| Field | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `rules` | list | No | _(none)_ | Ordered dispatch rules, evaluated first-match-wins in YAML order. |
-| `default` | map | No | _(none)_ | Fallback selection when no rule matches. Keys: `agent`, `template`. |
-
-Each rule in `rules` accepts:
-
-| Field | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `name` | string | No | _(absent)_ | Identifier used in logs and the rule-match metric. Must match `^[a-z][a-z0-9_-]*$`. Unnamed rules report as `<none>`. |
-| `match` | map | No | _(absent)_ | Predicate block. Absent or empty matches every issue (catch-all). |
-| `agent` | string | No | _(fallback)_ | Agent kind for matching issues. Falls through to `default.agent`, then `agent.kind`. |
-| `template` | string | No | _(fallback)_ | Template path, relative to the WORKFLOW.md directory. Falls through to `default.template`, then the Markdown body. |
-
-The `match` block accepts only these keys:
-
-| Key | Type | Matching |
-|---|---|---|
-| `labels` | string or list | Glob, any element matches the lowercase label set. |
-| `issue_type` | string or list | Case-insensitive equality, any element. |
-| `priority` | predicate object | Numeric comparison. An issue with no priority never matches. |
-| `identifier` | string or list | Glob, any element, against the issue key. |
-| `assignee` | string or list | Case-insensitive equality, any element. |
-
-The `priority` predicate takes exactly one operator:
-
-| Operator | Meaning |
-|---|---|
-| `eq` | Equals the value. |
-| `in` | In the list of values, for example `{ in: [1, 2] }`. |
-| `lt` | Less than the value. |
-| `lte` | Less than or equal to the value. |
-| `gt` | Greater than the value. |
-| `gte` | Greater than or equal to the value. |
-
-For the full WORKFLOW.md configuration reference, see [workflow config reference](/reference/workflow-config/).
+For the complete field-by-field table, including every match key's matching rule and every accepted operator, see the [`dispatch` section of the workflow config reference](/reference/workflow-config/#dispatch).
 
 ## Related guides
 

@@ -191,7 +191,7 @@ reactions:
 
 ### `reactions.bot_review`
 
-Polls comments authored by automated review tools (linters, static analyzers, security scanners, and AI reviewers such as GitHub Copilot and CodeRabbit) on Sortie-created PRs and dispatches a continuation turn so the agent can address them. This is the complement of `review_comments`: that kind routes comments from human reviewers requesting changes and excludes bot-authored ones, while `bot_review` routes the bot-authored ones. The runtime and persisted kind value for this reaction is `bot-review`, not `bot_review`.
+Polls comments authored by automated review tools (linters, static analyzers, security scanners, and AI reviewers) on Sortie-created PRs and dispatches a continuation turn so the agent can address them. This is the complement of `review_comments`: that kind routes comments from human reviewers requesting changes and excludes bot-authored ones, while `bot_review` routes the bot-authored ones. The runtime and persisted kind value for this reaction is `bot-review`, not `bot_review`.
 
 **Fields** (beyond the common fields):
 
@@ -203,7 +203,7 @@ Polls comments authored by automated review tools (linters, static analyzers, se
 
 **Activation:** active when `provider` names a registered SCM adapter, on its own, with no other `reactions` block required. The agent or an `after_run` hook must write `pr_number` (positive integer), `owner`, `repo`, and `branch` (all non-empty) to `.sortie/scm.json` in the workspace. When any field is missing or zero, bot-review polling is skipped for that workspace with no error.
 
-**Classification:** bot authorship is deterministic author metadata, not comment content. A comment is selected when the forge marks its author as a bot account, or when its author login matches a `bot_usernames` entry (case-insensitive). No changes-requested review state is required, because review bots commonly post comment-only reviews. The `bot_usernames` allowlist covers review tools that comment under a regular user account rather than a bot account; Hound (`houndci-bot`) is the canonical example.
+**Classification:** bot authorship is deterministic author metadata, not comment content. A comment is selected when the forge marks its author as a bot account, or when its author login matches a `bot_usernames` entry (case-insensitive). No changes-requested review state is required, because review bots commonly post comment-only reviews. The `bot_usernames` allowlist covers review tools that comment under a regular user account rather than a bot account. Sortie ships no built-in list of such logins: an account that the forge does not mark as a bot matches only when it is named here.
 
 > [!WARNING]
 > On the `gitea` provider, `bot_usernames` is the only classification signal there is. Gitea accounts carry no bot marker, so an empty allowlist selects nothing and this kind routes no comments at all. Name every bot account in `bot_usernames` to make it fire. `sortie validate` accepts the empty allowlist, because the shape is valid. See the [Gitea adapter reference](/reference/adapter-gitea/#bot-classification).
@@ -231,7 +231,7 @@ reactions:
     poll_interval_ms: 60000
     max_continuation_turns: 5
     bot_usernames:            # only for review tools that comment under a user account, not a bot account
-      - houndci-bot
+      - example-review-bot
 ```
 
 ### `reactions.merge_conflicts`
