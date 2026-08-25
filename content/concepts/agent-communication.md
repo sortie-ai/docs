@@ -79,13 +79,13 @@ Why a file and not a process signal, exit code, or environment variable?
 
 **Files persist.** If Sortie restarts between the agent writing and the orchestrator reading, the signal is still on disk.
 
-**Files are inspectable.** `cat .sortie/status` shows what the agent reported. No special tooling needed.
+**Files are inspectable.** `cat .sortie/status` shows a signal Sortie has not yet acted on. No special tooling needed.
 
 **Files are universal.** Every OS, every language, every shell can write a file. Exit codes don't work because LLM-based agents can't control their host process's exit code. Environment variables don't cross process boundaries.
 
 The file is advisory, not authoritative. The agent can't force the orchestrator to stop or change behavior — it can only advise. This prevents a malfunctioning agent from hijacking orchestrator control flow. A compromised agent writing `blocked` to every workspace causes the orchestrator to stop retrying those issues, which is correct behavior. The remedy is to investigate, fix the agent, and re-dispatch.
 
-Before each new dispatch, Sortie deletes any existing `.sortie/status` file. Stale signals never leak between sessions.
+Before each new dispatch, Sortie deletes any existing `.sortie/status` file. Stale signals never leak between sessions. Sortie also deletes it during a run, at each point where it acts on a recognized value, so what sits on disk is what the agent has said since rather than a signal already answered. The [agent extensions reference](/reference/agent-extensions/#cleanup-and-protection) names those points, and the one read that leaves the file in place.
 
 ## Agent to operator: notify_operator
 
