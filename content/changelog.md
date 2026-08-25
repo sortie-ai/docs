@@ -9,6 +9,61 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.22.0] - 2026-08-25 { #1.22.0 }
+
+### Added
+
+- A `sortie_candidate_holds_total` counter reports how many issues the scheduler held back and why, separating an unfinished blocker from a blocker list that could not be read, one the tracker reported as incomplete, and one left unread because the poll had already spent its budget of dependency lookups. `sortie --dry-run` names the same reason for each issue it would not start, so an issue held by a dependency is no longer indistinguishable from one held by a full slot.
+  ([#920](https://github.com/sortie-ai/sortie/issues/920))
+
+- `sortie validate` now reports a warning when an agent block sets `mcp_config` for an agent kind that never receives the generated MCP configuration file. `claude-code`, `codex`, `copilot-cli` and `opencode` receive it; `kiro` does not, so an `mcp_config` value in a `kiro` block had no effect and nothing said so. The reference documentation now states which kinds consume the file. It is a warning and not an error: such a configuration stays valid, the run proceeds, and the exit code is unchanged.
+  ([#928](https://github.com/sortie-ai/sortie/issues/928))
+
+- An issue that Sortie has stopped dispatching because it reached its `agent.max_sessions` or `agent.max_tokens` ceiling now says so. Previously such an issue stayed in an active tracker state and was simply never picked up again, with no log line at any level, no marker on the tracker, and `GET /api/v1/{identifier}` reporting it as unknown; the only way to explain the stall was to count the issue's rows in the run history against the ceiling configured in `WORKFLOW.md`. The orchestrator now logs a warning naming the issue, which of the two ceilings stopped it, and its usage against that ceiling, once when the hold begins rather than on every poll, and the tick summary reports how many issues are held. `GET /api/v1/state` lists them with the same numbers, the per-issue endpoint answers for a held issue instead of reporting it unknown, and the dashboard shows a card and a table. Two metrics, `sortie_budget_exhaustions_total` and `sortie_budget_exhausted_issues`, report how often a hold begins and how many issues are held right now. What the ceilings count, and when they stop an issue, is unchanged.
+  ([#936](https://github.com/sortie-ai/sortie/issues/936))
+
+- The tracker issue itself now carries the reason an issue stopped. When a per-issue session or token ceiling stops dispatch, Sortie posts one comment on the issue naming the ceiling that stopped it and the setting that raises it, so the stall is explained where an operator is already looking rather than only in the log, the API and the dashboard.
+  ([#944](https://github.com/sortie-ai/sortie/issues/944))
+
+### Fixed
+
+- A malformed end-of-turn notification from the `codex app-server` no longer leaves the turn outcome reported as the bare word `turn` followed by a trailing space. A payload that fails to parse carries no status word, so the turn now reports the shared failure message instead: the status API's `last_message` field and the recorded run history both read `turn failed`.
+  ([#842](https://github.com/sortie-ai/sortie/issues/842))
+
+- A malformed `tracker.endpoint` is now reported by `sortie validate` and rejected at startup by every adapter that accepts one, instead of passing validation and failing later as a network error. The GitHub, Gitea and Linear adapters handed the configured value to the HTTP client without parsing it, and the Gitea CI status provider and SCM adapter accepted an unusable one with no error at all. An IPv6 address written without brackets, `http://fd00::1:3000` instead of `http://[fd00::1]:3000`, is now named as a fault in the endpoint field before any request is made. A username or password embedded in the endpoint is masked in that diagnostic; previously the failure arrived as a transport error quoting the whole endpoint, credential included.
+  ([#908](https://github.com/sortie-ai/sortie/issues/908))
+
+- A run no longer stalls when an agent stops to ask for something only a person could give, such as permission to run a command, to change a file, or an answer to a direct question. Where the runtime can be answered, Sortie declines the request and the agent carries on by another route; where it cannot be answered, or where the agent is putting a question to a person, the attempt ends at once and releases its claim on the issue. Previously the turn stayed open until a timeout expired, the attempt was reported as a timeout rather than as a run that needed a person, and the retry that followed could only re-enter the same wait. A run that ended this way is now recorded under its own `needs_person` status instead of being counted among ordinary failures in run reports.
+  ([#837](https://github.com/sortie-ai/sortie/issues/837))
+
+- A runtime configuration that would let an agent stop and ask for approval mid-turn (`codex.approval_policy`, `claude-code.permission_mode`) is now refused by `sortie validate`, at startup and on reload, instead of being accepted and surfacing later as a stalled run. Not every such request is governed by an approval setting, so this check reduces how often the situation arises rather than removing it.
+  ([#837](https://github.com/sortie-ai/sortie/issues/837))
+
+- A failed OpenCode turn now reports the failure detail OpenCode put on the run stream, instead of its generic `Unexpected server error. Check server logs for details.` placeholder. One failure can produce both reports in either order, and the adapter kept whichever arrived last. Only the unknown-model case was recovered afterwards, by a second `opencode` call; every other cause reached the operator as the placeholder.
+  ([#839](https://github.com/sortie-ai/sortie/issues/839))
+
+- On GitHub and Gitea, an issue whose blockers are still open is no longer started. Both trackers reported every candidate issue as having no blockers at all, so a dependency recorded in the tracker had no effect on what ran: work began on issues whose prerequisites were unfinished, holding a slot until the agent discovered for itself that it could not proceed. Jira and Linear were unaffected. An issue is now held until every blocker reaches a terminal state, and where its blocker list cannot be read the issue is held and retried on the next poll rather than started on an unread list. A forge that does not serve issue dependencies at all is now reported as an error instead of read as an empty list, and no issue on it is started while that lasts. Reading dependencies costs GitHub and Gitea up to four extra tracker requests per poll; an issue whose own tracker data already proves it has no dependencies costs none. Workflow templates on those two trackers now receive the real blocker list, which was previously always empty.
+  ([#920](https://github.com/sortie-ai/sortie/issues/920))
+
+- An issue routed by a dispatch rule to an agent kind other than the workflow default now runs with the MCP servers configured in its own agent settings block. It was given the default kind's `mcp_config` instead: servers and credentials meant for another agent were loaded, its own were silently dropped, and a stale or malformed path in the default block failed the session at startup and sent it into retry backoff, naming a file the operator had never associated with that agent. A session running on the workflow default was unaffected.
+  ([#924](https://github.com/sortie-ai/sortie/issues/924))
+
+- A `codex` or `opencode` session no longer keeps the first-turn "Available Sortie tools" section for tools it has no way to call. Both kinds now translate the worker-generated MCP configuration into their own runtime's configuration form and deliver it on a local launch, so a tool the prompt advertises to them is reachable; an SSH session on either kind gets neither the channel nor the advertisement. `kiro` stops receiving the advertisement entirely, since its runtime disables MCP under API-key authentication and can reach a tool by no other means. `sortie validate` also warns once per reachable kind with no tool execution channel.
+  ([#841](https://github.com/sortie-ai/sortie/issues/841))
+
+- A workflow that sets `claude-code.session_persistence: false` is now rejected before the run starts, by `sortie validate` and at startup. The setting prevents Claude Code from resuming a session, so such a run previously failed partway through.
+  ([#879](https://github.com/sortie-ai/sortie/issues/879))
+
+- An issue that reached a terminal state during a run no longer receives a session-failure comment, a failed run record, or a retry that is then discarded. Sortie now re-checks the issue's tracker state immediately before recording that kind of failure, and stays silent when the issue is already finished.
+  ([#887](https://github.com/sortie-ai/sortie/issues/887))
+
+- An `after_run` hook that inspects `.sortie/status` after a run whose self-review phase ended on `blocked` now finds the file absent, the same as it already found for a phase-ending `needs-human-review`. A run that never enters the self-review phase is unchanged.
+  ([#894](https://github.com/sortie-ai/sortie/issues/894))
+
+### Changed
+
+- The consecutive-absence ceiling no longer follows `agent.max_sessions`. It now reads a new field, `agent.max_consecutive_absences`, which defaults to three and rejects `0` as a configuration error; a deployment that wants no absence checking at all sets `tracker.handoff_evidence: off` instead. `agent.max_sessions` itself is unchanged: it remains the total per-issue session budget. A deployment that set `agent.max_sessions` well above three, paired with a workflow whose runs legitimately leave the workspace untouched, now parks such an issue considerably sooner than before; the park is announced and reversible. An operator who chose a low `agent.max_sessions` to bound a loop should revisit that value, because a workflow advancing one issue through several phases needs a session budget sized to those phases rather than to the runaway guard it was previously also serving.
+  ([#942](https://github.com/sortie-ai/sortie/issues/942))
 
 ## [1.21.0] - 2026-08-20 { #1.21.0 }
 
@@ -737,6 +792,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - CI pipeline with `golangci-lint`, `gofmt` enforcement, and test execution via GitHub Actions.
 - Architecture Decision Records (ADR-0001 through ADR-0005).
 
+[1.22.0]: https://github.com/sortie-ai/sortie/compare/v1.21.0...v1.22.0
 [1.21.0]: https://github.com/sortie-ai/sortie/compare/v1.20.0...v1.21.0
 [1.20.0]: https://github.com/sortie-ai/sortie/compare/v1.19.0...v1.20.0
 [1.19.0]: https://github.com/sortie-ai/sortie/compare/v1.18.0...v1.19.0
