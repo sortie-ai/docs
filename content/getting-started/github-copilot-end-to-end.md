@@ -163,7 +163,7 @@ If you followed the [Claude Code end-to-end tutorial](/getting-started/jira-clau
 
 ### Agent: Copilot CLI instead of Claude Code
 
-`agent.kind: copilot-cli` uses the Copilot CLI adapter. Where the Claude Code tutorial sets `permission_mode: bypassPermissions`, Copilot CLI always runs with `--autopilot` and `--no-ask-user`, and adds `--allow-all` too as long as you leave `allowed_tools`/`denied_tools` unset — no extra permission field needed.
+`agent.kind: copilot-cli` uses the Copilot CLI adapter. Where the Claude Code tutorial sets `permission_mode: bypassPermissions`, Copilot CLI always runs with `--autopilot` and `--no-ask-user`, and adds `--allow-all` too as long as you leave `allowed_tools`, `denied_tools`, `available_tools`, and `excluded_tools` unset — no extra permission field needed.
 
 The `copilot-cli` section is a pass-through to the Copilot CLI binary. `max_autopilot_continues: 50` is the inner turn budget, analogous to `claude-code.max_turns`. With three Sortie turns and 50 autopilot continues each, the agent gets up to 150 total steps to finish the task. `model: gpt-4.1` selects the LLM model. Replace it with your preferred model.
 

@@ -46,7 +46,7 @@ agent:
 
 ### `claude-code` extension section
 
-These fields are adapter-specific, and each maps to a Claude Code CLI flag. `permission_mode` is checked before any run starts; see [validate-time checks](#validate-time-checks). The rest reach the CLI as written, unvalidated by Sortie; consult `claude --help` on your installed version for what each flag accepts and how the CLI reacts to an invalid value.
+These fields are adapter-specific, and each maps to a Claude Code CLI flag. `permission_mode` and `session_persistence` are checked before any run starts; see [validate-time checks](#validate-time-checks). Every other value reaches the CLI as written and unvalidated by Sortie, except `mcp_config`, which the generated configuration supersedes; see [Sortie's own tools and the mcp_config field](#sorties-own-tools-and-the-mcp_config-field). Consult `claude --help` on your installed version for what each flag accepts and how the CLI reacts to an invalid value.
 
 | Field | CLI flag | Type | Default | Description |
 |---|---|---|---|---|
@@ -101,7 +101,7 @@ When `claude-code.mcp_config` names an operator-supplied file, Sortie reads it, 
 
 ### Session persistence and resume
 
-The adapter opens a session with `--session-id <uuid>` on the first turn and continues it with `--resume <session_id>` on every turn after that. `--resume` reads the session file Claude Code wrote to disk.
+The adapter passes `--session-id <uuid>` on the first turn of a session it opened itself. Every other turn carries `--resume <session_id>` instead: each later turn of that session, and each turn of a session the orchestrator handed back from an earlier attempt, its first turn included. `--resume` reads the session file Claude Code wrote to disk.
 
 `session_persistence: false` passes `--no-session-persistence`, and Claude Code then writes no session file for `--resume` to read. Sortie refuses that configuration before any run starts, as the `agent.kind.session_resume` error under [validate-time checks](#validate-time-checks).
 
