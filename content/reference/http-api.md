@@ -193,7 +193,8 @@ curl http://localhost:7678/api/v1/state
   "generated_at": "2026-03-26T14:30:00Z",
   "counts": {
     "running": 2,
-    "retrying": 1
+    "retrying": 1,
+    "budget_exhausted": 1
   },
   "running": [
     {
@@ -232,6 +233,19 @@ curl http://localhost:7678/api/v1/state
       "error": "agent exited with code 1"
     }
   ],
+  "budget_exhausted": [
+    {
+      "issue_id": "ghi789",
+      "issue_identifier": "MT-651",
+      "reason": "session_budget",
+      "used_sessions": 3,
+      "budget_sessions": 3,
+      "used_tokens": null,
+      "budget_tokens": 0,
+      "unmeasured_sessions": null,
+      "exhausted_at": "2026-03-26T14:12:00Z"
+    }
+  ],
   "agent_totals": {
     "input_tokens": 45000,
     "output_tokens": 18200,
@@ -259,6 +273,16 @@ curl http://localhost:7678/api/v1/state
 | `requests_by_model` | Breakdown of API requests per model. Omitted when empty. |
 | `tool_time_percent` | Percentage of elapsed wall-clock time spent in tool execution. `null` when not yet computed. |
 | `api_time_percent` | Percentage of elapsed wall-clock time spent waiting on API calls. `null` when not yet computed. |
+
+**`budget_exhausted[]` entries:** Issues held out of dispatch by a per-issue budget ceiling ([`agent.max_sessions`](/reference/workflow-config/#agent) or [`agent.max_tokens`](/reference/workflow-config/#agent)).
+
+| Field | Description |
+|---|---|
+| `reason` | `session_budget` or `token_budget` - which ceiling stopped dispatch. |
+| `used_sessions`, `budget_sessions` | Completed sessions for the issue against the configured `agent.max_sessions`. |
+| `used_tokens`, `budget_tokens` | Measured cumulative tokens against the configured `agent.max_tokens`. `used_tokens` is `null` when `reason` is `session_budget`. |
+| `unmeasured_sessions` | Count of the issue's sessions whose agent reported no token usage. `null` when `reason` is `session_budget`. |
+| `exhausted_at` | When the hold began. |
 
 **`agent_totals`:** Cumulative across all sessions since Sortie started. `seconds_running` includes elapsed time from currently active sessions, not only completed ones.
 
@@ -324,6 +348,7 @@ curl http://localhost:7678/api/v1/MT-649
     "tokens_measured": true
   },
   "retry": null,
+  "budget_exhausted": null,
   "recent_events": [],
   "last_error": null,
   "tracked": {}
@@ -352,8 +377,42 @@ When an issue is in the retry queue rather than actively running, `status` is `"
     "due_at": "2026-03-26T14:35:00Z",
     "error": "agent exited with code 1"
   },
+  "budget_exhausted": null,
   "recent_events": [],
   "last_error": "agent exited with code 1",
+  "tracked": {}
+}
+```
+
+### Response (budget-exhausted issue)
+
+When an issue has neither a running session nor a pending retry, but is held out of dispatch by a per-issue budget ceiling, `status` is `"budget_exhausted"`, `running` and `retry` are both `null`, and `budget_exhausted` is populated:
+
+```json
+{
+  "issue_identifier": "MT-651",
+  "issue_id": "ghi789",
+  "status": "budget_exhausted",
+  "workspace": null,
+  "attempts": {
+    "restart_count": 0,
+    "current_retry_attempt": 0
+  },
+  "running": null,
+  "retry": null,
+  "budget_exhausted": {
+    "issue_id": "ghi789",
+    "issue_identifier": "MT-651",
+    "reason": "session_budget",
+    "used_sessions": 3,
+    "budget_sessions": 3,
+    "used_tokens": null,
+    "budget_tokens": 0,
+    "unmeasured_sessions": null,
+    "exhausted_at": "2026-03-26T14:12:00Z"
+  },
+  "recent_events": [],
+  "last_error": null,
   "tracked": {}
 }
 ```
@@ -362,12 +421,13 @@ When an issue is in the retry queue rather than actively running, `status` is `"
 
 | Field | Description |
 |---|---|
-| `status` | One of `"running"` or `"retrying"`. Derived from which queue the issue appears in. |
-| `workspace` | Contains `path` when the issue has an active workspace. `null` for retrying issues or when the workspace path is unknown. |
+| `status` | One of `"running"`, `"retrying"`, or `"budget_exhausted"`. Derived from which queue the issue appears in; `running` takes precedence over `retrying`, which takes precedence over `budget_exhausted`. |
+| `workspace` | Contains `path` when the issue has an active workspace. `null` for retrying and budget-exhausted issues, or when the workspace path is unknown. |
 | `attempts.restart_count` | How many times this issue has been restarted (attempt minus one, floored at zero). |
-| `attempts.current_retry_attempt` | The current attempt number. `0` for running issues that haven't retried. |
+| `attempts.current_retry_attempt` | The current attempt number. `0` for running and budget-exhausted issues that haven't retried. |
 | `running` | Full running entry (same shape as entries in `/api/v1/state`), or `null`. |
 | `retry` | Full retry entry, or `null`. |
+| `budget_exhausted` | Full budget-exhausted entry (same shape as entries in the `budget_exhausted` array on `/api/v1/state`), or `null`. |
 | `recent_events` | Reserved for future use. Currently an empty array. |
 | `last_error` | Most recent error message from the retry queue, or `null`. |
 | `tracked` | Reserved for future use. Currently an empty object. |
@@ -377,7 +437,7 @@ When an issue is in the retry queue rather than actively running, `status` is `"
 | Code | Meaning |
 |---|---|
 | `200 OK` | Issue found and returned. |
-| `404 Not Found` | Identifier not present in any active queue. The issue may have completed, or it may not exist. |
+| `404 Not Found` | Identifier not present in the running set, the retry queue, or the budget-exhausted set. The issue may have completed, or it may not exist. |
 | `503 Service Unavailable` | Orchestrator state snapshot could not be produced. |
 
 ---

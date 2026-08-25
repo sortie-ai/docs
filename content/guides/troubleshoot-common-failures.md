@@ -238,6 +238,8 @@ Sortie is polling but finds nothing to dispatch.
 
 5. **A blocker hasn't cleared, or its list couldn't be read.** An issue held for this reason carries a `skip_reason` in dry-run output: `blocked_by` means a listed blocker hasn't reached a terminal state yet. `blockers_unresolved` and `blockers_not_read` mean Sortie couldn't read the blocker list this poll (a failed read, or the per-poll read budget was already spent on other candidates) and will retry on a later poll - this applies to GitHub and Gitea, which read dependencies separately from the candidate list. See [candidate eligibility](/reference/state-machine/#candidate-eligibility) for the full gate, and `sortie_candidate_holds_total` on the [Prometheus metrics reference](/reference/prometheus-metrics/#counters) to watch this over time instead of one poll at a time.
 
+6. **A per-issue budget ceiling was reached.** An issue held by `agent.max_sessions` or `agent.max_tokens` stays in its active tracker state and is skipped on every poll. Check `GET /api/v1/{identifier}` for `status: "budget_exhausted"`, the dashboard's [Budget blocked table](/reference/dashboard/#budget-blocked-table), or grep your logs for `blocking re-dispatch`. Sortie also posts one comment on the issue naming the ceiling that stopped it. See [how to control agent costs](/guides/control-costs/).
+
 ## Sortie won't start at all
 
 ```

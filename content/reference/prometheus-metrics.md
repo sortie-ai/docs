@@ -22,6 +22,7 @@ Point-in-time values. Sortie updates these after every state mutation - dispatch
 | `sortie_slots_available` | - | Remaining dispatch slots: `max_concurrent_agents - running`. Reaches 0 when the orchestrator is at capacity. | Coordination |
 | `sortie_active_sessions_elapsed_seconds` | - | Sum of wall-clock elapsed seconds across all running sessions. Recomputed from each session's `started_at` timestamp on every poll cycle. Use this to detect active work even when no sessions have recently completed (the runtime counter only increments on session end). | Coordination |
 | `sortie_ssh_host_usage` | `host` | Active workers on a given SSH host. Only populated when [`extensions.worker.ssh_hosts`](/reference/workflow-config/) is configured. | Coordination |
+| `sortie_budget_exhausted_issues` | `reason` | Issues currently held out of dispatch by a per-issue budget ceiling. `reason` is `session_budget` or `token_budget`. Recomputed on every poll tick; a reason that no longer holds any issue reports `0` rather than keeping its last value. | Coordination |
 
 The `host` label on `sortie_ssh_host_usage` matches the values in your `ssh_hosts` list exactly (e.g., `host="build01.internal"`).
 
@@ -41,8 +42,9 @@ Monotonically increasing. Apply `rate()` or `increase()` to extract per-second o
 | `sortie_tracker_requests_total` | `operation`, `result` | Tracker adapter API calls. Each adapter method increments this independently - the orchestrator never touches it. `operation` includes `fetch_candidates`, `fetch_issue`, `fetch_comments`, `fetch_blockers` (the per-candidate blocker read on GitHub and Gitea), `transition`, and `comment`. `result` is `success` or `error`. | Integration |
 | `sortie_handoff_transitions_total` | `result` | Handoff state transition outcomes. `result` is `success` (issue transitioned), `error` (transition API failed, retry scheduled as fallback), `skipped` (a handoff state is configured but no transition was performed, for one of three reasons this label does not distinguish: the issue had already reached a terminal state, it had left the active set, or the run's evidence verdict withheld the handoff and the verification read taken before recording that outcome reported the issue terminal), or `withheld` (the evidence verdict withheld the handoff and that verification read did not report a terminal state, so the run is recorded as failed). Never recorded when `handoff_state` is unset. | Coordination |
 | `sortie_issue_parks_total` | `reason` | Issue park events. `reason` is `handoff_absence` (the consecutive handoff-absence ceiling was reached) or `agent_blocked` (the agent reported itself blocked). | Coordination |
+| `sortie_budget_exhaustions_total` | `reason` | Issues entering the per-issue budget-exhausted set. `reason` is `session_budget` or `token_budget`. Incremented once per hold, by whichever lane - the poll-tick rebuild or the retry timer - discovers it. | Coordination |
 | `sortie_dispatch_transitions_total` | `result` | Dispatch-time in-progress transition outcomes. `result` is `success` (issue transitioned at dispatch), `error` (transition API failed; worker continues to workspace preparation), or `skipped` (issue was already in the target state). Only recorded when [`tracker.in_progress_state`](/reference/workflow-config/) is configured. | Coordination |
-| `sortie_tracker_comments_total` | `lifecycle`, `result` | Tracker comment attempts. `lifecycle` is `dispatch`, `completion`, or `failure`. `result` is `success` or `error`. Only recorded when [`tracker.comments.*`](/reference/workflow-config/) flags are enabled. Comment failures are non-fatal - they increment the `error` result but never block the orchestrator. | Coordination |
+| `sortie_tracker_comments_total` | `lifecycle`, `result` | Tracker comment attempts. `lifecycle` is `dispatch`, `completion`, or `failure` (gated on [`tracker.comments.*`](/reference/workflow-config/) flags), or `budget_hold` (the notice posted when a per-issue budget ceiling is reached, independent of those flags and paced to at most ten notices per thirty-second window). `result` is `success` or `error`. Comment failures are non-fatal - they increment the `error` result but never block the orchestrator. | Coordination |
 | `sortie_tool_calls_total` | `tool`, `result` | Agent tool call completions. `tool` is the tool name (e.g., `Bash`, `tracker_api`). `result` is `success` or `error`. | Coordination |
 | `sortie_ci_status_checks_total` | `result` | CI status check outcomes. `result` is `passing`, `pending`, `failing`, or `error`. Only recorded when the CI reconciliation loop runs. | Coordination |
 | `sortie_ci_escalations_total` | `action` | CI escalation actions taken when checks remain non-passing beyond the configured threshold. `action` is `label`, `comment`, or `error`. | Coordination |
@@ -239,6 +241,7 @@ The dashboard organizes panels into nine collapsible rows. Each panel maps to on
 | Overview | Build info | `sortie_build_info` | Stat (`version`, `go_version`) |
 | Overview | Active sessions | `sortie_sessions_running`, `sortie_sessions_retrying`, `sortie_slots_available` | Stat + time series |
 | Overview | Active sessions elapsed | `sortie_active_sessions_elapsed_seconds` | Stat |
+| Overview | Budget Blocked | `sortie_budget_exhausted_issues` | Stat by `reason` |
 | Throughput | Token consumption | `sortie_tokens_total` | Time series (rate) by `type` |
 | Throughput | Dispatch outcomes | `sortie_dispatches_total` | Time series (rate), `success` vs `error` |
 | Throughput | Agent runtime | `sortie_agent_runtime_seconds_total` | Time series (rate) |
@@ -247,6 +250,7 @@ The dashboard organizes panels into nine collapsible rows. Each panel maps to on
 | Reliability | Retry activity | `sortie_retries_total` | Time series (rate) by `trigger` |
 | Reliability | Poll cycle health | `sortie_poll_cycles_total`, `sortie_poll_duration_seconds` | Count + duration overlay |
 | Reliability | Reconciliation actions | `sortie_reconciliation_actions_total` | Time series (rate) by `action` |
+| Reliability | Budget Exhaustions | `sortie_budget_exhaustions_total` | Stat (1h increase) by `reason` |
 | Integration | Tracker API | `sortie_tracker_requests_total` | Time series (rate) by `operation` × `result` |
 | Integration | Handoff transitions | `sortie_handoff_transitions_total` | Stat counters by `result` |
 | Integration | Dispatch transitions | `sortie_dispatch_transitions_total` | Stat counters by `result` |

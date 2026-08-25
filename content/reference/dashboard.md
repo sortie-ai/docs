@@ -56,7 +56,7 @@ The top bar displays:
 
 ## Summary cards
 
-Four cards across the top provide the high-level picture. A fifth card appears when [token rates](#cost-estimation) are configured.
+Cards across the top provide the high-level picture. Some appear unconditionally; others appear only when specific config or state applies, as the Condition column below states - for example, one appears when [token rates](#cost-estimation) are configured, another when at least one issue is currently held out of dispatch by a budget ceiling.
 
 | Card | Color | Value | Condition | Description |
 |---|---|---|---|---|
@@ -65,6 +65,7 @@ Four cards across the top provide the high-level picture. A fifth card appears w
 | **Slots Free** | Gray | Integer | Always | Remaining dispatch capacity: `max_concurrent_agents − running`. When this reaches 0, the orchestrator waits for a running session to finish before dispatching the next issue. |
 | **Total Tokens** | Blue | Integer (comma-formatted) | Always | Cumulative LLM tokens consumed across all sessions since startup: input plus output. Cache-read tokens are a subset of input and are not added on top. Sessions that reported no token usage contribute nothing. |
 | **Active Est. Cost (USD)** | Neutral | USD string | `token_rates` configured | Estimated cost across currently running sessions, computed from configured per-token rates. Shows an em dash when no running session matches a configured rate. See [cost estimation](#cost-estimation). |
+| **Budget Blocked** | Neutral | Integer | At least one issue budget-exhausted | Number of issues currently held out of dispatch by a per-issue [`agent.max_sessions` or `agent.max_tokens`](/reference/workflow-config/#agent) ceiling. Maps to `sortie_budget_exhausted_issues`. See the [budget blocked table](#budget-blocked-table) below. |
 
 ## Accordion row detail
 
@@ -148,6 +149,19 @@ Lists issues that are waiting for their next session attempt. Sorted by due time
 | **Error** | Error message from the previous failed attempt. Displayed at full width in the detail panel without truncation. |
 
 When no retries are pending, the table is replaced with "No retries pending."
+
+## Budget blocked table
+
+Lists issues currently held out of dispatch by a per-issue [`agent.max_sessions` or `agent.max_tokens`](/reference/workflow-config/#agent) ceiling. Appears only when at least one issue is held. Unlike the other tables on this page, rows are plain - there is no expand indicator or detail panel.
+
+### Columns
+
+| Column | Description |
+|---|---|
+| **Identifier** | Issue identifier. Links to the [per-issue JSON detail endpoint](/reference/http-api/#get-apiv1identifier-issue-detail). |
+| **Reason** | Which ceiling stopped dispatch: "Session budget" or "Token budget". |
+| **Used** | Usage against the ceiling that fired - completed sessions for a session-budget hold, measured tokens for a token-budget hold. |
+| **Blocked For** | Wall-clock time since the hold began, relative to the snapshot timestamp. |
 
 ## Run history table
 

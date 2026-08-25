@@ -42,7 +42,7 @@ If the per-turn budget is absent or `0`, the agent runs uncapped. Don't do this 
 
 ## Cap sessions per issue
 
-`agent.max_sessions` limits how many completed worker sessions the orchestrator runs for one issue before permanently giving up. The default is `0`, which means unlimited — a stuck issue retries forever, with one exception: an issue whose runs produce no observable work at all is bounded by a separate ceiling derived from this same setting even at `0`. See [park issues stuck in a loop of empty runs](/guides/configure-retry-behavior/#park-issues-stuck-in-a-loop-of-empty-runs).
+`agent.max_sessions` limits how many completed worker sessions the orchestrator runs for one issue before permanently giving up. The default is `0`, which means unlimited — a stuck issue retries forever. A separate setting, `agent.max_consecutive_absences`, bounds an issue whose runs produce no observable work at all, regardless of what `max_sessions` is set to. See [park issues stuck in a loop of empty runs](/guides/configure-retry-behavior/#park-issues-stuck-in-a-loop-of-empty-runs).
 
 ```yaml
 agent:
