@@ -118,7 +118,9 @@ If the agent fails to write a valid verdict file on non-final iterations, Sortie
 
 ## What `.sortie/status` means during review
 
-The two recognized values mean something different here than they do in the coding turns. Writing `needs-human-review` during a review or fix turn is consumed and ignored: it does not end the phase early and does not substitute for a verdict file. Writing `blocked` still ends the phase, and it converts the run's exit to the blocked disposition, whichever of the two admissions brought the run into the phase. The review prompt tells the agent as much on every iteration.
+The two recognized values mean something different here than they do in the coding turns. Writing `needs-human-review` during a review or fix turn does not end the phase early and does not substitute for a verdict file. Writing `blocked` still ends the phase, and it converts the run's exit to the blocked disposition, whichever of the two admissions brought the run into the phase. The review prompt tells the agent as much on every iteration.
+
+Sortie removes the file after each review turn and each fix turn that reports either value, so nothing the agent writes during the phase is left behind for the `after_run` hook or for a later `cat` of the workspace. The `blocked` signal that ended the phase is removed with the rest; what records it is the run's blocked exit, not the file.
 
 ## What the agent sees
 

@@ -86,11 +86,15 @@ complete and awaiting review. Do not write this file during normal productive wo
 
 Continuation turns do not repeat the instructions. You can include your own instructions in prompt templates too - duplicates are harmless.
 
-During the self-review phase, a second injected instruction supersedes this one for the duration of the phase: it tells the agent to report through `.sortie/review_verdict.json` instead, that writing `needs-human-review` to `.sortie/status` there is consumed and ignored, and that `blocked` still ends the phase.
+During the self-review phase, a second injected instruction supersedes this one for the duration of the phase: it tells the agent to report through `.sortie/review_verdict.json` instead, that writing `needs-human-review` to `.sortie/status` there neither ends the phase nor substitutes for a verdict, and that `blocked` still ends the phase.
 
 ### Cleanup and protection
 
-Sortie deletes `.sortie/status` before each new dispatch to prevent stale signals from a previous run.
+Sortie deletes `.sortie/status` before each new dispatch, so a stale signal from a previous run cannot affect the new one.
+
+Sortie deletes it again at each point in a run where it acts on a recognized value: when a completion signal admits the run to the [self-review phase](/guides/configure-self-review/), and after every review turn and every fix turn inside that phase. Which value was read makes no difference at those points; `blocked` and `needs-human-review` are both removed. The read after a coding turn deletes nothing, so a recognized value written there stays on disk through teardown on a run that never enters the phase. Every deletion is best-effort and applies the same `Lstat` symlink rejection as the read; a deletion that fails is logged and changes nothing else about the run.
+
+An absent or empty file therefore carries two meanings: the agent has written nothing, or Sortie has already acted on what it wrote. What an `after_run` hook or a later `cat` finds is a value Sortie has not acted on.
 
 Sortie writes `.sortie/.gitignore` (containing `*`) before any session data reaches disk. This prevents credentials in `.sortie/mcp.json` from being committed and blocked by GitHub Push Protection.
 
