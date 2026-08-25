@@ -957,7 +957,7 @@ A session that a [`dispatch` rule](#dispatch) routed to an agent kind other than
 | `disallowed_tools` | string | _(none)_ | `--disallowedTools` | Comma- or space-separated list of tools to deny. A bare tool name removes the tool from the model's context; a scoped rule denies only matching calls. |
 | `system_prompt` | string | _(none)_ | `--append-system-prompt` | Text appended to Claude Code's default system prompt rather than replacing it. |
 | `mcp_config` | string | _(none)_ | `--mcp-config` | Path to an MCP server configuration file, resolved relative to the WORKFLOW.md directory when not absolute. Sortie reads that file and passes a generated copy carrying its own `sortie-tools` server, leaving the original unmodified; a file already declaring `sortie-tools` fails the attempt. |
-| `session_persistence` | boolean | `true` | `--no-session-persistence` | Whether Claude Code saves session history to disk. When `false`, the flag is passed and no session file is written. The adapter continues a session on later turns with `--resume <session_id>`, which reads the persisted session, so `false` is refused before the run. See [session persistence and resume](/reference/adapter-claude-code/#session-persistence-and-resume). |
+| `session_persistence` | boolean | `true` | `--no-session-persistence` | Whether Claude Code saves session history to disk. When `false`, the flag is passed and no session file is written. The adapter passes `--resume <session_id>`, which reads the persisted session, on every turn but the first of a session it opened itself, so `false` is refused before the run. See [session persistence and resume](/reference/adapter-claude-code/#session-persistence-and-resume). |
 
 `permission_mode` and `session_persistence` are the keys checked before the run. The rest reach the CLI unvalidated, and what it does with an invalid value differs per flag: `--effort` falls back to the default effort with a warning, and an unknown model name reaches the API and fails there. A key whose YAML value has the wrong type is ignored and the default applies.
 
@@ -978,19 +978,21 @@ claude-code:
 
 ### `copilot-cli`
 
-| Field                     | Type    | Description                                                                 |
-| ------------------------- | ------- | --------------------------------------------------------------------------- |
-| `model`                   | string  | LLM model identifier, forwarded unchanged. See `copilot --help` on your installed version for the accepted values.                |
-| `max_autopilot_continues` | integer | Maximum autonomous continuation steps. Default: `50`.                       |
-| `agent`                   | string  | Custom agent name for routing.                                              |
-| `allowed_tools`           | string  | Tools permitted without confirmation (glob patterns).                       |
-| `denied_tools`            | string  | Tools denied (takes precedence over `allowed_tools`).                       |
-| `available_tools`         | string  | Restrict tool palette to listed tools only.                                 |
-| `excluded_tools`          | string  | Remove specific tools from the available set.                               |
-| `mcp_config`              | string  | Inline JSON or path to an MCP server configuration file.                    |
-| `disable_builtin_mcps`    | boolean | Disable all built-in MCP servers.                                           |
-| `no_custom_instructions`  | boolean | Disable loading custom instructions from workspace files.                   |
-| `experimental`            | boolean | Enable experimental Copilot CLI features.                                   |
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `model` | string | _(CLI default)_ | Forwarded to `--model` unchanged. See `copilot --help` on your installed version for the accepted values. |
+| `max_autopilot_continues` | integer | `50` | Forwarded to `--max-autopilot-continues`, the ceiling on autopilot continuation steps inside one turn. The flag is always passed: an absent key, a non-integer value, and any value of zero or less all send `50`. |
+| `agent` | string | _(none)_ | Forwarded to `--agent`. Selects a named Copilot agent for the turn. |
+| `allowed_tools` | string | _(none)_ | Forwarded to `--allow-tool` as a single argument. |
+| `denied_tools` | string | _(none)_ | Forwarded to `--deny-tool` as a single argument. |
+| `available_tools` | string | _(none)_ | Forwarded to `--available-tools` as a single argument. |
+| `excluded_tools` | string | _(none)_ | Forwarded to `--excluded-tools` as a single argument. |
+| `mcp_config` | string | _(none)_ | Path to an MCP server configuration file, resolved relative to the WORKFLOW.md directory when not absolute. Its servers are merged into the copy Sortie generates for its own tool sidecar; the original is never modified, and a file already declaring `sortie-tools` fails the attempt. That generated copy is what reaches `--additional-mcp-config`, so this value is forwarded on its own only when no copy was generated. See [Sortie's own tools and the `mcp_config` field](/reference/adapter-copilot/#sorties-own-tools-and-the-mcp_config-field). |
+| `disable_builtin_mcps` | boolean | `false` | Adds `--disable-builtin-mcps` when true, withholding the CLI's built-in MCP servers. |
+| `no_custom_instructions` | boolean | `false` | Adds `--no-custom-instructions` when true, so the CLI skips the custom instruction files it would otherwise read. |
+| `experimental` | boolean | `false` | Adds `--experimental` when true, enabling the CLI's experimental features. |
+
+No value in this block is refused before the run; the tool-scoping keys draw a warning only. A key whose YAML value has the wrong type is ignored and the default applies.
 
 > [!WARNING]
 > `agent.max_turns` (orchestrator turn-loop limit) and `copilot-cli.max_autopilot_continues` (CLI autonomy budget) are distinct values with different semantics. The orchestrator limit controls how many turns the worker runs before exiting. The adapter limit controls how many autonomous continuation steps Copilot CLI takes within a single `RunTurn` invocation.

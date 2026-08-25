@@ -272,11 +272,12 @@ If the stdout scanner encounters an error (buffer overflow, broken pipe), the ad
 
 **Key difference from Claude Code:** session ID discovery is deferred.
 
-Claude Code generates a UUID session ID at session start and passes it immediately via `--session-id`. Copilot CLI reports its session ID only in the `result` event at the end of a turn. The adapter handles this with a fallback mechanism:
+Claude Code knows its session ID before its first turn: the adapter generates a UUID for a new session, or adopts the one carried over from an earlier attempt. Copilot CLI reports its session ID only in the `result` event at the end of a turn. The adapter handles this with a fallback mechanism:
 
 | Turn | Session ID known? | CLI flag |
 |---|---|---|
 | First turn, new session | No | _(neither `--resume` nor `--continue`)_ |
+| First turn, session ID carried over from an earlier worker attempt on the same issue | Yes | `--resume <sessionId>` |
 | Subsequent turn, ID captured from result | Yes | `--resume <sessionId>` |
 | Subsequent turn, no ID ever captured | No | `--continue` (resumes most recent conversation in workspace) |
 
@@ -372,7 +373,7 @@ The orchestrator's preflight validation uses `RequiresCommand` to produce a spec
 | Resume flag | `--resume <UUID>` | `--resume <sessionId>` or `--continue` fallback |
 | Input token reporting | Per-request, from the result event's per-model breakdown | Recovered from the runtime's session-state journal after exit; unavailable in SSH mode |
 | Model reporting | From `assistant` events | Not available |
-| Permission mode | `--permission-mode` or `--dangerously-skip-permissions` | `--autopilot` + `--no-ask-user` + `--allow-all` |
+| Permission mode | `--permission-mode` or `--dangerously-skip-permissions` | `--autopilot` + `--no-ask-user`, plus `--allow-all` unless a tool-scoping key is set |
 | Tool error detail | Error text with XML/ANSI stripping | Boolean `success` flag only |
 | Authentication | `ANTHROPIC_API_KEY` (+ Bedrock, Vertex) | `COPILOT_GITHUB_TOKEN` / `GH_TOKEN` / `GITHUB_TOKEN` / `gh auth` |
 | Canary check | None | `copilot --version` (5-second timeout) |
