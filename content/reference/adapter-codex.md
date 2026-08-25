@@ -81,7 +81,7 @@ Within a single turn, Codex's internal agentic loop runs until completion, inter
 
 For headless orchestration, the adapter defaults `approval_policy` to `"never"` and `thread_sandbox` to `"workspaceWrite"`. `approvalPolicy` travels on `thread/start` only; the adapter sends no turn-level override, so the thread's policy governs every turn of the session.
 
-`never` is the only value Sortie accepts. Every run is unattended, so a policy that lets the app-server stop and ask for a decision has nobody to answer it, and the `codex.approval_policy.interactive` error refuses it before the run. Which policies Codex itself offers, and what each one does, is Codex's to document; see [external references](#external-references). Two shapes of wrong value fail differently: one the app-server rejects makes `thread/start` fail with `response_error` and no session is created, while a map value is read as a string, discarded without a diagnostic, and the thread starts under `never`.
+`never` is the only value Sortie accepts. Every run is unattended, so a policy that lets the app-server stop and ask for a decision has nobody to answer it, and the `codex.approval_policy.interactive` error refuses any other string value before the run starts, so the app-server never sees it. Which policies Codex itself offers, and what each one does, is Codex's to document; see [external references](#external-references). A map value is the one exception: it is read as a string, discarded without a diagnostic, and the thread starts under `never`.
 
 The default keeps the app-server from asking most questions. The adapter refuses the ones that still arrive rather than leaving any of them waiting, and it splits them by what was asked for rather than by which method asked.
 
