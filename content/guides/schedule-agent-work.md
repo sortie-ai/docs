@@ -324,10 +324,16 @@ as failed and retried with backoff.
 
 Consecutive withheld runs on one issue are counted. On reaching the ceiling,
 Sortie attaches an escalation label and dispatches the issue no further. The
-ceiling is `agent.max_sessions` where you set one and `3` otherwise, so the
-budget above parks a quiet issue after two empty runs. The label is
-`reactions.review_comments.escalation_label`, or `needs-human` when that block
-or value is absent.
+ceiling is a separate setting, `agent.max_consecutive_absences`, defaulting
+to `3` and independent of `agent.max_sessions`. With the budget above
+(`max_sessions: 2`), the session budget is what actually stops a quiet
+issue: it exhausts after two empty runs, before three consecutive absences
+can accumulate, and Sortie holds the issue out of dispatch rather than
+parking it with an escalation label - see [how to control agent
+costs](/guides/control-costs/#cap-sessions-per-issue). Set
+`agent.max_consecutive_absences: 2` if you want the park-and-label behavior
+to fire instead. The label is `reactions.review_comments.escalation_label`,
+or `needs-human` when that block or value is absent.
 
 The comparison reads the Git worktree only, ignoring `.sortie/` and gitignored
 paths. A task whose sole output is a tracker comment, an external dashboard, or

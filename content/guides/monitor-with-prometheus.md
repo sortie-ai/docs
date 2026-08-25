@@ -95,6 +95,7 @@ The dashboard includes these panels, grouped into collapsible rows:
 | Panel | What it shows |
 |---|---|
 | Active sessions | Running, retrying, and available slots as stat panels, elapsed time, and a time series |
+| Budget Blocked | Issues currently held out of dispatch by a budget ceiling, by reason |
 | Token consumption | Input and output token rates over time |
 | Dispatch outcomes | Success vs. error dispatch rate |
 | Agent runtime | Cumulative agent runtime rate |
@@ -103,6 +104,7 @@ The dashboard includes these panels, grouped into collapsible rows:
 | Retry activity | Retry rate broken down by trigger (error, continuation, stall) |
 | Poll cycle health | Poll success/error/skip counts with duration overlay |
 | Reconciliation actions | Reconciliation outcome rate by action |
+| Budget Exhaustions | Issue entries into the budget-exhausted set over the last hour, by reason |
 | Tracker API | Tracker adapter call rate by operation and result |
 | Handoff transitions | Handoff transition outcome counters |
 | Dispatch transitions | Dispatch-time transition outcome counters |

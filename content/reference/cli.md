@@ -281,7 +281,7 @@ The pipeline checks:
 
 - Workflow file existence, readability, and YAML syntax.
 - Front matter is a YAML map (not a scalar, list, or null).
-- Integer-typed fields accept valid integers (type coercion from string and float). Affected fields: `polling.interval_ms`, `agent.turn_timeout_ms`, `agent.read_timeout_ms`, `agent.stall_timeout_ms`, `agent.max_concurrent_agents`, `agent.max_turns`, `agent.max_retry_backoff_ms`, `agent.max_sessions`, `hooks.timeout_ms`.
+- Integer-typed fields accept a whole-number float or a numeric string in addition to a literal integer (type coercion). Every integer field in the front matter goes through the same conversion, and a value that is not a whole number is rejected as a configuration error rather than replaced by a default.
 - `tracker.handoff_state` is a string, is non-empty when present, and does not collide with `active_states` or `terminal_states`.
 - `tracker.handoff_evidence` is one of `observed`, `strict`, or `off`. The check is a closed-set comparison and runs offline with no network access.
 - `tracker.in_progress_state` is a member of `active_states` when present, and does not collide with `terminal_states` or `handoff_state`.
@@ -301,7 +301,7 @@ The pipeline checks:
 
 The pipeline does **not** check:
 
-- **Value ranges**, for most fields other than `agent.max_sessions`, `agent.turn_timeout_ms`, and `workspace.retention_days`. Negative values for `polling.interval_ms` or other timeout fields are accepted. Zero replaces with a built-in default for `polling.interval_ms` and `agent.read_timeout_ms`; for `agent.stall_timeout_ms` zero is kept and disables stall detection. `agent.turn_timeout_ms` is checked: it must be positive, and any other value is rejected rather than replaced.
+- **Value ranges**, for most fields. `agent.max_sessions`, `agent.max_tokens`, `agent.max_consecutive_absences`, `agent.turn_timeout_ms`, `workspace.retention_days`, `ci_feedback.max_retries`, `ci_feedback.max_log_lines`, the `self_review` integer fields, `reactions.*.max_retries`, and the `reactions.ci_failure` integer fields are checked and reject an out-of-range value as a configuration error. Negative values for `polling.interval_ms` or other timeout fields are accepted. Zero replaces with a built-in default for `polling.interval_ms` and `agent.read_timeout_ms`; for `agent.stall_timeout_ms` zero is kept and disables stall detection. `agent.turn_timeout_ms` must be positive; any other value is rejected rather than replaced.
 - **Format constraints.** `tracker.endpoint` is not checked for valid URL syntax. Path fields are not checked for existence (except `workspace.root`).
 
 #### Advisory warnings

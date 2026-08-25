@@ -60,7 +60,12 @@ level=WARN msg="token budget exhausted, blocking re-dispatch" issue_id="PROJ-42"
 
 Sortie distinguishes a run that produced nothing observable in the workspace from a run that failed outright. Under [`tracker.handoff_evidence`](/reference/workflow-config/#tracker) at its default, `observed` (and under `strict`), a run whose workspace shows no evidence of work does not advance the issue. It is retried on the same exponential backoff as an error, not the 1-second continuation delay below. See the [state machine reference](/reference/state-machine/#handoff-evidence) for the full three-verdict rule this follows.
 
-Left alone, an issue stuck in that loop would retry forever. Sortie counts consecutive runs whose handoff was withheld this way and stops once the count reaches a ceiling. That ceiling is not a setting of its own: it is `agent.max_sessions`, with one exception baked in. `max_sessions: 0` still means unlimited for the ordinary per-issue session budget, but this consecutive-absence ceiling reads `0` as `3`. With the default, an issue that never shows evidence of work gets the initial run plus two retries, then parks on the third absence.
+Left alone, an issue stuck in that loop would retry forever. Sortie counts consecutive runs whose handoff was withheld this way and stops once the count reaches a ceiling: [`agent.max_consecutive_absences`](/reference/workflow-config/#agent), which defaults to `3` and is a separate setting from `agent.max_sessions` - raising or lowering one does not move the other. Unlike `max_sessions`, `0` does not mean unlimited here: `0` and negative values are rejected as a configuration error, because an unbounded absence sequence is exactly what this ceiling exists to prevent. With the default, an issue that never shows evidence of work gets the initial run plus two retries, then parks on the third absence.
+
+```yaml
+agent:
+  max_consecutive_absences: 5   # Park after five consecutive absences instead of three
+```
 
 Parking:
 
@@ -75,7 +80,7 @@ You'll see both steps in the logs:
 
 ```
 level=WARN msg="handoff withheld by evidence policy" issue_id="PROJ-42" issue_identifier="PROJ-42" policy="observed" verdict="absence of work observed" reason="workspace commit and working tree match the run baseline" turns_completed=2 consecutive_absences=3
-level=WARN msg="issue parked" issue_id="PROJ-42" issue_identifier="PROJ-42" reason="handoff_absence" parked_state="In Progress" label="needs-human" consecutive_absences=3 absence_ceiling=3
+level=WARN msg="issue parked" issue_id="PROJ-42" issue_identifier="PROJ-42" reason="handoff_absence" parked_state="In Progress" label="needs-human" consecutive_absences=3 absence_ceiling=3 ceiling_setting="agent.max_consecutive_absences"
 ```
 
 Release a parked issue with any one of three gestures:
@@ -230,6 +235,6 @@ grep "issue parked" sortie.log
 
 ## What we configured
 
-You now have control over all five dimensions of Sortie's retry behavior: how many times it retries (`max_sessions`), how much an issue may spend across those attempts (`max_tokens`), how long it waits between retries (`max_retry_backoff_ms`), how it detects stuck sessions (`stall_timeout_ms`), and when it gives up on a single turn (`turn_timeout_ms`). The continuation retry for successful-but-incomplete work runs at a fixed 1-second interval and needs no configuration. Neither does the consecutive-absence ceiling that parks an issue stuck producing no observable work: it is derived from `max_sessions` rather than set separately.
+You now have control over Sortie's retry behavior: how many times it retries (`max_sessions`), how much an issue may spend across those attempts (`max_tokens`), how long it waits between retries (`max_retry_backoff_ms`), how it detects stuck sessions (`stall_timeout_ms`), when it gives up on a single turn (`turn_timeout_ms`), and how many consecutive absences of observable work it tolerates before parking an issue (`max_consecutive_absences`). The continuation retry for successful-but-incomplete work runs at a fixed 1-second interval and needs no configuration.
 
 For the full state machine and backoff formulas, see the [state machine reference](/reference/state-machine/). For all config field defaults in one place, see the [workflow config reference](/reference/workflow-config/). For budget and cost controls that complement retry settings, see [how to control agent costs](/guides/control-costs/).

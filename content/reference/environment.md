@@ -78,6 +78,7 @@ A real env var always beats a `.env` value for the same key. Both beat whatever 
 | `SORTIE_AGENT_MAX_RETRY_BACKOFF_MS` | [`agent.max_retry_backoff_ms`](/reference/workflow-config/#agent) | int |
 | `SORTIE_AGENT_MAX_SESSIONS` | [`agent.max_sessions`](/reference/workflow-config/#agent) | int |
 | `SORTIE_AGENT_MAX_TOKENS` | [`agent.max_tokens`](/reference/workflow-config/#agent) | int |
+| `SORTIE_AGENT_MAX_CONSECUTIVE_ABSENCES` | [`agent.max_consecutive_absences`](/reference/workflow-config/#agent) | int |
 
 ### Top-level variables
 
