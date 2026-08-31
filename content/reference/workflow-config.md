@@ -108,7 +108,6 @@ ci_feedback:
 reactions:
   review_comments:
     provider: github                      # SCM adapter for review polling
-    max_retries: 2                        # review-fix turns before escalation
     escalation: label                     # "label" or "comment"
     escalation_label: needs-human         # label on escalation
     poll_interval_ms: 120000              # 2 min poll interval
@@ -202,6 +201,7 @@ Issue tracker connection and query settings.
 | `terminal_states` | list of strings | `[]`                  | Issue states that trigger workspace cleanup. This is the primary removal ground and is always on; the opt-in age bound in [`workspace.retention_days`](#workspace) is the second. |
 | `query_filter`    | string          | `""`                  | Query fragment that narrows candidate and terminal-state queries. For Jira: a JQL expression appended to the query. For Linear: an `IssueFilter` JSON object merged into the query (see the Linear example below). For Gitea: a URL query fragment merged into the repository issue-list query (see the Gitea example below). For GitLab: a URL query fragment merged into the project issue-list query, key-checked against a closed allowlist (see the GitLab example below). |
 | `handoff_state`   | string          | _(absent)_            | Target state after a successful agent run. Absent disables handoff.     |
+| `no_change_state` | string          | _(absent)_            | Target state for a run that declared the requested outcome already held (`no-change-needed` on `.sortie/status`). Absent falls back to `handoff_state`. Requires `handoff_state` to be set, and must equal `handoff_state` or name a member of `terminal_states` - the one target-state field allowed to name a terminal state. See [handoff evidence: declaring that nothing needed changing](/reference/state-machine/#declaring-that-nothing-needed-changing). |
 | `handoff_evidence` | string         | `"observed"`           | Evidence policy consulted before the handoff write. `observed` withholds the write only on a positively observed absence of workspace change; `strict` also withholds it when evidence cannot be determined; `off` performs no evidence check and leaves the write governed by the other handoff conditions alone. See [state machine reference](/reference/state-machine/#handoff-evidence). |
 | `in_progress_state` | string        | _(absent)_            | Target state for dispatch-time transition at the start of each worker attempt. Absent disables dispatch-time transitions. |
 | `api_version`     | string          | `"3"`                 | Jira REST API version: `"3"` for Jira Cloud, `"2"` for Jira Server / Data Center. Quote the value; a bare integer draws a `sortie validate` advisory. Adapters other than Jira ignore this field. `sortie validate` rejects a value other than `"2"` or `"3"`, and rejects `"2"` against an `.atlassian.net` endpoint. See the [Jira adapter reference](/reference/adapter-jira/#api_version) for deployment-mode behavior and [offline validation](/reference/adapter-jira/#offline-validation) for the full check list. |
@@ -213,7 +213,7 @@ Issue tracker connection and query settings.
 
 `api_key` applies full environment expansion: `$VAR` and `${VAR}` references are resolved at any position in the string.
 
-`endpoint`, `project`, `query_filter`, `handoff_state`, `in_progress_state`, and `api_version` use targeted resolution: the value is expanded only when the entire trimmed string starts with `$`. Literal URIs and project keys that contain `$` characters elsewhere are returned unchanged.
+`endpoint`, `project`, `query_filter`, `handoff_state`, `no_change_state`, `in_progress_state`, and `api_version` use targeted resolution: the value is expanded only when the entire trimmed string starts with `$`. Literal URIs and project keys that contain `$` characters elsewhere are returned unchanged.
 
 See the [environment variables reference](/reference/environment/#var-indirection-in-workflowmd) for expansion mechanics.
 
@@ -222,6 +222,8 @@ See the [environment variables reference](/reference/environment/#var-indirectio
 At least one of `active_states` or `terminal_states` must be non-empty. When both are empty, Sortie refuses to start. An empty `active_states` with non-empty `terminal_states` is valid but means no issues are dispatched.
 
 `handoff_state`, when set, must not appear in `active_states` (causes immediate re-dispatch loop) or `terminal_states` (handoff is not a terminal outcome). Jira handoff requires write permissions on the API token: `write:jira-work` (classic) or `write:issue:jira` (granular).
+
+`no_change_state`, when set, requires `handoff_state` to be non-empty - a declared run with no handoff path performs no transition. Compared case-insensitively, its value must equal `handoff_state` or name a member of `terminal_states` as written, with no fallback to an adapter's default terminal list; any other value is a configuration error. Unlike its sibling target-state fields, naming a terminal state is exactly the case `no_change_state` exists for - a handoff with no pull request and no diff put in front of a reviewer - so a terminal `no_change_state` is never the default and stays an explicit opt-in.
 
 `in_progress_state`, when set, must appear in `active_states` (otherwise reconciliation would immediately cancel the worker after the transition). It must not appear in `terminal_states` or collide with `handoff_state`. If the issue is already in the target state at dispatch time, the transition call is skipped (debug log only). Other transition failures at runtime are non-fatal: the worker logs a warning and continues to workspace preparation. Requires the same write permissions as `handoff_state`.
 
@@ -404,7 +406,7 @@ The floor of `30` is fixed by a second window rather than chosen for taste. Pend
 
 Age is measured from the later of two recorded timestamps: the most recent run completion recorded for that workspace's identifier, and the `pushed_at` value in the workspace's `.sortie/scm.json`. A workspace is removable when that anchor is older than the window. Directory modification time is not used, and was rejected deliberately: lifecycle hooks, agent processes, and background tooling inside the checkout all move it, so it reports filesystem activity rather than work. A workspace with neither timestamp is retained, never removed. Absence of a record is not evidence of age, and that case covers a run that never completed, a directory produced by an operator or a hook, and a directory Sortie did not create.
 
-Two exclusions are absolute. A workspace whose issue holds an entry in the running map or the retry map is never removed, whatever its age and however large the directory. A workspace pinned by an unexpired pending reaction is excluded until that entry expires, which takes at most 30 minutes; see the [reactions reference](/reference/reactions/#retry-budgets) for which reaction kinds pin a workspace and which do not. Everything else on disk is a candidate.
+Two exclusions are absolute. A workspace whose issue holds an entry in the running map or the retry map is never removed, whatever its age and however large the directory. A workspace pinned by an unexpired pending reaction is excluded until that entry expires, a bound set by that reaction kind's `watch_window_ms` (30 minutes by default, up to 24 hours by default for `ci_failure`); see the [reactions reference](/reference/reactions/#retry-budgets) for which reaction kinds pin a workspace and which do not. Everything else on disk is a candidate.
 
 The bound removes directories and does nothing else. It performs no tracker write, no source-control write, and no change to reaction state, so a workspace removed by age leaves every reaction latch exactly as it found it. Removal runs through the same path as terminal cleanup, so workspace key sanitization, containment under `root`, and the [`before_remove` hook](/guides/setup-workspace-hooks/) all apply unchanged.
 
@@ -608,6 +610,8 @@ Per-rule `template` paths resolve relative to the directory containing WORKFLOW.
 - A `priority` predicate carries no operator or more than one.
 - A referenced template is missing, unreadable, contains front matter, or fails to parse.
 
+A `rule.agent` or `default.agent` naming a registered kind that differs from `agent.kind` is checked separately, alongside every other agent block preflight validates: see [`dispatch.agent.missing_block`](#adapter-pass-through-configuration).
+
 Validation is single-pass: the first error short-circuits the run, so two unrelated dispatch errors surface across two runs.
 
 > [!NOTE]
@@ -748,7 +752,7 @@ For operational guidance on setting up self-review, choosing verification comman
 
 ## `reactions`
 
-The `reactions` block configures post-PR feedback loops. Each key is a reaction kind (e.g. `review_comments`) with its own provider, retry budget, and escalation policy. Reactions are opt-in: omit the block entirely to disable all reaction types. The `label_commands` key is configured in the same block but is human-triggered rather than event-driven, and it carries no retry budget or escalation.
+The `reactions` block configures post-PR feedback loops. Each key is a reaction kind (e.g. `review_comments`) with its own provider, retry budget, and escalation policy, and four of the kinds also accept an optional [`triage` command](/reference/reactions/#triage-command) that runs before a continuation is dispatched. Reactions are opt-in: omit the block entirely to disable all reaction types. The `label_commands` key is configured in the same block but is human-triggered rather than event-driven, and it carries no retry budget or escalation.
 
 For the shared reaction lifecycle and every kind Sortie ships, with field tables and safety rules, see the [reactions reference](/reference/reactions/).
 
@@ -759,21 +763,21 @@ Polls `CHANGES_REQUESTED` review comments on Sortie-created PRs and dispatches c
 | Field                    | Type    | Default        | Description                                                                                          |
 | ------------------------ | ------- | -------------- | ---------------------------------------------------------------------------------------------------- |
 | `provider`               | string  | _(required)_   | SCM adapter kind (e.g. `"github"`). Must match a registered SCM adapter.                           |
-| `max_retries`            | integer | `2`            | Maximum review-fix continuation turns before escalation. Non-negative.                               |
-| `escalation`             | string  | `"label"`     | Action on retry exhaustion: `"label"` or `"comment"`.                                            |
+| `escalation`             | string  | `"label"`     | Action on budget exhaustion, and on a [`triage` command](/reference/reactions/#triage-command) answering `escalate`: `"label"` or `"comment"`. |
 | `escalation_label`       | string  | `"needs-human"` | Label applied when `escalation` is `"label"`.                                                    |
 | `poll_interval_ms`       | integer | `120000`       | Minimum interval between review API polls per issue. Minimum: `30000`.                               |
 | `debounce_ms`            | integer | `60000`        | Wait time after last detected comment before dispatch. Non-negative.                                 |
-| `max_continuation_turns` | integer | `3`            | Hard cap on review-triggered continuations per PR. Positive integer.                                 |
+| `max_continuation_turns` | integer | `3`            | Hard cap on review-triggered continuations per PR before escalation. Positive integer.               |
+| `watch_window_ms`        | integer | `1800000`      | Milliseconds a pending entry is kept, measured from the entry's creation. Non-negative, not above `9223372036854` (about 292 years); `0` removes the bound.  |
 
-`provider` is required when `reactions.review_comments` is present; omitting it does not produce an error, but review polling is inactive without a provider. `max_retries` must be non-negative. `escalation` must be `"label"` or `"comment"`; other values produce a configuration error. `poll_interval_ms` has a minimum of `30000`; values below are rejected. `max_continuation_turns` must be positive. When more than one SCM reaction kind is active, every active kind must name the same `provider`; a mismatch is a fatal startup error.
+`provider` is required when `reactions.review_comments` is present; omitting it does not produce an error, but review polling is inactive without a provider. This kind also accepts the common `max_retries` field and validates it like every other kind, but does not consume it: its escalation budget is `max_continuation_turns` instead, so a `max_retries` value set here has no effect. `escalation` must be `"label"` or `"comment"`; other values produce a configuration error. `poll_interval_ms` has a minimum of `30000`; values below are rejected. `max_continuation_turns` must be positive. `watch_window_ms` must be non-negative and must not exceed `9223372036854`. When more than one SCM reaction kind is active, every active kind must name the same `provider`; a mismatch is a fatal startup error.
 
 Review feedback requires `.sortie/scm.json` in the workspace to contain `pr_number` (integer > 0), `owner`, and `repo` fields. The agent or `after_run` hook writes these. When any field is missing or zero, review polling is skipped for that workspace. No error is logged; the feature degrades silently.
 
 > [!NOTE]
 > Environment variable overrides for `reactions` fields are not supported. Reaction configuration must come from WORKFLOW.md.
 
-`reactions.review_comments` is captured once when the orchestrator starts and is not rebuilt on a dynamic reload. Changing any field here, and adding or removing the block itself, takes effect only on the next restart. This holds for every reaction kind except `ci_failure`, which is folded into the CI feedback configuration and re-read on every tick.
+`reactions.review_comments` is captured once when the orchestrator starts and is not rebuilt on a dynamic reload. Changing any field here, and adding or removing the block itself, takes effect only on the next restart. This holds for every reaction kind except `ci_failure`, which is folded into the CI feedback configuration and re-read on every tick, apart from its `max_log_lines` and its `triage` block.
 
 **Minimal:**
 
@@ -789,12 +793,12 @@ reactions:
 reactions:
   review_comments:
     provider: github                    # required; registered SCM adapter
-    max_retries: 2                      # continuation turns before escalation
     escalation: label                   # "label" or "comment"
     escalation_label: needs-human       # label applied on escalation
     poll_interval_ms: 120000            # 2 min between API polls
     debounce_ms: 60000                  # 60s debounce after last comment
-    max_continuation_turns: 3           # hard cap per PR
+    max_continuation_turns: 3           # hard cap per PR; the escalation budget for this kind
+    watch_window_ms: 1800000            # optional; shown at its default (30 min)
 ```
 
 When a review-fix continuation dispatches, the prompt receives a `review_comments` template variable: a list of maps with keys `id`, `file`, `start_line`, `end_line`, `reviewer`, `body`. Templates should guard with `{{ if .review_comments }}`. See the [`.review_comments`](#review_comments) template variable reference below for the full schema, and [how to write a prompt template](/guides/write-prompt-template/) for syntax.
@@ -937,11 +941,13 @@ db_path: /var/lib/sortie/state.db
 
 Each adapter reads additional settings from a top-level block named after its `kind` value. The orchestrator forwards these blocks to the adapter as written, with two exceptions, both checked before any run starts. Either draws an error or a warning at startup, on every workflow reload, and from [`sortie validate`](/reference/cli/#validate). Each adapter reference page lists its own checks.
 
-The first exception is a value that changes the permission posture an unattended launch depends on. Every agent runs unattended, so nobody is there to answer a prompt. A value that would leave the agent waiting for one is refused as an error: `codex.approval_policy`, `claude-code.permission_mode`, and `kiro.trust_all_tools` with `kiro.trust_tools`. A value that only narrows what the agent may do, without leaving a turn waiting, draws a warning instead: `copilot-cli`'s four tool-scoping keys and `opencode.dangerously_skip_permissions`.
+The first exception is a value that changes the permission posture an unattended launch depends on. Every agent runs unattended, so nobody is there to answer a prompt. A value that would leave the agent waiting for one is refused as an error: `codex.approval_policy`, `claude-code.permission_mode`, and `kiro.trust_all_tools` with `kiro.trust_tools`. A value that only narrows what the agent may do, without leaving a turn waiting, draws a warning instead: `copilot-cli.allowed_tools` and `opencode.dangerously_skip_permissions`.
 
 The second exception is a value that stops the agent kind resuming a session across separate agent launches. Sortie re-dispatches an issue carrying its earlier session after a retry, a continuation, a stall, or a restart, so such a value makes every resumed turn fail. `claude-code.session_persistence` set to `false` is the only key any built-in adapter declares this way; the refusal is an `agent.kind.session_resume` error and carries no condition on `agent.max_turns` or on any other core setting.
 
 A session that a [`dispatch` rule](#dispatch) routed to an agent kind other than the workflow default reads that kind's own block, on every attempt of that session. The block named by `agent.kind` applies only to sessions no rule routed elsewhere.
+
+A kind that `dispatch.default.agent` or a `dispatch.rules[i].agent` names, and that differs from the top-level `agent.kind`, must carry its own top-level block in the front matter - an empty one is enough, written as `codex: {}` or as a bare `codex:` key with nothing after it. A block present as a scalar or a list does not count. Its absence is a `dispatch.agent.missing_block` error at startup, on every workflow reload, and from `sortie validate`, naming the selector that introduced the kind and the block it expects; the workflow does not start until the block is added. The check is skipped for a kind the agent registry does not recognize, since that is already reported separately as an unknown adapter kind. `agent.command` stays workflow-wide regardless: a routed kind's own block cannot override it, so adding the block satisfies this check without changing which binary the route launches.
 
 ### `claude-code`
 
@@ -992,12 +998,12 @@ claude-code:
 | `no_custom_instructions` | boolean | `false` | Adds `--no-custom-instructions` when true, so the CLI skips the custom instruction files it would otherwise read. |
 | `experimental` | boolean | `false` | Adds `--experimental` when true, enabling the CLI's experimental features. |
 
-No value in this block is refused before the run; the tool-scoping keys draw a warning only. A key whose YAML value has the wrong type is ignored and the default applies.
+No value in this block is refused before the run; `allowed_tools` draws a warning only. A key whose YAML value has the wrong type is ignored and the default applies.
 
 > [!WARNING]
 > `agent.max_turns` (orchestrator turn-loop limit) and `copilot-cli.max_autopilot_continues` (CLI autonomy budget) are distinct values with different semantics. The orchestrator limit controls how many turns the worker runs before exiting. The adapter limit controls how many autonomous continuation steps Copilot CLI takes within a single `RunTurn` invocation.
 
-When any tool-scoping flag (`allowed_tools`, `denied_tools`, `available_tools`, `excluded_tools`) is configured, the adapter omits `--allow-all` and uses the scoped flags instead. When none are set, `--allow-all` is passed for unattended operation. Setting any one of the four draws the `copilot-cli.tool_scoping.interactive` warning rather than an error: the CLI denies a tool call the scoping excludes and the session keeps going, so the narrower configuration limits what the agent may do without leaving it waiting for a person. See [validate-time checks](/reference/adapter-copilot/#validate-time-checks).
+The adapter passes `--allow-all` for unattended operation unless `allowed_tools` is set, in which case `--allow-all` is omitted because the grant would otherwise subsume the allow-list. `denied_tools`, `available_tools`, and `excluded_tools` are forwarded alongside `--allow-all` rather than replacing it: a `denied_tools` rule still denies a matching call, and the other two still limit what the model sees. Setting `allowed_tools` draws the `copilot-cli.allowed_tools.auto_deny` warning rather than an error: every call outside the list is denied without a prompt and the session keeps going, so the narrower configuration limits what the agent may do without leaving it waiting for a person. See [validate-time checks](/reference/adapter-copilot/#validate-time-checks).
 
 ```yaml
 copilot-cli:
@@ -1412,6 +1418,7 @@ Sortie watches `WORKFLOW.md` for filesystem changes and re-applies configuration
 | `ci_feedback.escalation`, `ci_feedback.escalation_label` | Next reconcile tick.   |
 | `ci_feedback.kind`, `ci_feedback.max_log_lines` | Requires restart.              |
 | `reactions.ci_failure.watch_window_ms` | Next reconcile tick.                   |
+| `reactions.ci_failure.triage.*`        | Requires restart. The triage configuration is frozen when the orchestrator is built. |
 | `self_review.*`                        | Next dispatch. Running workers use the snapshot captured at review-phase entry. |
 | `reactions.*`, every kind except `ci_failure` | Requires restart. The whole block is captured once at construction, including whether each kind is active, so adding or removing a kind's block changes nothing until the process restarts. |
 | `notifications`                        | Next agent session. Each session's MCP sidecar reads the workflow file at startup; in-flight sessions are unaffected. |

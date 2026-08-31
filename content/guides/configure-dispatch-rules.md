@@ -102,7 +102,7 @@ Sortie rejects unsafe paths at load time: absolute paths, `~`-prefixed paths, an
 
 ## Declare every agent kind a rule references
 
-When a rule's `agent` differs from the top-level `agent.kind`, give that kind its own configuration block in the front matter. The example above routes to `codex`, so it includes a `codex:` block. A routed session reads that block and no other, on every attempt of the session; the block named by `agent.kind` does not stand in for it. Leave the block out and the session still dispatches, on the adapter's own defaults, and neither `sortie validate` nor startup preflight says anything about it.
+When a rule's `agent` differs from the top-level `agent.kind`, give that kind its own configuration block in the front matter. The example above routes to `codex`, so it includes a `codex:` block. A routed session reads that block and no other, on every attempt of the session; the block named by `agent.kind` does not stand in for it. Leave the block out and both `sortie validate` and startup preflight refuse the workflow with a `dispatch.agent.missing_block` error - add the block, even an empty one (`codex: {}`), to fix it.
 
 The shared `agent.*` settings (`max_turns`, `turn_timeout_ms`, `max_sessions`, concurrency caps) stay workflow-wide. Rules override the agent kind and the template only, not these budgets.
 
@@ -197,7 +197,7 @@ Check the configuration offline before starting the orchestrator:
 sortie validate WORKFLOW.md
 ```
 
-`validate` parses the dispatch block and reports rule errors: an unknown agent kind, a missing or unreadable template file, a duplicate rule name, a non-final catch-all, an unknown match key, a malformed glob, or a priority predicate without exactly one operator. It exits non-zero when any error is present.
+`validate` parses the dispatch block and reports rule errors: an unknown agent kind, a missing or unreadable template file, a duplicate rule name, a non-final catch-all, an unknown match key, a malformed glob, or a priority predicate without exactly one operator. It also reports a registered agent kind that a rule routes to but that carries no settings block of its own. It exits non-zero when any error is present.
 
 Then run one poll cycle without spawning agents:
 
@@ -213,7 +213,9 @@ sortie --dry-run WORKFLOW.md
 
 **Validation reports "unreachable rules".** A catch-all rule (one with no `match` block) sits before other rules. Move it to the end of the list, or replace it with a `dispatch.default` block.
 
-**Validation rejects an unknown agent kind.** The `agent` value must name a registered adapter. Its configuration block is not required for validation to pass, but a session the rule routes reads only that block, so a rule with `agent: codex` and no `codex:` block runs on the adapter's defaults.
+**Validation rejects an unknown agent kind.** The `agent` value must name a registered adapter.
+
+**Validation rejects a routed kind with no settings block.** A rule with `agent: codex` and no `codex:` block fails `sortie validate` with a `dispatch.agent.missing_block` error, because a session the rule routes reads only that block. Add the block, even an empty one (`codex: {}`), to fix it. See [Declare every agent kind a rule references](#declare-every-agent-kind-a-rule-references).
 
 **A match key is ignored or rejected.** Unknown match keys are configuration errors, not warnings, so a typo like `lables:` fails `validate` instead of silently disabling the rule. Use only `labels`, `issue_type`, `priority`, `identifier`, and `assignee`.
 

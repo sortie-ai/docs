@@ -32,8 +32,8 @@ Every reaction kind moves through the same pipeline. The orchestrator records a 
 1. **Poll.** The orchestrator queries the kind's provider for the current signal, throttled by the kind's `poll_interval_ms`. A transient fetch error re-enqueues the entry for the next tick.
 2. **Fingerprint.** `review_comments`, `bot_review`, `merge_conflicts`, and `auto_merge` hash their salient state into a SHA-256 fingerprint stored in the `reaction_fingerprints` SQLite table. The review fingerprint is the sorted set of non-outdated comment IDs; the bot-review fingerprint is the sorted set of non-outdated bot comment IDs under its own kind row; the merge-conflict fingerprint is the PR head SHA; the merge fingerprint is the PR head SHA combined with the review decision. `merge_completion` also occupies a row of its own, but stores the merge commit identifier reported by the forge verbatim rather than hashing anything. `ci_failure` occupies a row too, and like `merge_completion` stores its value verbatim rather than hashing it. What it stores is the pull request's head as resolved on that pass, never a recorded SHA and never a branch name.
 3. **Deduplicate.** When the fingerprint matches the last value already marked dispatched, the tick takes no action. For the hashing kinds, a new push or a changed comment set produces a new fingerprint and clears the dispatched mark. `merge_completion` is the exception on the far side: its dispatched row is retained after the transition rather than cleared, so the same merge is never observed as new. `ci_failure` runs both mechanisms: the head fingerprint dedups a head that has already dispatched, and that fingerprint moves with the pull request, so a commit landing on the pull request re-arms the reaction. A `pending` status re-enqueues under backoff. A `passing` status clears the attempt counter, and the reaction keeps watching.
-4. **Dispatch.** The reaction action runs. For `ci_failure`, `review_comments`, `bot_review`, and `merge_conflicts` the orchestrator schedules a fix continuation turn, injecting the signal into the prompt through a continuation context variable. An issue holds at most one queued continuation at a time, so a kind that finds one already queued defers and re-checks on a later tick rather than replacing it; the queued work is never discarded, and the deferring kind takes none of the other actions in this step on that tick. For `auto_merge` the orchestrator calls `MergePR` directly, since no code change is needed. For `merge_completion` it calls the tracker transition directly, for the same reason. Each dispatch increments the per-issue, per-kind attempt counter and uses a fixed 1-second delay rather than exponential backoff.
-5. **Escalate.** When the attempt counter reaches the kind's retry budget, the orchestrator applies the configured `escalation` action and clears that kind's pending state. `ci_failure` and `review_comments` release the claim on escalation and stop. `auto_merge`, `bot_review`, and `merge_conflicts` scope cleanup to their own kind and keep the claim.
+4. **Dispatch.** The reaction action runs. Where the kind carries a [`triage` block](#triage-command), an operator-owned command runs first and can close the subject or hand it to a person instead, in which case none of the actions in this step happen. For `ci_failure`, `review_comments`, `bot_review`, and `merge_conflicts` the orchestrator schedules a fix continuation turn, injecting the signal into the prompt through a continuation context variable. An issue holds at most one queued continuation at a time, so a kind that finds one already queued defers and re-checks on a later tick rather than replacing it; the queued work is never discarded, and the deferring kind takes none of the other actions in this step on that tick. For `auto_merge` the orchestrator calls `MergePR` directly, since no code change is needed. For `merge_completion` it calls the tracker transition directly, for the same reason. Each dispatch increments the per-issue, per-kind attempt counter and uses a fixed 1-second delay rather than exponential backoff.
+5. **Escalate.** When the attempt counter reaches the kind's retry budget, and when a triage command answers `escalate`, the orchestrator applies the configured `escalation` action and clears that kind's pending state. `ci_failure` and `review_comments` release the claim on escalation and stop. `auto_merge`, `bot_review`, and `merge_conflicts` scope cleanup to their own kind and keep the claim.
 
 ```mermaid
 flowchart TD
@@ -60,7 +60,9 @@ flowchart TD
 
 ### Retry budgets
 
-The attempt counter is tracked per issue and per kind. It resets when the issue leaves the running and retry maps, and `ci_failure` also resets it, while the entry keeps watching, when CI returns to `passing`. The budget field differs by kind: `ci_failure` and `auto_merge` use `max_retries` (default `2`), `review_comments` uses `max_continuation_turns` (default `3`) as its hard cap, and `bot_review` uses `max_continuation_turns` (default `5`) as its hard cap. `merge_conflicts` uses `max_retries` (default `1`), the lowest of the kinds, and its counter is episodic, resetting when the conflict clears. A budget of `0` escalates `ci_failure` and `merge_conflicts` on the first actionable signal with no fix attempt. `auto_merge` is the exception: its escalation check requires `max_retries` greater than zero, so a budget of `0` turns count-based escalation off entirely instead of making it immediate. Polling is still bounded, for `review_comments`, `bot_review`, `merge_conflicts`, and `auto_merge`, by the pending reaction's fixed 30-minute time-to-live, which is not configurable; once it elapses, the orchestrator drops the entry and logs a warning instead of escalating, so the reaction goes silent with no tracker-visible signal. `ci_failure` carries its own bound instead: `watch_window_ms`, configurable and defaulting to twenty-four hours, measured from the last recorded head change rather than from entry creation. A value of `0` removes that bound entirely; where it does apply, the entry drops with the same silent warning and no escalation. An authentication-class or payload-class merge error still escalates `auto_merge` immediately regardless of the budget. To get near-immediate escalation on a failed merge, set `auto_merge.max_retries: 1`, the lowest budget its count-based check honors, which escalates after the first failed attempt.
+The attempt counter is tracked per issue and per kind. It resets when the issue leaves the running and retry maps, and `ci_failure` also resets it, while the entry keeps watching, when CI returns to `passing`. The budget field differs by kind: `ci_failure` and `auto_merge` use `max_retries` (default `2`), `review_comments` uses `max_continuation_turns` (default `3`) as its hard cap, and `bot_review` uses `max_continuation_turns` (default `5`) as its hard cap. `merge_conflicts` uses `max_retries` (default `1`), the lowest of the kinds, and its counter is episodic, resetting when the conflict clears. A budget of `0` escalates `ci_failure` and `merge_conflicts` on the first actionable signal with no fix attempt. `auto_merge` is the exception: its escalation check requires `max_retries` greater than zero, so a budget of `0` turns count-based escalation off entirely instead of making it immediate. Polling is bounded, for every kind, by `watch_window_ms`, a shared and configurable field: once it elapses, the orchestrator drops the entry and logs a warning instead of escalating, so the reaction goes silent with no tracker-visible signal. `review_comments`, `bot_review`, `merge_conflicts`, and `auto_merge` default to thirty minutes, measured from the entry's creation. `ci_failure` defaults instead to twenty-four hours, measured from the last recorded head change rather than from entry creation. Every kind's value must be non-negative and must not exceed `9223372036854` (about 292 years); `0` removes the bound entirely, and where the bound does apply, the entry drops with the same silent warning and no escalation. An authentication-class or payload-class merge error still escalates `auto_merge` immediately regardless of the budget. To get near-immediate escalation on a failed merge, set `auto_merge.max_retries: 1`, the lowest budget its count-based check honors, which escalates after the first failed attempt.
+
+A value that fails these bounds is not caught the same way for every kind. `reactions.ci_failure.watch_window_ms` is validated while `WORKFLOW.md` itself is loaded, so an out-of-range edit fails a dynamic reload outright: the previous configuration remains active, and the failure is logged. `watch_window_ms` for `review_comments`, `bot_review`, `merge_conflicts`, and `auto_merge` is validated only when the orchestrator builds those reactions, which happens once at startup and is not repeated by a reload; an out-of-range edit to one of them is accepted by a reload with no error and simply has no effect, same as any other change to those blocks, until the next restart. At that restart, and in `sortie validate` run ahead of one, the same value fails construction and the process exits `1`.
 
 `merge_completion` uses `max_retries` (default `2`) to bound retryable transition failures, and a budget of `0` escalates on the first failed transition rather than turning the count-based check off, which is what the same value does for `auto_merge`. Its pending entry carries no time-to-live at all. It is bounded instead by the issue leaving the configured handoff state, because a merge waits on human review for an unbounded time, and by a fixed 30-minute grace period that starts only once the forge reports the pull request merged without a merge commit identifier. `max_retries` does not bound that grace period.
 
@@ -76,7 +78,7 @@ Each kind owns its own pending entry, fingerprint row, and attempt counter. A su
 
 ### Escalation actions
 
-When a kind exhausts its budget, and when `merge_completion` gives up on a merge whose commit identifier never arrives, the orchestrator applies one escalation action:
+An escalation fires when a kind exhausts its budget, when a [triage command](#triage-command) answers `escalate`, and when `merge_completion` gives up on a merge whose commit identifier never arrives. The orchestrator applies one escalation action:
 
 - `label` (default): adds `escalation_label` (default `needs-human`) to the tracker issue.
 - `comment`: posts a plain-text tracker comment naming the PR, the attempt count, and the outstanding signal.
@@ -93,13 +95,123 @@ Every reaction kind shares these four fields.
 | ------------------ | ------- | ------------- | ----------------------------------------------------------------------------------------------- |
 | `provider`         | string  | _(required)_  | SCM or CI adapter kind that activates the reaction: `github`, `gitea`, or `gitlab`. Must match a registered adapter. Absent or empty disables the kind, and all other fields in the sub-object are ignored. |
 | `max_retries`      | integer | `2`           | Fix continuation dispatches per issue before escalation. Must be non-negative.                  |
-| `escalation`       | string  | `label`       | Action on budget exhaustion. One of `label` or `comment`.                                       |
+| `escalation`       | string  | `label`       | Action taken when the kind hands the subject to a person, either because the budget is spent or because a [triage command](#triage-command) answered `escalate`. One of `label` or `comment`. |
 | `escalation_label` | string  | `needs-human` | Label applied to the tracker issue when `escalation` is `label`.                                |
 
 Keys other than these four are kind-specific and listed under each kind below.
 
 > [!NOTE]
-> Environment variable overrides for `reactions` fields are not supported. Reaction configuration comes from `WORKFLOW.md`, and it is captured once when the orchestrator starts. A dynamic reload does not rebuild it: changing any field of any kind, or adding or removing a kind's block, takes effect only on the next restart. The one exception is `ci_failure`, which is folded into the CI feedback configuration and re-read on every tick, so its fields do reload.
+> Environment variable overrides for `reactions` fields are not supported. Reaction configuration comes from `WORKFLOW.md`, and it is captured once when the orchestrator starts. A dynamic reload does not rebuild it: changing any field of any kind, or adding or removing a kind's block, takes effect only on the next restart. The one exception is `ci_failure`, which is folded into the CI feedback configuration and re-read on every tick. Two of its fields sit outside that exception and still need a restart: `max_log_lines`, because the CI provider is built once at process start, and the `triage` block, which every kind that offers it freezes at construction.
+
+---
+
+## Triage command
+
+`ci_failure`, `review_comments`, `bot_review`, and `merge_conflicts` accept an optional `triage` block. It names a command that runs in the issue workspace once the reaction has found a new subject and before the reaction dispatches a continuation turn for it. The command answers `handled`, `dispatch-agent`, or `escalate`, so work with a deterministic fix can be resolved without an agent session.
+
+`auto_merge`, `merge_completion`, and `label_commands` do not accept the block. The first two dispatch no agent, so there is nothing for a pre-dispatch gate to gate, and the label commands carry no `escalation` field, so one of the three answers would have nothing to apply. A `triage` block under any of them, or under any other key of `reactions`, is a configuration error.
+
+| Field        | Type    | Default   | Description                                                                                     |
+| ------------ | ------- | --------- | ------------------------------------------------------------------------------------------------- |
+| `script`     | string  | _(required)_ | Shell script body, run the same way a workspace hook is. Must be a non-blank string.          |
+| `timeout_ms` | integer | `60000`   | Bounds one run. Must be between `1` and `600000`. The ceiling sits below the shortest default `watch_window_ms`, so an entry whose command hangs still ages out. |
+
+Both fields are read once when the orchestrator starts, `ci_failure` included, so an edit to either takes effect on the next restart rather than on a dynamic reload.
+
+```yaml
+reactions:
+  merge_conflicts:
+    provider: github
+    max_retries: 1
+    escalation: label
+    escalation_label: needs-human
+    triage:
+      script: |
+        ./scripts/merge-conflict-triage.sh
+      timeout_ms: 120000
+```
+
+### Execution environment
+
+The command runs with the per-issue workspace directory as its working directory, through the same machinery as a [workspace hook](/guides/setup-workspace-hooks/): `sh -c` on POSIX and `cmd.exe /C` on Windows, the same restricted environment, the same process-group kill on timeout, and the same 8 KiB captured output tail. It receives the variables every hook receives and three of its own. See the [hook subprocess environment](/reference/environment/#hook-subprocess-environment) for the allowlist and the [triage command variables](/reference/environment/#reaction-triage-command-variables) for the three.
+
+Sortie never creates the workspace directory for a triage run. A directory that is absent, or a path that is not a directory, ends the run before any subprocess starts, and the reaction dispatches exactly as it would with no block.
+
+### Input document
+
+`SORTIE_REACTION_INPUT` names a JSON file describing the subject. Both that file and the result file live in a temporary directory created for the run and removed when it returns, outside the workspace, so a stale answer from an earlier run cannot be read as this one's and externally authored text stays out of the tree the agent reads. Review comment bodies, check names, and branch names reach the command only inside this document, never through an environment variable or a shell word.
+
+```json
+{
+  "schema_version": 1,
+  "reaction_kind": "merge-conflict",
+  "issue": { "id": "10432", "identifier": "MT-649", "display_id": "MT-649" },
+  "attempt": 3,
+  "workspace": "/var/sortie/workspaces/MT-649",
+  "fingerprint": "9f2c7d1a4b6e08c3f5a2d9b7e14c6083a5d2f9b1c7e340a86d5b2f9c1e7a4308",
+  "attempts_used": 0,
+  "max_attempts": 1,
+  "subject": {
+    "pr_number": 128,
+    "branch": "sortie/MT-649",
+    "head_sha": "5c1f0b7a9d3e46281af7c40b9e2d6538ca10b7f4",
+    "base": "main"
+  }
+}
+```
+
+| Key              | Type    | Value                                                                                                  |
+| ---------------- | ------- | -------------------------------------------------------------------------------------------------------- |
+| `schema_version` | integer | Version of this document's shape. `1` today. |
+| `reaction_kind`  | string  | Runtime kind of the reaction that armed: `ci`, `review`, `bot-review`, or `merge-conflict`. Same value as `SORTIE_REACTION_KIND`. |
+| `issue`          | object  | `id`, `identifier`, and `display_id` for the tracker issue. |
+| `attempt`        | integer | The issue's run attempt number, the same value as `SORTIE_ATTEMPT`. |
+| `workspace`      | string  | Absolute path to the per-issue workspace, the same value as `SORTIE_WORKSPACE`. |
+| `fingerprint`    | string  | The value this kind stores for the current subject, as described under that kind above. |
+| `attempts_used`  | integer | The kind's attempt counter for this issue at the moment the run starts. |
+| `max_attempts`   | integer | The kind's budget field: `max_continuation_turns` for `review_comments` and `bot_review`, `max_retries` for `ci_failure` and `merge_conflicts`. |
+| `subject`        | object or array | The same value the continuation prompt template receives for this kind, so the command sees what the agent would have seen. |
+
+`subject` is the `.ci_failure` map for `ci`, an array of `.review_comments` maps for `review`, an array of `.bot_review_comments` maps for `bot-review`, and the `.merge_conflict` map for `merge-conflict`. Each is described under its kind above and in the [continuation context variables](/reference/workflow-config/#ci_failure).
+
+### Result document
+
+The command writes one JSON object to the path in `SORTIE_REACTION_RESULT`. The file does not exist when the command starts. Unknown keys are ignored, so a later field cannot break a script written today.
+
+```json
+{ "disposition": "handled" }
+```
+
+| Disposition      | Effect                                                                                                                                     |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `handled`        | The command resolved the subject. Sortie marks the reaction fingerprint dispatched and keeps watching, spending no attempt, scheduling no continuation, and writing nothing to the tracker. |
+| `dispatch-agent` | The reaction proceeds to the continuation turn it would have scheduled anyway. Every counter, fingerprint, and entry is left as it would have been with no `triage` block. |
+| `escalate`       | Sortie applies the kind's configured `escalation` immediately, with no attempt spent. The `comment` action posts copy naming the triage command as the reason rather than an exhausted budget. |
+
+A `handled` answer marks the subject dispatched in the same durable row the reaction's own deduplication uses, so the reaction takes no further action on it until the fingerprint moves. Within the episode, a pass that recomputes an already-answered fingerprint replays the stored answer instead of running the command again, and a replayed `escalate` posts no second escalation.
+
+### Fallback to `dispatch-agent`
+
+Exit status 0 together with a result file naming one of the three dispositions is the only path to an answer other than `dispatch-agent`. Every other outcome writes one warning record naming the reason and falls back to `dispatch-agent`:
+
+- The workspace directory is absent, or the path is not a directory.
+- The subprocess fails to start.
+- The command exceeds `timeout_ms`.
+- The command exits non-zero. A non-zero exit is never honored, even when the result file holds a valid answer.
+- The result file is missing, larger than 64 KiB, unreadable, or not valid JSON.
+- `disposition` holds a value other than the three above.
+
+A broken script therefore costs one warning record and one agent turn. It cannot strand a reaction.
+
+### Timing and concurrency
+
+The command runs off the reconcile pass. The pass that starts it re-enqueues its entry and makes no further provider call for that subject, and a later pass reads the answer, so a reaction carrying a `triage` block acts no sooner than one of that kind's `poll_interval_ms` after the subject is first seen. For `ci_failure`, which has no `poll_interval_ms`, the wait is the pending backoff already in force.
+
+Runs in flight are capped at `agent.max_concurrent_agents`, and never below `1`, across every issue and kind. The cap adds to agent concurrency rather than sharing slots with it, so a host configured for four agents can run four agent processes and four triage commands at once. An entry that finds the cap reached starts nothing and is reconsidered on the next tick. Unlike the `triage` block itself, the cap follows a reloaded `agent.max_concurrent_agents`.
+
+A run is killed, with its whole process group, when `timeout_ms` elapses, when a pass computes a different fingerprint for the subject, when the episode the run belongs to ends, and when the process shuts down. In each of those cases a fresh run follows for the next subject Sortie sees, so the same command can be invoked more than once for work it has already done. Nothing about a triage run is written to the database: a run in flight at restart is lost, and the subject is triaged again from scratch.
+
+`review_comments` and `bot_review` test their continuation-turn cap before the command runs, so a subject arriving on a spent budget escalates without invoking it. `ci_failure` and `merge_conflicts` test their retry budget after, so the command runs first and the budget escalation follows only on a `dispatch-agent` answer.
 
 ---
 
@@ -138,7 +250,7 @@ Polls CI status for Sortie-created branches and dispatches a continuation turn w
 | Field              | Type    | Default      | Description                                                       |
 | ------------------ | ------- | ------------ | ----------------------------------------------------------------- |
 | `max_log_lines`     | integer | `50`         | Maximum CI log tail lines injected into the prompt. `0` disables log injection. |
-| `watch_window_ms`   | integer | `86400000`   | Milliseconds the watch keeps following a pull request since its last recorded head change (twenty-four hours by default). `0` removes the bound. |
+| `watch_window_ms`   | integer | `86400000`   | Milliseconds the watch keeps following a pull request since its last recorded head change (twenty-four hours by default). Must be non-negative and must not exceed `9223372036854` (about 292 years). `0` removes the bound. |
 
 **Activation:** active when `provider` names a registered CI status provider and an SCM adapter is also configured. `provider` must match the provider named by every other active SCM reaction; a mismatch fails startup and is reported by `sortie validate` under the `reactions.scm_provider_conflict` check. The agent or an `after_run` hook must write `pr_number` (positive integer), `owner`, `repo`, and `branch` (all non-empty) to `.sortie/scm.json` in the workspace; all four are required, and a workspace whose metadata names a branch but no pull request seeds no CI watch. The orchestrator resolves the pull request's head live through the SCM adapter on every due pass rather than reading a ref once when the pending entry is recorded.
 
@@ -170,6 +282,7 @@ Bot-authored comments are excluded when the forge marks their author as a bot ac
 | `poll_interval_ms`       | integer | `120000` | Minimum interval between review API polls per issue. Minimum: `30000`.                     |
 | `debounce_ms`            | integer | `60000`  | Wait after the newest detected comment before dispatching. Must be non-negative.           |
 | `max_continuation_turns` | integer | `3`      | Hard cap on review-triggered continuations per PR. Must be positive.                       |
+| `watch_window_ms`        | integer | `1800000` | Milliseconds a pending entry is kept, measured from the entry's creation (thirty minutes by default). Must be non-negative and must not exceed `9223372036854` (about 292 years). `0` removes the bound. |
 
 **Activation:** active when `provider` names a registered SCM adapter. The agent or an `after_run` hook must write `pr_number` (positive integer), `owner`, and `repo` to `.sortie/scm.json` in the workspace. When any field is missing or zero, review polling is skipped for that workspace with no error.
 
@@ -200,6 +313,7 @@ Polls comments authored by automated review tools (linters, static analyzers, se
 | `poll_interval_ms`       | integer         | `60000`   | Minimum interval between bot-comment polls per issue. Minimum: `30000`. Tighter than `review_comments` (`120000`) because bot comments arrive in bulk right after a push rather than at reviewer pace. |
 | `max_continuation_turns` | integer         | `5`       | Hard cap on bot-review continuations per PR. Must be positive. Higher than `review_comments` (`3`) because bot fixes are mechanical.                          |
 | `bot_usernames`          | list of strings | _(empty)_ | Allowlist of bot logins, matched case-insensitively. Extends classification to review tools that comment under a regular user account. Empty by default, so only accounts the forge marks as bots match, and on `gitea` nothing matches. |
+| `watch_window_ms`        | integer         | `1800000` | Milliseconds a pending entry is kept, measured from the entry's creation (thirty minutes by default). Must be non-negative and must not exceed `9223372036854` (about 292 years). `0` removes the bound. |
 
 **Activation:** active when `provider` names a registered SCM adapter, on its own, with no other `reactions` block required. The agent or an `after_run` hook must write `pr_number` (positive integer), `owner`, `repo`, and `branch` (all non-empty) to `.sortie/scm.json` in the workspace. When any field is missing or zero, bot-review polling is skipped for that workspace with no error.
 
@@ -236,13 +350,14 @@ reactions:
 
 ### `reactions.merge_conflicts`
 
-Polls the mergeability of open Sortie-managed PRs on every reconcile cycle and dispatches one rebase-and-resolve continuation turn when a PR transitions from no-conflict to conflict. The turn runs on the existing workspace and carries the PR's real base branch, read live from the PR object on the tick, so the agent rebases the head branch onto the PR's current target rather than an assumed default branch. The WORKFLOW.md key is `merge_conflicts` (plural); the runtime and persisted kind value is `merge-conflict` (singular, hyphenated); and the continuation context variable is `.merge_conflict` (singular).
+Polls the mergeability of open Sortie-managed PRs on every reconcile cycle. While a PR remains conflicted, the orchestrator dispatches one rebase-and-resolve continuation turn per distinct conflicting head commit, subject to the retry budget; re-observing the same head dispatches nothing further, and a return to no-conflict is not required between attempts. The turn runs on the existing workspace and carries the PR's real base branch, read live from the PR object on the tick, so the agent rebases the head branch onto the PR's current target rather than an assumed default branch. The WORKFLOW.md key is `merge_conflicts` (plural); the runtime and persisted kind value is `merge-conflict` (singular, hyphenated); and the continuation context variable is `.merge_conflict` (singular).
 
 **Fields** (beyond the common fields):
 
 | Field              | Type    | Default | Description                                                                |
 | ------------------ | ------- | ------- | -------------------------------------------------------------------------- |
 | `poll_interval_ms` | integer | `60000` | Minimum interval between mergeability checks per issue. Minimum: `30000`.   |
+| `watch_window_ms`  | integer | `1800000` | Milliseconds a pending entry is kept, measured from the entry's creation (thirty minutes by default). Must be non-negative and must not exceed `9223372036854` (about 292 years). `0` removes the bound. |
 
 Two common fields take kind-specific defaults here. `max_retries` defaults to `1`, not the common `2`, because a conflict that survives one rebase is unlikely to clear on a retry. `max_retries: 0` does not disable the kind; it escalates on the first detected conflict with no rebase attempt. To disable merge-conflict handling, omit the `merge_conflicts` block.
 
@@ -253,7 +368,7 @@ Two common fields take kind-specific defaults here. `max_retries` defaults to `1
 **Detection:** conflict detection reads the [normalized mergeability state](#normalized-mergeability-states). Only `dirty` is a conflict and arms a rebase turn. `clean`, `unstable`, and `blocked` each close the episode and reset the counter, and `unknown` defers to the next tick, logging `merge conflict deferred: mergeability unknown`, while the provider finishes computing mergeability.
 
 > [!WARNING]
-> This kind never arms on the `gitea` provider. Gitea reports mergeability as a single boolean with no conflict value, so its adapter classifies a conflicted pull request as `unknown`, never `dirty`. The entry defers on every tick until the 30-minute time-to-live drops it with a warning and no escalation, so the operator gets no rebase turn and no tracker-visible signal. `sortie validate` accepts `provider: gitea` here, because the shape is valid. Resolve conflicts on Gitea manually, and see the [Gitea adapter reference](/reference/adapter-gitea/#mergeability).
+> This kind never arms on the `gitea` provider. Gitea reports mergeability as a single boolean with no conflict value, so its adapter classifies a conflicted pull request as `unknown`, never `dirty`. The entry defers on every tick until `watch_window_ms` (thirty minutes by default) drops it with a warning and no escalation, so the operator gets no rebase turn and no tracker-visible signal. `sortie validate` accepts `provider: gitea` here, because the shape is valid. Resolve conflicts on Gitea manually, and see the [Gitea adapter reference](/reference/adapter-gitea/#mergeability).
 
 **Fingerprint and dedup:** the fingerprint is the SHA-256 of the PR head SHA, stored in `reaction_fingerprints` under a kind distinct from the other reactions. One conflicted head dispatches exactly one rebase turn. After the agent rebases and pushes a new head, the new head yields a new fingerprint and re-arms a fresh attempt bounded by `max_retries`; when the conflict clears, the row is deleted, so the next conflict observation dispatches again.
 
@@ -291,6 +406,7 @@ Polls merge preconditions on Sortie-created PRs and merges directly through the 
 | `require_ci`       | boolean | `true`   | When `true`, every CI check must pass before the merge. When `false`, CI is advisory only.           |
 | `delete_branch`    | boolean | `true`   | When `true`, the PR head branch is deleted after a successful merge. A delete failure does not roll back the merge. |
 | `poll_interval_ms` | integer | `60000`  | Minimum interval between precondition checks per issue. Minimum: `30000`.                            |
+| `watch_window_ms`  | integer | `1800000` | Milliseconds a pending entry is kept, measured from the entry's creation (thirty minutes by default). Must be non-negative and must not exceed `9223372036854` (about 292 years). `0` removes the bound. |
 
 **Activation:** active when `provider` names a registered SCM adapter. The agent or an `after_run` hook must write `pr_number`, `owner`, `repo`, and `branch` (all non-empty) to `.sortie/scm.json`. `provider` must match the provider named by every other active SCM reaction; a mismatch or an unknown provider fails startup, and `sortie validate` reports the mismatch offline under the `reactions.scm_provider_conflict` check. At startup the orchestrator runs a one-shot token-scope preflight through the SCM adapter, asking whether the credential can reach the merge endpoint and, when `delete_branch` is `true`, the branch-delete endpoint. The scope names and how much an adapter can verify differ by forge; see the [GitHub adapter reference](/reference/adapter-github/), the [Gitea adapter reference](/reference/adapter-gitea/#token-scope-for-merge-and-branch-operations), and the [GitLab adapter reference](/reference/adapter-gitlab/#token-scope-for-the-write-path). An auth-class scope failure disables auto-merge for the process lifetime; a transport-class failure schedules one retry on the next tick before disabling. An adapter that cannot read the credential's scopes fails open, so auto-merge proceeds and a real gap surfaces instead as an auth failure on the first merge attempt.
 
@@ -306,7 +422,7 @@ Polls merge preconditions on Sortie-created PRs and merges directly through the 
 
 The `unstable` arm of the mergeability precondition is reachable on `github` alone. Neither `gitea` nor `gitlab` ever reports `unstable`, so on those two providers this precondition is effectively `clean`. The arm also does not decide the merge on its own: the CI precondition is evaluated separately from mergeability, so `require_ci: true` can still hold a merge that `unstable` let past. An `unknown` state defers the entry rather than failing it, and on `gitea` that is where a merge conflict lands as well.
 
-**Behavior:** the merge fingerprint is the SHA-256 of the PR head SHA combined with the review decision, so a new push or a change in review decision allows a fresh attempt. `MergePR` is called with the expected head SHA to close the time-of-check to time-of-use window between the precondition read and the merge. A rejection from the merge endpoint sends the adapter back to re-read the pull request, and only a re-read confirming the pull request merged is dispatched as success. No adapter matches the provider's rejection wording, so a reworded response does not change the outcome. Escalation fires when the attempt counter reaches `max_retries`, but only when `max_retries` is greater than zero: a `max_retries` of `0` disables the count-based check instead of making it immediate. The pending reaction still expires after a fixed 30-minute time-to-live, not configurable; when it does, the orchestrator drops the entry and logs a warning rather than escalating, so the reaction goes silent with no tracker-visible signal. An authentication-class or payload-class merge error still escalates immediately regardless of the budget.
+**Behavior:** the merge fingerprint is the SHA-256 of the PR head SHA combined with the review decision, so a new push or a change in review decision allows a fresh attempt. `MergePR` is called with the expected head SHA to close the time-of-check to time-of-use window between the precondition read and the merge. A rejection from the merge endpoint sends the adapter back to re-read the pull request, and only a re-read confirming the pull request merged is dispatched as success. No adapter matches the provider's rejection wording, so a reworded response does not change the outcome. Escalation fires when the attempt counter reaches `max_retries`, but only when `max_retries` is greater than zero: a `max_retries` of `0` disables the count-based check instead of making it immediate. The pending reaction still expires after `watch_window_ms` (thirty minutes by default, measured from the entry's creation, configurable up to `9223372036854` milliseconds or removed with `0`); when it does, the orchestrator drops the entry and logs a warning rather than escalating, so the reaction goes silent with no tracker-visible signal. An authentication-class or payload-class merge error still escalates immediately regardless of the budget.
 
 **Safety:** auto-merge acts on Sortie-created PRs only and never merges a draft. The merge is performed directly rather than through an agent turn.
 
@@ -366,7 +482,7 @@ Expiry is evaluated on the first tick at or after the deadline. If a real identi
 
 Delivery is recorded only after both the tracker write and the follow-up write that marks it delivered succeed, and the two share one 30-second deadline. A failure in either leaves the observation recorded as undelivered, and neither failure reopens the stopped entry: a later pending entry for the same issue, from a subsequent worker exit or from startup recovery, retries delivery once and stops again without restarting the grace period or the polling loop. When only the marker write failed, the notification already reached the tracker, so that retry delivers a second time. `label` repeats harmlessly, because re-applying a present label is a no-op; `comment` posts a duplicate comment. Once delivery is marked, a later entry stops without repeating the signal. The observation row is also cleared whenever the issue is missing from the tracker's state response, is already terminal, or has left the handoff state, and when the pull request is gone from the forge.
 
-**No expiry:** the pending entry carries no time-to-live. `review_comments`, `bot_review`, `merge_conflicts`, and `auto_merge` each bound their entry at 30 minutes, and `ci_failure` bounds its own at `watch_window_ms`, because each waits on a signal that either arrives shortly after the agent finishes or does not arrive at all. A merge waits on human review for an unbounded time, so this kind takes the same posture as the label commands and carries no expiry. The entry is bounded another way: it stops being re-enqueued once the issue leaves the configured handoff state, and it is dropped outright when the issue is already terminal, when the issue is missing from the tracker's state response, or when the pull request is gone from the forge. One post-merge condition carries a clock of its own: a pull request reported merged with no commit identifier stops the entry after 30 minutes, as described above.
+**No expiry:** the pending entry carries no time-to-live. `review_comments`, `bot_review`, `merge_conflicts`, and `auto_merge` each bound their entry with `watch_window_ms`, defaulting to thirty minutes, and `ci_failure` bounds its own with the same field, defaulting instead to twenty-four hours, because each waits on a signal that either arrives shortly after the agent finishes or does not arrive at all. A merge waits on human review for an unbounded time, so this kind takes the same posture as the label commands and carries no expiry. The entry is bounded another way: it stops being re-enqueued once the issue leaves the configured handoff state, and it is dropped outright when the issue is already terminal, when the issue is missing from the tracker's state response, or when the pull request is gone from the forge. One post-merge condition carries a clock of its own: a pull request reported merged with no commit identifier stops the entry after 30 minutes, as described above.
 
 **Failure matrix:** a failed transition is routed to one of four dispositions.
 
@@ -411,6 +527,7 @@ Rules marked **startup only** are not reachable by `sortie validate`. They are e
 
 - Reaction kind keys must match `[a-z][a-z0-9_-]*`. Invalid keys are rejected with a configuration error.
 - `max_retries` must be non-negative for all kinds.
+- `watch_window_ms` must be non-negative and must not exceed `9223372036854` (about 292 years) for `ci_failure`, `review_comments`, `bot_review`, `merge_conflicts`, and `auto_merge`.
 - `escalation` must be `label` or `comment` for all kinds.
 - `poll_interval_ms` must be at least `30000` for `review_comments`. **Startup only.**
 - `poll_interval_ms` must be at least `30000` for `auto_merge`.
@@ -420,6 +537,8 @@ Rules marked **startup only** are not reachable by `sortie validate`. They are e
 - `bot_usernames` must be a list of strings for `bot_review`.
 - `poll_interval_ms` must be at least `30000` for `merge_conflicts`. **Startup only.**
 - `strategy` for `auto_merge` must be `merge`, `squash`, or `rebase`.
+- `triage` is accepted only under `ci_failure`, `review_comments`, `bot_review`, and `merge_conflicts`. Under any other key of `reactions`, including `auto_merge`, `merge_completion`, and `label_commands`, it is rejected.
+- `triage` must be a map, `triage.script` must be a string that is not blank after trimming, and `triage.timeout_ms` must be an integer between `1` and `600000`.
 - `require_ci` and `delete_branch` for `auto_merge` must be boolean.
 - Every active SCM reaction must declare the same `provider`. The set spans `ci_failure`, `review_comments`, `bot_review`, `merge_conflicts`, `auto_merge`, `merge_completion`, and the `label_commands` block, and any two of them naming different providers is reported under the `reactions.scm_provider_conflict` check.
 - `poll_interval_ms` must be at least `30000` for `merge_completion`.

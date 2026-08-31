@@ -29,7 +29,9 @@ self_review:
 
 Two fields are required for activation: `enabled: true` turns on the feature, and `verification_commands` lists the commands to run. Omitting `verification_commands` when enabled produces a config error.
 
-Once activated, Sortie enters the self-review phase when the coding turn loop ends either because the turn budget (`agent.max_turns`) is exhausted or because the agent writes the completion signal, `needs-human-review`, to `.sortie/status`. A `blocked` signal is never admitted to the phase, whatever `self_review.enabled` says. The full gate is a conjunction: self-review is enabled, the issue is still in an active tracker state, the run has not been cancelled, and the session was dispatched normally rather than by a [label command](/reference/label-commands/) applied to a pull request. If any of these does not hold, the phase does not run and the worker exits as it would without self-review.
+Once activated, Sortie enters the self-review phase when the coding turn loop ends either because the turn budget (`agent.max_turns`) is exhausted or because the agent writes one of two signals to `.sortie/status`: the completion signal, `needs-human-review`, or the no-change declaration, `no-change-needed`. A `blocked` signal is never admitted to the phase, whatever `self_review.enabled` says. The full gate is a conjunction: self-review is enabled, the issue is still in an active tracker state, the run has not been cancelled, and the session was dispatched normally rather than by a [label command](/reference/label-commands/) applied to a pull request. If any of these does not hold, the phase does not run and the worker exits as it would without self-review.
+
+Self-review is also what a `no-change-needed` declaration is checked against: the phase's verification commands are what can falsify the claim that nothing needed changing. The declaration is confirmed only when the phase records exactly one iteration ending on a `pass` verdict with no failing verification result; any other outcome retracts it, and the run falls back to the ordinary handoff-evidence verdict as if the agent had declared nothing. With `self_review.enabled: false`, no such check runs at all - a `no-change-needed` declaration is then taken on the agent's word. See [state machine reference: declaring that nothing needed changing](/reference/state-machine/#declaring-that-nothing-needed-changing) for the full mechanism.
 
 The entire review loop runs inside the same worker goroutine, using the same agent session with full conversation context from the coding turns. The agent sees everything it wrote during coding and can reason about its own changes.
 
@@ -118,9 +120,9 @@ If the agent fails to write a valid verdict file on non-final iterations, Sortie
 
 ## What `.sortie/status` means during review
 
-The two recognized values mean something different here than they do in the coding turns. Writing `needs-human-review` during a review or fix turn does not end the phase early and does not substitute for a verdict file. Writing `blocked` still ends the phase, and it converts the run's exit to the blocked disposition, whichever of the two admissions brought the run into the phase. The review prompt tells the agent as much on every iteration.
+The recognized values mean something different here than they do in the coding turns. Writing `needs-human-review` during a review or fix turn does not end the phase early and does not substitute for a verdict file - the review prompt injected during the phase tells the agent as much on every iteration. Writing `no-change-needed` during a review or fix turn is unaddressed by that prompt, but the phase itself treats it no differently from an in-phase `needs-human-review`: it does not end the phase and does not substitute for a verdict. Writing `blocked` still ends the phase, and it converts the run's exit to the blocked disposition, whichever admission brought the run into the phase.
 
-Sortie removes the file after each review turn and each fix turn that reports either value, so nothing the agent writes during the phase is left behind for the `after_run` hook or for a later `cat` of the workspace. The `blocked` signal that ended the phase is removed with the rest; what records it is the run's blocked exit, not the file.
+Sortie removes the file after each review turn and each fix turn that reports any of these values, so nothing the agent writes during the phase is left behind for the `after_run` hook or for a later `cat` of the workspace. The `blocked` signal that ended the phase is removed with the rest; what records it is the run's blocked exit, not the file.
 
 ## What the agent sees
 
@@ -181,7 +183,7 @@ Self-review runs after the coding turns and before the worker tears down the ses
 coding turns → status read → self-review phase → session teardown → after_run hook → worker exit disposition
 ```
 
-The phase's turns count toward the run's completed turns alongside the coding turns. A run admitted to the phase, whether by exhausting the turn budget or because the agent wrote `needs-human-review`, takes exactly the disposition it would have taken without the phase; what changes is the work performed before that disposition is computed, with one exception: a `blocked` signal written during the phase converts the exit to the blocked disposition on either admission.
+The phase's turns count toward the run's completed turns alongside the coding turns. A run admitted to the phase because it exhausted the turn budget, or because the agent wrote `needs-human-review`, takes exactly the disposition it would have taken without the phase; what changes is the work performed before that disposition is computed. Two exceptions: a `blocked` signal written during the phase converts the exit to the blocked disposition on any admission, and a run admitted by a `no-change-needed` declaration takes a *different* disposition depending on what the phase finds - the declaration stands, bypassing the ordinary evidence check, only when the phase confirms it; otherwise it is retracted and the run falls back to the disposition it would have taken with no declaration at all.
 
 The `after_run` hook environment includes two self-review variables:
 

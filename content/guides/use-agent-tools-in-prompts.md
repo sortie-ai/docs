@@ -163,12 +163,17 @@ If the work is complete but needs human review before merging:
 
     mkdir -p .sortie && echo "needs-human-review" > .sortie/status
 
+If the requested outcome already held and you changed nothing to
+reach it:
+
+    mkdir -p .sortie && echo "no-change-needed" > .sortie/status
+
 DO NOT write this file during normal productive work.
 ```
 
 Sortie auto-injects similar instructions on the first turn, so including your own version is harmless. Custom instructions are useful when you want to be more specific — for example, listing the exact conditions that count as "blocked" in your project.
 
-The orchestrator reads `.sortie/status` after each turn. Unrecognized values are silently ignored, so only `blocked` and `needs-human-review` have any effect. For background on why this is a file rather than a tool call, see [agent communication model](/concepts/orchestration/).
+The orchestrator reads `.sortie/status` after each turn. Unrecognized values are silently ignored, so only `blocked`, `needs-human-review`, and `no-change-needed` have any effect. For background on why this is a file rather than a tool call, see [agent communication model](/concepts/orchestration/).
 
 ## Combine tools in a complete workflow
 
@@ -273,7 +278,7 @@ The flow: the agent checks its budget, gathers context (related issues on first 
 
 **Notifying on every turn.** Notifications are capped per session (default 20); past the cap, calls return `rate_limited` errors. Reserve `notify_operator` for decisions, blockers, and meaningful milestones, not a running commentary.
 
-**Writing `.sortie/status` with unrecognized values.** Only `blocked` and `needs-human-review` are recognized. Values like `done`, `error`, or `waiting` are silently ignored. The agent writes the file thinking it communicated something, but the orchestrator sees nothing.
+**Writing `.sortie/status` with unrecognized values.** Only `blocked`, `needs-human-review`, and `no-change-needed` are recognized. Values like `done`, `error`, or `waiting` are silently ignored. The agent writes the file thinking it communicated something, but the orchestrator sees nothing.
 
 ## Related guides
 

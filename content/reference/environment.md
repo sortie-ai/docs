@@ -13,7 +13,7 @@ Sortie supports `SORTIE_*` environment variable overrides for most configuration
 | [Configuration overrides](#configuration-overrides) | Parent shell / `.env` file → config fields | Deploying in containers, CI, cloud-native environments |
 | [Agent runtime variables](#agent-runtime-variables) | Parent shell → agent subprocess | Before starting Sortie |
 | [`$VAR` indirection in WORKFLOW.md](#var-indirection-in-workflowmd) | Parent shell → config fields at startup | Writing the workflow file |
-| [Hook subprocess environment](#hook-subprocess-environment) | Sortie → hook subprocess | Writing hook scripts |
+| [Hook subprocess environment](#hook-subprocess-environment) | Sortie → hook subprocess | Writing hook scripts and reaction triage scripts |
 | [MCP server environment](#mcp-server-environment) | Worker → `.sortie/mcp.json` → agent runtime → MCP server | Writing custom tools, debugging tool execution |
 | [Install script variables](#install-script-variables) | Parent shell → `install.sh` | Installing the binary |
 
@@ -46,6 +46,7 @@ A real env var always beats a `.env` value for the same key. Both beat whatever 
 | `SORTIE_TRACKER_TERMINAL_STATES` | [`tracker.terminal_states`](/reference/workflow-config/#tracker) | csv |
 | `SORTIE_TRACKER_QUERY_FILTER` | [`tracker.query_filter`](/reference/workflow-config/#tracker) | string |
 | `SORTIE_TRACKER_HANDOFF_STATE` | [`tracker.handoff_state`](/reference/workflow-config/#tracker) | string |
+| `SORTIE_TRACKER_NO_CHANGE_STATE` | [`tracker.no_change_state`](/reference/workflow-config/#tracker) | string |
 | `SORTIE_TRACKER_IN_PROGRESS_STATE` | [`tracker.in_progress_state`](/reference/workflow-config/#tracker) | string |
 | `SORTIE_TRACKER_COMMENTS_ON_DISPATCH` | [`tracker.comments.on_dispatch`](/reference/workflow-config/#tracker-comments) | bool (`true`/`false`/`1`/`0`) |
 | `SORTIE_TRACKER_COMMENTS_ON_COMPLETION` | [`tracker.comments.on_completion`](/reference/workflow-config/#tracker-comments) | bool |
@@ -311,6 +312,7 @@ Three expansion modes exist. The mode depends on the field.
 | `tracker.project` | Reference only | `$SORTIE_JIRA_PROJECT` | `PLATFORM` |
 | `tracker.query_filter` | Reference only | `$SORTIE_JIRA_QUERY_FILTER` | `labels = 'agent-ready'` |
 | `tracker.handoff_state` | Reference only | `$SORTIE_HANDOFF_STATE` | `Human Review` |
+| `tracker.no_change_state` | Reference only | `$SORTIE_NO_CHANGE_STATE` | `Done` |
 | `tracker.in_progress_state` | Reference only | `$SORTIE_IN_PROGRESS_STATE` | `In Progress` |
 | `tracker.api_version` | Reference only | `$SORTIE_JIRA_API_VERSION` | `2` |
 | `workspace.root` | Path | `~/workspace/sortie` | `/home/deploy/workspace/sortie` |
@@ -335,6 +337,7 @@ For the GitLab adapter, the conventions are `$SORTIE_GITLAB_TOKEN` for `tracker.
 | `$VAR` resolves to an empty string | The field is treated as missing. For required fields (e.g., `tracker.api_key` when the adapter declares it required), this is a startup error. |
 | The referenced variable does not exist in the environment | Same as empty - `os.ExpandEnv` returns `""` for undefined variables. |
 | `tracker.handoff_state` resolves to empty | Startup error: `config: tracker.handoff_state: resolved to empty (check environment variable)`. |
+| `tracker.no_change_state` resolves to empty | Startup error: `config: tracker.no_change_state: resolved to empty (check environment variable)`. |
 | `db_path` resolves to empty | Startup error: `config: db_path: resolved to empty (check environment variable)`. |
 
 ### What this is not
@@ -376,6 +379,18 @@ These variables are injected only during `after_run` hook invocations.
 | `SORTIE_SELF_REVIEW_SUMMARY_PATH` | string | Absolute path to `.sortie/review_summary.md` in the workspace. Contains a human-readable Markdown summary of the review outcome. **Absent when self-review did not run or the summary file was not written.** |
 
 See [Configure self-review](/guides/configure-self-review/) for usage examples.
+
+### Reaction triage command variables
+
+A reaction's [`triage` command](/reference/reactions/#triage-command) is not a lifecycle hook, but it runs through the same machinery and so gets the same restricted environment, the same working directory, and the injected variables above. On top of those it receives three of its own.
+
+| Variable | Type | Description |
+|---|---|---|
+| `SORTIE_REACTION_KIND` | string | Which reaction armed: `ci`, `review`, `bot-review`, or `merge-conflict`. |
+| `SORTIE_REACTION_INPUT` | string | Absolute path to a JSON file describing the subject. Written before the command starts and removed after it returns. |
+| `SORTIE_REACTION_RESULT` | string | Absolute path the command writes its answer to. The file does not exist when the command starts. |
+
+Both paths sit in a temporary directory created for the run, outside the workspace. See the [triage command reference](/reference/reactions/#triage-command) for the two document schemas and the answers the result file accepts.
 
 ### Inherited variables
 

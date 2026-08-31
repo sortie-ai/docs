@@ -51,16 +51,16 @@ Every kind shares four fields:
 |---|---|---|
 | `provider` | _(required)_ | SCM or CI adapter that activates the kind. Absent or empty disables it. |
 | `max_retries` | `2` | Fix or merge attempts per issue before escalation. Must be non-negative. |
-| `escalation` | `"label"` | Action on budget exhaustion: `"label"` or `"comment"`. |
+| `escalation` | `"label"` | Action taken when the kind hands the issue to a person: `"label"` or `"comment"`. |
 | `escalation_label` | `"needs-human"` | Label applied to the issue when `escalation` is `"label"`. Created on demand if the tracker does not already have it. |
 
-When a kind exhausts its budget, Sortie applies the escalation action and releases its claim on the issue. With `label`, it adds `escalation_label` to the tracker issue. With `comment`, it posts a plain-text comment naming the PR, the attempt count, and the outstanding signal. Create the label in advance if you use label escalation:
+When a kind exhausts its budget, Sortie applies the escalation action and releases its claim on the issue. A [triage command](/guides/triage-reactions-before-dispatch/) can also ask for the escalation directly, before any budget is spent. With `label`, it adds `escalation_label` to the tracker issue. With `comment`, it posts a plain-text comment naming the PR, the attempt count, and the outstanding signal. Create the label in advance if you use label escalation:
 
 ```bash
 gh label create needs-human --repo myorg/myrepo --color "D93F0B"
 ```
 
-Reaction configuration comes from WORKFLOW.md only. Environment variable overrides for `reactions` fields are not supported. The whole block is read once at startup: changing a field, or adding or removing a kind, takes effect on the next restart, not on a dynamic reload. The one exception is `ci_failure`, whose fields are re-read on every tick. For the full field tables and validation rules, see the [reactions reference](/reference/reactions/).
+Reaction configuration comes from WORKFLOW.md only. Environment variable overrides for `reactions` fields are not supported. The whole block is read once at startup: changing a field, or adding or removing a kind, takes effect on the next restart, not on a dynamic reload. The one exception is `ci_failure`, whose fields are re-read on every tick, apart from `max_log_lines` and `triage`. For the full field tables and validation rules, see the [reactions reference](/reference/reactions/).
 
 ## Provide PR metadata in `.sortie/scm.json`
 
@@ -359,6 +359,7 @@ sqlite3 sortie.db "SELECT issue_id, fingerprint, dispatched, updated_at FROM rea
 
 - [Configure CI feedback](/guides/configure-ci-feedback/): the `ci_failure` kind in full, with log fetching and prompt context
 - [Configure review feedback](/guides/configure-review-feedback/): the `review_comments` kind, debounce, and the complete WORKFLOW.md example
+- [Triage reactions before dispatch](/guides/triage-reactions-before-dispatch/): resolve a CI failure, a review comment, or a conflict with a script instead of an agent
 - [Configure self-review](/guides/configure-self-review/): pre-PR verification that runs before any reaction
 - [Connect to GitHub](/guides/connect-to-github/): adapter setup and token scopes
 - [Setup workspace hooks](/guides/setup-workspace-hooks/): hook scripts and `.sortie/scm.json` population

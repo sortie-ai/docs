@@ -74,6 +74,21 @@ The agent subprocess exited with code 0 without reporting a turn outcome, and th
 
 Run with `--log-level debug` to see the full subprocess stderr. Fix the root cause (correct the config path, set the right API key, wait for rate limits to clear) and Sortie's exponential backoff retries will succeed automatically.
 
+## Copilot CLI stops without finishing the task
+
+```
+level=WARN msg="copilot turn ended without a task-completion report" autopilot_continuations_observed=50 max_autopilot_continues=50
+level=ERROR msg="worker run failed, scheduling retry" error="agent: turn_incomplete: agent stopped without reporting the task complete: raise copilot-cli.max_autopilot_continues if the turn needs more steps"
+```
+
+Copilot CLI exited cleanly, but the turn stopped before it produced a `session.task_complete` report - the `--max-autopilot-continues` ceiling was reached mid-task. Only the Copilot CLI adapter can report this; every other agent adapter still has no way to detect a turn cut off partway through.
+
+1. **Raise `copilot-cli.max_autopilot_continues`** (default `50`) if the task genuinely needs more autopilot steps per turn. See [`agent.max_turns` vs. `copilot-cli.max_autopilot_continues`](/reference/adapter-copilot/#agentmax_turns-vs-copilot-climax_autopilot_continues) for how this budget relates to `agent.max_turns`.
+
+2. **Let the retry run.** `turn_incomplete` is retried on the same exponential backoff as other transient turn failures, and the retry resumes the same Copilot session rather than starting over, so raising the ceiling is often enough on its own.
+
+3. **Tell it apart from a stall or a genuine failure.** A stall reports `turn_cancelled`; an agent that reported its own failure, or exited with nothing to show for the turn, reports `turn_failed`. `turn_incomplete` means specifically that the turn's `result` event arrived and the exit was clean, but no `session.task_complete` report ever did.
+
 ## A turn runs long and gets cut off
 
 ```
@@ -112,13 +127,15 @@ level=WARN msg="handoff withheld by evidence policy" issue_id="PROJ-42" issue_id
 
 Sortie's default `tracker.handoff_evidence` policy withholds the handoff transition when a run leaves the workspace exactly as it found it. The issue stays in its active tracker state, and Sortie retries it on exponential backoff rather than failing silently or moving it forward on the strength of an exit code alone.
 
-1. **Check what the agent actually did.** A withheld run names its verdict as the run's failure reason in [run history](/reference/dashboard/). If the agent reported success but changed nothing in the workspace, that is exactly the case this policy exists to catch.
+1. **Check what the agent actually did.** A withheld run names its verdict as the run's failure reason in [run history](/reference/dashboard/). If the agent reported success but changed nothing in the workspace, that is exactly the case this policy exists to catch - unless the requested outcome had genuinely already held, which is the next case.
 
-2. **A dispatch whose only product is a tracker write is a known false positive.** If your agent's entire job is calling `tracker_api` to transition the issue itself, set `tracker.handoff_evidence: off`. See [workflow configuration](/reference/workflow-config/#tracker).
+2. **A run that finds nothing to change should say so.** If the issue's outcome already held before the agent started, the agent can write `no-change-needed` to `.sortie/status` instead of leaving the workspace silently unchanged. Sortie appends this instruction to every first-turn prompt automatically, so no prompt template change is needed. A declaration that survives [self-review](/guides/configure-self-review/) (where enabled) is never withheld and does not count toward the ceiling in item 3 below - it records the run as succeeded and moves the issue to `tracker.no_change_state` if one is configured. See [state machine reference: declaring that nothing needed changing](/reference/state-machine/#declaring-that-nothing-needed-changing). A run that changes nothing and declares nothing keeps the withheld outcome described above.
 
-3. **Repeated absences park the issue.** After a bounded number of consecutive withheld runs, Sortie stops retrying and applies an escalation label instead of looping forever. See [park issues stuck in a loop of empty runs](/guides/configure-retry-behavior/#park-issues-stuck-in-a-loop-of-empty-runs).
+3. **A dispatch whose only product is a tracker write is a known false positive.** If your agent's entire job is calling `tracker_api` to transition the issue itself, set `tracker.handoff_evidence: off`. See [workflow configuration](/reference/workflow-config/#tracker).
 
-4. **Not every workspace can be measured.** A workspace that is not a Git work tree changes nothing under the default policy. Only `strict` withholds there, and it withholds every transition. See the [state machine reference](/reference/state-machine/#handoff-evidence).
+4. **Repeated absences park the issue.** After a bounded number of consecutive withheld runs, Sortie stops retrying and applies an escalation label instead of looping forever. See [park issues stuck in a loop of empty runs](/guides/configure-retry-behavior/#park-issues-stuck-in-a-loop-of-empty-runs).
+
+5. **Not every workspace can be measured.** A workspace that is not a Git work tree changes nothing under the default policy. Only `strict` withholds there, and it withholds every transition. See the [state machine reference](/reference/state-machine/#handoff-evidence).
 
 ## Tracker returns 401 or 403
 

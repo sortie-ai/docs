@@ -52,18 +52,16 @@ The optional `pushed_at` field is an ISO-8601/RFC3339 UTC timestamp of the last 
 reactions:
   review_comments:
     provider: github
-    max_retries: 2
     escalation: label
     escalation_label: needs-human
 ```
 
 | Field | Default | Description |
 |---|---|---|
-| `max_retries` | `2` | Maximum review-fix continuation turns per issue before escalation. |
-| `escalation` | `"label"` | Action when retries are exhausted: `"label"` or `"comment"`. |
+| `escalation` | `"label"` | Action when the retry budget is exhausted: `"label"` or `"comment"`. |
 | `escalation_label` | `"needs-human"` | Label applied when `escalation` is `"label"`. Created on demand if the tracker does not already have it. |
 
-`max_retries` counts continuation turns triggered specifically by review comments, independent of the agent's `max_sessions` budget and CI feedback's retry counter. If the agent addresses all comments within this budget, the loop ends. If not, Sortie escalates and releases its claim.
+The retry budget for this kind is `max_continuation_turns`, configured below, not `max_retries`: `review_comments` accepts `max_retries` for schema consistency with the other reaction kinds but does not consume it, so setting it here has no effect. `max_continuation_turns` counts continuation turns triggered specifically by review comments, independent of the agent's `max_sessions` budget and CI feedback's retry counter. If the agent addresses all comments within this budget, the loop ends. If not, Sortie escalates and releases its claim.
 
 With strategy `label`, Sortie adds the configured label to the issue. With `comment`, it posts a comment noting how many turns were attempted and that remaining comments need human attention. Both strategies cancel any pending retry and release the claim.
 
@@ -195,7 +193,6 @@ reactions:
     escalation_label: needs-human
   review_comments:
     provider: github
-    max_retries: 2
     poll_interval_ms: 120000
     debounce_ms: 60000
     max_continuation_turns: 3
@@ -350,12 +347,14 @@ All `reactions.review_comments` fields in one place:
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `provider` | string | _(required)_ | SCM adapter kind. One of `"github"`, `"gitea"`, or `"gitlab"`. Presence activates the feature. |
-| `max_retries` | integer | `2` | Max review-fix dispatches per issue before escalation. |
 | `escalation` | string | `"label"` | Escalation strategy: `"label"` or `"comment"`. |
 | `escalation_label` | string | `"needs-human"` | Label applied when `escalation` is `"label"`. Created on demand if the tracker does not already have it. |
 | `poll_interval_ms` | integer | `120000` | Minimum ms between review polls per issue. Min: `30000`. |
 | `debounce_ms` | integer | `60000` | Ms to wait after newest comment before dispatching. |
-| `max_continuation_turns` | integer | `3` | Hard cap on review-triggered continuation turns. |
+| `max_continuation_turns` | integer | `3` | Hard cap on review-triggered continuation turns before escalation. |
+| `watch_window_ms` | integer | `1800000` | Ms a pending entry is kept, from the entry's creation. Non-negative, not above `9223372036854`; `0` removes the bound. |
+
+`max_retries` is also accepted, for schema consistency with the other reaction kinds, but `review_comments` does not consume it; the retry budget above is `max_continuation_turns`.
 
 For the full WORKFLOW.md configuration reference including all sections, see [workflow config reference](/reference/workflow-config/).
 

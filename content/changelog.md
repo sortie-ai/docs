@@ -9,6 +9,43 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.23.0] - 2026-08-31 { #1.23.0 }
+
+### Added
+
+- An agent can now write `no-change-needed` to `.sortie/status` to declare that the requested outcome already held and it changed nothing. Such a run is recorded as a success rather than a failure, schedules no retry, and does not count toward `agent.max_consecutive_absences`, so an issue that repeatedly needs no change is no longer parked for it. A new `tracker.no_change_state`, also settable as `SORTIE_TRACKER_NO_CHANGE_STATE`, names the state the issue moves to; unset, it is `tracker.handoff_state`. It is the one state field allowed to name a member of `tracker.terminal_states`, for a board where a handoff carrying no pull request and no diff would put nothing in front of a reviewer. Where self-review runs, the declaration stands only where that phase confirms it: a failing verification command, or a run that needed a fix turn, withdraws the declaration and the run continues on the ordinary path. A run that produces nothing and declares nothing is still an absence of work and keeps every outcome it had.
+  ([#889](https://github.com/sortie-ai/sortie/issues/889))
+
+- `sortie validate` now reports a new error, `dispatch.agent.missing_block`, for a kind named by `dispatch.default.agent` or `dispatch.rules[*].agent` that differs from the top-level `agent.kind` and carries no top-level settings block of its own; `agent.kind` itself is never affected. An empty block, or a bare key with nothing following, satisfies the requirement. A deployment whose `WORKFLOW.md` already routes a dispatch rule or `dispatch.default` to such a kind will refuse to start until the block is added.
+  ([#929](https://github.com/sortie-ai/sortie/issues/929))
+
+- `reactions.ci_failure`, `reactions.review_comments`, `reactions.bot_review`, and `reactions.merge_conflicts` now accept an optional `triage` block, naming a `script` to run in the issue workspace when the reaction fires and before any agent starts, plus an optional `timeout_ms` (default `60000`, maximum `600000`). The script learns which reaction fired from `SORTIE_REACTION_KIND`, reads the details from the JSON file named by `SORTIE_REACTION_INPUT`, and writes `handled`, `dispatch-agent`, or `escalate` to the file named by `SORTIE_REACTION_RESULT`. `handled` closes the reaction without starting an agent, so deterministic work such as a clean rebase or a re-run of a known-flaky job costs no agent session, no continuation attempt, and no tokens; `escalate` applies the kind's configured `escalation` right away; `dispatch-agent` starts the agent exactly as before. A timeout, a non-zero exit, a malformed answer, or a missing workspace logs one warning and falls back to `dispatch-agent`, so a broken script cannot strand the work. The block is a configuration error under any other reaction key, and a workflow that sets no `triage` block is unaffected.
+  ([#959](https://github.com/sortie-ai/sortie/issues/959))
+
+### Fixed
+
+- `reactions.ci_failure.watch_window_ms` now rejects a value above `9223372036854` (about 292 years) instead of converting it to a window of a fraction of a millisecond or to no bound at all. `0` still means no time limit. A deployment currently carrying a larger value is refused at startup and by `sortie validate` until the value is lowered.
+  ([#956](https://github.com/sortie-ai/sortie/issues/956))
+
+- On Windows, a hook's background child no longer escapes the timeout's process-tree kill by starting before the hook process joined the Job Object that the kill targets. The hook subprocess is now created suspended and only allowed to run once it is a member, closing the window in which such a child survived termination and kept the workspace directory locked. A hook whose Job Object cannot be created still runs, as it did before, and the failure is logged.
+  ([#883](https://github.com/sortie-ai/sortie/issues/883))
+
+- A `codex` turn that Sortie already cancelled is now recorded as cancelled, not as a success, when the runtime's completion notification for that turn arrives afterward, whatever status the runtime reports. The turn no longer counts toward the run's completed turns.
+  ([#916](https://github.com/sortie-ai/sortie/issues/916))
+
+- A `copilot-cli` workflow that set only `denied_tools`, `available_tools`, or `excluded_tools` no longer loses the blanket approval grant. Previously any one of those three keys, like `allowed_tools`, dropped `--allow-all` from the launch, so every permissioned call was denied without a prompt while the process still exited 0 and the turn was recorded as a success that changed nothing. The three keys now compose with the grant instead, so a workflow setting one of them again runs with file-path verification and URL approval disabled, the posture an unscoped `copilot-cli` workflow already has. `allowed_tools` still replaces the grant, because it is an approval allow-list the grant would otherwise subsume and defeat. The validation check for this is renamed from `copilot-cli.tool_scoping.interactive` to `copilot-cli.allowed_tools.auto_deny` and now fires only when `allowed_tools` is set.
+  ([#934](https://github.com/sortie-ai/sortie/issues/934))
+
+- A `copilot-cli` turn that the CLI ends without reporting the task complete, which is what reaching `copilot-cli.max_autopilot_continues` produces, is now recorded as a failed turn with the new `turn_incomplete` error kind instead of as a success. The attempt ends there and the scheduled retry resumes the same session, so the work continues rather than being lost. The turn no longer counts toward the run's completed turns.
+  ([#935](https://github.com/sortie-ai/sortie/issues/935))
+
+- `copilot-cli` runs record token counts and API-request counts again. A newer CLI release moved the per-message output-token count to a different place in its output, so the count was silently going unread and every such run reported zero spend and, in some cases, a turn that succeeded as failed for producing no measurable output.
+
+### Changed
+
+- `reactions.review_comments`, `reactions.bot_review`, `reactions.merge_conflicts`, and `reactions.auto_merge` now bound a pending entry's age with a per-reaction `watch_window_ms` key instead of a hardcoded thirty-minute constant. The default stays `1800000` (thirty minutes), so a deployment that sets nothing behaves exactly as before; setting `0` removes the bound entirely. A workflow with no `auto_merge`, where a person reviews and merges, will normally want a larger value than the default. The four expiry log records changed their message text and renamed their `ttl_ms` attribute to `window_ms`.
+  ([#953](https://github.com/sortie-ai/sortie/issues/953))
+
 ## [1.22.0] - 2026-08-25 { #1.22.0 }
 
 ### Added
@@ -792,6 +829,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - CI pipeline with `golangci-lint`, `gofmt` enforcement, and test execution via GitHub Actions.
 - Architecture Decision Records (ADR-0001 through ADR-0005).
 
+[1.23.0]: https://github.com/sortie-ai/sortie/compare/v1.22.0...v1.22.0
 [1.22.0]: https://github.com/sortie-ai/sortie/compare/v1.21.0...v1.22.0
 [1.21.0]: https://github.com/sortie-ai/sortie/compare/v1.20.0...v1.21.0
 [1.20.0]: https://github.com/sortie-ai/sortie/compare/v1.19.0...v1.20.0

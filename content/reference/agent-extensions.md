@@ -32,12 +32,13 @@ mkdir -p .sortie && echo "blocked" > .sortie/status
 |---|---|
 | `blocked` | The agent cannot proceed without human intervention. |
 | `needs-human-review` | Work is complete but requires human review before merging or closing. |
+| `no-change-needed` | The requested outcome already held before the run started, and the agent made no change to reach it. |
 
-Both values suppress continuation retry and eventually release the issue claim, but they diverge at three points in the run: whether the self-review phase runs (`blocked` never enters it; `needs-human-review` does, when self-review is enabled and the issue is still active), what the two values mean if written again inside that phase, and what happens to the issue on exit. `blocked` parks the issue where the dispatch drives issue state, or releases the claim otherwise; it performs no tracker transition. `needs-human-review` triggers a handoff transition to `tracker.handoff_state` when configured, the issue is still active, the dispatch drives issue state, and the [handoff-evidence verdict](/reference/state-machine/#handoff-evidence) permits it.
+All three values suppress continuation retry and eventually release the issue claim, but they diverge at three points in the run: whether the self-review phase runs (`blocked` never enters it; `needs-human-review` and `no-change-needed` do, when self-review is enabled and the issue is still active), what each value means if written again inside that phase, and what happens to the issue on exit. `blocked` parks the issue where the dispatch drives issue state, or releases the claim otherwise; it performs no tracker transition. `needs-human-review` triggers a handoff transition to `tracker.handoff_state` when configured, the issue is still active, the dispatch drives issue state, and the [handoff-evidence verdict](/reference/state-machine/#handoff-evidence) permits it. `no-change-needed` triggers the same handoff transition under the same configuration and activity conditions, but targets `tracker.no_change_state` where that field is set (falling back to `tracker.handoff_state` otherwise) and is never withheld by the handoff-evidence verdict: a declaration that survives self-review always counts as work observed. See [handoff evidence: declaring that nothing needed changing](/reference/state-machine/#declaring-that-nothing-needed-changing) for the full mechanism, including what self-review confirmation requires and what happens with self-review disabled.
 
 ### Orchestrator behavior
 
-When Sortie detects a recognized value in `.sortie/status`, both signals complete the current turn normally and break the turn loop -- no further turns are attempted. From there they diverge.
+When Sortie detects a recognized value in `.sortie/status`, all three signals complete the current turn normally and break the turn loop -- no further turns are attempted. From there they diverge.
 
 **`blocked`:**
 
@@ -55,6 +56,14 @@ When Sortie detects a recognized value in `.sortie/status`, both signals complet
 5. Does **not** schedule a continuation retry.
 
 If the handoff transition in step 3 fails (network error, permission denied, nil adapter), the orchestrator logs a warning and releases the claim without retry. The agent finished its work -- retrying would be wrong.
+
+**`no-change-needed`:**
+
+1. Where `self_review.enabled` and the issue is still active, enters the [self-review phase](/guides/configure-self-review/) before exiting, on the same admission terms as `needs-human-review`. If the phase does not confirm the declaration - anything other than exactly one iteration ending on a `pass` verdict, with no failing verification result - the declaration is retracted, and the run exits as an ordinary normal exit: the [handoff-evidence policy](/reference/state-machine/#handoff-evidence) inspects the workspace for the verdict exactly as it would for a run with no declaration at all. On a deployment with self-review disabled, no such check runs and the declaration stands unverified.
+2. Exits the worker run.
+3. A declaration that stands always counts as work observed and is never withheld: when `tracker.handoff_state` is configured, the issue is still active, the dispatch drives issue state, and no terminal observation intervenes, performs the handoff transition to `tracker.no_change_state` where that field is set, or to `tracker.handoff_state` otherwise.
+4. Releases the issue claim, resets the consecutive handoff-absence count, and releases a park held for consecutive absences - unless `tracker.handoff_evidence` is `off`, under which no verdict is computed and neither the reset nor the park release happens; resolving the transition target is the declaration's only effect there.
+5. Does **not** schedule a continuation retry.
 
 A parked issue is released by one of three gestures: the tracker state changes to something other than the one it was parked in, the parking label is removed and confirmed gone, or a later run for the issue produces observable work. See [the release rules](/concepts/agent-communication/) for the confirmation guard and the query-filter caveat. A `needs-human-review` exit with no `tracker.handoff_state` configured performs no tracker write at all, so the issue is immediately eligible for re-dispatch on the next poll.
 
@@ -75,24 +84,29 @@ Sortie appends protocol instructions to the first-turn prompt automatically (`Ru
 
 ```
 If you determine that you cannot make further progress on this task without human
-intervention, or if your work is complete and requires human review, signal the
-orchestrator by running:
+intervention, or if your work is complete and requires human review, or if you
+determine that the requested outcome already held and you changed nothing, signal
+the orchestrator by running the following, replacing STATUS with exactly one of
+the three values below:
 
-    mkdir -p .sortie && echo "blocked" > .sortie/status
+    mkdir -p .sortie && echo "STATUS" > .sortie/status
 
 Use "blocked" when you cannot proceed. Use "needs-human-review" when your work is
-complete and awaiting review. Do not write this file during normal productive work.
+complete and awaiting review. Use "no-change-needed" when the requested outcome
+already held before you started and you made no change to reach it. Do not write
+"no-change-needed" if you performed any work. Do not write this file during normal
+productive work.
 ```
 
 Continuation turns do not repeat the instructions. You can include your own instructions in prompt templates too - duplicates are harmless.
 
-During the self-review phase, a second injected instruction supersedes this one for the duration of the phase: it tells the agent to report through `.sortie/review_verdict.json` instead, that writing `needs-human-review` to `.sortie/status` there neither ends the phase nor substitutes for a verdict, and that `blocked` still ends the phase.
+During the self-review phase, a second injected instruction supersedes this one for the duration of the phase: it tells the agent to report through `.sortie/review_verdict.json` instead, that writing `needs-human-review` to `.sortie/status` there neither ends the phase nor substitutes for a verdict, and that `blocked` still ends the phase. This second instruction names only those two values; it says nothing about `no-change-needed`. In the loop itself, though, only `blocked` is read for anything - any other value written during the phase, `no-change-needed` included, is inert there the same way an in-phase `needs-human-review` is.
 
 ### Cleanup and protection
 
 Sortie deletes `.sortie/status` before each new dispatch, so a stale signal from a previous run cannot affect the new one.
 
-Sortie deletes it again at each point in a run where it acts on a recognized value: when a completion signal admits the run to the [self-review phase](/guides/configure-self-review/), and after every review turn and every fix turn inside that phase. Which value was read makes no difference at those points; `blocked` and `needs-human-review` are both removed. The read after a coding turn deletes nothing, so a recognized value written there stays on disk through teardown on a run that never enters the phase. Every deletion is best-effort and applies the same `Lstat` symlink rejection as the read; a deletion that fails is logged and changes nothing else about the run.
+Sortie deletes it again at each point in a run where it acts on a recognized value: when a completion signal admits the run to the [self-review phase](/guides/configure-self-review/), and after every review turn and every fix turn inside that phase. Which value was read makes no difference at those points; `blocked`, `needs-human-review`, and `no-change-needed` are all removed. The read after a coding turn deletes nothing, so a recognized value written there stays on disk through teardown on a run that never enters the phase. Every deletion is best-effort and applies the same `Lstat` symlink rejection as the read; a deletion that fails is logged and changes nothing else about the run.
 
 An absent or empty file therefore carries two meanings: the agent has written nothing, or Sortie has already acted on what it wrote. What an `after_run` hook or a later `cat` finds is a value Sortie has not acted on.
 

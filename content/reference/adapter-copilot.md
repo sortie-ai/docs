@@ -46,7 +46,7 @@ agent:
 
 ### `copilot-cli` extension section
 
-These fields are adapter-specific, and each maps to a Copilot CLI flag. The orchestrator forwards them as written, and the four tool-scoping keys draw an advisory warning because setting any of them changes the permission posture; see [validate-time checks](#validate-time-checks).
+These fields are adapter-specific, and each maps to a Copilot CLI flag. The orchestrator forwards them as written, and `allowed_tools` draws an advisory warning because it changes the permission posture; see [validate-time checks](#validate-time-checks).
 
 | Field | CLI flag | Type | Default | Description |
 |---|---|---|---|---|
@@ -86,7 +86,9 @@ Setting `max_autopilot_continues` too low causes Copilot to exit mid-task. Setti
 
 ### Tool scoping behavior
 
-When no explicit tool scoping flags are configured (`allowed_tools`, `denied_tools`, `available_tools`, and `excluded_tools` are all empty), the adapter passes `--allow-all` to auto-approve all tool calls. When any scoping flag is set, `--allow-all` is omitted and the explicit scoping flags take effect instead.
+The adapter passes `--allow-all` to auto-approve all tool calls unless `allowed_tools` is a non-whitespace value. `--allow-all` grants tool approval, file-path verification, and URL access in one flag, and `allowed_tools` is itself an approval allow-list - a subset of that grant - so the grant would subsume and defeat it if both were sent.
+
+`denied_tools`, `available_tools`, and `excluded_tools` do not affect `--allow-all`. They are forwarded alongside it: a `--deny-tool` rule outranks the grant for a matching call, and `--available-tools` / `--excluded-tools` control what the model sees rather than what it may do. Setting one of these three, without setting `allowed_tools`, still runs with `--allow-all` present.
 
 Every invocation also includes `--autopilot` and `--no-ask-user`, which are always present regardless of tool scoping configuration. `--no-ask-user` closes the CLI's route for putting a question to a person, so a request the runtime cannot satisfy on its own is always a request for consent to act rather than a question.
 
@@ -112,9 +114,9 @@ When `agent.kind` is `copilot-cli`, the [`sortie validate`](/reference/cli/#vali
 
 | Check | Condition | Message |
 |---|---|---|
-| `copilot-cli.tool_scoping.interactive` | Any of `allowed_tools`, `denied_tools`, `available_tools`, or `excluded_tools` is set | `copilot-cli tool scoping (allowed_tools, denied_tools, available_tools, or excluded_tools) displaces --allow-all; a tool call the scoping excludes is denied and the run continues, rather than being auto-approved` |
+| `copilot-cli.allowed_tools.auto_deny` | `allowed_tools` is set | `copilot-cli.allowed_tools replaces the --allow-all grant, so only a call the list matches is approved; every other permissioned call is denied without a prompt, the turn continues, and a turn whose calls were all denied still reports success` |
 
-This is a warning rather than an error. Warnings leave `valid` true and the exit code `0`. Tool scoping narrows what the agent may do, and a call it excludes is denied and the session goes on, so the configuration never leaves a turn waiting for a person.
+This is a warning rather than an error. Warnings leave `valid` true and the exit code `0`. `allowed_tools` narrows what the agent may do without leaving it waiting for a person: a call outside the list is denied and the session goes on, and the check flags that so a turn that got nothing approved does not read as an ordinary success.
 
 ---
 
@@ -248,13 +250,17 @@ The outcome is not decided by the exit code alone. The shared decision table eva
 |---|---|---|
 | Orchestrator cancelled the turn, or the process was killed by a signal | `turn_cancelled` | `turn_cancelled` |
 | Exit code `127` | `turn_failed` | `agent_not_found` |
-| `result` event carrying `exitCode: 0` | `turn_completed` | _(none)_ |
+| `result` event carrying `exitCode: 0`, no `session.task_complete` event this turn | `turn_failed` | `turn_incomplete` |
+| `result` event carrying `exitCode: 0`, a `session.task_complete` event reporting `success: false` | `turn_failed` | `turn_failed` |
+| `result` event carrying `exitCode: 0`, a `session.task_complete` event reporting `success` true or omitted | `turn_completed` | _(none)_ |
 | `result` event carrying any other `exitCode`, or carrying no `exitCode` field | `turn_failed` | `turn_failed` |
 | No `result` event, non-zero exit | `turn_failed` | `port_exit` |
 | No `result` event, exit `0`, this turn reported no output tokens | `turn_failed` | `turn_failed` |
 | No `result` event, exit `0`, this turn reported output tokens | `turn_completed` | _(none)_ |
 
 The cancellation and exit-`127` rows are decided before the adapter's own classifier runs. The output-token test reads this turn's own count, not the run-cumulative figure. Stderr from a failing turn is re-emitted at WARN level.
+
+A `result` event with `exitCode: 0` is not decisive by itself: the adapter also checks whether this turn saw a `session.task_complete` report, the runtime's own record of whether the work finished. The [`max_autopilot_continues`](#agentmax_turns-vs-copilot-climax_autopilot_continues) ceiling can stop the runtime mid-task with a clean exit and no such report; without this check that outcome read as an ordinary success. `turn_incomplete` is retried like the other transient turn failures, on exponential backoff, and the retry resumes the same session with a fresh continuation ceiling. Raise `copilot-cli.max_autopilot_continues` if the task genuinely needs more autopilot steps per turn. No other built-in adapter reports `turn_incomplete` today.
 
 `--no-ask-user` is on every invocation, so this adapter has no path to `turn_input_required`: the runtime cannot put a question to a person, and a denied tool call continues the session instead of ending the turn.
 
@@ -373,7 +379,7 @@ The orchestrator's preflight validation uses `RequiresCommand` to produce a spec
 | Resume flag | `--resume <UUID>` | `--resume <sessionId>` or `--continue` fallback |
 | Input token reporting | Per-request, from the result event's per-model breakdown | Recovered from the runtime's session-state journal after exit; unavailable in SSH mode |
 | Model reporting | From `assistant` events | Not available |
-| Permission mode | `--permission-mode` or `--dangerously-skip-permissions` | `--autopilot` + `--no-ask-user`, plus `--allow-all` unless a tool-scoping key is set |
+| Permission mode | `--permission-mode` or `--dangerously-skip-permissions` | `--autopilot` + `--no-ask-user`, plus `--allow-all` unless `allowed_tools` is set |
 | Tool error detail | Error text with XML/ANSI stripping | Boolean `success` flag only |
 | Authentication | `ANTHROPIC_API_KEY` (+ Bedrock, Vertex) | `COPILOT_GITHUB_TOKEN` / `GH_TOKEN` / `GITHUB_TOKEN` / `gh auth` |
 | Canary check | None | `copilot --version` (5-second timeout) |

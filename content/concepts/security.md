@@ -63,6 +63,8 @@ Sortie provides guardrails within this trust model. Hook timeouts (`hooks.timeou
 
 What this does not protect against: a malicious hook that runs within the timeout, produces clean output, and exits zero. Defense against malicious WORKFLOW.md content requires human code review and repository access controls, not runtime enforcement. Sortie assumes WORKFLOW.md is as trustworthy as any other code in your repository.
 
+A reaction's [`triage` command](/reference/reactions/#triage-command) is the second script surface in the same trust class, and it carries a different kind of authority. Its failure semantics are neither fatal nor ignored: anything that goes wrong falls back to dispatching the agent, which is the behavior the reaction would have had without the block at all. Failing open is right for this one, because the alternative would let a broken script silence a reaction. The authority is on the success path instead. A command that answers `handled` asserts that the subject is dealt with, and nothing re-checks the assertion; that answer suppresses both the agent turn and the escalation until the subject changes. So the guardrail that matters here is not the timeout, it is who can write the script and who reviews it, which is the same answer as for hooks and the same reason WORKFLOW.md belongs behind branch protection.
+
 ## SSH host key verification
 
 When agents run on remote hosts via SSH, the orchestrator must decide how much to trust host keys. This is controlled by `worker.ssh_strict_host_key_checking` in the workflow config.

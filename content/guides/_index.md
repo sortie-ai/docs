@@ -38,6 +38,7 @@ Step-by-step instructions for configuring, operating, and extending Sortie.
   {{< card link="setup-pr-reactions" title="PR Reactions" subtitle="Enable post-PR feedback loops and auto-merge." >}}
   {{< card link="use-label-commands" title="PR Label Commands" subtitle="Request agent reviews and fixes by applying a label." >}}
   {{< card link="configure-ci-feedback" title="CI Feedback" subtitle="Detect CI failures and retry automatically." >}}
+  {{< card link="triage-reactions-before-dispatch" title="Triage Reactions" subtitle="Run your own script on a reaction and close it, escalate it, or hand it to the agent." >}}
   {{< card link="configure-review-feedback" title="Review Feedback" subtitle="Route PR review comments back to the agent as continuation context." >}}
 {{< /cards >}}
 
