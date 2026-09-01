@@ -1,7 +1,7 @@
 ---
 title: "How to Use Sortie in Docker"
 linkTitle: "Use Sortie in Docker"
-description: "Run Sortie in Docker: build the distroless image, compose Claude Code, Copilot, Codex, or OpenCode agent images with COPY --from, and configure volumes, health checks, and process reaping."
+description: "Run Sortie in Docker: build the distroless image, compose Claude Code, Copilot, Codex, Kiro, or OpenCode agent images with COPY --from, and configure volumes, health checks, and process reaping."
 author: Sortie AI
 date: 2026-04-26
 weight: 180
@@ -18,7 +18,7 @@ This guide supports two valid starting points:
 
 - Docker 20.10+ with BuildKit enabled
 - A working `WORKFLOW.md` tested locally ([quick start](/getting-started/quick-start/))
-- API credentials for your agent (for example, `ANTHROPIC_API_KEY` for Claude Code, `GITHUB_TOKEN` for Copilot, `CODEX_API_KEY` for Codex, or provider-specific OpenCode credentials such as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GOOGLE_API_KEY`)
+- API credentials for your agent (for example, `ANTHROPIC_API_KEY` for Claude Code, `GITHUB_TOKEN` for Copilot, `CODEX_API_KEY` for Codex, `KIRO_API_KEY` for Kiro, or provider-specific OpenCode credentials such as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GOOGLE_API_KEY`)
 
 ## Use the maintained example Dockerfiles
 
@@ -28,6 +28,7 @@ If you do not need to author your own Dockerfile, build one of the maintained ex
 docker build -f examples/docker/claude-code.Dockerfile -t sortie-claude .
 docker build -f examples/docker/copilot.Dockerfile -t sortie-copilot .
 docker build -f examples/docker/codex.Dockerfile -t sortie-codex .
+docker build -f examples/docker/kiro.Dockerfile -t sortie-kiro .
 docker build -f examples/docker/opencode.Dockerfile -t sortie-opencode .
 ```
 
@@ -96,6 +97,7 @@ Only the base image and the install step differ per agent, and how to install an
 |---|---|
 | Claude Code | Its permission bypass refuses to run as root, so the non-root user is required rather than a hardening choice. |
 | Codex | Ships as a self-contained binary and needs no language runtime, so a plain Debian base is enough. |
+| Kiro | Ships as a binary dynamically linked against glibc, so it needs a glibc base such as `debian:bookworm-slim` rather than a musl-based image like Alpine. |
 | OpenCode | Authenticates per provider, so the image needs `git` and the run must forward the provider credentials your model selection uses. |
 
 ## Run the container
@@ -118,6 +120,7 @@ The container needs credentials for the **agent** (to run code) and the **tracke
 | Claude Code | `ANTHROPIC_API_KEY` |
 | Copilot | `GITHUB_TOKEN` (or `GH_TOKEN`, or `COPILOT_GITHUB_TOKEN`) |
 | Codex | `CODEX_API_KEY` |
+| Kiro | `KIRO_API_KEY` |
 | OpenCode | Provider-specific variables such as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GOOGLE_API_KEY`. Vertex-backed runs typically also need `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CLOUD_PROJECT`, and `VERTEX_LOCATION`. |
 
 **Tracker credentials:**
@@ -184,6 +187,20 @@ docker run --rm --init \
     -v "$(pwd)/WORKFLOW.md:/home/sortie/WORKFLOW.md:ro" \
     -p 7678:7678 \
     sortie-codex /home/sortie/WORKFLOW.md
+```
+
+### Kiro with Jira
+
+```sh
+docker run --rm --init \
+    -e KIRO_API_KEY \
+    -e SORTIE_JIRA_API_KEY \
+    -e SORTIE_JIRA_ENDPOINT \
+    -e SORTIE_JIRA_PROJECT \
+    -v "$(pwd)/workspaces:/home/sortie/workspaces" \
+    -v "$(pwd)/WORKFLOW.md:/home/sortie/WORKFLOW.md:ro" \
+    -p 7678:7678 \
+    sortie-kiro /home/sortie/WORKFLOW.md
 ```
 
 ### OpenCode with Jira
@@ -377,6 +394,8 @@ docker inspect --format='{{.State.Health.Status}}' <container-id>
 
 **SQLite database locked:** Two containers are sharing the same database file. Each Sortie instance needs its own `.sortie.db`. Use separate named volumes or `--db` paths for each container.
 
+**Kiro fails with authentication errors:** Kiro requires `KIRO_API_KEY`. Sortie runs a `kiro-cli whoami` canary before the first turn and rejects a missing, invalid, or expired key immediately instead of letting headless chat hang on an interactive login prompt. Verify the key with `kiro-cli whoami` outside the container; the canary only runs in local mode, not over SSH.
+
 **OpenCode fails with provider authentication errors:** Forward the provider variables that match the selected OpenCode model. For direct providers, this is typically `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GOOGLE_API_KEY`. Vertex-backed runs also need `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CLOUD_PROJECT`, and usually `VERTEX_LOCATION`. In SSH mode, those variables must exist on the remote host because Sortie forwards only managed `OPENCODE_*` variables.
 
 ## Example Dockerfiles
@@ -388,6 +407,7 @@ The Dockerfiles in this guide are self-contained — copy them into your project
 | [`claude-code.Dockerfile`](https://github.com/sortie-ai/sortie/blob/main/examples/docker/claude-code.Dockerfile) | Claude Code | `node:24-slim` |
 | [`copilot.Dockerfile`](https://github.com/sortie-ai/sortie/blob/main/examples/docker/copilot.Dockerfile) | GitHub Copilot | `node:24-slim` |
 | [`codex.Dockerfile`](https://github.com/sortie-ai/sortie/blob/main/examples/docker/codex.Dockerfile) | Codex | `debian:bookworm-slim` |
+| [`kiro.Dockerfile`](https://github.com/sortie-ai/sortie/blob/main/examples/docker/kiro.Dockerfile) | Kiro | `debian:bookworm-slim` |
 | [`opencode.Dockerfile`](https://github.com/sortie-ai/sortie/blob/main/examples/docker/opencode.Dockerfile) | OpenCode | `node:24-slim` |
 
 If a section in this guide becomes outdated, check those files for the current recommended configuration.
