@@ -5,11 +5,13 @@
 //
 // Two deltas from upstream:
 //   1. Both fetch() calls request Markdown explicitly (Accept: text/markdown)
-//      with cache:'no-store'. The menu now points at the canonical page URL
-//      instead of a static /page/index.md mirror, so Cloudflare content
+//      with cache:'no-store'. The copy button points at the canonical page URL
+//      rather than the static <path>.md mirror, so Cloudflare content
 //      negotiation must be asked for the Markdown rendering; a header-less
 //      fetch returns HTML, and no-store prevents the browser from reusing the
-//      already-cached HTML response for this same URL.
+//      already-cached HTML response for this same URL. The "Open in ..." links
+//      go the other way and use the mirror: they navigate, and a navigation
+//      cannot carry an Accept header.
 //   2. The "View as Markdown" handler is removed — that menu item is gone
 //      (browser navigation can't negotiate Markdown). See the matching partial
 //      override in layouts/_partials/components/page-context-menu.html.
