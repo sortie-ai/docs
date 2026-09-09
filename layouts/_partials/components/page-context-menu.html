@@ -6,6 +6,10 @@
 {{- if $enable -}}
   {{- $markdownURL := .Permalink -}}
   {{- $pageURL := .Permalink -}}
+  {{- $markdownFileURL := .Permalink -}}
+  {{- if .OutputFormats.Get "markdown" -}}
+    {{- $markdownFileURL = printf "%s.md" (strings.TrimSuffix "/" .Permalink) -}}
+  {{- end -}}
   {{- $pageTitle := .Title -}}
   <div class="hextra-page-context-menu hx:relative hx:inline-flex hx:shrink-0">
     <div class="hx:inline-flex hx:rounded-lg hx:border hx:border-gray-200 hx:transition-colors hx:hover:border-gray-300 hx:dark:border-neutral-800 hx:dark:hover:border-neutral-700">
@@ -51,7 +55,7 @@
       {{- if $customLinks -}}
       <li class="hx:my-1 hx:h-px hx:bg-gray-200 hx:dark:bg-neutral-700" role="separator"></li>
       {{- range $customLinks -}}
-        {{- $linkURL := partial "utils/template-url.html" (dict "template" .url "values" (dict "url" $pageURL "title" $pageTitle "markdown_url" $markdownURL)) -}}
+        {{- $linkURL := partial "utils/template-url.html" (dict "template" .url "values" (dict "url" $pageURL "title" $pageTitle "markdown_url" $markdownFileURL)) -}}
         <li role="none">
           <a
             href="{{ $linkURL }}"
