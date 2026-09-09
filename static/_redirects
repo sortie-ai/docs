@@ -65,3 +65,8 @@
 /reference/prometheus-metrics /reference/prometheus-metrics/ 301
 /reference/state-machine /reference/state-machine/ 301
 /reference/workflow-config /reference/workflow-config/ 301
+
+# Flat Markdown URLs: <path>.md serves the mirror, <path>/index.md redirects to it.
+# Order matters: the 301 must precede the proxy rule.
+/*/index.md /:splat.md 301
+/*.md /:splat/index.md 200

@@ -19,7 +19,7 @@ intended for use as context in AI assistants.
 
 # {{ .Title }}
 
-*{{ .Permalink }}*
+*{{ printf "%s.md" (strings.TrimSuffix "/" .Permalink) }}*
 {{ with .Params.description }}
 > {{ . }}
 {{ end }}
@@ -31,7 +31,7 @@ intended for use as context in AI assistants.
 
 # {{ .Title }}
 
-*{{ .Permalink }}*
+*{{ printf "%s.md" (strings.TrimSuffix "/" .Permalink) }}*
 {{ with .Params.description }}
 > {{ . }}
 {{ end }}
