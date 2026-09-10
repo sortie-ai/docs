@@ -5,7 +5,7 @@
 {{- $webID := printf "%s#website" $siteURL -}}
 {{- $inLanguage := site.Language.Locale -}}
 {{- $orgLogo := printf "%sandroid-chrome-512x512.png" $apexURL -}}
-{{- $ogImage := .Params.image | default (printf "%simg/og-image.jpg" $siteURL) -}}
+{{- $ogImage := .Params.image | default (printf "%simg/og-image.png" $siteURL) -}}
 {{- $title := .Params.title | default .Title -}}
 {{- $desc := .Params.description | default .Description -}}
 {{- $canonicalURL := .Permalink -}}
