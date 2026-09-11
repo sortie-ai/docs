@@ -7,7 +7,7 @@ date: 2026-04-07
 weight: 190
 url: /guides/deploy-sortie-to-kubernetes/
 ---
-Run Sortie in a Kubernetes cluster using plain manifests — a Deployment, PersistentVolumeClaim, ConfigMap, Service, and Secret. Sortie uses SQLite for persistence, so deployments are limited to a single replica. The manifests enforce this constraint with a Recreate strategy and a ReadWriteOnce volume.
+Run Sortie in a Kubernetes cluster using plain manifests: a Deployment, PersistentVolumeClaim, ConfigMap, Service, and Secret. Sortie uses SQLite for persistence, so deployments are limited to a single replica. The manifests enforce this constraint with a Recreate strategy and a ReadWriteOnce volume.
 
 ## Prerequisites
 
@@ -20,7 +20,7 @@ Run Sortie in a Kubernetes cluster using plain manifests — a Deployment, Persi
 
 ### Build and push your image
 
-Sortie's published image is distroless — it contains only the binary. Build an agent-specific image using one of the example Dockerfiles, then push it to your container registry:
+Sortie's published image is distroless. It contains only the binary. Build an agent-specific image using one of the example Dockerfiles, then push it to your container registry:
 
 ```sh
 docker build -f examples/docker/claude-code.Dockerfile -t registry.example.com/sortie-claude:v1.0.0 .
@@ -120,7 +120,7 @@ data:
     {{ end }}
 ```
 
-Tracker credentials use `$VAR` syntax — Sortie expands environment variables at runtime from the Secret. The workflow file itself contains no sensitive values.
+Tracker credentials use `$VAR` syntax. Sortie expands environment variables at runtime from the Secret. The workflow file itself contains no sensitive values.
 
 For the full list of configuration fields, see the [WORKFLOW.md configuration reference](/reference/workflow-config/). For prompt template syntax, see [How to write prompt templates](/guides/write-prompt-template/).
 
@@ -145,7 +145,7 @@ spec:
       storage: 1Gi
 ```
 
-The 1Gi default is enough for months of run history and retry state. The SQLite database is small — a few megabytes even with thousands of completed sessions. The workspace root (where agents clone repos) lives inside this volume too, so increase the size if your repositories are large or you run many concurrent agents.
+The 1Gi default is enough for months of run history and retry state. The SQLite database is small, a few megabytes even with thousands of completed sessions. The workspace root (where agents clone repos) lives inside this volume too, so increase the size if your repositories are large or you run many concurrent agents.
 
 If your cluster has multiple storage classes, specify one explicitly:
 
@@ -185,7 +185,7 @@ spec:
         app.kubernetes.io/component: orchestrator
         app.kubernetes.io/part-of: sortie
     spec:
-      terminationGracePeriodSeconds: 30
+      terminationGracePeriodSeconds: 125
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -266,7 +266,7 @@ Key decisions in this manifest:
 
 | Setting | Rationale |
 |---|---|
-| `replicas: 1` / `Recreate` | SQLite requires exclusive access — no rolling updates, no concurrent pods |
+| `replicas: 1` / `Recreate` | SQLite requires exclusive access: no rolling updates, no concurrent pods |
 | `runAsNonRoot` / UID 1000 | Matches the `sortie` user created in agent Dockerfiles. Claude Code refuses to run as root. |
 | `readOnlyRootFilesystem` | Write access is restricted to the PVC mount and `/tmp`. Limits the blast radius if the container is compromised. |
 | `fsGroup: 1000` | Kubernetes sets group ownership on the PVC to match, so the non-root user can write to it |
@@ -382,7 +382,7 @@ kubectl rollout restart deployment sortie
 
 ## Handle restarts and persistence
 
-Sortie stores all durable state — retry queues, run history, session metadata, token counters — in SQLite on the PVC. When Kubernetes reschedules the pod (node drain, OOM kill, manual restart), the new pod mounts the same volume and resumes from the last committed transaction.
+Sortie stores all durable state (retry queues, run history, session metadata, token counters) in SQLite on the PVC. When Kubernetes reschedules the pod (node drain, OOM kill, manual restart), the new pod mounts the same volume and resumes from the last committed transaction.
 
 Test this by deleting the pod:
 
@@ -402,7 +402,7 @@ If you run Prometheus in the cluster, add a scrape target or ServiceMonitor for 
 
 ### Logs
 
-JSON-formatted logs integrate with any Kubernetes log aggregation stack — Loki, Datadog, CloudWatch, ELK. Filter by structured fields like `issue_id`, `session_id`, or `level`:
+JSON-formatted logs integrate with any Kubernetes log aggregation stack: Loki, Datadog, CloudWatch, ELK. Filter by structured fields like `issue_id`, `session_id`, or `level`:
 
 ```sh
 kubectl logs -l app.kubernetes.io/name=sortie | jq 'select(.level == "ERROR")'
@@ -428,7 +428,7 @@ resources:
 
 ### Storage sizing
 
-The SQLite database grows slowly — a few megabytes per thousand completed sessions. The workspace root consumes more because it holds cloned repositories. Size the PVC based on the number of concurrent agents and the size of your repositories:
+The SQLite database grows slowly, a few megabytes per thousand completed sessions. The workspace root consumes more because it holds cloned repositories. Size the PVC based on the number of concurrent agents and the size of your repositories:
 
 | Scenario | Recommended PVC size |
 |---|---|
@@ -453,7 +453,7 @@ If your cluster enforces Pod Security Standards, the manifest complies with the 
 
 ### Graceful shutdown
 
-Sortie handles `SIGTERM` for graceful shutdown. The `terminationGracePeriodSeconds: 30` gives in-flight agent sessions time to checkpoint before the pod is killed. If your agent sessions are long-running, increase this value to avoid unnecessary retries.
+Sortie handles `SIGTERM` for graceful shutdown, and its [shutdown sequence](/reference/cli/#signals) works through a series of bounded waits before the process exits. `terminationGracePeriodSeconds` has to cover their sum, or the kubelet sends `SIGKILL` part way through and the runs still draining reach no exit handler: no run history row, no retry entry. That sum is 120 seconds plus [`agent.stop_grace_ms`](/reference/workflow-config/#agent), so the 125 above is the floor at the default `5000`. Add to it whatever you add to the stop grace.
 
 ## Troubleshooting
 
@@ -461,7 +461,7 @@ Sortie handles `SIGTERM` for graceful shutdown. The `terminationGracePeriodSecon
 
 **Pod starts but crashes with `CrashLoopBackOff`:** Inspect logs with `kubectl logs -l app.kubernetes.io/name=sortie --previous`. Common causes: missing Secret (check `kubectl get secret sortie-secrets`), invalid WORKFLOW.md syntax (test locally with `sortie validate WORKFLOW.md`), or wrong image reference.
 
-**Readiness probe fails:** Sortie's `/readyz` endpoint returns HTTP 503 if any subsystem is unhealthy — database, workflow validation, or preflight checks. Port-forward and query the endpoint directly to see the per-subsystem status:
+**Readiness probe fails:** Sortie's `/readyz` endpoint returns HTTP 503 if any subsystem is unhealthy: database, workflow validation, or preflight checks. Port-forward and query the endpoint directly to see the per-subsystem status:
 
 ```sh
 kubectl port-forward svc/sortie 7678:7678
@@ -488,7 +488,7 @@ initContainers:
       runAsUser: 0
 ```
 
-**SQLite database locked after crash:** This can happen if the pod was killed without a graceful shutdown and the WAL file was not checkpointed. The next startup recovers automatically — SQLite replays the WAL on open. If the pod still fails, delete the `-wal` and `-shm` files from the data volume (Sortie recreates them):
+**SQLite database locked after crash:** This can happen if the pod was killed without a graceful shutdown and the WAL file was not checkpointed. The next startup recovers automatically. SQLite replays the WAL on open. If the pod still fails, delete the `-wal` and `-shm` files from the data volume (Sortie recreates them):
 
 ```sh
 kubectl exec -it deploy/sortie -- rm -f /home/sortie/data/.sortie.db-wal /home/sortie/data/.sortie.db-shm

@@ -7,10 +7,10 @@ date: 2026-03-26
 weight: 160
 url: /guides/monitor-with-logs/
 ---
-Sortie emits structured logs to stderr. The default format is `key=value` text; an optional `json` mode produces newline-delimited JSON for log aggregation systems. Logs are always on — no configuration needed. They are the first place to look when something goes wrong.
+Sortie emits structured logs to stderr. The default format is `key=value` text; an optional `json` mode produces newline-delimited JSON for log aggregation systems. Logs are always on. No configuration is needed. They are the first place to look when something goes wrong.
 
 > [!NOTE]
-> Sortie has no built-in log file or rotation option. Logs go to stderr only — file retention and rotation are the responsibility of your runtime environment. Use journald on systemd hosts, a Docker logging driver in containers, or a process supervisor such as supervisord elsewhere.
+> Sortie has no built-in log file or rotation option. Logs go to stderr only. File retention and rotation are the responsibility of your runtime environment. Use journald on systemd hosts, a Docker logging driver in containers, or a process supervisor such as supervisord elsewhere.
 
 ## Prerequisites
 
@@ -30,7 +30,7 @@ Sortie uses `slog.TextHandler`. Every line is a flat `key=value` record:
 time=2026-03-26T14:30:01.305+00:00 level=INFO msg="tick completed" candidates=2 dispatched=2 ... running=2 retrying=0 ...
 ```
 
-The `tick completed` line carries more fields than shown above and below throughout this guide — dispatch-rule breakdown (`dispatched_by_rule`, `dispatched_by_default`, `dispatched_by_fallback`) and blocker-hold counters (`held_by_blockers`, `blockers_unresolved`, `blockers_not_read`, `blockers_incomplete`) also appear on every line. This guide calls out only the fields relevant to each example.
+The `tick completed` line carries more fields than shown above and below throughout this guide. Dispatch-rule breakdown (`dispatched_by_rule`, `dispatched_by_default`, `dispatched_by_fallback`) and blocker-hold counters (`held_by_blockers`, `blockers_unresolved`, `blockers_not_read`, `blockers_incomplete`) also appear on every line. This guide calls out only the fields relevant to each example.
 
 ### JSON format
 
@@ -46,19 +46,19 @@ JSON format is designed for log aggregation systems (Loki, Datadog, CloudWatch, 
 
 Three structural fields appear on every line in both formats:
 
-- `time` — UTC timestamp
-- `level` — `INFO`, `WARN`, `ERROR`, or `DEBUG`
-- `msg` — human-readable message
+- `time`: UTC timestamp
+- `level`: `INFO`, `WARN`, `ERROR`, or `DEBUG`
+- `msg`: human-readable message
 
 Context fields appear on all issue-related lines, added automatically by the logging subsystem:
 
-- `issue_id` — tracker-internal ID (e.g., `abc123`)
-- `issue_identifier` — human-readable ticket key (e.g., `MT-649`)
-- `session_id` — agent session identifier (present once a session starts)
+- `issue_id`: tracker-internal ID (e.g., `abc123`)
+- `issue_identifier`: human-readable ticket key (e.g., `MT-649`)
+- `session_id`: agent session identifier (present once a session starts)
 
 The one rule you need to remember: **WARN means Sortie is handling it. ERROR means you need to.**
 
-WARN lines indicate automatic recovery — a retry is scheduled, a transient failure is being worked around. ERROR lines mean Sortie gave up and needs operator attention. If you grep for nothing else, grep for `level=ERROR`.
+WARN lines indicate automatic recovery: a retry is scheduled, a transient failure is being worked around. ERROR lines mean Sortie gave up and needs operator attention. If you grep for nothing else, grep for `level=ERROR`.
 
 ## Control log verbosity
 
@@ -68,7 +68,7 @@ By default Sortie logs at `INFO` level. Use the `--log-level` flag to change it:
 # See debug-level detail: poll decisions, state transitions, adapter calls
 sortie --log-level debug ./WORKFLOW.md
 
-# Reduce noise in production — only warnings and errors
+# Reduce noise in production: only warnings and errors
 sortie --log-level warn ./WORKFLOW.md
 ```
 
@@ -81,7 +81,7 @@ logging:
   level: debug
 ```
 
-The CLI flag takes precedence when both are set. Changing `logging.level` in the workflow file requires a restart — it is not picked up by dynamic reload.
+The CLI flag takes precedence when both are set. Changing `logging.level` in the workflow file requires a restart. It is not picked up by dynamic reload.
 
 ## Key log messages to watch
 
@@ -131,7 +131,7 @@ time=2026-03-26T14:30:03.425+00:00 level=INFO msg="no tool execution channel for
 time=2026-03-26T14:30:03.500+00:00 level=INFO msg="turn started" issue_id=abc123 issue_identifier=MT-649 turn_number=1 max_turns=5
 ```
 
-This is the line to look for when an agent never mentions Sortie's tools. `remote=true` means the session was dispatched to an SSH host, which is the whole reason on a `codex` or `opencode` session; on `kiro` the line appears with `remote=false` too. Nothing is failing — the agent was deliberately not told about tools it could not call. See [delivery by agent kind](/reference/agent-extensions/#delivery-by-agent-kind).
+This is the line to look for when an agent never mentions Sortie's tools. `remote=true` means the session was dispatched to an SSH host, which is the whole reason on a `codex` or `opencode` session; on `kiro` the line appears with `remote=false` too. Nothing is failing: the agent was deliberately not told about tools it could not call. See [delivery by agent kind](/reference/agent-extensions/#delivery-by-agent-kind).
 
 ### Tool calls
 
@@ -226,7 +226,7 @@ When [`tracker.comments`](/reference/workflow-config/) flags are enabled, Sortie
 time=2026-03-26T14:35:21.600+00:00 level=WARN msg="tracker comment failed" issue_id=abc123 issue_identifier=MT-649 lifecycle=completion error="tracker: tracker_auth_error: POST /rest/api/3/issue/abc123/comment: 403"
 ```
 
-WARN — the comment failed but the session lifecycle is unaffected. Check API token permissions if persistent.
+The WARN means the comment failed but the session lifecycle is unaffected. Check API token permissions if persistent.
 
 ### Errors and retries
 
@@ -234,13 +234,13 @@ WARN — the comment failed but the session lifecycle is unaffected. Check API t
 time=2026-03-26T14:35:22.000+00:00 level=WARN msg="worker run failed, scheduling retry" issue_id=abc123 issue_identifier=MT-649 session_id=session-abc-001 error="agent turn 4: agent: turn_timeout: turn exceeded the configured 1800000 ms bound; the adapter's own report follows: context deadline exceeded" next_attempt=2 delay_ms=20000
 ```
 
-WARN with `scheduling retry` — Sortie is recovering automatically. The `next_attempt` and `delay_ms` fields tell you when the retry fires.
+The WARN with `scheduling retry` means Sortie is recovering automatically. The `next_attempt` and `delay_ms` fields tell you when the retry fires.
 
 ```
 time=2026-03-26T14:35:22.500+00:00 level=ERROR msg="worker run failed, non-retryable, releasing claim" issue_id=abc123 issue_identifier=MT-649 session_id=session-abc-001 error="agent: agent_not_found: agent command \"claude\" not found: exec: \"claude\": executable file not found in $PATH"
 ```
 
-ERROR — Sortie gave up. This issue won't be retried. Fix the underlying problem (in this case, install the agent binary) and Sortie will pick the issue up on the next poll.
+The ERROR means Sortie gave up. This issue won't be retried. Fix the underlying problem (in this case, install the agent binary) and Sortie will pick the issue up on the next poll.
 
 ### Token budget exhaustion
 
@@ -248,7 +248,7 @@ ERROR — Sortie gave up. This issue won't be retried. Fix the underlying proble
 time=2026-03-26T14:35:22.000+00:00 level=WARN msg="token budget exhausted, blocking re-dispatch" issue_id=abc123 issue_identifier=MT-649 reason=token_budget used_tokens=52000 budget_tokens=50000 used_sessions=3 budget_sessions=5
 ```
 
-This fires when `agent.max_tokens` is set and an issue's cumulative tokens across every completed session reach the configured ceiling. The check runs on the pre-dispatch path, before a scheduled retry fires, so it blocks the next dispatch rather than interrupting a session already running. `used_tokens` is the issue's running total; `budget_tokens` is the ceiling it hit. `used_sessions` and `budget_sessions` report the same comparison for the session-count budget, in case the issue is close to both ceilings at once.
+This fires when `agent.max_tokens` is set and an issue's cumulative tokens across every completed session reach the configured ceiling. It is the pre-dispatch lane: it runs before a scheduled retry fires and blocks that dispatch. A session already running is stopped by a separate record, below. `used_tokens` is the issue's running total; `budget_tokens` is the ceiling it hit. `used_sessions` and `budget_sessions` report the same comparison for the session-count budget, in case the issue is close to both ceilings at once.
 
 A session whose coding agent reported no token usage at all is recorded as unmeasured and contributes nothing to `used_tokens`. When an issue is still under the ceiling but some of its sessions went unmeasured, Sortie says so and dispatches anyway:
 
@@ -265,6 +265,35 @@ time=2026-03-26T14:35:21.900+00:00 level=WARN msg="token budget check failed, pr
 ```
 
 WARN in all three cases, but the outcome differs: dispatch proceeds for the latter two, where the ceiling message blocks it.
+
+### Token ceiling stops a run in flight
+
+```
+time=2026-03-26T14:41:07.000+00:00 level=WARN msg="run stopped by token ceiling" issue_id=abc123 issue_identifier=MT-649 session_id=session-abc-002 reason=token_budget used_tokens=50240 budget_tokens=50000 issue_tokens_completed=31000 session_tokens=19240 sum_source=confirmed_read ceiling_setting=agent.max_tokens unmeasured_sessions=0
+```
+
+The same ceiling, reached during a session rather than between two. Sortie cancels the worker, and the attempt lands in run history under status `budget_stopped` rather than `cancelled`. One record per run: later usage events on a session already stopped log nothing.
+
+Read `session_tokens` against `issue_tokens_completed` to see who spent the budget. `session_tokens` is what the cancelled session had spent on its own, `issue_tokens_completed` is what the issue's earlier sessions had already banked, and `used_tokens` is their sum, the figure compared against `budget_tokens`.
+
+`sum_source` says how that sum was established. `confirmed_read` means a database read settled the completed total, and `unmeasured_sessions` then reports how many of the issue's runs carry no spend figure. `session_spend_alone` means the read failed and the running session had spent the whole budget by itself, which needs no read to prove; the record carries no `unmeasured_sessions` in that case, and `used_tokens` is a lower bound.
+
+Three more records surround the check, all WARN, all gated on `agent.max_tokens` being set. Two fire at dispatch and describe what the ceiling can bound for the session about to start:
+
+```
+time=2026-03-26T14:38:02.000+00:00 level=WARN msg="token ceiling cannot bound this run" issue_id=abc123 issue_identifier=MT-649 agent_kind=kiro usage_arrival=none budget_tokens=50000
+time=2026-03-26T14:39:14.000+00:00 level=WARN msg="prior token spend unknown, token ceiling bounds this session only" issue_id=def456 issue_identifier=MT-702 error="database is locked" budget_tokens=50000
+```
+
+The first means the agent kind never reports a usage figure, so nothing will ever reach the ceiling; `agent.turn_timeout_ms` is the remaining cap. The second means the read of the issue's completed spend failed, so that session starts from a baseline of zero: it still stops at the full budget, but earlier sessions are not counted against it. One dispatch emits at most one of the two, which is why the two lines above are two different issues.
+
+The third fires later, when the read that would confirm a stop fails:
+
+```
+time=2026-03-26T14:40:55.000+00:00 level=WARN msg="in-flight token ceiling check failed, run continues" issue_id=abc123 issue_identifier=MT-649 session_id=session-abc-002 error="database is locked" budget_tokens=50000
+```
+
+The run keeps going and can pass the ceiling until a later read succeeds or the session ends. It logs once per run, no matter how many later reads fail, so read one of these as an interval during which the ceiling was not enforced rather than as a single moment.
 
 ### Dispatch preflight failures
 
@@ -300,6 +329,12 @@ Find issues blocked by a token budget:
 
 ```bash
 grep 'token budget exhausted' sortie.log
+```
+
+Find sessions the token ceiling stopped in flight:
+
+```bash
+grep 'run stopped by token ceiling' sortie.log
 ```
 
 Watch dispatches in real time:
@@ -347,7 +382,7 @@ logging:
   format: json
 ```
 
-The CLI flag takes precedence when both are set. Both formats carry the same structured fields — only the serialization differs.
+The CLI flag takes precedence when both are set. Both formats carry the same structured fields. Only the serialization differs.
 
 ## JSON log filtering with jq
 

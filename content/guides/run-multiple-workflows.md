@@ -7,7 +7,7 @@ date: 2026-03-28
 weight: 80
 url: /guides/run-multiple-workflows/
 ---
-Run independent Sortie instances — each with its own tracker, agent config, and database — so you can orchestrate multiple projects or teams from a single machine.
+Run independent Sortie instances, each with its own tracker, agent config, and database, so you can orchestrate multiple projects or teams from a single machine.
 
 ## Prerequisites
 
@@ -22,7 +22,7 @@ Sortie accepts exactly one workflow file per process. To run multiple workflows,
 
 ## Name your workflow files
 
-The default filename is `WORKFLOW.md`, but Sortie accepts any path. When you run multiple instances, give each file a descriptive name. The [dashboard](/reference/dashboard/) displays the base filename in its **Workflow** column — if every file is called `WORKFLOW.md`, you can't tell which session belongs to which project.
+The default filename is `WORKFLOW.md`, but Sortie accepts any path. When you run multiple instances, give each file a descriptive name. The [dashboard](/reference/dashboard/) displays the base filename in its **Workflow** column. If every file is called `WORKFLOW.md`, you can't tell which session belongs to which project.
 
 Create a directory per workflow with a named file:
 
@@ -116,7 +116,7 @@ Fix the following issue.
 {{ .issue.description }}
 ```
 
-The dashboard will now show `billing.WORKFLOW.md` and `platform.WORKFLOW.md` in the Workflow column — immediately obvious which process owns each session.
+The dashboard will now show `billing.WORKFLOW.md` and `platform.WORKFLOW.md` in the Workflow column, making it immediately obvious which process owns each session.
 
 `db_path` is omitted in both files. It defaults to `.sortie.db` in the same directory as the workflow file, so billing gets `~/sortie/billing/.sortie.db` and platform gets `~/sortie/platform/.sortie.db`. No collision. If you prefer explicit paths:
 
@@ -177,7 +177,7 @@ Four resources must stay separate. If two instances share any of these, you'll g
 | **Server port** | Second instance fails to bind on startup | Assign different `server.port` values per workflow (default is 7678 for all instances) |
 | **Log files** | Interleaved, unreadable logs | Redirect stderr to separate files per process |
 
-Everything else is safely shared. Environment variables like `ANTHROPIC_API_KEY` and `SORTIE_JIRA_API_KEY` work across all instances in the same shell. If different workflows need different credentials — different Jira instances, different API keys — set them per-process:
+Everything else is safely shared. Environment variables like `ANTHROPIC_API_KEY` and `SORTIE_JIRA_API_KEY` work across all instances in the same shell. If different workflows need different credentials (different Jira instances, different API keys), set them per-process:
 
 ```bash
 SORTIE_JIRA_API_KEY="$BILLING_JIRA_KEY" sortie ~/sortie/billing/billing.WORKFLOW.md &

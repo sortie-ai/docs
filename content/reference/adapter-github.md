@@ -8,7 +8,7 @@ url: /reference/adapter-github/
 ---
 The GitHub adapter connects Sortie to **GitHub Issues** via the GitHub REST API. It fetches candidate issues from the issues list endpoint (or the search endpoint when `query_filter` is configured), derives Sortie states from issue labels, normalizes responses to the domain issue model, paginates using `Link` header navigation, and maps HTTP errors to Sortie's normalized error categories. Registered under kind `"github"`.
 
-GitHub Enterprise Server is supported. Set `endpoint` to your GHES base URL. The sub-issue (`parent`) and dependency (`blocked_by`) endpoints are available on all GitHub plans. A 404 on the parent endpoint degrades gracefully to `nil` - there is legitimately no parent. A 404 on the dependency endpoint is treated as a failure instead: see [blocker extraction](#blocker-extraction).
+GitHub Enterprise Server is supported. Set `endpoint` to your GHES base URL. The sub-issue (`parent`) and dependency (`blocked_by`) endpoints are available on all GitHub plans. A 404 on the parent endpoint degrades gracefully to `nil`, since there is legitimately no parent. A 404 on the dependency endpoint is treated as a failure instead: see [blocker extraction](#blocker-extraction).
 
 See also: [WORKFLOW.md configuration](/reference/workflow-config/) for the full tracker schema, [error reference](/reference/errors/) for all tracker error kinds, [environment variables](/reference/environment/) for `$VAR` expansion behavior.
 
@@ -21,13 +21,13 @@ The adapter reads its configuration from the `tracker` section of the [WORKFLOW.
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `kind` | string | Yes | - | Must be `"github"`. |
-| `api_key` | string | Yes | - | GitHub personal access token. Plain token string - not `email:token` format. |
+| `api_key` | string | Yes | - | GitHub personal access token. Plain token string, not `email:token` format. |
 | `project` | string | Yes | - | Repository in `owner/repo` format. |
 | `endpoint` | string | No | `https://api.github.com` | GitHub API base URL. Override for GitHub Enterprise Server. |
 | `active_states` | list of strings | No | `["backlog", "in-progress", "review"]` | Issue label names that map to active Sortie states. Compared case-insensitively; stored lowercased. |
 | `terminal_states` | list of strings | No | `["done", "wontfix"]` | Issue label names that map to terminal Sortie states. Stored lowercased. |
 | `query_filter` | string | No | `""` | Raw GitHub search qualifier appended to the search query. When set, `FetchCandidateIssues` uses the search endpoint instead of the issues list endpoint. |
-| `handoff_state` | string | No | _(absent)_ | Target label name after a successful agent run. Must appear in neither `active_states` nor `terminal_states`. Created on demand if absent from the repository - see [Pre-creating labels](#pre-creating-labels). |
+| `handoff_state` | string | No | _(absent)_ | Target label name after a successful agent run. Must appear in neither `active_states` nor `terminal_states`. Created on demand if absent from the repository; see [Pre-creating labels](#pre-creating-labels). |
 | `in_progress_state` | string | No | _(absent)_ | Target label name for dispatch-time transitions. Must appear in `active_states`. |
 | `user_agent` | string | No | `sortie/<version>` | `User-Agent` header sent on all requests. Sortie sets the tracker role's value to its own version string, so only the SCM and CI roles honor an override, set in a top-level `github:` block. |
 
@@ -35,13 +35,13 @@ The adapter reads its configuration from the `tracker` section of the [WORKFLOW.
 
 The GitHub API base URL. The default value is `https://api.github.com`. For GitHub Enterprise Server, set this to your instance's API root (for example, `https://github.mycompany.com`). Surrounding whitespace and trailing slashes are trimmed.
 
-A present value must parse as an absolute `http` or `https` URL carrying a hostname, with neither a query nor a fragment; anything else is rejected before any client is built, rather than surfacing later as a network error. A port-only value such as `http://:80` has no hostname and is rejected for the same reason. An IPv6 literal must be bracketed - `http://[fd00::1]:3000`, not `http://fd00::1:3000` - since the unbracketed form cannot be told apart from a host with a trailing port.
+A present value must parse as an absolute `http` or `https` URL carrying a hostname, with neither a query nor a fragment; anything else is rejected before any client is built, rather than surfacing later as a network error. A port-only value such as `http://:80` has no hostname and is rejected for the same reason. An IPv6 literal must be bracketed (`http://[fd00::1]:3000`, not `http://fd00::1:3000`), since the unbracketed form cannot be told apart from a host with a trailing port.
 
 Accepts [`$VAR` indirection](/reference/environment/#var-indirection-in-workflowmd) when the entire value is a variable reference.
 
 ### `api_key`
 
-A GitHub personal access token (classic or fine-grained). This field is **not** in `email:token` format - the value is the token string alone.
+A GitHub personal access token (classic or fine-grained). This field is **not** in `email:token` format: the value is the token string alone.
 
 Minimum required scopes for classic tokens: `repo` (reads issues, posts comments, manages labels).
 
@@ -56,7 +56,7 @@ api_key: $GITHUB_TOKEN
 
 ### `project`
 
-Repository in `owner/repo` format - for example, `myorg/myrepo`. The adapter splits on the `/` to extract the owner and repository name. A value with zero or more than one `/`, or with empty parts, produces a `tracker_payload_error` at construction time.
+Repository in `owner/repo` format, for example `myorg/myrepo`. The adapter splits on the `/` to extract the owner and repository name. A value with zero or more than one `/`, or with empty parts, produces a `tracker_payload_error` at construction time.
 
 ```yaml
 project: myorg/myrepo
@@ -67,7 +67,7 @@ project: $SORTIE_GITHUB_PROJECT
 
 Label names that map to active Sortie states. Issues with one of these labels are eligible for dispatch. Values are compared case-insensitively and stored lowercased at construction time.
 
-When omitted, defaults to `["backlog", "in-progress", "review"]`. These label names must exist in the repository - GitHub has no built-in equivalents.
+When omitted, defaults to `["backlog", "in-progress", "review"]`. These label names must exist in the repository: GitHub has no built-in equivalents.
 
 ### `terminal_states`
 
@@ -84,7 +84,7 @@ query_filter: "label:agent-ready"
 query_filter: "label:agent-ready milestone:v2"
 ```
 
-Do not include `repo:` or `type:issue` in the value - they are added automatically.
+Do not include `repo:` or `type:issue` in the value. They are added automatically.
 
 ### Pre-creating labels
 
@@ -120,7 +120,7 @@ Empty `tracker.project` is caught by the generic preflight check (`tracker.proje
 | `tracker.terminal_states.untrimmed_element` | An element in `terminal_states` has leading or trailing whitespace | `tracker.terminal_states[{i}]: state value has leading or trailing whitespace and never matches an issue state` |
 | `tracker.states.overlap` | A label appears in both `active_states` and `terminal_states` (case-insensitive) | `tracker.active_states and tracker.terminal_states overlap on "{label}"; an issue in state "{label}" would match both sets` |
 
-The `api_key` warnings are supplementary hints. The generic preflight check already reports an **error** when `tracker.api_key` is empty - the adapter-specific warnings provide actionable remediation guidance alongside that error.
+The `api_key` warnings are supplementary hints. The generic preflight check already reports an **error** when `tracker.api_key` is empty. The adapter-specific warnings provide actionable remediation guidance alongside that error.
 
 State collisions are not adapter diagnostics. A `handoff_state` that appears in `active_states` or `terminal_states`, and an `in_progress_state` that appears in `terminal_states`, is absent from `active_states`, or equals `handoff_state`, are all rejected by the generic configuration layer before adapter validation runs. They surface as errors under the `config.tracker.handoff_state` and `config.tracker.in_progress_state` fields, and they apply to every `tracker.kind`. See [startup and configuration errors](/reference/errors/#startup-and-configuration-errors).
 
@@ -142,7 +142,7 @@ Additional fixed headers on all requests:
 | `X-GitHub-Api-Version` | A REST API version the adapter pins. Sortie is therefore insulated from a newer API version's changes until the pin moves. |
 | `User-Agent` | `sortie/<version>` on tracker requests; the configured `user_agent` value on SCM and CI requests, defaulting to `sortie/dev` |
 
-The HTTP client has a 30-second per-request timeout. Context cancellation is propagated - a cancelled context causes the in-flight request to return immediately with `context.Canceled`.
+The HTTP client has a 30-second per-request timeout. Context cancellation is propagated: a cancelled context causes the in-flight request to return immediately with `context.Canceled`.
 
 ---
 
@@ -229,7 +229,7 @@ A transition sets the state label and removes the ones it replaces. A comment is
 
 ### ID and Identifier
 
-Both `ID` and `Identifier` map to the GitHub issue number. The global integer `id` field returned by the API is not used as the adapter's ID - it cannot be used to look up issues via the REST API. As a result, `FetchIssueStatesByIDs` and `FetchIssueStatesByIdentifiers` are structurally equivalent for this adapter.
+Both `ID` and `Identifier` map to the GitHub issue number. The global integer `id` field returned by the API is not used as the adapter's ID: it cannot be used to look up issues via the REST API. As a result, `FetchIssueStatesByIDs` and `FetchIssueStatesByIdentifiers` are structurally equivalent for this adapter.
 
 ### Comment normalization
 
@@ -272,8 +272,8 @@ A 404, or any other non-2xx response, is a failure rather than an empty list: th
 | 200–299 | Success | _(none)_ |
 | 400 | Bad request | `tracker_payload_error` |
 | 401 | Invalid or expired token | `tracker_auth_error` |
-| 403 | Rate limited (primary) - `x-ratelimit-remaining: 0` | `tracker_api_error` |
-| 403 | Rate limited (secondary) - body contains `"rate limit"` | `tracker_api_error` |
+| 403 | Primary rate limit (`x-ratelimit-remaining: 0`) | `tracker_api_error` |
+| 403 | Secondary rate limit (body contains `"rate limit"`) | `tracker_api_error` |
 | 403 | Insufficient permissions | `tracker_auth_error` |
 | 404 | Resource not found | `tracker_not_found` |
 | 405 | Method not allowed | `tracker_api_error` |
@@ -309,7 +309,7 @@ All list endpoints use Link header-based pagination.
 | `per_page` | `50` (fixed page size) |
 | Next page URL | Extracted from the `Link: <url>; rel="next"` response header. Absent when on the last page. |
 
-The adapter follows `rel="next"` links directly - it does not construct URLs manually. A maximum of 200 pages are fetched per operation. When the limit is reached, accumulated results are returned with a WARN log.
+The adapter follows `rel="next"` links directly and does not construct URLs manually. A maximum of 200 pages are fetched per operation. When the limit is reached, accumulated results are returned with a WARN log.
 
 ---
 
@@ -351,7 +351,7 @@ The package registers a CI status provider under kind `github`, the role that dr
 
 Two of the conclusion mappings are Sortie's own policy rather than a pass-through of GitHub's check-run conclusion: a run reporting `action_required` maps to failing, because the agent cannot perform the manual UI action a check like this is waiting on, and a run reporting `stale` maps to pending, because the check run that superseded it carries the conclusion that actually matters. Every other recognized conclusion maps to its direct domain equivalent; an unrecognized value maps to pending.
 
-On a failing verdict, the provider fetches a log excerpt only for a failing run whose `app.slug` is `github-actions` - a failing run from a third-party GitHub App check has no log to fetch through this route. GitHub Actions creates one check run per workflow job, so the check run ID doubles as the job ID for the Actions job-logs route. The excerpt is the sanitized tail of that job's log, stripped of ANSI escapes and per-line timestamps and capped by the `max_log_lines` budget; a `max_log_lines` of zero omits it.
+On a failing verdict, the provider fetches a log excerpt only for a failing run whose `app.slug` is `github-actions`: a failing run from a third-party GitHub App check has no log to fetch through this route. GitHub Actions creates one check run per workflow job, so the check run ID doubles as the job ID for the Actions job-logs route. The excerpt is the sanitized tail of that job's log, stripped of ANSI escapes and per-line timestamps and capped by the `max_log_lines` budget; a `max_log_lines` of zero omits it.
 
 ### SCM write operations
 
@@ -373,7 +373,7 @@ The already-merged marker is never read from GitHub's rejection text: the adapte
 
 ### Token scope for auto-merge
 
-`VerifyAutoMergeScopes` calls `GET /rate_limit` and reads the `X-OAuth-Scopes` response header. Classic personal access tokens populate that header; fine-grained tokens and GitHub App installation tokens do not, and an absent or empty header is the "unable to verify" result - the caller fails open and lets auto-merge proceed. When the header is present, the legacy `repo` scope satisfies every requirement by itself; otherwise the check looks for `pull_requests:write` (required for `MergePR`) and, when the workflow's auto-merge configuration also deletes the branch, `contents:write` (required for `DeleteBranch`).
+`VerifyAutoMergeScopes` calls `GET /rate_limit` and reads the `X-OAuth-Scopes` response header. Classic personal access tokens populate that header; fine-grained tokens and GitHub App installation tokens do not, and an absent or empty header is the "unable to verify" result. The caller fails open and lets auto-merge proceed. When the header is present, the legacy `repo` scope satisfies every requirement by itself; otherwise the check looks for `pull_requests:write` (required for `MergePR`) and, when the workflow's auto-merge configuration also deletes the branch, `contents:write` (required for `DeleteBranch`).
 
 ---
 
@@ -393,9 +393,9 @@ The orchestrator's preflight validation uses `RequiresProject` and `RequiresAPIK
 
 ## External references
 
-- [GitHub REST API documentation](https://docs.github.com/en/rest) - entry point for all endpoints called by this adapter
-- [Issues REST API](https://docs.github.com/en/rest/issues/issues) - fetch, list, and comment endpoints used by `FetchIssuesByStates`, `FetchCandidateIssues`, and `CommentIssue`
-- [Search issues and pull requests](https://docs.github.com/en/rest/search/search#search-issues-and-pull-requests) - the search API used when `query_filter` is configured
-- [Using pagination in the REST API](https://docs.github.com/en/rest/using-the-rest-api/using-pagination-in-the-rest-api) - Link header semantics this adapter follows for `rel="next"`
-- [REST API rate limits](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api) - primary and search bucket limits referenced above
-- [Managing personal access tokens](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens) - generate the token used in `GITHUB_TOKEN`
+- [GitHub REST API documentation](https://docs.github.com/en/rest): entry point for all endpoints called by this adapter
+- [Issues REST API](https://docs.github.com/en/rest/issues/issues): fetch, list, and comment endpoints used by `FetchIssuesByStates`, `FetchCandidateIssues`, and `CommentIssue`
+- [Search issues and pull requests](https://docs.github.com/en/rest/search/search#search-issues-and-pull-requests): the search API used when `query_filter` is configured
+- [Using pagination in the REST API](https://docs.github.com/en/rest/using-the-rest-api/using-pagination-in-the-rest-api): Link header semantics this adapter follows for `rel="next"`
+- [REST API rate limits](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api): primary and search bucket limits referenced above
+- [Managing personal access tokens](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens): generate the token used in `GITHUB_TOKEN`

@@ -229,7 +229,7 @@ have so it produces an issue Sortie will actually pick up.
 
 **Schedule.** A weekly trigger, for example every Monday at 09:17, with an
 explicit timezone. Leave any "run for each work item in the query" option
-disabled — that repeats the rule's actions per result, which is not the
+disabled. That repeats the rule's actions per result, which is not the
 "only create when none exist" guard this rule depends on.
 
 **Duplicate guard.** A lookup for an unfinished issue from this schedule,
@@ -297,8 +297,9 @@ agent:
 
 - `max_sessions` prevents a failing issue from retrying forever.
 - `max_tokens` caps measured cumulative token usage across that issue's
-  sessions. Sortie checks it between sessions, so one running session can pass
-  the threshold before the next dispatch is blocked.
+  sessions. Sortie checks it during a session as well as between them, so a
+  scheduled run that crosses the threshold is cancelled rather than left to
+  finish over budget.
 - `max_turns` bounds the turns inside one session, and
   `max_concurrent_agents` bounds how many issues run at once.
 
@@ -329,7 +330,7 @@ to `3` and independent of `agent.max_sessions`. With the budget above
 (`max_sessions: 2`), the session budget is what actually stops a quiet
 issue: it exhausts after two empty runs, before three consecutive absences
 can accumulate, and Sortie holds the issue out of dispatch rather than
-parking it with an escalation label - see [how to control agent
+parking it with an escalation label. See [how to control agent
 costs](/guides/control-costs/#cap-sessions-per-issue). Set
 `agent.max_consecutive_absences: 2` if you want the park-and-label behavior
 to fire instead. The label is `reactions.review_comments.escalation_label`,

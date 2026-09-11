@@ -12,7 +12,7 @@ Distribute agent sessions across a pool of remote build machines so your orchest
 ## Prerequisites
 
 - A working Sortie setup (the [quick start](/getting-started/quick-start/) covers this)
-- SSH key-based access from the orchestrator host to each build machine — no password prompts
+- SSH key-based access from the orchestrator host to each build machine (no password prompts)
 - The agent binary (e.g., `claude`, `copilot`, or `codex`) installed and on `PATH` on every remote host
 - `~/.ssh/config` entries or DNS for your build hosts (recommended but not required)
 
@@ -32,7 +32,7 @@ Expected output:
 ok
 ```
 
-If that fails, fix your SSH setup first. Sortie delegates to the system `ssh` binary and inherits your full SSH configuration — `ProxyJump` bastions, FIDO2 keys, agent forwarding all work without Sortie-specific config.
+If that fails, fix your SSH setup first. Sortie delegates to the system `ssh` binary and inherits your full SSH configuration: `ProxyJump` bastions, FIDO2 keys, agent forwarding all work without Sortie-specific config.
 
 ## Add the worker extension
 
@@ -50,10 +50,10 @@ extensions:
 
 This tells Sortie to run agents on `build01` and `build02` instead of locally. Each host accepts up to 2 concurrent sessions, giving you 4 total agent slots across the pool. Sortie picks the least-loaded host for each new dispatch.
 
-If you also have `agent.max_concurrent_agents` set, total concurrency is the lower of the two limits. With `max_concurrent_agents: 3` and two hosts at 2 each, you get 3 concurrent agents — the global cap wins.
+If you also have `agent.max_concurrent_agents` set, total concurrency is the lower of the two limits. With `max_concurrent_agents: 3` and two hosts at 2 each, you get 3 concurrent agents. The global cap wins.
 
 > [!WARNING]
-> **On `codex` and `opencode`, moving to SSH removes Sortie's agent tools.** Both runtimes accept no MCP configuration path, so Sortie normally hands them the servers by writing them into the launch itself. Over SSH the only route left is the remote command string, which is the local `ssh` process's argument list — readable by every other user of the orchestrator host, and the configuration carries your tracker credential. Sortie declines to publish it. A remote session on either kind reaches no tool, and Sortie withholds the first-turn tool advertisement rather than name one the agent cannot call. Nothing fails; the agent works without `tracker_api`, `sortie_status`, `workspace_history`, `cost_budget`, and `notify_operator` if you configured it.
+> **On `codex` and `opencode`, moving to SSH removes Sortie's agent tools.** Both runtimes accept no MCP configuration path, so Sortie normally hands them the servers by writing them into the launch itself. Over SSH the only route left is the remote command string. That is the local `ssh` process's argument list, readable by every other user of the orchestrator host, and the configuration carries your tracker credential. Sortie declines to publish it. A remote session on either kind reaches no tool, and Sortie withholds the first-turn tool advertisement rather than name one the agent cannot call. Nothing fails; the agent works without `tracker_api`, `sortie_status`, `workspace_history`, `cost_budget`, and `notify_operator` if you configured it.
 >
 > If your prompts depend on those tools, keep the host pool on `claude-code` or `copilot-cli`, which hand over the generated file itself and are unaffected. See [delivery by agent kind](/reference/agent-extensions/#delivery-by-agent-kind).
 
@@ -175,7 +175,7 @@ Production environments where host keys are baked into VM images or distributed 
     ssh_strict_host_key_checking: "yes"
 ```
 
-Make sure `known_hosts` on the orchestrator host contains entries for every host in `ssh_hosts` before starting Sortie. Missing entries cause immediate connection failures — there is no interactive prompt to accept the key.
+Make sure `known_hosts` on the orchestrator host contains entries for every host in `ssh_hosts` before starting Sortie. Missing entries cause immediate connection failures. There is no interactive prompt to accept the key.
 
 ### If your hosts are stable but you don't manage keys
 
@@ -202,7 +202,7 @@ For the full list of allowed values, see the [worker configuration reference](/r
 
 ## Handle SSH failures
 
-SSH connection problems (exit code 255) are transient infrastructure failures. Sortie retries them automatically with exponential backoff. The retry uses host affinity — it prefers dispatching back to the same host, but falls back to the least-loaded alternative if that host is at capacity or unreachable.
+SSH connection problems (exit code 255) are transient infrastructure failures. Sortie retries them automatically with exponential backoff. The retry uses host affinity: it prefers dispatching back to the same host, but falls back to the least-loaded alternative if that host is at capacity or unreachable.
 
 A remote "command not found" error (exit code 127) is fatal. It means the agent binary is missing on that host. Sortie will not retry this. Check that your configured `agent.command` (e.g., `claude`, `copilot`, `codex app-server`) is installed and on `PATH` for the SSH user.
 
@@ -212,12 +212,13 @@ You now have a Sortie setup where the orchestrator runs on one machine and agent
 
 The key pieces:
 
-- **`extensions.worker.ssh_hosts`** — the pool of remote machines
-- **`extensions.worker.max_concurrent_agents_per_host`** — per-host concurrency cap
-- **`extensions.worker.ssh_strict_host_key_checking`** — SSH host key verification policy (`accept-new`, `yes`, or `no`)
-- **`SORTIE_SSH_HOST`** in hooks — the bridge between local orchestration and remote preparation
-- **Least-loaded dispatch** — Sortie balances work across hosts automatically
-- **Retry affinity** — failed sessions prefer the same host on retry, avoiding redundant workspace setup
-- **Agent tools** — available on `claude-code` and `copilot-cli` remotely; withheld on `codex` and `opencode`, which reach them only on a local launch
+- **`extensions.worker.ssh_hosts`**: the pool of remote machines
+- **`extensions.worker.max_concurrent_agents_per_host`**: per-host concurrency cap
+- **`extensions.worker.ssh_strict_host_key_checking`**: SSH host key verification policy (`accept-new`, `yes`, or `no`)
+- **`SORTIE_SSH_HOST`** in hooks: the bridge between local orchestration and remote preparation
+- **Least-loaded dispatch**: Sortie balances work across hosts automatically
+- **Retry affinity**: failed sessions prefer the same host on retry, avoiding redundant workspace setup
+- **Agent tools**: available on `claude-code` and `copilot-cli` remotely; withheld on `codex`, `opencode`, and `agent-client-protocol`, which reach them only on a local launch
+- **Token usage**: reported remotely on `claude-code`, `codex`, and `opencode`; `copilot-cli` reports none over SSH, because it recovers its figures from an on-disk journal the adapter does not read remotely, so token budgets and cost estimates go inert for those sessions
 
 For the full SSH configuration schema, see the [WORKFLOW.md reference](/reference/workflow-config/). For environment variables injected into hooks during SSH dispatch, see the [environment variables reference](/reference/environment/).

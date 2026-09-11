@@ -6,9 +6,9 @@ date: 2026-04-26
 weight: 50
 url: /reference/dashboard/
 ---
-Sortie ships a self-contained HTML dashboard at `/` on the same port as the [JSON API](/reference/http-api/) and [Prometheus metrics](/reference/prometheus-metrics/). No external tools, no JavaScript frameworks, no CDN dependencies - one HTML page rendered server-side by Go's `html/template` engine with vanilla JavaScript for interactive behavior.
+Sortie ships a self-contained HTML dashboard at `/` on the same port as the [JSON API](/reference/http-api/) and [Prometheus metrics](/reference/prometheus-metrics/). No external tools, no JavaScript frameworks, no CDN dependencies: one HTML page rendered server-side by Go's `html/template` engine with vanilla JavaScript for interactive behavior.
 
-The dashboard is designed for local, at-a-glance monitoring. Open it in a browser while Sortie runs, and you see what is happening right now: which agents are working, how many tokens they have consumed, what is waiting for retry, and how past runs ended. Tables use an accordion pattern - each row shows primary identification and status fields, and clicking a row expands an inline detail panel with secondary fields. All rows are collapsed by default. The page auto-refreshes every 5 seconds via an HTML `<meta http-equiv="refresh">` tag.
+The dashboard is designed for local, at-a-glance monitoring. Open it in a browser while Sortie runs, and you see what is happening right now: which agents are working, how many tokens they have consumed, what is waiting for retry, and how past runs ended. Tables use an accordion pattern: each row shows primary identification and status fields, and clicking a row expands an inline detail panel with secondary fields. All rows are collapsed by default. The page auto-refreshes every 5 seconds via an HTML `<meta http-equiv="refresh">` tag.
 
 The dashboard supports light and dark modes automatically via `prefers-color-scheme`. No toggle is needed.
 
@@ -16,7 +16,7 @@ The dashboard supports light and dark modes automatically via `prefers-color-sch
 
 ## Accessing the dashboard
 
-The dashboard is available when the HTTP server is running. By default, Sortie starts the server on `127.0.0.1:7678` - open `http://127.0.0.1:7678/` in a browser.
+The dashboard is available when the HTTP server is running. By default, Sortie starts the server on `127.0.0.1:7678`. Open `http://127.0.0.1:7678/` in a browser.
 
 Override the port or bind address with CLI flags:
 
@@ -37,7 +37,7 @@ To disable the server entirely, pass `--port 0`. For the full `server` extension
 
 ## Network access
 
-Sortie binds to `127.0.0.1` by default. The dashboard is accessible on the machine where Sortie is running - not from other hosts on the network. This is intentional: Sortie is a local orchestration tool, and the dashboard is a local monitoring surface.
+Sortie binds to `127.0.0.1` by default. The dashboard is accessible on the machine where Sortie is running, not from other hosts on the network. This is intentional: Sortie is a local orchestration tool, and the dashboard is a local monitoring surface.
 
 `--host` accepts any IP address; `--host 0.0.0.0` listens on all interfaces. Sortie's HTTP server has no built-in authentication on any interface it binds.
 
@@ -56,12 +56,12 @@ The top bar displays:
 
 ## Summary cards
 
-Cards across the top provide the high-level picture. Some appear unconditionally; others appear only when specific config or state applies, as the Condition column below states - for example, one appears when [token rates](#cost-estimation) are configured, another when at least one issue is currently held out of dispatch by a budget ceiling.
+Cards across the top provide the high-level picture. Some appear unconditionally; others appear only when specific config or state applies, as the Condition column below states. For example, one appears when [token rates](#cost-estimation) are configured, another when at least one issue is currently held out of dispatch by a budget ceiling.
 
 | Card | Color | Value | Condition | Description |
 |---|---|---|---|---|
 | **Running** | Green | Integer | Always | Number of agent sessions currently executing. Maps to `sortie_sessions_running` in [Prometheus](/reference/prometheus-metrics/). |
-| **Retrying** | Yellow | Integer | Always | Number of issues in the retry queue - waiting for their next attempt after an error, continuation, or stall timeout. Maps to `sortie_sessions_retrying`. |
+| **Retrying** | Yellow | Integer | Always | Number of issues in the retry queue, waiting for their next attempt after an error, continuation, or stall timeout. Maps to `sortie_sessions_retrying`. |
 | **Slots Free** | Gray | Integer | Always | Remaining dispatch capacity: `max_concurrent_agents − running`. When this reaches 0, the orchestrator waits for a running session to finish before dispatching the next issue. |
 | **Total Tokens** | Blue | Integer (comma-formatted) | Always | Cumulative LLM tokens consumed across all sessions since startup: input plus output. Cache-read tokens are a subset of input and are not added on top. Sessions that reported no token usage contribute nothing. |
 | **Active Est. Cost (USD)** | Neutral | USD string | `token_rates` configured | Estimated cost across currently running sessions, computed from configured per-token rates. Shows an em dash when no running session matches a configured rate. See [cost estimation](#cost-estimation). |
@@ -75,7 +75,7 @@ All three tables (Running Sessions, Retry Queue, Run History) use an accordion p
 
 - **Click** any row (except links) to toggle its detail panel open or closed.
 - **Keyboard**: focus a row with Tab, then press Enter or Space to toggle.
-- **Links** inside rows (e.g., the Identifier link in Running Sessions) navigate normally - they do not trigger the accordion.
+- **Links** inside rows (e.g., the Identifier link in Running Sessions) navigate normally. They do not trigger the accordion.
 
 ### Expand indicator
 
@@ -121,12 +121,15 @@ Lists every agent session that is actively executing. Sorted by start time (olde
 |---|---|
 | **Workflow** | Name of the WORKFLOW.md file that dispatched this session. Shows an em dash when unavailable. |
 | **Host** | SSH host where the agent is running. This field appears only when at least one session uses an SSH host. Shows `local` for sessions running on the same machine as Sortie. |
-| **Model** | LLM model name reported by the agent. Shows an em dash when the agent has not reported a model. |
-| **API Requests** | Number of API requests the agent has made to the LLM provider. |
-| **Tokens** | Total tokens consumed by this session. When cache-read tokens are nonzero, they appear in parentheses (e.g., `12,450 (8,200 cached)`). Shows `not reported` when the coding agent has reported no token usage for this session, which is distinct from a reported `0`. |
-| **Est. Cost** | Estimated cost for this session based on configured [token rates](/reference/workflow-config/#token_rates). Shows an em dash when token rates are not configured for this session's agent adapter kind, or when its **Tokens** field reads `not reported`. This field appears only when `token_rates` is configured. |
+| **Usage reporting** | When this session's token figures arrive and what they attribute to, stated once for the four fields below. Reads `figures arrive during each turn` or `figures arrive when a turn ends`, followed by `, per model` or `, as a session total`; `this session reports no token usage` for a kind that produces no figure at all; `not declared` for a custom adapter that declared neither. The [usage reporting table](/reference/workflow-config/#usage-reporting-by-agent-kind) states the value each built-in kind declares. |
+| **Model** | LLM model name reported by the agent. Reads `not reported yet` when the session attributes figures per model but has not named one, `not attributed to a model` when its figures are session-level totals, and an em dash when the session reports no usage. |
+| **API Requests** | Number of LLM API requests the agent has made. A count appears when this session's figures arrive during each turn and either one has already arrived or no turn has begun, so a `0` here is a measurement rather than a blank. When the breakdown names two or more models, the count carries the split in parentheses, ordered by model name: `12 (model-a: 5, model-b: 7)`. Reads `not reported yet` when figures arrive during each turn but the session's first turn has begun with nothing counted, which is what both a session waiting on its first figure and a runtime that declared per-request figures but delivers none look like from the event stream. Reads `not measured` when figures arrive at turn end instead, because that count settles at most once per turn rather than once per request, and an em dash when the session reports no usage. |
+| **Tokens** | Total tokens consumed by this session. When cache-read tokens are nonzero, they appear in parentheses (e.g., `12,450 (8,200 cached)`). Reads `not reported yet` when the coding agent has reported no token usage so far, which is distinct from a reported `0`, and an em dash when the session reports no usage at all. A figure that leaves out the turn still in flight carries the suffix `, excludes the turn in progress`. |
+| **Est. Cost** | Estimated cost for this session based on configured [token rates](/reference/workflow-config/#token_rates). Shows an em dash when `token_rates` is absent, when no rate is configured for this session's agent adapter kind, when its **Tokens** field is unmeasured, or when the session reports no usage. Carries the same `, excludes the turn in progress` suffix as **Tokens**. |
 | **Tool Time** | Percentage of elapsed wall-clock time the agent spent in tool calls. Shows `N/A` until the session has both elapsed time and recorded tool time. |
 | **API Time** | Percentage of elapsed wall-clock time the agent spent waiting for LLM API responses. Shows `N/A` until both elapsed time and API time are recorded. |
+
+Every built-in agent kind declares its usage reporting. A [custom adapter](/guides/write-custom-agent-adapter/) that declares neither field leaves its sessions undeclared: **Usage reporting** reads `not declared`, **Model** shows an em dash, **API Requests** reads `not measured`, and **Tokens** carries the suffix `, usage reporting not declared`.
 
 When no sessions are running, the table is replaced with a centered "No running sessions" message.
 
@@ -152,7 +155,7 @@ When no retries are pending, the table is replaced with "No retries pending."
 
 ## Budget blocked table
 
-Lists issues currently held out of dispatch by a per-issue [`agent.max_sessions` or `agent.max_tokens`](/reference/workflow-config/#agent) ceiling. Appears only when at least one issue is held. Unlike the other tables on this page, rows are plain - there is no expand indicator or detail panel.
+Lists issues currently held out of dispatch by a per-issue [`agent.max_sessions` or `agent.max_tokens`](/reference/workflow-config/#agent) ceiling. Appears only when at least one issue is held. Unlike the other tables on this page, rows are plain: there is no expand indicator or detail panel.
 
 ### Columns
 
@@ -160,19 +163,19 @@ Lists issues currently held out of dispatch by a per-issue [`agent.max_sessions`
 |---|---|
 | **Identifier** | Issue identifier. Links to the [per-issue JSON detail endpoint](/reference/http-api/#get-apiv1identifier-issue-detail). |
 | **Reason** | Which ceiling stopped dispatch: "Session budget" or "Token budget". |
-| **Used** | Usage against the ceiling that fired - completed sessions for a session-budget hold, measured tokens for a token-budget hold. |
+| **Used** | Usage against the ceiling that fired: completed sessions for a session-budget hold, measured tokens for a token-budget hold. |
 | **Blocked For** | Wall-clock time since the hold began, relative to the snapshot timestamp. |
 
 ## Run history table
 
-Lists recently completed session attempts - both successful and failed. Shows the last 25 entries. This section appears only when run history data is available (requires persistence to be enabled).
+Lists recently completed session attempts, both successful and failed. Shows the last 25 entries. This section appears only when run history data is available (requires persistence to be enabled).
 
 ### Collapsed row columns
 
 | Column | Description |
 |---|---|
 | **Identifier** | Issue identifier. Prefixed with an expand indicator (▶). |
-| **Status** | Terminal outcome of the attempt: `succeeded`, `failed`, `cancelled`, `ci_failed`, or `needs_person`. |
+| **Status** | Terminal outcome of the attempt: `succeeded`, `failed`, `cancelled`, `ci_failed`, `needs_person`, or `budget_stopped`. A `budget_stopped` attempt is one [`agent.max_tokens`](/reference/workflow-config/#agent) stopped in flight rather than one that ended on its own; the detail panel's Error field names the tokens used and the ceiling. |
 | **Started** | RFC 3339 timestamp when the session started. |
 | **Duration** | Wall-clock time from start to completion. Computed from the start and completion timestamps. |
 
@@ -200,11 +203,11 @@ The footer displays aggregate statistics across all sessions since startup:
 
 When `token_rates` is configured, a disclaimer line appears below the aggregate stats: "Cost estimates are based on configured token rates and may differ from actual provider billing."
 
-When at least one running session has reported no token usage, a further line names the count: "N running sessions have not reported token usage; the totals above exclude them." The line is absent when every running session has reported usage.
+When at least one running session has reported no token usage yet, a further line names the count: "N running sessions have not reported token usage; the totals above exclude them." The count covers only sessions whose agent kind does report usage and has not produced a figure so far. A session on a kind that reports none at all is never counted, because there is nothing pending for it to report.
 
 ## Cost estimation
 
-The dashboard displays estimated USD cost when `token_rates` is configured in WORKFLOW.md front matter. Without `token_rates`, the dashboard shows raw token counts only - no cost figures appear anywhere.
+The dashboard displays estimated USD cost when `token_rates` is configured in WORKFLOW.md front matter. Without `token_rates`, the dashboard shows raw token counts only. No cost figures appear anywhere.
 
 Cost is computed at render time from per-session token counts and the configured rate for each session's agent adapter kind. No cost data is persisted. The formula for a single session:
 

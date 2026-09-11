@@ -102,7 +102,7 @@ Sortie rejects unsafe paths at load time: absolute paths, `~`-prefixed paths, an
 
 ## Declare every agent kind a rule references
 
-When a rule's `agent` differs from the top-level `agent.kind`, give that kind its own configuration block in the front matter. The example above routes to `codex`, so it includes a `codex:` block. A routed session reads that block and no other, on every attempt of the session; the block named by `agent.kind` does not stand in for it. Leave the block out and both `sortie validate` and startup preflight refuse the workflow with a `dispatch.agent.missing_block` error - add the block, even an empty one (`codex: {}`), to fix it.
+When a rule's `agent` differs from the top-level `agent.kind`, give that kind its own configuration block in the front matter. The example above routes to `codex`, so it includes a `codex:` block. A routed session reads that block and no other, on every attempt of the session; the block named by `agent.kind` does not stand in for it. Leave the block out and both `sortie validate` and startup preflight refuse the workflow with a `dispatch.agent.missing_block` error. Add the block, even an empty one (`codex: {}`), to fix it.
 
 The shared `agent.*` settings (`max_turns`, `turn_timeout_ms`, `max_sessions`, concurrency caps) stay workflow-wide. Rules override the agent kind and the template only, not these budgets.
 

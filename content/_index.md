@@ -10,12 +10,12 @@ cascade:
 
 Sortie turns issue tracker tickets into autonomous coding agent sessions. Engineers manage work at the ticket level. Agents handle implementation. Single binary, zero dependencies, SQLite persistence.
 
-Sortie assumes your coding agent already produces useful results when you run it manually. It handles scheduling, retry, isolation, and persistence around that agent - it does not improve the agent's output.
+Sortie assumes your coding agent already produces useful results when you run it manually. It handles scheduling, retry, isolation, and persistence around that agent. It does not improve the agent's output.
 
 ## The Problem
 
-Autonomous coding agents can handle routine engineering tasks - bug fixes, dependency updates, test
-coverage, feature work - when they have good system prompts, appropriate tool permissions,
+Autonomous coding agents can handle routine engineering tasks (bug fixes, dependency updates, test
+coverage, feature work) when they have good system prompts, appropriate tool permissions,
 and have been tested on representative issues. But running validated agents at scale
 requires AI agent orchestration infrastructure that doesn't exist yet: isolated workspaces, retry logic, state
 reconciliation, tracker integration, cost tracking. Teams build this ad-hoc, poorly, and
@@ -60,10 +60,10 @@ Your task: {{ .issue.title }} ({{ .issue.identifier }})
 
 The YAML front matter configures the tracker and agent. Everything after the closing `---` is a Go template rendered per issue.
 
-Sortie watches this file, polls Jira for matching issues, creates an isolated workspace for each, and launches the configured coding agent with the rendered prompt. It handles the rest: stall detection, timeout enforcement, retries with backoff, state reconciliation with the tracker, and workspace cleanup when issues reach terminal states, plus an opt-in age bound for the workspaces that never do. Swap `agent.kind: claude-code` for [`codex`](/reference/adapter-codex/), [`copilot-cli`](/reference/adapter-copilot/), [`opencode`](/reference/adapter-opencode/) or [`kiro`](/reference/adapter-kiro/) and the rest of the file stays the same. Supported trackers: [GitHub Issues](/reference/adapter-github/), [GitLab Issues](/reference/adapter-gitlab/), [Gitea Issues](/reference/adapter-gitea/), [Linear](/reference/adapter-linear/) and [Jira](/reference/adapter-jira/). Changes to the workflow are applied without restart.
+Sortie watches this file, polls Jira for matching issues, creates an isolated workspace for each, and launches the configured coding agent with the rendered prompt. It handles the rest: stall detection, timeout enforcement, retries with backoff, state reconciliation with the tracker, and workspace cleanup when issues reach terminal states, plus an opt-in age bound for the workspaces that never do. Swap `agent.kind: claude-code` for [`codex`](/reference/adapter-codex/), [`copilot-cli`](/reference/adapter-copilot/), [`opencode`](/reference/adapter-opencode/), [`kiro`](/reference/adapter-kiro/), or the generic [`agent-client-protocol`](/reference/adapter-agent-client-protocol/) kind, and the rest of the file stays the same. Supported trackers: [GitHub Issues](/reference/adapter-github/), [GitLab Issues](/reference/adapter-gitlab/), [Gitea Issues](/reference/adapter-gitea/), [Linear](/reference/adapter-linear/) and [Jira](/reference/adapter-jira/). Changes to the workflow are applied without restart.
 
 ## Links
 
-- [Changelog](/changelog/) - release history
-- [GitHub](https://github.com/sortie-ai/sortie) - source code
-- [Contributing](https://github.com/sortie-ai/sortie/blob/main/CONTRIBUTING.md) - how to contribute
+- [Changelog](/changelog/): release history
+- [GitHub](https://github.com/sortie-ai/sortie): source code
+- [Contributing](https://github.com/sortie-ai/sortie/blob/main/CONTRIBUTING.md): how to contribute

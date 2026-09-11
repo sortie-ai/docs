@@ -25,7 +25,7 @@ You need a GitLab.com project you can write issues and labels to. See GitLab's o
 
 Sortie's `tracker.project` field accepts either form GitLab exposes for a project: the **namespace path** (`your-username/adapter-lab` for a personal project, `group/subgroup/project` for a nested one) or the **numeric project ID**, both visible from the project's own overview page. The path is readable in a workflow file; the numeric ID survives a rename. This tutorial uses the path.
 
-Create a label named `backlog` on the project — see GitLab's [label documentation](https://docs.gitlab.com/user/project/labels/) — and apply it to two open issues. Titles like "Add a health-check endpoint" and "Document the configuration options" are enough; the mock agent never reads them. GitLab numbers them `#1` and `#2` within the project.
+Create a label named `backlog` on the project (see GitLab's [label documentation](https://docs.gitlab.com/user/project/labels/)) and apply it to two open issues. Titles like "Add a health-check endpoint" and "Document the configuration options" are enough; the mock agent never reads them. GitLab numbers them `#1` and `#2` within the project.
 
 Your project now has two open, labeled issues waiting for Sortie to find.
 

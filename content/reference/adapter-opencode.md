@@ -33,6 +33,7 @@ These fields control the orchestrator's scheduling behavior. They are not passed
 | `turn_timeout_ms` | integer | `3600000` (1 hour) | Total timeout for a single `RunTurn` call. The orchestrator cancels the turn context when exceeded. |
 | `read_timeout_ms` | integer | `5000` (5 seconds) | Bounds the wait for the turn's first JSON envelope, and, doubled and capped at 30 seconds, the post-turn `export` and `models` subprocesses. It does not bound anything after the first envelope arrives. Falls back to 30 seconds when unset or not positive. |
 | `stall_timeout_ms` | integer | `300000` (5 minutes) | Maximum time between consecutive emitted events before the orchestrator treats the turn as stalled. `0` or negative disables stall detection. |
+| `stop_grace_ms` | integer | `5000` (5 seconds) | How long the adapter waits for the subprocess to exit on its own after a graceful termination signal, before it force-terminates the process group. Must be positive. |
 | `max_retry_backoff_ms` | integer | `300000` (5 minutes) | Maximum delay cap for exponential backoff between retry attempts. |
 
 ```yaml
@@ -198,7 +199,7 @@ Spawns one OpenCode subprocess, reads stdout through a single reader goroutine, 
 2. Adds `run --format json --dir <workspace>` to every invocation.
 3. Adds `--session <id>` when the session already has an OpenCode session ID.
 4. Launches the subprocess locally or through SSH, with `cmd.Dir` set to the workspace and `cmd.Env` set to the inherited environment plus managed `OPENCODE_*` overrides, and, on a local launch carrying one, the translated MCP configuration document.
-5. Configures process-group isolation before start, then sets `cmd.Cancel` to a graceful process-group signal and `cmd.WaitDelay` to 5 seconds.
+5. Configures process-group isolation before start, then sets `cmd.Cancel` to a graceful process-group signal and `cmd.WaitDelay` to `stop_grace_ms`.
 6. Starts one stderr collector goroutine, one stdout reader goroutine, and one wait goroutine.
 7. Applies a startup timer derived from `read_timeout_ms`. Plain-text stdout lines reset the timer before the first JSON envelope arrives.
 8. On the first JSON envelope with `sessionID`, adopts the session ID if unset or verifies it matches the resumed session. Emits `session_started` once per session.
@@ -212,23 +213,19 @@ Marks the session closed and terminates the currently running turn subprocess, i
 
 1. Marks the session closed and detaches the active turn runtime from session state.
 2. Sends a graceful process-group signal when a turn is still running.
-3. Waits up to 5 seconds for the subprocess to exit.
+3. Waits up to `stop_grace_ms` for the subprocess to exit.
 4. Force-kills the process group if it is still alive after the grace window.
 5. Returns `ctx.Err()` if the caller's `StopSession` context expires first.
 
 Safe to call when no subprocess is active.
 
-### `EventStream`
-
-Returns `nil`. The adapter delivers all events synchronously through `RunTurn`'s `OnEvent` callback.
-
 ---
 
 ## Process shutdown
 
-The OpenCode adapter uses `exec.CommandContext` with its default cancel behavior overridden - the same pattern the shared `agentcore.ForkPerTurnSession` skeleton uses for the Claude Code, Copilot CLI, and Kiro adapters. This adapter implements the pattern itself rather than going through that skeleton, because `RunTurn` needs a deadline on the first stdout line rather than on the whole turn, and a post-exit subprocess query to recover usage that the skeleton has no hook for.
+The OpenCode adapter uses `exec.CommandContext` with its default cancel behavior overridden, the same pattern the shared `agentcore.ForkPerTurnSession` skeleton uses for the Claude Code, Copilot CLI, and Kiro adapters. This adapter implements the pattern itself rather than going through that skeleton, because `RunTurn` needs a deadline on the first stdout line rather than on the whole turn, and a post-exit subprocess query to recover usage that the skeleton has no hook for.
 
-Before start, the adapter places the subprocess in its own process group via the shared `procutil` package. It also overrides `cmd.Cancel` to send a graceful signal to the process group and sets `cmd.WaitDelay` to 5 seconds. On Unix, graceful shutdown is `SIGTERM` and force kill is `SIGKILL` to the process group. On Windows, graceful shutdown is `CTRL_BREAK_EVENT` to the process group, and `AssignProcess` attaches a Job Object with `KILL_ON_JOB_CLOSE` so force termination kills the full descendant tree.
+Before start, the adapter places the subprocess in its own process group via the shared `procutil` package. It also overrides `cmd.Cancel` to send a graceful signal to the process group and sets `cmd.WaitDelay` to `stop_grace_ms`. On Unix, graceful shutdown is `SIGTERM` and force kill is `SIGKILL` to the process group. On Windows, graceful shutdown is `CTRL_BREAK_EVENT` to the process group, and `AssignProcess` attaches a Job Object with `KILL_ON_JOB_CLOSE` so force termination kills the full descendant tree.
 
 Shutdown is turn-scoped, not session-scoped. `StopSession` performs an explicit graceful-to-force sequence. Turn-context cancellation is stricter: `CommandContext` triggers the graceful cancel hook, and the adapter's cancellation path also force-kills the process group during teardown if the process is still alive. After `cmd.Wait` returns, the adapter performs a best-effort group kill to clean up surviving children.
 
@@ -248,7 +245,7 @@ Two behaviours are the adapter's own. Every stdout line that fails to parse beco
 
 ## Token accounting
 
-The adapter does not trust `step_finish.part.tokens` as the final turn total. It recovers authoritative usage from a second subprocess after the main turn exits. Reported counts are cumulative over the whole session the orchestrator opened, across every turn of it, and never decrease.
+The adapter does not trust `step_finish.part.tokens` as the final turn total. It recovers authoritative usage from a second subprocess after the main turn exits. Reported counts are cumulative over the whole session the orchestrator opened, across every turn of it, and never decrease. For this kind's declaration beside every other kind's, see the [usage reporting table](/reference/workflow-config/#usage-reporting-by-agent-kind).
 
 ### Accumulation logic
 
@@ -308,14 +305,14 @@ An error kind is absent only on a `turn_completed` outcome; every other outcome 
 | Stdout `error` envelope observed, whatever the process exit status | `turn_failed` | `turn_failed` | Structured logical failure, authoritative over the exit code. Message is the envelope's own detail; see [masked failures](#masked-failures). |
 | Turn context cancelled, or session stopped via `StopSession` | `turn_cancelled` | `turn_cancelled` | Message is `turn cancelled`. Cancellation outranks the process-exit classification. |
 | No `error` envelope, exit `0`, at least one `text`, `reasoning`, or `tool_use` part parsed | `turn_completed` | _(none)_ | Normal completion. |
-| No `error` envelope, exit `0`, no such part parsed | `turn_failed` | `turn_failed` | The model produced nothing this turn. Message is `agent exited without producing output: no assistant output on the run stream`. |
+| No `error` envelope, exit `0`, no such part parsed | `turn_failed` | `turn_failed` | The model produced nothing this turn. Message is `agent exited without producing output: no message from the agent and no tool call`. |
 | No `error` envelope, non-zero exit | `turn_failed` | `port_exit` | Process-level failure. Message is `exit code N`. |
 
 The adapter never trusts exit code `0` as sufficient proof of success. A terminal stdout `error` envelope is authoritative.
 
 ### Masked failures
 
-When the only failure detail on the stream is OpenCode's generic server-error placeholder, the adapter runs a third subprocess - `opencode models`, in the same workspace, under the same managed environment and the same timeout as the export - and compares the configured `opencode.model` against the catalog it prints. When the model is absent from a non-empty catalog, the terminal message is replaced with `Model not found: <model>`. The lookup is skipped when no model is configured, and any other masked cause reaches the operator as the placeholder unchanged.
+When the only failure detail on the stream is OpenCode's generic server-error placeholder, the adapter runs a third subprocess (`opencode models`, in the same workspace, under the same managed environment and the same timeout as the export) and compares the configured `opencode.model` against the catalog it prints. When the model is absent from a non-empty catalog, the terminal message is replaced with `Model not found: <model>`. The lookup is skipped when no model is configured, and any other masked cause reaches the operator as the placeholder unchanged.
 
 ### Stdout scanner failure
 
@@ -432,7 +429,9 @@ The adapter registers itself under kind `"opencode"` via an `init` function in `
 |---|---|
 | `RequiresCommand` | `true` |
 | `ValidateAgentConfig` | the checks described in [Validate-time checks](#validate-time-checks) |
-| `MCPInjection` | `translated` - the adapter re-expresses the generated configuration's servers in the form its runtime parses, and delivers that on a local launch only. See [MCP](#mcp). |
+| `MCPInjection` | `translated`: the adapter re-expresses the generated configuration's servers in the form its runtime parses, and delivers that on a local launch only. See [MCP](#mcp). |
+| `UsageArrival` | `turn_end`: at most one usage figure per turn, recovered by the export subprocess after the main turn exits. See [Token accounting](#token-accounting). |
+| `UsageAttribution` | `per_model`: the recovered figure names the model the export payload reports. See [Model tracking](#model-tracking). |
 
 The orchestrator's preflight validation uses `RequiresCommand` to require a non-empty `agent.command` field for `agent.kind: opencode`. Binary lookup still happens during `StartSession` via `exec.LookPath`.
 
@@ -454,7 +453,7 @@ The orchestrator's preflight validation uses `RequiresCommand` to require a non-
 | Token accounting source | Result event `modelUsage`, with top-level `usage` fallback | Session-state journal on disk, with stream output tokens as the in-turn estimate | `thread/tokenUsage/updated` notification | Separate `export` subprocess after main turn exit |
 | Permission control | `--permission-mode` or `--dangerously-skip-permissions` | `--autopilot` + `--no-ask-user` + explicit tool scoping | `approvalPolicy` and sandbox policy in JSON-RPC | `--dangerously-skip-permissions` plus synthesized `OPENCODE_PERMISSION` JSON |
 | Sandbox enforcement | None at adapter level | None at adapter level | OS-level sandbox plus configurable policy | No adapter-level sandbox; permission policy only |
-| Sortie's tools | Generated config path on `--mcp-config` | Generated config path on `--additional-mcp-config` | Generated servers re-expressed as command-line overrides, local launch only | Generated servers re-expressed as an inline configuration document in the turn environment, local launch only - see [MCP](#mcp) |
+| Sortie's tools | Generated config path on `--mcp-config` | Generated config path on `--additional-mcp-config` | Generated servers re-expressed as command-line overrides, local launch only | Generated servers re-expressed as an inline configuration document in the turn environment, local launch only (see [MCP](#mcp)) |
 | Authentication | `ANTHROPIC_API_KEY` and provider routing flags | GitHub token variables or `gh auth` | `CODEX_API_KEY` or cached Codex auth | OpenCode-managed provider auth from env, auth store, `.env`, or `opencode.json`; SSH mode does not forward provider env vars |
 | Provider multiplexing | Anthropic direct, Bedrock, Vertex | GitHub only | OpenAI or cached Codex auth | Multi-provider through OpenCode model/provider config |
 | Inner turn limit | `claude-code.max_turns` | `copilot-cli.max_autopilot_continues` | None | None exposed by the adapter |
@@ -465,19 +464,19 @@ The orchestrator's preflight validation uses `RequiresCommand` to require a non-
 
 ## External references
 
-- [OpenCode CLI documentation](https://opencode.ai/docs/cli/) - official command reference for `opencode run`, `opencode export`, and session flags
-- [OpenCode configuration reference](https://opencode.ai/docs/config/) - `opencode.json` schema, provider auth store, and permission policy fields
-- [`anomalyco/opencode` on GitHub](https://github.com/anomalyco/opencode) - source repository, releases, and issue tracker
-- [OpenCode permissions documentation](https://opencode.ai/docs/permissions/) - semantics of the `OPENCODE_PERMISSION` policy this adapter synthesizes
+- [OpenCode CLI documentation](https://opencode.ai/docs/cli/): official command reference for `opencode run`, `opencode export`, and session flags
+- [OpenCode configuration reference](https://opencode.ai/docs/config/): `opencode.json` schema, provider auth store, and permission policy fields
+- [`anomalyco/opencode` on GitHub](https://github.com/anomalyco/opencode): source repository, releases, and issue tracker
+- [OpenCode permissions documentation](https://opencode.ai/docs/permissions/): semantics of the `OPENCODE_PERMISSION` policy this adapter synthesizes
 
 ---
 
 ## Related pages
 
-- [WORKFLOW.md configuration reference](/reference/workflow-config/) - full `agent` schema and `opencode` extension block
-- [Environment variables reference](/reference/environment/) - runtime environment behavior and configuration overrides
-- [Error reference](/reference/errors/#agent-errors) - all agent error kinds with retry behavior
-- [How to control agent costs](/guides/control-costs/) - orchestrator-level cost caps that matter most for OpenCode
-- [How to scale agents with SSH](/guides/scale-agents-with-ssh/) - remote execution setup and host pool configuration
-- [How to write a prompt template](/guides/write-prompt-template/) - template variables, conditionals, and built-in functions
-- [State machine reference](/reference/state-machine/) - orchestration states, turn lifecycle, and stall detection
+- [WORKFLOW.md configuration reference](/reference/workflow-config/): full `agent` schema and `opencode` extension block
+- [Environment variables reference](/reference/environment/): runtime environment behavior and configuration overrides
+- [Error reference](/reference/errors/#agent-errors): all agent error kinds with retry behavior
+- [How to control agent costs](/guides/control-costs/): orchestrator-level cost caps that matter most for OpenCode
+- [How to scale agents with SSH](/guides/scale-agents-with-ssh/): remote execution setup and host pool configuration
+- [How to write a prompt template](/guides/write-prompt-template/): template variables, conditionals, and built-in functions
+- [State machine reference](/reference/state-machine/): orchestration states, turn lifecycle, and stall detection

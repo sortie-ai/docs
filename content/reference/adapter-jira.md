@@ -108,7 +108,7 @@ Accepts [`$VAR` indirection](/reference/environment/#var-indirection-in-workflow
 
 ### `project`
 
-The Jira project key - the prefix on issue identifiers (e.g., `PROJ` in `PROJ-42`). Used in all JQL queries to scope results to a single project.
+The Jira project key, the prefix on issue identifiers (e.g., `PROJ` in `PROJ-42`). Used in all JQL queries to scope results to a single project.
 
 Must be non-empty. A missing or empty value produces a `missing_tracker_project` error.
 
@@ -127,7 +127,7 @@ These defaults match the default Jira Software board. Projects with custom workf
 
 ### `query_filter`
 
-A raw JQL expression appended to the base candidate query inside `AND (...)`. The adapter does not validate or parse the fragment - it passes through to Jira unchanged.
+A raw JQL expression appended to the base candidate query inside `AND (...)`. The adapter does not validate or parse the fragment. It passes through to Jira unchanged.
 
 ```yaml
 query_filter: "labels = 'agent-ready' AND component = 'Backend'"
@@ -148,7 +148,7 @@ Handoff transitions require write permissions on the credential.
 
 ### `in_progress_state`
 
-Target Jira status for dispatch-time transitions. When configured, the worker calls `TransitionIssue` as its first step before workspace preparation. The adapter uses the same transition mechanism as `handoff_state` - it fetches available transitions and matches by target status name (case-insensitive).
+Target Jira status for dispatch-time transitions. When configured, the worker calls `TransitionIssue` as its first step before workspace preparation. The adapter uses the same transition mechanism as `handoff_state`: it fetches available transitions and matches by target status name (case-insensitive).
 
 Transition failure is non-fatal: the worker logs a warning and continues to workspace preparation.
 
@@ -177,7 +177,7 @@ Requires the same write permissions as `handoff_state`.
 | `tracker.api_version.cloud_conflict` | `api_version` is `"2"` and `endpoint` is an `.atlassian.net` host, which serves v3 only. |
 | `tracker.api_key.jira_format` | `api_key` carries a colon at its first or last character, which can never form a `user:secret` pair. |
 | `tracker.api_key.jira_cloud_format` | `api_key` has no colon and `endpoint` is an `.atlassian.net` host, which requires an `email:token` key. |
-| `tracker.api_key.jira_v3_format` | `api_key` has no colon, `endpoint` is a classifiable non-Cloud host, and `api_version` resolves to `"3"` - the default when the field is unset. A Server or Data Center personal access token needs either an `email:token` key or `api_version: "2"`. |
+| `tracker.api_key.jira_v3_format` | `api_key` has no colon, `endpoint` is a classifiable non-Cloud host, and `api_version` resolves to `"3"`, the default when the field is unset. A Server or Data Center personal access token needs either an `email:token` key or `api_version: "2"`. |
 
 The three endpoint checks are evaluated in that order and report the first fault that applies. An invalid `api_version` suppresses the Cloud-conflict check, because the constructor never reaches the host/version guard for a version it rejects. On a Cloud host, `tracker.api_key.jira_cloud_format` reports instead of `tracker.api_key.jira_v3_format`.
 
@@ -308,7 +308,7 @@ When `api_version: "2"`, `Description` and comment `Body` fields carry Jira wiki
 
 ## ADF flattening
 
-Applies to v3 only. Jira REST API v3 returns `description` and comment `body` fields in Atlassian Document Format (ADF) - a JSON document tree. The adapter recursively walks the tree and extracts all `text` node values. Block-level nodes (`paragraph`, `heading`, `bulletList`, `orderedList`, `listItem`, `blockquote`, `codeBlock`, `rule`, `table`, `tableRow`, `tableCell`, `tableHeader`, `panel`, `decisionList`, `decisionItem`, `taskList`, `taskItem`, `mediaSingle`, `mediaGroup`) receive a trailing newline. Trailing whitespace is trimmed from the final output.
+Applies to v3 only. Jira REST API v3 returns `description` and comment `body` fields in Atlassian Document Format (ADF), a JSON document tree. The adapter recursively walks the tree and extracts all `text` node values. Block-level nodes (`paragraph`, `heading`, `bulletList`, `orderedList`, `listItem`, `blockquote`, `codeBlock`, `rule`, `table`, `tableRow`, `tableCell`, `tableHeader`, `panel`, `decisionList`, `decisionItem`, `taskList`, `taskItem`, `mediaSingle`, `mediaGroup`) receive a trailing newline. Trailing whitespace is trimmed from the final output.
 
 **Input (ADF, v3):**
 
@@ -344,7 +344,7 @@ When `api_version: "2"`, ADF flattening does not run. The raw string body is dec
 
 ## Blocker extraction
 
-Blocker relationships are derived from Jira issue links with `type.name == "Blocks"`. The adapter inspects the `inwardIssue` side of each link - this is the issue that blocks the current one.
+Blocker relationships are derived from Jira issue links with `type.name == "Blocks"`. The adapter inspects the `inwardIssue` side of each link, the issue that blocks the current one.
 
 For each qualifying link, a `BlockerRef` is produced:
 
@@ -354,7 +354,7 @@ For each qualifying link, a `BlockerRef` is produced:
 | `Identifier` | `inwardIssue.key` |
 | `State` | `inwardIssue.fields.status.name` (empty when the linked issue's status is not included) |
 
-When the blocker's state is empty, the orchestrator treats it as non-terminal (conservative assumption - the blocker may still be active).
+When the blocker's state is empty, the orchestrator treats it as non-terminal (conservative assumption: the blocker may still be active).
 
 The link type name `"Blocks"` is a constant in the adapter. Jira administrators can rename link types; if your instance uses a different name, the adapter does not detect blockers.
 
@@ -457,7 +457,7 @@ The adapter maps Jira HTTP responses and network conditions to normalized `Track
 | 200 | JSON decode failure on success response | `tracker_payload_error` | No |
 | Other | Unexpected status code | `tracker_api_error` | Depends |
 
-The `Retry-After` header value from 429 responses is included in the error message for diagnostics. Sortie does not implement client-side rate limiting - it logs the error and waits for the next poll interval.
+The `Retry-After` header value from 429 responses is included in the error message for diagnostics. Sortie does not implement client-side rate limiting. It logs the error and waits for the next poll interval.
 
 For the full error taxonomy and operator guidance, see the [error reference](/reference/errors/#tracker-errors).
 
@@ -520,7 +520,7 @@ When the HTTP server is disabled, metrics calls are no-ops. See [Prometheus metr
 
 The adapter is safe for concurrent use. The orchestrator's poll loop and reconciliation goroutine may call adapter methods simultaneously. The underlying `net/http.Client` handles connection pooling and concurrent requests.
 
-No adapter-level locking is required - each method operates on immutable configuration and produces independent HTTP requests.
+No adapter-level locking is required: each method operates on immutable configuration and produces independent HTTP requests.
 
 ---
 
@@ -535,7 +535,7 @@ The adapter registers itself under kind `"jira"` via an `init` function in `inte
 | `ValidateTrackerConfig` | Offline config diagnostics for `sortie validate`. |
 | `DefaultActiveStates` | `["Backlog", "Selected for Development", "In Progress"]`, applied when `active_states` is absent; see [`active_states`](#active_states). |
 | `DefaultTerminalStates` | Not declared; an absent `terminal_states` resolves to an empty list. |
-| `BlockerSource` | `candidates` — a candidate fetch already carries every blocker Jira reports; see [blocker extraction](#blocker-extraction). |
+| `BlockerSource` | `candidates`: a candidate fetch already carries every blocker Jira reports; see [blocker extraction](#blocker-extraction). |
 
 The orchestrator's preflight validation uses `RequiresProject` and `RequiresAPIKey` to produce specific error messages (`tracker.project is required for tracker kind "jira"`) before attempting adapter construction. `ValidateTrackerConfig` runs the [offline validation](#offline-validation) checks without making network calls.
 
@@ -603,24 +603,24 @@ tracker:
 
 ## External references
 
-- [Jira Cloud REST API v3 introduction](https://developer.atlassian.com/cloud/jira/platform/rest/v3/intro/) - base URL, authentication, and global request conventions
-- [Jira Server REST API v2 reference](https://developer.atlassian.com/server/jira/platform/rest/v10000/) - Server / Data Center API surface
-- [Issue search and JQL endpoint (v3)](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-search/) - the search API used for Cloud deployments
-- [Jira personal access tokens (Server / DC)](https://confluence.atlassian.com/enterprise/using-personal-access-tokens-1026032365.html) - generate and manage PATs
-- [Atlassian API tokens (Cloud)](https://id.atlassian.com/manage-profile/security/api-tokens) - generate the token used in `email:token` format
-- [JQL field reference](https://support.atlassian.com/jira-software-cloud/docs/jql-fields/) - fields and operators valid in `tracker.query_filter`
+- [Jira Cloud REST API v3 introduction](https://developer.atlassian.com/cloud/jira/platform/rest/v3/intro/): base URL, authentication, and global request conventions
+- [Jira Server REST API v2 reference](https://developer.atlassian.com/server/jira/platform/rest/v10000/): Server / Data Center API surface
+- [Issue search and JQL endpoint (v3)](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-search/): the search API used for Cloud deployments
+- [Jira personal access tokens (Server / DC)](https://confluence.atlassian.com/enterprise/using-personal-access-tokens-1026032365.html): generate and manage PATs
+- [Atlassian API tokens (Cloud)](https://id.atlassian.com/manage-profile/security/api-tokens): generate the token used in `email:token` format
+- [JQL field reference](https://support.atlassian.com/jira-software-cloud/docs/jql-fields/): fields and operators valid in `tracker.query_filter`
 
 ---
 
 ## Related pages
 
-- [How to connect Sortie to Jira](/guides/connect-to-jira/) - setup instructions with authentication, state mapping, and troubleshooting
-- [WORKFLOW.md configuration reference](/reference/workflow-config/) - full schema for the `tracker` section and all other configuration
-- [Error reference](/reference/errors/#tracker-errors) - all tracker error kinds with retry behavior and operator actions
-- [Environment variables reference](/reference/environment/) - `$VAR` expansion modes and agent passthrough variables
-- [Prometheus metrics reference](/reference/prometheus-metrics/) - `sortie_tracker_requests_total` and related counters
-- [How to write a prompt template](/guides/write-prompt-template/) - using `.issue` fields (populated by this adapter) in templates
-- [Agent extensions reference](/reference/agent-extensions/) - `tracker_api` tool that agents use to call back into the tracker
-- [How to use the file adapter for local testing](/guides/use-file-adapter-for-testing/) - test prompts and hooks without Jira API credentials
-- [State machine reference](/reference/state-machine/) - orchestration states, candidate eligibility, and how tracker state drives dispatch
-- [Dashboard reference](/reference/dashboard/) - live monitoring of issues fetched by this adapter
+- [How to connect Sortie to Jira](/guides/connect-to-jira/): setup instructions with authentication, state mapping, and troubleshooting
+- [WORKFLOW.md configuration reference](/reference/workflow-config/): full schema for the `tracker` section and all other configuration
+- [Error reference](/reference/errors/#tracker-errors): all tracker error kinds with retry behavior and operator actions
+- [Environment variables reference](/reference/environment/): `$VAR` expansion modes and agent passthrough variables
+- [Prometheus metrics reference](/reference/prometheus-metrics/): `sortie_tracker_requests_total` and related counters
+- [How to write a prompt template](/guides/write-prompt-template/): using `.issue` fields (populated by this adapter) in templates
+- [Agent extensions reference](/reference/agent-extensions/): `tracker_api` tool that agents use to call back into the tracker
+- [How to use the file adapter for local testing](/guides/use-file-adapter-for-testing/): test prompts and hooks without Jira API credentials
+- [State machine reference](/reference/state-machine/): orchestration states, candidate eligibility, and how tracker state drives dispatch
+- [Dashboard reference](/reference/dashboard/): live monitoring of issues fetched by this adapter

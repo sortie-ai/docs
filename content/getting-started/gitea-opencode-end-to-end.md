@@ -114,7 +114,7 @@ You are a senior engineer working in this repository.
 
 ## Task
 
-**{{ .issue.identifier }}**: {{ .issue.title }}
+**#{{ .issue.identifier }}**: {{ .issue.title }}
 {{ if .issue.description }}
 
 ### Description
@@ -129,7 +129,7 @@ You are a senior engineer working in this repository.
 ## Rules
 
 1. Read existing code before writing anything new.
-2. Keep changes minimal - implement exactly what the task requires.
+2. Keep changes minimal. Implement exactly what the task requires.
 3. Run any available lint and test commands before finishing.
 {{ if not .run.is_continuation }}
 
@@ -148,7 +148,7 @@ current state. Continue from where the previous turn left off.
 {{ end }}
 {{ if and .attempt (not .run.is_continuation) }}
 
-## Retry - attempt {{ .attempt }}
+## Retry (attempt {{ .attempt }})
 
 A previous attempt failed. Review workspace state and error output before
 making changes. Do not repeat the same approach that failed.
@@ -211,9 +211,9 @@ level=INFO msg="database path resolved" db_path=/home/you/sortie-gitea-opencode-
 level=INFO msg="http server listening" addr=127.0.0.1:7678
 level=INFO msg="sortie started"
 level=INFO msg="tick completed" candidates=1 dispatched=1 ... running=1 retrying=0 ...
-level=INFO msg="running hook" hook=after_create workspace=.../workspaces/3
-level=INFO msg="running hook" hook=before_run workspace=.../workspaces/3
-level=INFO msg="workspace prepared" issue_id=3 issue_identifier=3 workspace=.../workspaces/3
+level=INFO msg="running hook" issue_id=3 issue_identifier=3 hook=after_create workspace=…/workspaces/3
+level=INFO msg="running hook" issue_id=3 issue_identifier=3 hook=before_run workspace=…/workspaces/3
+level=INFO msg="workspace prepared" issue_id=3 issue_identifier=3 workspace=…/workspaces/3
 level=INFO msg="agent session started" issue_id=3 issue_identifier=3 session_id=ses_...
 level=INFO msg="turn started" issue_id=3 issue_identifier=3 turn_number=1 max_turns=3
 ```
@@ -224,7 +224,7 @@ When the agent finishes the turn, you will see:
 
 ```text
 level=INFO msg="turn completed" issue_id=3 issue_identifier=3 turn_number=1 max_turns=3
-level=INFO msg="running hook" hook=after_run workspace=.../workspaces/3
+level=INFO msg="running hook" issue_id=3 issue_identifier=3 hook=after_run workspace=…/workspaces/3
 level=INFO msg="worker exiting" issue_id=3 issue_identifier=3 exit_kind=normal turns_completed=1
 level=INFO msg="handoff transition succeeded, releasing claim" issue_id=3 issue_identifier=3 handoff_state=review
 level=INFO msg="tick completed" candidates=0 dispatched=0 ... running=0 retrying=0 ...
@@ -279,7 +279,7 @@ You should see a commit hash. The `sortie/3` branch is on your Gitea instance, r
 
 Open the issue in Gitea. It now carries the `review` label instead of `backlog`, and it is still open, because `review` is not a terminal state. A reviewer can open a pull request from `sortie/3`, merge it, and close the issue. That last step is intentionally human: the handoff hands work to a person, it does not close it.
 
-Open [http://127.0.0.1:7678/](http://127.0.0.1:7678/). Sortie serves the dashboard there by default, with no configuration required. You will see summary cards and a run history row for the completed session, with its issue identifier, turn count, duration, and exit status.
+Open `http://127.0.0.1:7678/`. Sortie serves the dashboard there by default, with no configuration required. You will see summary cards and a run history row for the completed session, with its issue identifier, turn count, duration, and exit status.
 
 {{% /steps %}}
 
@@ -287,21 +287,21 @@ Open [http://127.0.0.1:7678/](http://127.0.0.1:7678/). Sortie serves the dashboa
 
 We ran the complete Sortie lifecycle with the OpenCode CLI on top of the Gitea flow you configured in the integration tutorial. The tracker behavior stayed the same. The new moving parts were the agent adapter, the git hooks, and the prompt.
 
-- **Poll** - Sortie watched Gitea for open issues in the `backlog` state.
-- **Clone** - The `after_create` hook cloned the repository into a per-issue workspace.
-- **Branch** - The `before_run` hook created a clean feature branch.
-- **Code** - OpenCode read the codebase, wrote an implementation, and ran tests.
-- **Push** - The `after_run` hook committed and pushed the branch to Gitea.
-- **Handoff** - Sortie moved the issue to `review` and released it for a human.
+- **Poll**: Sortie watched Gitea for open issues in the `backlog` state.
+- **Clone**: The `after_create` hook cloned the repository into a per-issue workspace.
+- **Branch**: The `before_run` hook created a clean feature branch.
+- **Code**: OpenCode read the codebase, wrote an implementation, and ran tests.
+- **Push**: The `after_run` hook committed and pushed the branch to Gitea.
+- **Handoff**: Sortie moved the issue to `review` and released it for a human.
 
 This is the same OpenCode loop that powers the [Jira + OpenCode tutorial](/getting-started/jira-opencode-end-to-end/). We swapped the tracker from Jira to Gitea with a config change and nothing else, which is the whole point of Sortie's adapter design. And because Gitea is self-hosted and the model backend runs locally, every part of the loop now runs on infrastructure you own.
 
 ## Where to go next
 
-- [Write a prompt template](/guides/write-prompt-template/) - use conditionals, iteration, and template functions to build production prompts
-- [WORKFLOW.md configuration reference](/reference/workflow-config/) - every field, every default, every constraint
-- [Monitor with logs](/guides/monitor-with-logs/) - read the structured log output during long-running sessions
-- [Monitor with Prometheus](/guides/monitor-with-prometheus/) - collect token usage, session counts, and retry rates as time-series metrics
-- [Gitea adapter reference](/reference/adapter-gitea/) - the tracker field contract, label-driven state model, and error mapping
-- [OpenCode adapter reference](/reference/adapter-opencode/) - provider configuration, managed environment variables, and runtime behavior
-- [Scale agents with SSH](/guides/scale-agents-with-ssh/) - distribute sessions across remote machines for larger deployments
+- [Write a prompt template](/guides/write-prompt-template/): use conditionals, iteration, and template functions to build production prompts
+- [WORKFLOW.md configuration reference](/reference/workflow-config/): every field, every default, every constraint
+- [Monitor with logs](/guides/monitor-with-logs/): read the structured log output during long-running sessions
+- [Monitor with Prometheus](/guides/monitor-with-prometheus/): collect token usage, session counts, and retry rates as time-series metrics
+- [Gitea adapter reference](/reference/adapter-gitea/): the tracker field contract, label-driven state model, and error mapping
+- [OpenCode adapter reference](/reference/adapter-opencode/): provider configuration, managed environment variables, and runtime behavior
+- [Scale agents with SSH](/guides/scale-agents-with-ssh/): distribute sessions across remote machines for larger deployments

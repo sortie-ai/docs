@@ -1,6 +1,6 @@
 ---
 title: "Kiro CLI Adapter"
-description: "Complete reference for the Kiro CLI agent adapter: configuration, session lifecycle, plain-transcript headless output, credential preflight, time-based budgeting, error handling, cwd-scoped resume, and SSH remote execution."
+description: "Complete reference for the native kiro adapter: configuration, session lifecycle, plain-transcript headless output, credential preflight, time-based budgeting, error handling, within-session cwd-scoped resume, SSH remote execution, and how this route compares to Kiro CLI on the Agent Client Protocol."
 author: Sortie AI
 date: 2026-05-29
 weight: 140
@@ -8,9 +8,23 @@ url: /reference/adapter-kiro/
 ---
 The Kiro CLI adapter connects Sortie to the [Kiro CLI](https://kiro.dev/docs/cli/), the rebranded Amazon Q Developer CLI, via subprocess management. It launches `kiro-cli chat --no-interactive`, reads a plain human transcript from stdout, and classifies the turn outcome from the process exit status and stderr. Headless Kiro emits no structured event stream, so the adapter parses no JSON. Registered under kind `"kiro"`.
 
-Each `RunTurn` call spawns a fresh subprocess (fork-per-turn). `StartSession` runs a credential preflight but starts no long-lived process. `EventStream()` returns `nil`; events arrive through the `RunTurn` `OnEvent` callback. The adapter is safe for concurrent use: one adapter instance serves all sessions, with per-session state held in an opaque internal handle.
+Each `RunTurn` call spawns a fresh subprocess (fork-per-turn). `StartSession` runs a credential preflight but starts no long-lived process. Events arrive through the `RunTurn` `OnEvent` callback. The adapter is safe for concurrent use: one adapter instance serves all sessions, with per-session state held in an opaque internal handle.
 
 See also: [WORKFLOW.md configuration](/reference/workflow-config/) for the full `agent` schema, [environment variables](/reference/environment/) for `KIRO_API_KEY`, [error reference](/reference/errors/#agent-errors) for all agent error kinds, [how to write a prompt template](/guides/write-prompt-template/) for template authoring.
+
+---
+
+## Two routes to this runtime
+
+Kiro CLI is reachable from Sortie two ways, and they are not equivalent. This page covers the kind above, `kiro`, which drives `kiro-cli chat` and parses its plain-text transcript. The generic [`agent-client-protocol`](/reference/adapter-agent-client-protocol/) kind reaches the same binary through its `acp` subcommand instead; see [Kiro CLI on the Agent Client Protocol](/reference/agent-client-protocol-kiro/) for that route in full, including the credential caveat that decides whether it is worth taking.
+
+| | This kind (`kiro`) | The protocol route (`agent-client-protocol`) |
+|---|---|---|
+| Sortie's own tools | Never; MCP is inert on this route regardless of credential. See [MCP](#mcp). | Delivered and callable under a stored device login; silently dropped under `KIRO_API_KEY` |
+| Session continuation across a separate agent launch | Never; see [session resume](#session-resume) below | Delivered, confirmed by observed replay from a second process |
+| Token accounting | Credits only; every run unmeasured | Credits only; every run unmeasured |
+
+Both kinds stay supported, and neither retires the other. Choosing between them is a per-deployment decision, not a migration: this kind fits a deployment authenticating with `KIRO_API_KEY` that does not need Sortie's own tools reaching the agent; the protocol route, under a stored device login, is the one that delivers them.
 
 ---
 
@@ -33,6 +47,7 @@ These fields control the orchestrator's scheduling behavior. They are not passed
 | `turn_timeout_ms` | integer | `3600000` (1 hour) | Total timeout for a single `RunTurn` call. The orchestrator cancels the turn context when exceeded. See `stall_timeout_ms` below for the bound on a turn that stops producing output. |
 | `read_timeout_ms` | integer | `5000` (5 seconds) | Timeout for startup and synchronous operations. |
 | `stall_timeout_ms` | integer | `300000` (5 minutes) | Maximum time between consecutive events before the orchestrator treats the turn as stalled. `0` or negative disables stall detection. |
+| `stop_grace_ms` | integer | `5000` (5 seconds) | How long the adapter waits for the subprocess to exit on its own after a graceful termination signal, before it force-terminates the process group. Must be positive. |
 | `max_retry_backoff_ms` | integer | `300000` (5 minutes) | Maximum delay cap for exponential backoff between retry attempts. |
 
 ```yaml
@@ -134,19 +149,15 @@ The fork-per-turn session builds the argument list, launches one `kiro-cli` subp
 
 Terminates a running subprocess by delegating to the fork-per-turn session. Returns nil when no subprocess is active and is safe to call after a failed `RunTurn`.
 
-### `EventStream`
-
-Returns `nil`. The adapter delivers all events synchronously through the `OnEvent` callback in `RunTurn`.
-
 ---
 
 ## Process shutdown
 
-The adapter inherits the shared `agentcore` fork-per-turn shutdown. Each turn runs under `exec.CommandContext`. Before start, the subprocess is placed in its own process group via the shared `procutil` package. `cmd.Cancel` is set to send a graceful signal to the process group, and `cmd.WaitDelay` is set to 5 seconds.
+The adapter inherits the shared `agentcore` fork-per-turn shutdown. Each turn runs under `exec.CommandContext`. Before start, the subprocess is placed in its own process group via the shared `procutil` package. `cmd.Cancel` is set to send a graceful signal to the process group, and `cmd.WaitDelay` is set to `stop_grace_ms`.
 
 On Unix, graceful shutdown is `SIGTERM` and force kill is `SIGKILL` to the process group. On Windows, graceful shutdown is `CTRL_BREAK_EVENT` to the process group, and the subprocess is assigned to a Job Object with `KILL_ON_JOB_CLOSE` so force termination kills the full descendant tree.
 
-Shutdown is turn-scoped, because fork-per-turn means there is no process between turns. `StopSession` performs an explicit graceful-to-force sequence: it sends `SIGTERM` to the process group, waits up to 5 seconds for the turn to complete cleanup, then sends `SIGKILL` to the process group if the grace window elapses. If the `StopSession` context is cancelled first, the adapter force-kills the process group and returns `ctx.Err()`. After `cmd.Wait` returns, the session performs a best-effort group kill to clean up any surviving children.
+Shutdown is turn-scoped, because fork-per-turn means there is no process between turns. `StopSession` performs an explicit graceful-to-force sequence: it sends `SIGTERM` to the process group, waits up to `stop_grace_ms` for the turn to complete cleanup, then sends `SIGKILL` to the process group if the grace window elapses. If the `StopSession` context is cancelled first, the adapter force-kills the process group and returns `ctx.Err()`. After `cmd.Wait` returns, the session performs a best-effort group kill to clean up any surviving children.
 
 ---
 
@@ -172,11 +183,13 @@ There are no per-event timestamps in the transcript. The adapter cannot reconstr
 
 ## Token accounting
 
+A session on this kind reports no token usage: no figure arrives at any point in a turn, on a local launch or over SSH alike, and there is none to attribute to a model. Time is what bounds such a session instead. Set `agent.turn_timeout_ms` to cap wall-clock time per turn; it stands in for the token accumulation, model tracking, and API timing logic of the structured-output adapters. For this kind's declaration beside every other kind's, see the [usage reporting table](/reference/workflow-config/#usage-reporting-by-agent-kind).
+
 The headless path reports no token counts. The closing cost line on stderr (`▸ Credits: 0.01 • Time: 1s`) carries an abstract credits figure and elapsed time, never input or output token counts. The credits figure does not map onto Sortie's normalized usage counters, which are token counts only.
 
-The adapter emits no `token_usage` event and reports zero token counts on every path. It also reports every run as unmeasured, so those zeros are recorded as an absence of measurement rather than as a measurement of zero: the run contributes nothing to the per-issue token ceiling, advances no `sortie_tokens_total` series, is excluded from `sortie stats` token and cost figures, and is counted in that command's `tokens_unmeasured_runs`. The dashboard shows `not reported` in place of a token count for a running Kiro session. Token-based budget enforcement is inert for this adapter.
+The adapter emits no `token_usage` event and reports zero token counts on every path. It also reports every run as unmeasured, so those zeros are recorded as an absence of measurement rather than as a measurement of zero: the run contributes nothing to the per-issue token ceiling, advances no `sortie_tokens_total` series, is excluded from `sortie stats` token and cost figures, and is counted in that command's `tokens_unmeasured_runs`. The dashboard states this directly for a running Kiro session: its Usage reporting field reads `this session reports no token usage`, and the Model, API Requests, Tokens, and Est. Cost fields below it show an em dash rather than a zero. Token-based budget enforcement is inert for this adapter, and [`sortie validate`](/reference/cli/#validate) says so offline when a workflow sets `agent.max_tokens` or prices this kind in `token_rates`, as an `agent.kind.no_usage_reporting` or `agent.kind.no_cost_estimate` warning.
 
-Time-based budget enforcement is the only supported mechanism. Set `agent.turn_timeout_ms` to bound wall-clock time per turn. This replaces the token accumulation, model tracking, and API timing logic of the structured-output adapters.
+No model name is reported either, and not as an incidental side effect of the missing token counts: model reporting rides on the `token_usage` event, and this adapter never emits one, so there is no carrier through which the runtime's effective model could reach Sortie. `kiro.model` (see [Configuration](#configuration)) selects which model the CLI uses for the turn, but the headless runtime never echoes it back, so it is not knowable from anything Sortie surfaces.
 
 ---
 
@@ -184,39 +197,40 @@ Time-based budget enforcement is the only supported mechanism. Set `agent.turn_t
 
 ### Outcome classification
 
-The turn outcome is determined from the process exit status and the two stderr signals. The adapter's own classifier reports an outcome for exactly two cases - an exit-0 turn that printed the credits trailer, and an exit-0 turn whose stdout was empty and whose stderr carried the authentication marker. Everything else is decided by the shared decision table from the exit status alone, so the messages on those rows are the shared ones rather than anything Kiro-specific.
+The turn outcome is determined from the process exit status, the two stderr signals, and the stdout transcript. The adapter's own classifier reports an outcome for exactly two cases: an exit-0 turn that printed the credits trailer, and an exit-0 turn whose stderr carried the authentication marker and whose stdout carried no non-blank line. Everything else is decided by the shared decision table from the exit status and the stdout evidence, so the messages on those rows are the shared ones rather than anything Kiro-specific.
 
 | Kiro evidence | Exit reason | Error kind | Message | Decided by |
 |---|---|---|---|---|
 | Exit 0 with a `▸ Credits:` trailer on stderr | `turn_completed` | _(none)_ | _(empty)_ | The adapter's classifier. Also sets the resume flag for subsequent turns. |
-| Exit 0, empty stdout, no credits trailer, `Authentication failed.` on stderr | `turn_failed` | `response_error` | `kiro authentication failed` | The adapter's classifier. |
-| Exit 0, no credits trailer, any other case | `turn_failed` | `turn_failed` | `agent exited without producing output: no credits trailer on stderr` | Shared zero-work row. |
+| Exit 0, no credits trailer, `Authentication failed.` on stderr, no non-blank stdout line | `turn_failed` | `response_error` | `kiro authentication failed` | The adapter's classifier. |
+| Exit 0, no credits trailer, at least one non-blank stdout line | `turn_completed` | _(none)_ | _(empty)_ | Shared work-present row. Does not set the resume flag. |
+| Exit 0, no credits trailer, no non-blank stdout line | `turn_failed` | `turn_failed` | `agent exited without producing output: no message from the agent` | Shared zero-work row. |
 | Any other non-zero exit | `turn_failed` | `port_exit` | `non-zero exit` on the event, `exit code N` on the error | Shared non-zero-exit row. |
 | Exit 127 | `turn_failed` | `agent_not_found` | `agent binary not found` | Shared skeleton, before the classifier runs. |
 | Process terminated by a signal | `turn_cancelled` | `turn_cancelled` | `killed by signal` | Shared skeleton, before the classifier runs. The skeleton tests whether the process was signalled, not for a particular exit code. |
 | Turn context cancelled | `turn_cancelled` | `turn_cancelled` | `context cancelled` | Shared skeleton, before the classifier runs. |
 | stdout scanner error | `turn_failed` | `port_exit` | `stdout read error: <detail>` | Shared skeleton. Becomes `turn_cancelled` if the context is already cancelled. |
 
-Because the adapter reports no per-turn work signal of its own, the shared zero-work row is what an exit-0 turn with no credits trailer falls through to; the trailer is consumed as the success signal rather than as work evidence.
+The work evidence this adapter declares is the stdout transcript alone: a line that is not blank once ANSI escapes are stripped is a message from the agent. It declares no tool signal, because the transcript reports no tool activity, so the zero-work message names only the one signal looked for. The credits trailer stays the runtime's own success report and outranks that evidence, which is why a turn printing the trailer reports the same outcome whatever its stdout held.
 
 ### Why exit 0 is not success
 
-A successful turn and an invalid-credential turn both exit 0. Exit code alone cannot distinguish them. The reliable success signal is the `▸ Credits:` trailer on stderr, which a turn prints only after it actually executed. The adapter never maps a bare exit 0 to `turn_completed`. It requires the credits trailer as the positive success signal and classifies an exit-0 turn with no trailer as a failure.
+A successful turn and an invalid-credential turn both exit 0. Exit code alone cannot distinguish them. Two signals can: the `▸ Credits:` trailer on stderr, which a turn prints only after it actually executed, and a non-blank line on stdout, which a rejected credential never produces. The adapter never maps a bare exit 0 to `turn_completed`. It requires one of those two and classifies an exit-0 turn carrying neither as a failure.
 
 ---
 
 ## Session resume
 
-Continuation is cwd-scoped. The adapter does not track a session ID across turns.
+This mechanism continues turns only within one running worker session; it does not resume a session across a separate agent launch, whatever triggers that launch (a stall, a retry, or a restart). A freshly launched session always starts its first turn without `--resume`, even when Sortie is asking it to continue an earlier one: the earlier session's identifier is kept only for Sortie's own logging and for what gets reported back on the turn result, and it never reaches the CLI or changes that first turn's own arguments. A workspace directory that already holds an earlier conversation on disk is not consulted either: `kiro-cli chat` always starts a new conversation on this path, whatever history that directory holds. Cross-launch continuation is what the protocol route delivers instead; see [two routes to this runtime](#two-routes-to-this-runtime).
 
 | Turn | Resume flag |
 |---|---|
-| First turn of a session | _(none)_ |
-| Subsequent turns, after the first successful turn | `--resume` |
+| First turn of a freshly launched session | _(none)_, even when Sortie is continuing an earlier session |
+| Every later turn of that same session, once a turn has printed the credits trailer | `--resume` |
 
-The resume flag is gated by a per-session `resumeRequested` state that `OnFinalize` sets to true after the first turn completes with a credits trailer. From that point, `buildArgs` appends `--resume` to every turn, which attaches to the most recent conversation in the workspace directory.
+Once a turn of a session prints the credits trailer described under [why exit 0 is not success](#why-exit-0-is-not-success), every later turn of that same session carries `--resume`. The trailer is the only signal that flips the flag: a turn reported `turn_completed` on its stdout transcript alone leaves it off. The flag asks the CLI for its own most recently opened conversation in the workspace directory, which is the conversation that turn started. The runtime is what actually remembers this conversation; Sortie holds no handle on it and cannot ask for a specifically named one across a fresh launch.
 
-The adapter passes no conversation identifier, because it has none to pass: the headless transcript carries no session ID and the adapter reads no local session store. The only identity a Kiro session carries is Sortie's own `ResumeSessionID`, which is reported back on the turn result and used for logging but never reaches the CLI. Sortie runs one conversation per workspace, so cwd-scoped continuation resolves to the right conversation without an ID.
+The adapter passes no conversation identifier, because it has none to pass: the headless transcript carries no session ID and the adapter reads no local session store.
 
 ---
 
@@ -312,7 +326,9 @@ The adapter registers itself under kind `"kiro"` via an `init` function in `inte
 |---|---|
 | `RequiresCommand` | `true` |
 | `ValidateAgentConfig` | the checks described in [Validate-time checks](#validate-time-checks) |
-| `MCPInjection` | `unsupported` - the adapter never delivers the generated configuration to the agent process, in any form. See [MCP](#mcp). |
+| `MCPInjection` | `unsupported`: the adapter never delivers the generated configuration to the agent process, in any form. See [MCP](#mcp). |
+| `UsageArrival` | `none`: no usage figure is ever produced, on a local launch or over SSH. See [Token accounting](#token-accounting). |
+| `UsageAttribution` | `none`: there is no figure to attribute. |
 
 The orchestrator's preflight validation uses `RequiresCommand` to require a non-empty `agent.command` field for `agent.kind: kiro`. Binary lookup happens during `StartSession` via `exec.LookPath`, with `kiro-cli` as the default command.
 
@@ -331,10 +347,10 @@ The orchestrator's preflight validation uses `RequiresCommand` to require a non-
 | Session ID source | UUID generated by adapter | Discovered from `result` event | Thread ID from `thread/start` | Discovered from the first JSON envelope | None; carries `ResumeSessionID` only |
 | Resume mechanism | `--resume <UUID>` | `--resume <sessionId>` or `--continue` | `thread/resume` or automatic within session | `--session <sessionID>` | `--resume` (cwd-scoped), after first success |
 | Token accounting | Result event `modelUsage`, with top-level `usage` fallback | Session-state journal on disk, with stream output tokens as the in-turn estimate | `thread/tokenUsage/updated` notification | Separate `export` subprocess | None (credits only, not tokens); every run unmeasured |
-| Model reporting | From `assistant` events | Not available | Not available | Recovered from export `providerID/modelID` | Not available |
+| Model reporting | From `assistant` events | From `assistant.message`/`model.message` records | From the thread-open response, updated on reroute | Recovered from export `providerID/modelID` | Not available |
 | Permission control | `--permission-mode` or `--dangerously-skip-permissions` | `--autopilot` + `--no-ask-user` + tool scoping | `approvalPolicy` and sandbox policy | `--dangerously-skip-permissions` plus `OPENCODE_PERMISSION` | `--trust-all-tools` or `--trust-tools=<csv>` |
 | Inner turn limit | `claude-code.max_turns` | `copilot-cli.max_autopilot_continues` | None | None exposed by the adapter | None exposed by the adapter |
-| Exit-code reliability | Structured result event plus exit | Structured `result.exitCode` plus exit | JSON-RPC turn status | Terminal stdout `error` can still exit `0` | Exit `0` is ambiguous; success requires the credits trailer on stderr |
+| Exit-code reliability | Structured result event plus exit | Structured `result.exitCode` plus exit | JSON-RPC turn status | Terminal stdout `error` can still exit `0` | Exit `0` is ambiguous; success requires the credits trailer on stderr or a non-blank stdout line |
 | Credential preflight | None | Env vars + `gh auth status` | `account/read` over JSON-RPC | None | `kiro-cli whoami` canary at session start |
 | Sortie's tools | Generated config path on `--mcp-config` | Generated config path on `--additional-mcp-config` | Generated servers re-expressed as command-line overrides, local launch only | Generated servers re-expressed as an inline configuration document, local launch only | None; the profile gate disables MCP under `KIRO_API_KEY`, and the first-turn advertisement is withheld |
 | Authentication | `ANTHROPIC_API_KEY` (+ Bedrock, Vertex) | `COPILOT_GITHUB_TOKEN` / `GH_TOKEN` / `GITHUB_TOKEN` / `gh auth` | `CODEX_API_KEY` or cached Codex auth | OpenCode-managed provider auth | `KIRO_API_KEY` |
@@ -343,21 +359,23 @@ The orchestrator's preflight validation uses `RequiresCommand` to require a non-
 
 ## External references
 
-- [Kiro CLI documentation](https://kiro.dev/docs/cli/) - official command reference
-- [Kiro CLI headless mode](https://kiro.dev/docs/cli/headless/) - the `--no-interactive` path this adapter launches
-- [Migrating from Amazon Q](https://kiro.dev/docs/cli/migrating-from-q/) - the `q` to `kiro-cli` rename and the configuration move to `~/.kiro`
-- [Kiro CLI exit codes](https://kiro.dev/docs/cli/reference/exit-codes/) - the documented exit-code surface
-- [Kiro CLI built-in tools](https://kiro.dev/docs/cli/reference/built-in-tools/) - the tool catalog scoped by `--trust-tools`
-- [`aws/amazon-q-developer-cli` on GitHub](https://github.com/aws/amazon-q-developer-cli) - the CLI source of record for the rebranded binary
+- [Kiro CLI documentation](https://kiro.dev/docs/cli/): official command reference
+- [Kiro CLI headless mode](https://kiro.dev/docs/cli/headless/): the `--no-interactive` path this adapter launches
+- [Migrating from Amazon Q](https://kiro.dev/docs/cli/migrating-from-q/): the `q` to `kiro-cli` rename and the configuration move to `~/.kiro`
+- [Kiro CLI exit codes](https://kiro.dev/docs/cli/reference/exit-codes/): the documented exit-code surface
+- [Kiro CLI built-in tools](https://kiro.dev/docs/cli/reference/built-in-tools/): the tool catalog scoped by `--trust-tools`
+- [`aws/amazon-q-developer-cli` on GitHub](https://github.com/aws/amazon-q-developer-cli): the CLI source of record for the rebranded binary
 
 ---
 
 ## Related pages
 
-- [WORKFLOW.md configuration reference](/reference/workflow-config/) - full `agent` schema and `kiro` extension block
-- [Environment variables reference](/reference/environment/) - `KIRO_API_KEY` and runtime environment behavior
-- [Error reference](/reference/errors/#agent-errors) - all agent error kinds with retry behavior
-- [How to control agent costs](/guides/control-costs/) - time-based budgeting and concurrency limits, which matter most for Kiro
-- [How to scale agents with SSH](/guides/scale-agents-with-ssh/) - remote execution setup and host pool configuration
-- [How to write a prompt template](/guides/write-prompt-template/) - template variables, conditionals, and built-in functions
-- [State machine reference](/reference/state-machine/) - orchestration states, turn lifecycle, and stall detection
+- [Kiro CLI on the Agent Client Protocol](/reference/agent-client-protocol-kiro/): the other route to this runtime, and what it delivers that this one does not
+- [Agent Client Protocol adapter reference](/reference/adapter-agent-client-protocol/): the generic kind that route runs on
+- [WORKFLOW.md configuration reference](/reference/workflow-config/): full `agent` schema and `kiro` extension block
+- [Environment variables reference](/reference/environment/): `KIRO_API_KEY` and runtime environment behavior
+- [Error reference](/reference/errors/#agent-errors): all agent error kinds with retry behavior
+- [How to control agent costs](/guides/control-costs/): time-based budgeting and concurrency limits, which matter most for Kiro
+- [How to scale agents with SSH](/guides/scale-agents-with-ssh/): remote execution setup and host pool configuration
+- [How to write a prompt template](/guides/write-prompt-template/): template variables, conditionals, and built-in functions
+- [State machine reference](/reference/state-machine/): orchestration states, turn lifecycle, and stall detection

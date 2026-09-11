@@ -25,11 +25,11 @@ or `~/.local/bin` otherwise. If the install directory is not already on your
 
 Re-running the script is safe. When the requested release is already installed
 in the target directory, the script says so and exits without downloading
-anything.
+anything; pass `--force` to reinstall it anyway.
 
 ### Script Options
 
-Each option is available as a flag and as an environment variable; the flag
+Most options are available as a flag and as an environment variable; the flag
 wins when both are set. To pass flags through the pipe, add `sh -s --`:
 
 ```bash
@@ -42,9 +42,10 @@ curl -sSL https://get.sortie-ai.com/install.sh | sh -s -- --help
 | `-d`, `--install-dir <dir>` | `SORTIE_INSTALL_DIR` | Override the install directory. |
 | `--no-verify` | `SORTIE_NO_VERIFY=1` | Skip SHA-256 checksum verification (not recommended). |
 | `-b`, `--binary <path>` | — | Install a binary already on disk instead of downloading one. |
+| `-f`, `--force` | — | Reinstall even when that release is already in the target directory. |
 | `-h`, `--help` | — | Print the option list and exit. |
 
-Example — install a specific version to a custom directory:
+For example, install a specific version to a custom directory:
 
 ```bash
 curl -sSL https://get.sortie-ai.com/install.sh | sh -s -- \
@@ -98,7 +99,7 @@ Set these as environment variables before running the one-liner:
 | `SORTIE_INSTALL_DIR` | Override the install directory. |
 | `SORTIE_NO_VERIFY` | Set to `1` to skip SHA-256 checksum verification (not recommended). |
 
-Example — install a specific version to a custom directory:
+For example, install a specific version to a custom directory:
 
 ```powershell
 $env:SORTIE_VERSION = '1.21.0'
@@ -274,7 +275,7 @@ sortie 0.x.x (commit: xxxxxxx, built: yyyy-mm-dd, go1.26.x, linux/amd64)
 
 ## Troubleshooting
 
-**Homebrew install fails or the tap looks stale** — Update Homebrew first, then
+**Homebrew install fails or the tap looks stale**: Update Homebrew first, then
 retry the cask install:
 
 ```bash
@@ -282,7 +283,7 @@ brew update
 brew install --cask sortie-ai/tap/sortie
 ```
 
-**Coming from the old Homebrew formula** — Older releases were distributed as a
+**Coming from the old Homebrew formula**: Older releases were distributed as a
 formula. Recent Homebrew migrates you to the cask on `brew update`; if
 `brew install sortie-ai/tap/sortie` still resolves to the formula or warns that
 it is deprecated, switch explicitly:
@@ -292,7 +293,7 @@ brew remove sortie
 brew install --cask sortie-ai/tap/sortie
 ```
 
-**`command not found: sortie`** — The install directory is not on your `PATH`.
+**`command not found: sortie`**: The install directory is not on your `PATH`.
 Add it to your shell configuration file (`~/.bashrc`, `~/.zshrc`, or
 `~/.config/fish/config.fish`) and reload your shell:
 
@@ -300,7 +301,7 @@ Add it to your shell configuration file (`~/.bashrc`, `~/.zshrc`, or
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-**`sortie` is not recognized (Windows)** — The install script updates your user
+**`sortie` is not recognized (Windows)**: The install script updates your user
 `PATH`, but open shells keep their old environment until you restart them. Close
 and reopen PowerShell, then run `sortie --version` again. To check that the
 install directory is on your user `PATH`:
@@ -309,13 +310,19 @@ install directory is on your user `PATH`:
 [Environment]::GetEnvironmentVariable('Path', 'User')
 ```
 
-**Checksum mismatch** — The download may have been corrupted or tampered with.
+**`sortie --version` reports a different version than the one just installed**:
+Another copy of sortie sits earlier on your `PATH`, usually left by an earlier
+install as root or by the Homebrew cask. The install script detects this and
+names the conflicting path. Remove that file, or put the install directory
+earlier on your `PATH`.
+
+**Checksum mismatch**: The download may have been corrupted or tampered with.
 Delete the file and download again. If the problem persists, open an
 [issue](https://github.com/sortie-ai/sortie/issues).
 
-**Permission denied during install** — Either run the install command with
+**Permission denied during install**: Either run the install command with
 `sudo`, or choose a directory you own (e.g. `~/.local/bin`).
 
 ## Next steps
 
-- [Quick start](/getting-started/quick-start/) — run Sortie end-to-end against local issues, with no coding agent to install
+- [Quick start](/getting-started/quick-start/): run Sortie end-to-end against local issues, with no coding agent to install

@@ -197,7 +197,7 @@ Run a single poll cycle without dispatching agents:
 sortie --dry-run ./WORKFLOW.md
 ```
 
-Watch the logs. A successful poll produces (the `tick completed` line carries more fields than shown here — only the ones relevant to this check are called out):
+Watch the logs. A successful poll produces (the `tick completed` line carries more fields than shown here, and only the ones relevant to this check are called out):
 
 ```
 level=INFO msg="tick completed" candidates=3 dispatched=0 ... running=0 retrying=0 ...

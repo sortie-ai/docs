@@ -39,4 +39,5 @@ Full tutorials that connect a tracker to an agent and run a complete session:
   {{< card link="linear-codex-end-to-end" title="Linear + Codex" subtitle="Linear polling → Codex agent → commit and push." >}}
   {{< card link="gitea-opencode-end-to-end" title="Gitea + OpenCode" subtitle="Gitea polling → OpenCode agent → commit and push, fully self-hosted." >}}
   {{< card link="gitlab-claude-end-to-end" title="GitLab + Claude Code" subtitle="GitLab polling → Claude Code agent → commit and push." >}}
+  {{< card link="github-gemini-end-to-end" title="GitHub + Gemini CLI" subtitle="GitHub Issues → Gemini CLI over the Agent Client Protocol → commit and push." >}}
 {{< /cards >}}

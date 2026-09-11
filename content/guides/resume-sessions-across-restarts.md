@@ -7,7 +7,7 @@ date: 2026-03-29
 weight: 100
 url: /guides/resume-sessions-across-restarts/
 ---
-Keep Sortie's state intact across planned restarts and unexpected crashes — no manual intervention, no lost work, no duplicated effort.
+Keep Sortie's state intact across planned restarts and unexpected crashes: no manual intervention, no lost work, no duplicated effort.
 
 ## Prerequisites
 
@@ -22,14 +22,14 @@ Everything. Sortie stores all durable state in SQLite, not in memory. A restart 
 | Table | What it stores | Why it matters after restart |
 |---|---|---|
 | `retry_entries` | Pending retries: issue ID, attempt number, scheduled fire time | Retries resume at the correct position in the backoff sequence. Overdue retries fire immediately on startup. |
-| `run_history` | Completed runs: issue ID, attempt, status, timestamps, workspace path | The `max_sessions` budget check queries this table. After restart, Sortie knows exactly how many sessions each issue has used — no counter resets. |
+| `run_history` | Completed runs: issue ID, attempt, status, timestamps, workspace path | The `max_sessions` budget check queries this table. After restart, Sortie knows exactly how many sessions each issue has used, with no counter resets. |
 | `session_metadata` | Last session ID, token counters, model name, API request count | Enables agent session resume (e.g., the `--resume` flag for Claude Code). When the same issue is dispatched again, the adapter can pick up the previous session. |
 
 The key insight: Sortie never holds state that only exists in memory. Retry attempt counts, session budgets, and token tallies all come from SQLite queries. Kill the process at any point and nothing is lost.
 
 ## What happens to in-flight sessions
 
-When Sortie stops — whether from `Ctrl+C`, a termination signal, or a crash — any running agent processes receive a graceful shutdown signal, then are force-terminated after a 30-second grace period. The issues those agents were working on are left in a recoverable state:
+When Sortie stops (whether from `Ctrl+C`, a termination signal, or a crash), any running agent processes receive a graceful shutdown signal, then are force-terminated once [`agent.stop_grace_ms`](/reference/workflow-config/#agent) elapses, five seconds by default. Collecting each agent's output and draining the workers outlasts that period by a fixed margin, so budget the stop timeout you give Sortie against the whole [shutdown sequence](/reference/cli/#signals) rather than against the grace period alone. The issues those agents were working on are left in a recoverable state:
 
 - Their tracker status hasn't changed (still "In Progress" or whatever your active state is)
 - Their workspace directories remain on disk, untouched
@@ -39,7 +39,7 @@ Here's what the startup sequence does to pick them back up:
 
 1. Sortie opens the database and loads all retry entries. Overdue entries (where the fire time has passed) are marked for immediate dispatch.
 2. The poll loop starts and fetches candidate issues from the tracker.
-3. Previously in-flight issues appear as candidates — they're still in an active tracker state.
+3. Previously in-flight issues appear as candidates: they're still in an active tracker state.
 4. Sortie dispatches them again, reusing existing workspace directories.
 5. The `before_run` hook runs in the existing workspace (for example, `git pull` to bring the workspace up to date).
 6. The agent starts in that workspace with all previous work preserved on disk.
@@ -78,7 +78,7 @@ time=2026-05-14T10:00:01.500+00:00 level=INFO msg="pending reaction recovery com
 
 ## Design your hooks for restartability
 
-Workspace paths are deterministic. Issue `PROJ-42` always maps to the same directory: `<workspace_root>/PROJ-42`. The first dispatch creates it; every subsequent dispatch reuses it — including dispatches after a restart.
+Workspace paths are deterministic. Issue `PROJ-42` always maps to the same directory: `<workspace_root>/PROJ-42`. The first dispatch creates it; every subsequent dispatch reuses it, including dispatches after a restart.
 
 This means your hooks need to handle both cases:
 
@@ -135,7 +135,7 @@ For more on reading Sortie's logs, see [Monitor with Logs](/guides/monitor-with-
 
 ### Use the dashboard
 
-The built-in dashboard reads directly from SQLite. Run history, active sessions, and pending retries all reflect persisted state — they survive restarts along with everything else. See the [Dashboard reference](/reference/dashboard/).
+The built-in dashboard reads directly from SQLite. Run history, active sessions, and pending retries all reflect persisted state. They survive restarts along with everything else. See the [Dashboard reference](/reference/dashboard/).
 
 ### Test it yourself
 
@@ -170,7 +170,7 @@ Nothing, actually. Persistence and restart recovery are built into Sortie's defa
 
 ## Related guides
 
-- [Configure Retry Behavior](/guides/configure-retry-behavior/) — tune backoff timing and session budgets
-- [Set Up Workspace Hooks](/guides/setup-workspace-hooks/) — hook writing patterns and lifecycle details
-- [Run as a systemd Service](/guides/run-as-systemd-service/) — automatic restart on failure with `Restart=on-failure`
-- [Monitor with Logs](/guides/monitor-with-logs/) — filter and interpret startup recovery messages
+- [Configure Retry Behavior](/guides/configure-retry-behavior/): tune backoff timing and session budgets
+- [Set Up Workspace Hooks](/guides/setup-workspace-hooks/): hook writing patterns and lifecycle details
+- [Run as a systemd Service](/guides/run-as-systemd-service/): automatic restart on failure with `Restart=on-failure`
+- [Monitor with Logs](/guides/monitor-with-logs/): filter and interpret startup recovery messages

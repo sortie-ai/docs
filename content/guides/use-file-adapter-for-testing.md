@@ -7,7 +7,7 @@ date: 2026-03-28
 weight: 30
 url: /guides/use-file-adapter-for-testing/
 ---
-The file adapter replaces a live tracker with a local JSON file. Pair it with the mock agent and you can validate your entire workflow — prompts, hooks, state transitions — without API credentials, network access, or token spend.
+The file adapter replaces a live tracker with a local JSON file. Pair it with the mock agent and you can validate your entire workflow (prompts, hooks, state transitions) without API credentials, network access, or token spend.
 
 ## Prerequisites
 
@@ -52,7 +52,7 @@ Create `issues.json` with the fields your prompt template uses. Four fields are 
 ]
 ```
 
-This fixture tests two template paths at once: `TEST-1` has comments and labels, `TEST-2` has an empty description and a blocker. Every `{{ if }}` branch in your prompt gets exercised because the adapter preserves nil-vs-empty semantics — `"comments": null` means "not fetched," `"comments": []` means "none exist," and omitting the field entirely defaults to null.
+This fixture tests two template paths at once: `TEST-1` has comments and labels, `TEST-2` has an empty description and a blocker. Every `{{ if }}` branch in your prompt gets exercised because the adapter preserves nil-vs-empty semantics: `"comments": null` means "not fetched," `"comments": []` means "none exist," and omitting the field entirely defaults to null.
 
 For the full field schema, see the [file-based tasks spec](https://github.com/sortie-ai/sortie/blob/main/docs/file-based-tasks-spec.md).
 
@@ -108,13 +108,13 @@ Run `sortie validate ./WORKFLOW.md` to catch syntax errors before starting. It a
 sortie ./WORKFLOW.md
 ```
 
-Watch the logs. Sortie reads your JSON file, dispatches one mock agent session per active issue, runs two turns each, and hands them off to "In Review." The full poll-dispatch-execute-handoff lifecycle runs identically to production — only the data source and agent are swapped. The handoff target stays outside `active_states` and `terminal_states` here for the same reason it does in production: Sortie rejects a configuration where they overlap.
+Watch the logs. Sortie reads your JSON file, dispatches one mock agent session per active issue, runs two turns each, and hands them off to "In Review." The full poll-dispatch-execute-handoff lifecycle runs identically to production. Only the data source and agent are swapped. The handoff target stays outside `active_states` and `terminal_states` here for the same reason it does in production: Sortie rejects a configuration where they overlap.
 
 Press **Ctrl+C** to stop after the cycle completes.
 
 ### Test edge cases
 
-The file adapter re-reads the JSON on every operation, so you can edit `issues.json` while Sortie is running. Add a new issue, change a state, introduce a nil field — the next poll picks it up.
+The file adapter re-reads the JSON on every operation, so you can edit `issues.json` while Sortie is running. Add a new issue, change a state, introduce a nil field. The next poll picks it up.
 
 Scenarios worth testing:
 
@@ -124,7 +124,7 @@ Scenarios worth testing:
 - **Blocker rendering.** Populate `blocked_by` with multiple entries and check the rendered prompt.
 - **Tracker comments.** Enable `tracker.comments.on_dispatch: true` and check the logs for "dispatch comment posted" messages. The file adapter stores comments in memory for the duration of the process.
 
-Each scenario targets a specific `{{ if }}` or `{{ range }}` branch in your template. If a field reference is misspelled, Sortie's strict mode (`missingkey=error`) fails immediately with a line number — no silent empty strings.
+Each scenario targets a specific `{{ if }}` or `{{ range }}` branch in your template. If a field reference is misspelled, Sortie's strict mode (`missingkey=error`) fails immediately with a line number. There are no silent empty strings.
 
 ### Graduate to a real agent
 
@@ -136,16 +136,16 @@ agent:
   max_turns: 3
 ```
 
-This runs a real agent against your test fixture — full code generation sessions without touching Jira. When you're satisfied, swap `tracker.kind` to `jira`, point it at your project, and the same workflow file drives production.
+This runs a real agent against your test fixture: full code generation sessions without touching Jira. When you're satisfied, swap `tracker.kind` to `jira`, point it at your project, and the same workflow file drives production.
 
 {{% /steps %}}
 
 ## Troubleshooting
 
-**"missing required config key: path"** — The `file:` block is absent or `path` is empty. Add `file.path` to your front matter.
+**"missing required config key: path"**: The `file:` block is absent or `path` is empty. Add `file.path` to your front matter.
 
-**"failed to parse file"** — The JSON is malformed. Validate it: `python3 -m json.tool issues.json > /dev/null`
+**"failed to parse file"**: The JSON is malformed. Validate it: `python3 -m json.tool issues.json > /dev/null`
 
-**No issues dispatched** — The `state` values in your JSON don't match `active_states`. Comparison is case-insensitive, but check for typos: `"To do"` won't match `"To Do"` because both sides are lowercased to `"to do"` before comparison — this means case differences are fine, but spelling must match.
+**No issues dispatched**: The `state` values in your JSON don't match `active_states`. Comparison is case-insensitive, but check for typos: `"To do"` won't match `"To Do"` because both sides are lowercased to `"to do"` before comparison. This means case differences are fine, but spelling must match.
 
 For the full configuration schema, see the [WORKFLOW.md reference](/reference/workflow-config/). For template syntax and available variables, see [How to write a prompt template](/guides/write-prompt-template/).

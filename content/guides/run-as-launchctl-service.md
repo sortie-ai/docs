@@ -7,7 +7,7 @@ date: 2026-03-29
 weight: 130
 url: /guides/run-as-launchctl-service/
 ---
-Set up Sortie as a managed launchd service on macOS so it starts on login (or boot), restarts on failure, and logs to disk — no terminal session required.
+Set up Sortie as a managed launchd service on macOS so it starts on login (or boot), restarts on failure, and logs to disk, with no terminal session required.
 
 ## Prerequisites
 
@@ -27,7 +27,7 @@ macOS draws a hard line between two kinds of launchd jobs:
 | User agent | Your user session is active | `~/Library/LaunchAgents/` | Your user |
 | System daemon | System is running (any user or none) | `/Library/LaunchDaemons/` | root (or a named user) |
 
-For most setups — a developer machine, a CI Mac mini you SSH into — a **user agent** is the right choice. It runs as your user, inherits your filesystem permissions, and doesn't require `sudo` to manage.
+For most setups (a developer machine, a CI Mac mini you SSH into), a **user agent** is the right choice. It runs as your user, inherits your filesystem permissions, and doesn't require `sudo` to manage.
 
 Use a **system daemon** only when Sortie must run before anyone logs in (headless build servers, always-on Mac infrastructure). This guide covers both, starting with the user agent path.
 
@@ -46,7 +46,7 @@ Copy your tested workflow file:
 cp ~/my-project/WORKFLOW.md ~/.config/sortie/WORKFLOW.md
 ```
 
-Edit the workflow file to use absolute paths. User agents default to your home directory, system daemons to `/` — but neither is where your workflow expects to run. Absolute paths remove the guesswork.
+Edit the workflow file to use absolute paths. User agents default to your home directory, system daemons to `/`. Neither is where your workflow expects to run. Absolute paths remove the guesswork.
 
 ```yaml
 # ~/.config/sortie/WORKFLOW.md (front matter excerpt)
@@ -131,15 +131,15 @@ Replace `deploy` with your macOS username throughout.
 
 A few things worth noting about this configuration:
 
-**`RunAtLoad`** — Starts Sortie when the plist is loaded (at login or manually). Without this, launchd waits for an incoming connection or other trigger before launching the process.
+**`RunAtLoad`**: Starts Sortie when the plist is loaded (at login or manually). Without this, launchd waits for an incoming connection or other trigger before launching the process.
 
-**`KeepAlive` with `SuccessfulExit` false** — Restarts Sortie whenever it exits with a non-zero status. A clean `launchctl bootout` sends SIGTERM, which Sortie handles gracefully — that does not trigger a restart. If Sortie crashes, launchd brings it back.
+**`KeepAlive` with `SuccessfulExit` false**: Restarts Sortie whenever it exits with a non-zero status. A clean `launchctl bootout` sends SIGTERM, which Sortie handles gracefully. That does not trigger a restart. If Sortie crashes, launchd brings it back.
 
-**`ThrottleInterval`** — Waits 10 seconds between restart attempts. This matches the systemd guide's `RestartSec=10` and prevents a crash loop from saturating the machine.
+**`ThrottleInterval`**: Waits 10 seconds between restart attempts. This matches the systemd guide's `RestartSec=10` and prevents a crash loop from saturating the machine.
 
-**`ProcessType` Background** — Tells macOS this is a background service, not a user-facing app. The system applies appropriate CPU and I/O scheduling.
+**`ProcessType` Background**: Tells macOS this is a background service, not a user-facing app. The system applies appropriate CPU and I/O scheduling.
 
-**`StandardOutPath` and `StandardErrorPath`** — Sortie logs structured `key=value` output to stderr by default. launchd writes both streams to log files under your data directory. Unlike journald on Linux, macOS doesn't manage rotation for you — see the log rotation section below. For JSON-formatted logs, add `--log-format json` to the `ProgramArguments` array.
+**`StandardOutPath` and `StandardErrorPath`**: Sortie logs structured `key=value` output to stderr by default. launchd writes both streams to log files under your data directory. Unlike journald on Linux, macOS doesn't manage rotation for you. See the log rotation section below. For JSON-formatted logs, add `--log-format json` to the `ProgramArguments` array.
 
 If you prefer to inline secrets directly, replace the `--env-file` argument with an `EnvironmentVariables` dictionary in the plist and protect the plist with `chmod 600`.
 
@@ -213,7 +213,7 @@ If you need Sortie running before any user logs in, use a system daemon instead.
 2. Add `UserName` and `GroupName` keys to run as a dedicated user.
 3. Use `sudo` for all `launchctl` commands, targeting the `system` domain.
 
-Create a hidden service account with `dscl`. macOS uses UIDs below 500 for system accounts — pick one that's free (check with `dscl . -list /Users UniqueID | sort -n -k2`):
+Create a hidden service account with `dscl`. macOS uses UIDs below 500 for system accounts. Pick one that's free (check with `dscl . -list /Users UniqueID | sort -n -k2`):
 
 ```bash
 sudo dscl . -create /Users/sortie
@@ -254,7 +254,7 @@ The permissions requirement is strict: the plist must be owned by root and not w
 
 ## Run multiple workflows
 
-Each Sortie process handles one workflow file. To orchestrate multiple projects, create separate plists — one per workflow:
+Each Sortie process handles one workflow file. To orchestrate multiple projects, create separate plists, one per workflow:
 
 ```
 com.sortie-ai.sortie-billing.plist   → ~/.config/sortie/billing/WORKFLOW.md
@@ -267,7 +267,7 @@ See [How to run multiple workflows](/guides/run-multiple-workflows/) for the ful
 
 ## Update the binary
 
-Sortie persists all state — run history, retry schedules, session metadata — in SQLite. Stopping and restarting loses nothing. In-flight agent sessions are drained gracefully on stop and can resume on the next start.
+Sortie persists all state (run history, retry schedules, session metadata) in SQLite. Stopping and restarting loses nothing. In-flight agent sessions are drained gracefully on stop and can resume on the next start.
 
 ```bash
 launchctl bootout gui/$(id -u)/com.sortie-ai.sortie

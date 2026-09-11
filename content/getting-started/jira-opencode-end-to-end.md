@@ -12,7 +12,7 @@ In this tutorial, we will connect Sortie to Jira and the OpenCode CLI, then watc
 
 ## Prerequisites
 
-- [Jira integration tutorial](/getting-started/jira-integration/) completed - Sortie connects to your Jira project, and the environment variables `SORTIE_JIRA_ENDPOINT` and `SORTIE_JIRA_API_KEY` are set
+- [Jira integration tutorial](/getting-started/jira-integration/) completed: Sortie connects to your Jira project, and the environment variables `SORTIE_JIRA_ENDPOINT` and `SORTIE_JIRA_API_KEY` are set
 - OpenCode CLI installed on your machine:
 
     ```bash
@@ -31,7 +31,7 @@ In this tutorial, we will connect Sortie to Jira and the OpenCode CLI, then watc
     We use Anthropic direct in this tutorial because the workflow selects an `anthropic/...` model, and readers coming from the Claude Code tutorial often already have this key set.
 
 - A git repository on GitHub or GitLab that you can push to
-- SSH key or HTTPS token configured for `git push` from your machine - test it:
+- SSH key or HTTPS token configured for `git push` from your machine. Test it:
 
     ```bash
     git ls-remote git@github.com:yourorg/yourrepo.git HEAD
@@ -135,7 +135,7 @@ You are a senior engineer working in this repository.
 ## Rules
 
 1. Read existing code before writing anything new.
-2. Keep changes minimal - implement exactly what the task requires.
+2. Keep changes minimal. Implement exactly what the task requires.
 3. Run any available lint and test commands before finishing.
 {{ if not .run.is_continuation }}
 
@@ -154,7 +154,7 @@ current state. Continue from where the previous turn left off.
 {{ end }}
 {{ if and .attempt (not .run.is_continuation) }}
 
-## Retry - attempt {{ .attempt }}
+## Retry (attempt {{ .attempt }})
 
 A previous attempt failed. Review workspace state and error output before
 making changes. Do not repeat the same approach that failed.
@@ -220,13 +220,10 @@ level=INFO msg="database path resolved" db_path=/home/you/sortie-opencode-e2e/.s
 level=INFO msg="http server listening" addr=127.0.0.1:7678
 level=INFO msg="sortie started"
 level=INFO msg="tick completed" candidates=1 dispatched=1 ... running=1 retrying=0 ...
-level=INFO msg="workspace created" issue_id=10042 issue_identifier=PROJ-55
-level=INFO msg="hook started" hook=after_create issue_identifier=PROJ-55
-level=INFO msg="hook completed" hook=after_create issue_identifier=PROJ-55
-level=INFO msg="hook started" hook=before_run issue_identifier=PROJ-55
-level=INFO msg="hook completed" hook=before_run issue_identifier=PROJ-55
-level=INFO msg="workspace prepared" issue_id=10042 issue_identifier=PROJ-55 workspace=.../workspaces/PROJ-55
-level=INFO msg="agent session started" issue_id=10042 issue_identifier=PROJ-55 session_id=...
+level=INFO msg="running hook" issue_id=10042 issue_identifier=PROJ-55 hook=after_create workspace=…/workspaces/PROJ-55
+level=INFO msg="running hook" issue_id=10042 issue_identifier=PROJ-55 hook=before_run workspace=…/workspaces/PROJ-55
+level=INFO msg="workspace prepared" issue_id=10042 issue_identifier=PROJ-55 workspace=…/workspaces/PROJ-55
+level=INFO msg="agent session started" issue_id=10042 issue_identifier=PROJ-55 session_id=…
 level=INFO msg="turn started" issue_id=10042 issue_identifier=PROJ-55 turn_number=1 max_turns=3
 ```
 
@@ -236,8 +233,7 @@ When the agent finishes a turn, you will see:
 
 ```text
 level=INFO msg="turn completed" issue_id=10042 issue_identifier=PROJ-55 turn_number=1 max_turns=3
-level=INFO msg="hook started" hook=after_run issue_identifier=PROJ-55
-level=INFO msg="hook completed" hook=after_run issue_identifier=PROJ-55
+level=INFO msg="running hook" issue_id=10042 issue_identifier=PROJ-55 hook=after_run workspace=…/workspaces/PROJ-55
 level=INFO msg="worker exiting" issue_id=10042 issue_identifier=PROJ-55 exit_kind=normal turns_completed=1
 level=INFO msg="handoff transition succeeded, releasing claim" issue_id=10042 issue_identifier=PROJ-55 handoff_state="In Review"
 level=INFO msg="tick completed" candidates=0 dispatched=0 ... running=0 retrying=0 ...
@@ -302,7 +298,7 @@ If the status did not change and you see a handoff warning in the logs, the Jira
 
 ### Check the dashboard
 
-Open [http://127.0.0.1:7678/](http://127.0.0.1:7678/) in a browser. Sortie serves the dashboard there by default, with no configuration required. You will see summary cards at the top, plus a run history table showing the completed session with its issue identifier, turn count, duration, and exit status.
+Open `http://127.0.0.1:7678/` in a browser. Sortie serves the dashboard there by default, with no configuration required. You will see summary cards at the top, plus a run history table showing the completed session with its issue identifier, turn count, duration, and exit status.
 
 {{% /steps %}}
 
@@ -310,20 +306,20 @@ Open [http://127.0.0.1:7678/](http://127.0.0.1:7678/) in a browser. Sortie serve
 
 We ran the complete Sortie lifecycle with the OpenCode CLI on top of the same Jira flow you already configured earlier. The tracker behavior stayed the same. The only new moving part was the agent adapter.
 
-- **Poll** - Sortie watched Jira for issues matching the `agent-ready` label.
-- **Clone** - The `after_create` hook cloned the repository into a per-issue workspace.
-- **Branch** - The `before_run` hook created a clean feature branch.
-- **Code** - OpenCode read the codebase, wrote an implementation, and ran tests.
-- **Push** - The `after_run` hook committed and pushed the changes.
-- **Handoff** - Sortie transitioned the Jira issue to In Review.
+- **Poll**: Sortie watched Jira for issues matching the `agent-ready` label.
+- **Clone**: The `after_create` hook cloned the repository into a per-issue workspace.
+- **Branch**: The `before_run` hook created a clean feature branch.
+- **Code**: OpenCode read the codebase, wrote an implementation, and ran tests.
+- **Push**: The `after_run` hook committed and pushed the changes.
+- **Handoff**: Sortie transitioned the Jira issue to In Review.
 
 This is the same loop that powers the [Claude Code tutorial](/getting-started/jira-claude-end-to-end/), the [Copilot CLI tutorial](/getting-started/github-copilot-end-to-end/), and the [Codex tutorial](/getting-started/jira-codex-end-to-end/), with one config change.
 
 Where to go next:
 
-- [Write a prompt template](/guides/write-prompt-template/) - use conditionals, iteration, and template functions to build production prompts
-- [WORKFLOW.md configuration reference](/reference/workflow-config/) - every field, every default, every constraint
-- [Monitor with logs](/guides/monitor-with-logs/) - understand the structured log output during long-running sessions
-- [Monitor with Prometheus](/guides/monitor-with-prometheus/) - collect token usage, session counts, and retry rates as time-series metrics
-- [OpenCode adapter reference](/reference/adapter-opencode/) - provider support, pass-through configuration, and runtime behavior
-- [Scale agents with SSH](/guides/scale-agents-with-ssh/) - remote execution for larger deployments
+- [Write a prompt template](/guides/write-prompt-template/): use conditionals, iteration, and template functions to build production prompts
+- [WORKFLOW.md configuration reference](/reference/workflow-config/): every field, every default, every constraint
+- [Monitor with logs](/guides/monitor-with-logs/): understand the structured log output during long-running sessions
+- [Monitor with Prometheus](/guides/monitor-with-prometheus/): collect token usage, session counts, and retry rates as time-series metrics
+- [OpenCode adapter reference](/reference/adapter-opencode/): provider support, pass-through configuration, and runtime behavior
+- [Scale agents with SSH](/guides/scale-agents-with-ssh/): remote execution for larger deployments

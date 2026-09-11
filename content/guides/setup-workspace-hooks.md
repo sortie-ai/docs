@@ -7,7 +7,7 @@ date: 2026-03-28
 weight: 50
 url: /guides/setup-workspace-hooks/
 ---
-Hooks are shell scripts that run at specific points in a workspace's lifecycle — when it's created, before and after the agent runs, and before deletion. They handle the gap between "empty directory exists" and "workspace is ready for an agent to write code in."
+Hooks are shell scripts that run at specific points in a workspace's lifecycle: when it's created, before and after the agent runs, and before deletion. They handle the gap between "empty directory exists" and "workspace is ready for an agent to write code in."
 
 ## Prerequisites
 
@@ -20,8 +20,8 @@ Four hooks cover the workspace lifecycle. Each runs with the workspace directory
 
 | Hook | Fires when | Failure effect |
 |---|---|---|
-| `after_create` | Workspace directory is created for the first time | Fatal — aborts workspace creation |
-| `before_run` | Before each agent attempt, including retries | Fatal — aborts the current attempt |
+| `after_create` | Workspace directory is created for the first time | Fatal: aborts workspace creation |
+| `before_run` | Before each agent attempt, including retries | Fatal: aborts the current attempt |
 | `after_run` | After each agent attempt (success or failure) | Logged, ignored |
 | `before_remove` | Before workspace deletion | Logged, ignored |
 
@@ -37,14 +37,14 @@ Issue dispatched
   │   └─ Agent runs...
   │       └─ after_run       ← commit changes, run formatter
   │
-  ├─ (retry — before_run → agent → after_run again)
+  ├─ (retry: before_run → agent → after_run again)
   │
   └─ Issue reaches terminal state
       ├─ before_remove       ← push branch, clean up remote
       └─ Directory deleted
 ```
 
-Notice that `after_create` runs once. `before_run` and `after_run` run on every attempt — first run, continuations, and retries.
+Notice that `after_create` runs once. `before_run` and `after_run` run on every attempt: first run, continuations, and retries.
 
 ## Clone a repository on workspace creation
 
@@ -67,7 +67,7 @@ hooks:
     go mod download
 ```
 
-Because `after_create` failure is fatal, a failed clone prevents the agent from running in a broken workspace. Sortie retries with backoff — the next attempt creates the workspace from scratch.
+Because `after_create` failure is fatal, a failed clone prevents the agent from running in a broken workspace. Sortie retries with backoff. The next attempt creates the workspace from scratch.
 
 ## Create a branch before each run
 
@@ -108,7 +108,7 @@ hooks:
     git diff --cached --quiet || git commit -m "sortie(${SORTIE_ISSUE_IDENTIFIER}): automated changes"
 ```
 
-The `|| true` after `make fmt` prevents a formatter failure from producing noisy logs — `after_run` failures are ignored anyway, but clean logs are worth the guard.
+The `|| true` after `make fmt` prevents a formatter failure from producing noisy logs. `after_run` failures are ignored anyway, but clean logs are worth the guard.
 
 `git diff --cached --quiet` checks whether there's anything to commit. If the agent made no changes (or the run failed before writing files), the hook exits cleanly without creating an empty commit.
 
@@ -122,10 +122,10 @@ hooks:
     git push origin --delete "sortie/${SORTIE_ISSUE_IDENTIFIER}" 2>/dev/null || true
 ```
 
-The `2>/dev/null || true` suppresses errors when the branch doesn't exist remotely (for example, if the run never pushed). `before_remove` failures are logged and ignored — cleanup still proceeds.
+The `2>/dev/null || true` suppresses errors when the branch doesn't exist remotely (for example, if the run never pushed). `before_remove` failures are logged and ignored. Cleanup still proceeds.
 
 > [!NOTE]
-> Workspace removal does not happen instantly when an issue reaches a terminal state. If the worker has already exited, Sortie detects the terminal state through a periodic sweep that runs every 60 poll ticks — with the default `polling.interval_ms: 30000`, cleanup happens within approximately 30 minutes; with `polling.interval_ms: 60000`, within approximately 60 minutes. On startup Sortie runs the terminal check alone, so a restart clears the workspaces of issues the tracker reports terminal and leaves everything else in place. A startup pass that cannot read tracker state removes nothing, and the age bound is evaluated only by the periodic sweep, never at startup.
+> Workspace removal does not happen instantly when an issue reaches a terminal state. If the worker has already exited, Sortie detects the terminal state through a periodic sweep that runs every 60 poll ticks. With the default `polling.interval_ms: 30000`, cleanup happens within approximately 30 minutes; with `polling.interval_ms: 60000`, within approximately 60 minutes. On startup Sortie runs the terminal check alone, so a restart clears the workspaces of issues the tracker reports terminal and leaves everything else in place. A startup pass that cannot read tracker state removes nothing, and the age bound is evaluated only by the periodic sweep, never at startup.
 
 ## Use hook environment variables
 
@@ -158,7 +158,7 @@ hooks:
   timeout_ms: 180000
 ```
 
-A timed-out hook is treated the same as a failure — fatal for `after_create` and `before_run`, ignored for `after_run` and `before_remove`.
+A timed-out hook is treated the same as a failure: fatal for `after_create` and `before_run`, ignored for `after_run` and `before_remove`.
 
 ## Put it all together
 

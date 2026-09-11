@@ -115,7 +115,7 @@ You are a senior engineer working in this repository.
 
 ## Task
 
-**{{ .issue.identifier }}**: {{ .issue.title }}
+**#{{ .issue.identifier }}**: {{ .issue.title }}
 {{ if .issue.description }}
 
 ### Description
@@ -130,7 +130,7 @@ You are a senior engineer working in this repository.
 ## Rules
 
 1. Read existing code before writing anything new.
-2. Keep changes minimal, implement exactly what the task requires.
+2. Keep changes minimal. Implement exactly what the task requires.
 3. Run any available lint and test commands before finishing.
 {{ if not .run.is_continuation }}
 
@@ -149,7 +149,7 @@ current state. Continue from where the previous turn left off.
 {{ end }}
 {{ if and .attempt (not .run.is_continuation) }}
 
-## Retry, attempt {{ .attempt }}
+## Retry (attempt {{ .attempt }})
 
 A previous attempt failed. Review workspace state and error output before
 making changes. Do not repeat the same approach that failed.
@@ -184,7 +184,7 @@ The adapter runs no authentication preflight and never touches your API key. It 
 
 #### Model
 
-`model` is a pass-through string: Sortie forwards it to the `claude` CLI without checking it against anything. `claude-sonnet-4-5` is this tutorial's example, not a fixed requirement — replace it with whatever model identifier your Claude Code installation currently supports.
+`model` is a pass-through string: Sortie forwards it to the `claude` CLI without checking it against anything. `claude-sonnet-4-5` is this tutorial's example, not a fixed requirement. Replace it with whatever model identifier your Claude Code installation currently supports.
 
 #### Turn and budget limits
 
@@ -222,10 +222,10 @@ level=INFO msg="database path resolved" db_path=/home/you/sortie-gitlab-claude-e
 level=INFO msg="http server listening" addr=127.0.0.1:7678
 level=INFO msg="sortie started"
 level=INFO msg="tick completed" candidates=1 dispatched=1 ... running=1 retrying=0 ...
-level=INFO msg="running hook" hook=after_create workspace=.../workspaces/2
-level=INFO msg="running hook" hook=before_run workspace=.../workspaces/2
-level=INFO msg="workspace prepared" issue_id=2 issue_identifier=2 workspace=.../workspaces/2
-level=INFO msg="agent session started" issue_id=2 issue_identifier=2 session_id=...
+level=INFO msg="running hook" issue_id=2 issue_identifier=2 hook=after_create workspace=…/workspaces/2
+level=INFO msg="running hook" issue_id=2 issue_identifier=2 hook=before_run workspace=…/workspaces/2
+level=INFO msg="workspace prepared" issue_id=2 issue_identifier=2 workspace=…/workspaces/2
+level=INFO msg="agent session started" issue_id=2 issue_identifier=2 session_id=…
 level=INFO msg="turn started" issue_id=2 issue_identifier=2 turn_number=1 max_turns=3
 ```
 
@@ -235,7 +235,7 @@ When the agent finishes the turn, you will see:
 
 ```text
 level=INFO msg="turn completed" issue_id=2 issue_identifier=2 turn_number=1 max_turns=3
-level=INFO msg="running hook" hook=after_run workspace=.../workspaces/2
+level=INFO msg="running hook" issue_id=2 issue_identifier=2 hook=after_run workspace=…/workspaces/2
 level=INFO msg="worker exiting" issue_id=2 issue_identifier=2 exit_kind=normal turns_completed=1
 level=INFO msg="handoff transition succeeded, releasing claim" issue_id=2 issue_identifier=2 handoff_state=review
 level=INFO msg="tick completed" candidates=0 dispatched=0 ... running=0 retrying=0 ...
@@ -292,7 +292,7 @@ Now open the issue in GitLab. It carries the `review` label, the `backlog` label
 
 Neither change shows up as a comment on the issue. GitLab records a label swap and a state change as system notes in the activity feed, and Sortie filters system notes out when it reads an issue's comments, so nothing Sortie did here pollutes the thread an agent would later read.
 
-Open [http://127.0.0.1:7678/](http://127.0.0.1:7678/). Sortie serves the dashboard there by default, with no configuration required. You will see summary cards and a run history row for the completed session, with its issue identifier, turn count, duration, and exit status.
+Open `http://127.0.0.1:7678/`. Sortie serves the dashboard there by default, with no configuration required. You will see summary cards and a run history row for the completed session, with its issue identifier, turn count, duration, and exit status.
 
 The loop is closed, and the last step is honestly yours. The `sortie/2` branch is pushed and ready, the issue is sitting in `review` with a link to the work, and opening the merge request from that branch is one click in GitLab.
 
@@ -302,22 +302,22 @@ The loop is closed, and the last step is honestly yours. The `sortie/2` branch i
 
 We ran the complete Sortie lifecycle with the Claude Code CLI on top of the GitLab flow you configured in the integration tutorial. The tracker behavior stayed the same. The new moving parts were the agent adapter, the git hooks, and the prompt.
 
-- **Poll** - Sortie watched GitLab for open issues carrying the `backlog` label.
-- **Clone** - The `after_create` hook cloned the repository into a per-issue workspace.
-- **Branch** - The `before_run` hook created a clean feature branch named from the issue's `iid`.
-- **Code** - Claude Code read the codebase, wrote an implementation, and ran tests.
-- **Push** - The `after_run` hook committed and pushed the branch to GitLab.
-- **Handoff** - Sortie moved the issue to `review` and released it for a human.
+- **Poll**: Sortie watched GitLab for open issues carrying the `backlog` label.
+- **Clone**: The `after_create` hook cloned the repository into a per-issue workspace.
+- **Branch**: The `before_run` hook created a clean feature branch named from the issue's `iid`.
+- **Code**: Claude Code read the codebase, wrote an implementation, and ran tests.
+- **Push**: The `after_run` hook committed and pushed the branch to GitLab.
+- **Handoff**: Sortie moved the issue to `review` and released it for a human.
 
 This is the same Claude Code loop that powers the [Jira + Claude Code tutorial](/getting-started/jira-claude-end-to-end/). We swapped the tracker from Jira to GitLab with a config change and nothing else. The agent block, the extension block, the hooks, and the prompt template are the ones you would write for any tracker, which is the whole point of Sortie's adapter design.
 
 ## Where to go next
 
-- [Write a prompt template](/guides/write-prompt-template/) - use conditionals, iteration, and template functions to build production prompts
-- [WORKFLOW.md configuration reference](/reference/workflow-config/) - every field, every default, every constraint
-- [Monitor with logs](/guides/monitor-with-logs/) - read the structured log output during long-running sessions
-- [Monitor with Prometheus](/guides/monitor-with-prometheus/) - collect token usage, session counts, and retry rates as time-series metrics
-- [GitLab adapter reference](/reference/adapter-gitlab/) - the tracker field contract, label-driven state model, and error mapping
-- [Claude Code adapter reference](/reference/adapter-claude-code/) - CLI flags, event stream, and pass-through configuration
-- [Control agent costs](/guides/control-costs/) - budget caps, turn limits, and the arithmetic behind them
-- [Set up PR reactions](/guides/setup-pr-reactions/) - route review comments, pipeline failures, and auto-merge back to the agent once you open the merge request
+- [Write a prompt template](/guides/write-prompt-template/): use conditionals, iteration, and template functions to build production prompts
+- [WORKFLOW.md configuration reference](/reference/workflow-config/): every field, every default, every constraint
+- [Monitor with logs](/guides/monitor-with-logs/): read the structured log output during long-running sessions
+- [Monitor with Prometheus](/guides/monitor-with-prometheus/): collect token usage, session counts, and retry rates as time-series metrics
+- [GitLab adapter reference](/reference/adapter-gitlab/): the tracker field contract, label-driven state model, and error mapping
+- [Claude Code adapter reference](/reference/adapter-claude-code/): CLI flags, event stream, and pass-through configuration
+- [Control agent costs](/guides/control-costs/): budget caps, turn limits, and the arithmetic behind them
+- [Set up PR reactions](/guides/setup-pr-reactions/): route review comments, pipeline failures, and auto-merge back to the agent once you open the merge request

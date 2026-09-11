@@ -151,7 +151,7 @@ You are a senior engineer working in this repository.
 ## Rules
 
 1. Read existing code before writing anything new.
-2. Keep changes minimal - implement exactly what the task requires.
+2. Keep changes minimal. Implement exactly what the task requires.
 3. Run any available lint and test commands before finishing.
 {{ if not .run.is_continuation }}
 
@@ -170,7 +170,7 @@ current state. Continue from where the previous turn left off.
 {{ end }}
 {{ if and .attempt (not .run.is_continuation) }}
 
-## Retry - attempt {{ .attempt }}
+## Retry (attempt {{ .attempt }})
 
 A previous attempt failed. Review workspace state and error output before
 making changes. Do not repeat the same approach that failed.
@@ -206,7 +206,7 @@ Two credentials do two jobs, and they are unrelated. `SORTIE_GITHUB_TOKEN` is th
 | `SORTIE_GITHUB_TOKEN` | Sortie tracker | Reads and transitions GitHub issues. Set in the GitHub integration tutorial. |
 | `KIRO_API_KEY` | Kiro CLI agent | Authenticates the agent. Requires a Kiro Pro, Pro+, or Power subscription. |
 
-Budgeting also works differently. The headless Kiro path reports no token counts, only an abstract credits figure, so Sortie emits no token-usage events and the dashboard's token total stays at zero. Budget enforcement is time-based: `agent.turn_timeout_ms` is the control, not a token cap. The [Kiro adapter reference](/reference/adapter-kiro/) covers the full accounting story.
+Budgeting also works differently. The headless Kiro path reports no token counts, only an abstract credits figure, so Sortie emits no token-usage events and the dashboard's aggregate token total stays at zero. You do not have to read that zero as a clue: expand a running Kiro session on the dashboard and its `Usage reporting` field says it outright, `this session reports no token usage`, with a dash where the Model, API Requests, and Tokens figures would be. Budget enforcement is time-based: `agent.turn_timeout_ms` is the control, not a token cap. The [Kiro adapter reference](/reference/adapter-kiro/) covers the full accounting story.
 
 ### The credential preflight (why your first run will not hang)
 
@@ -252,11 +252,8 @@ level=INFO msg="database path resolved" db_path=/home/you/sortie-kiro-e2e/.sorti
 level=INFO msg="http server listening" addr=127.0.0.1:7678
 level=INFO msg="sortie started"
 level=INFO msg="tick completed" candidates=1 dispatched=1 ... running=1 retrying=0 ...
-level=INFO msg="workspace created" issue_id=7 issue_identifier=7
-level=INFO msg="hook started" hook=after_create issue_identifier=7
-level=INFO msg="hook completed" hook=after_create issue_identifier=7
-level=INFO msg="hook started" hook=before_run issue_identifier=7
-level=INFO msg="hook completed" hook=before_run issue_identifier=7
+level=INFO msg="running hook" issue_id=7 issue_identifier=7 hook=after_create workspace=…/workspaces/7
+level=INFO msg="running hook" issue_id=7 issue_identifier=7 hook=before_run workspace=…/workspaces/7
 level=INFO msg="workspace prepared" issue_id=7 issue_identifier=7 workspace=…/workspaces/7
 level=INFO msg="agent session started" issue_id=7 issue_identifier=7 session_id=…
 level=INFO msg="turn started" issue_id=7 issue_identifier=7 turn_number=1 max_turns=5
@@ -268,8 +265,7 @@ When the agent finishes a turn, you will see:
 
 ```
 level=INFO msg="turn completed" issue_id=7 issue_identifier=7 turn_number=1 max_turns=5
-level=INFO msg="hook started" hook=after_run issue_identifier=7
-level=INFO msg="hook completed" hook=after_run issue_identifier=7
+level=INFO msg="running hook" issue_id=7 issue_identifier=7 hook=after_run workspace=…/workspaces/7
 level=INFO msg="worker exiting" issue_id=7 issue_identifier=7 exit_kind=normal turns_completed=1
 level=INFO msg="handoff transition succeeded, releasing claim" issue_id=7 issue_identifier=7 handoff_state=review
 level=INFO msg="tick completed" candidates=0 dispatched=0 ... running=0 retrying=0 ...
@@ -346,11 +342,11 @@ If the label did not change, check the Sortie logs for the transition error. The
 
 ### Check the dashboard
 
-Open [http://127.0.0.1:7678/](http://127.0.0.1:7678/) in a browser while Sortie is running, on Sortie's default port. You will see summary cards and a run history table with the completed session: its issue identifier, turn count, duration, and exit status. The token total reads zero, which is expected for Kiro, as the budgeting note above explains.
+Open `http://127.0.0.1:7678/` in a browser while Sortie is running, on Sortie's default port. You will see summary cards and a run history table with the completed session: its issue identifier, turn count, duration, and exit status. The aggregate token total reads zero, which is expected for Kiro, as the budgeting note above explains.
 
 ### Troubleshooting
 
-**The run shows no token-usage numbers.** The logs carry no token counts and the dashboard token total stays at zero. This is not an error: the headless Kiro path reports only an abstract credits figure, never tokens, so Sortie cannot emit token usage. Budget is time-based, so tune `agent.turn_timeout_ms` rather than a token cap.
+**The run shows no token-usage numbers.** The logs carry no token counts and the dashboard's aggregate token total stays at zero. This is not an error, and you do not have to infer it from a zero: while the session is still running, expand its row on the dashboard and read the `Usage reporting` field, which states `this session reports no token usage`. The headless Kiro path reports only an abstract credits figure, never tokens, so Sortie cannot emit token usage. Budget is time-based, so tune `agent.turn_timeout_ms` rather than a token cap.
 
 **The worker fails at session start with an authentication error.** You see `agent session start: KIRO_API_KEY is invalid or expired` (or `... is not set`), and no `agent session started` line follows. The key is missing, invalid, or the account lacks a Kiro Pro, Pro+, or Power subscription. Confirm with `kiro-cli whoami`; a good key prints your authenticated account.
 
@@ -364,20 +360,20 @@ For the full behavior matrix, including exit-code classification, output shape, 
 
 We ran the complete Sortie lifecycle with the Kiro CLI on GitHub Issues, from a labeled issue to an open pull request, with no manual intervention.
 
-- **Poll** - Sortie watched GitHub for issues labeled `backlog`.
-- **Clone** - The `after_create` hook cloned the repository into a per-issue workspace.
-- **Branch** - The `before_run` hook created a clean feature branch.
-- **Code** - Kiro read the codebase, wrote an implementation, and ran tests.
-- **Push** - The `after_run` hook committed, pushed, and opened the pull request.
-- **Handoff** - Sortie moved the issue to its `review` state.
+- **Poll**: Sortie watched GitHub for issues labeled `backlog`.
+- **Clone**: The `after_create` hook cloned the repository into a per-issue workspace.
+- **Branch**: The `before_run` hook created a clean feature branch.
+- **Code**: Kiro read the codebase, wrote an implementation, and ran tests.
+- **Push**: The `after_run` hook committed, pushed, and opened the pull request.
+- **Handoff**: Sortie moved the issue to its `review` state.
 
 Sortie's adapter-agnostic design means swapping the agent is a config change. This is the same loop that produced the [Claude Code](/getting-started/jira-claude-end-to-end/), [Copilot CLI](/getting-started/github-copilot-end-to-end/), [Codex](/getting-started/jira-codex-end-to-end/), and [OpenCode](/getting-started/jira-opencode-end-to-end/) results, with one config change: the agent.
 
 Where to go next:
 
-- [Write a prompt template](/guides/write-prompt-template/) - conditionals, iteration, and template functions for production prompts
-- [WORKFLOW.md configuration reference](/reference/workflow-config/) - every field, every default, every constraint
-- [Monitor with logs](/guides/monitor-with-logs/) - read the structured log output during long-running sessions
-- [Monitor with Prometheus](/guides/monitor-with-prometheus/) - session counts and retry rates as time-series metrics
-- [Kiro CLI adapter reference](/reference/adapter-kiro/) - configuration, headless output, the credential preflight, and time-based budgeting
-- [Scale agents with SSH](/guides/scale-agents-with-ssh/) - remote execution for production workloads
+- [Write a prompt template](/guides/write-prompt-template/): conditionals, iteration, and template functions for production prompts
+- [WORKFLOW.md configuration reference](/reference/workflow-config/): every field, every default, every constraint
+- [Monitor with logs](/guides/monitor-with-logs/): read the structured log output during long-running sessions
+- [Monitor with Prometheus](/guides/monitor-with-prometheus/): session counts and retry rates as time-series metrics
+- [Kiro CLI adapter reference](/reference/adapter-kiro/): configuration, headless output, the credential preflight, and time-based budgeting
+- [Scale agents with SSH](/guides/scale-agents-with-ssh/): remote execution for production workloads

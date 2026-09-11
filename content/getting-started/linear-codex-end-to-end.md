@@ -12,7 +12,7 @@ The [Linear integration tutorial](/getting-started/linear-integration/) proved t
 
 ## Prerequisites
 
-- [Linear integration tutorial](/getting-started/linear-integration/) completed - Sortie connects to your Linear team, and the environment variable `SORTIE_LINEAR_API_KEY` is set
+- [Linear integration tutorial](/getting-started/linear-integration/) completed: Sortie connects to your Linear team, and the environment variable `SORTIE_LINEAR_API_KEY` is set
 - Codex CLI installed on your machine:
 
     ```bash
@@ -30,7 +30,7 @@ The [Linear integration tutorial](/getting-started/linear-integration/) proved t
     This is a standard OpenAI API key. Codex CLI uses it to authenticate with the OpenAI API, billed at API rates. The adapter checks for this variable when spawning the app-server subprocess and passes it through to the child process.
 
 - A git repository on GitHub or GitLab that you can push to
-- SSH key or HTTPS token configured for `git push` from your machine - test it:
+- SSH key or HTTPS token configured for `git push` from your machine. Test it:
 
     ```bash
     git ls-remote git@github.com:yourorg/yourrepo.git HEAD
@@ -232,11 +232,8 @@ level=INFO msg="database path resolved" db_path=/home/you/sortie-linear-codex-e2
 level=INFO msg="http server listening" addr=127.0.0.1:7678
 level=INFO msg="sortie started"
 level=INFO msg="tick completed" candidates=1 dispatched=1 ... running=1 retrying=0 ...
-level=INFO msg="workspace created" issue_id=a7c4f8e2-1b9d-4e3a-8f2c-6d5e4a3b2c1f issue_identifier=ENG-42
-level=INFO msg="hook started" hook=after_create issue_identifier=ENG-42
-level=INFO msg="hook completed" hook=after_create issue_identifier=ENG-42
-level=INFO msg="hook started" hook=before_run issue_identifier=ENG-42
-level=INFO msg="hook completed" hook=before_run issue_identifier=ENG-42
+level=INFO msg="running hook" issue_id=a7c4f8e2-1b9d-4e3a-8f2c-6d5e4a3b2c1f issue_identifier=ENG-42 hook=after_create workspace=…/workspaces/ENG-42
+level=INFO msg="running hook" issue_id=a7c4f8e2-1b9d-4e3a-8f2c-6d5e4a3b2c1f issue_identifier=ENG-42 hook=before_run workspace=…/workspaces/ENG-42
 level=INFO msg="workspace prepared" issue_id=a7c4f8e2-1b9d-4e3a-8f2c-6d5e4a3b2c1f issue_identifier=ENG-42 workspace=…/workspaces/ENG-42
 level=INFO msg="agent session started" issue_id=a7c4f8e2-1b9d-4e3a-8f2c-6d5e4a3b2c1f issue_identifier=ENG-42 session_id=…
 level=INFO msg="turn started" issue_id=a7c4f8e2-1b9d-4e3a-8f2c-6d5e4a3b2c1f issue_identifier=ENG-42 turn_number=1 max_turns=3
@@ -248,8 +245,7 @@ When the agent finishes a turn, you will see:
 
 ```
 level=INFO msg="turn completed" issue_id=a7c4f8e2-1b9d-4e3a-8f2c-6d5e4a3b2c1f issue_identifier=ENG-42 turn_number=1 max_turns=3
-level=INFO msg="hook started" hook=after_run issue_identifier=ENG-42
-level=INFO msg="hook completed" hook=after_run issue_identifier=ENG-42
+level=INFO msg="running hook" issue_id=a7c4f8e2-1b9d-4e3a-8f2c-6d5e4a3b2c1f issue_identifier=ENG-42 hook=after_run workspace=…/workspaces/ENG-42
 level=INFO msg="worker exiting" issue_id=a7c4f8e2-1b9d-4e3a-8f2c-6d5e4a3b2c1f issue_identifier=ENG-42 exit_kind=normal turns_completed=1
 level=INFO msg="handoff transition succeeded, releasing claim" issue_id=a7c4f8e2-1b9d-4e3a-8f2c-6d5e4a3b2c1f issue_identifier=ENG-42 handoff_state=Done
 level=INFO msg="tick completed" candidates=0 dispatched=0 ... running=0 retrying=0 ...
@@ -300,7 +296,7 @@ git ls-remote git@github.com:yourorg/yourrepo.git "refs/heads/sortie/ENG-42"
 
 You should see a commit hash. The `sortie/ENG-42` branch is on your remote, ready for a pull request.
 
-Open the issue in Linear in your browser. The status reads `Done`. On a board view, the card has moved to the Done column. Then open the dashboard at [http://127.0.0.1:7678/](http://127.0.0.1:7678/). You will see summary cards (running sessions, retry queue, free slots, total tokens consumed) and a run history table showing the completed session with its issue identifier, turn count, duration, and exit status.
+Open the issue in Linear in your browser. The status reads `Done`. On a board view, the card has moved to the Done column. Then open the dashboard at `http://127.0.0.1:7678/`. You will see summary cards (running sessions, retry queue, free slots, total tokens consumed) and a run history table showing the completed session with its issue identifier, turn count, duration, and exit status.
 
 {{% /steps %}}
 
@@ -308,21 +304,21 @@ Open the issue in Linear in your browser. The status reads `Done`. On a board vi
 
 We ran the complete Sortie lifecycle with the Codex CLI against a live Linear team:
 
-- **Poll** - Sortie watched Linear for issues matching the `agent-ready` filter.
-- **Clone** - The `after_create` hook cloned the repository into a per-issue workspace.
-- **Branch** - The `before_run` hook created a clean feature branch.
-- **Code** - Codex read the codebase, wrote an implementation, and ran tests.
-- **Push** - The `after_run` hook committed and pushed the changes.
-- **Handoff** - Sortie transitioned the Linear issue to Done.
+- **Poll**: Sortie watched Linear for issues matching the `agent-ready` filter.
+- **Clone**: The `after_create` hook cloned the repository into a per-issue workspace.
+- **Branch**: The `before_run` hook created a clean feature branch.
+- **Code**: Codex read the codebase, wrote an implementation, and ran tests.
+- **Push**: The `after_run` hook committed and pushed the changes.
+- **Handoff**: Sortie transitioned the Linear issue to Done.
 
 This is the same Codex loop as the [Jira + Codex tutorial](/getting-started/jira-codex-end-to-end/). The hooks, the prompt template, the `agent` block, and the `codex` extension are identical. Only the `tracker` block changed, from Jira to Linear, by configuration. Sortie's adapter-agnostic design means the agent never knows which tracker it is serving.
 
 ## Where to go next
 
-- [Write a prompt template](/guides/write-prompt-template/) - conditionals, iteration, and template functions for production prompts
-- [WORKFLOW.md configuration reference](/reference/workflow-config/) - every field, every default, every constraint
-- [Monitor with logs](/guides/monitor-with-logs/) - read the structured log output during long-running sessions
-- [Monitor with Prometheus](/guides/monitor-with-prometheus/) - token usage, session counts, and retry rates as time-series metrics
-- [Linear adapter reference](/reference/adapter-linear/) - the GraphQL config surface, state model, and error handling
-- [Codex adapter reference](/reference/adapter-codex/) - pass-through configuration, event stream, and error handling
-- [Scale agents with SSH](/guides/scale-agents-with-ssh/) - remote execution for production workloads
+- [Write a prompt template](/guides/write-prompt-template/): conditionals, iteration, and template functions for production prompts
+- [WORKFLOW.md configuration reference](/reference/workflow-config/): every field, every default, every constraint
+- [Monitor with logs](/guides/monitor-with-logs/): read the structured log output during long-running sessions
+- [Monitor with Prometheus](/guides/monitor-with-prometheus/): token usage, session counts, and retry rates as time-series metrics
+- [Linear adapter reference](/reference/adapter-linear/): the GraphQL config surface, state model, and error handling
+- [Codex adapter reference](/reference/adapter-codex/): pass-through configuration, event stream, and error handling
+- [Scale agents with SSH](/guides/scale-agents-with-ssh/): remote execution for production workloads

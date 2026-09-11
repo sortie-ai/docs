@@ -7,7 +7,7 @@ date: 2026-03-28
 weight: 40
 url: /guides/write-prompt-template/
 ---
-The Markdown body below the YAML front matter in `WORKFLOW.md` is a `text/template` that Sortie renders once per agent turn. This guide walks you through building a production prompt — from a one-liner to a full multi-mode template with conditionals, iteration, and structured data.
+The Markdown body below the YAML front matter in `WORKFLOW.md` is a `text/template` that Sortie renders once per agent turn. This guide walks you through building a production prompt, from a one-liner to a full multi-mode template with conditionals, iteration, and structured data.
 
 ## Prerequisites
 
@@ -37,7 +37,7 @@ This renders to `Fix PROJ-42: Login page returns 500 on empty email`.
 
 ## Add the description
 
-Guard optional fields with `{{ if }}` — empty strings evaluate to `false`:
+Guard optional fields with `{{ if }}`. Empty strings evaluate to `false`:
 
 ```jinja
 {{ if .issue.description }}
@@ -49,11 +49,11 @@ Guard optional fields with `{{ if }}` — empty strings evaluate to `false`:
 
 The same pattern works for every optional string field: `url`, `assignee`, `branch_name`, `issue_type`.
 
-The description often contains multiline Markdown. The template inserts it as-is — formatting passes through to the agent.
+The description often contains multiline Markdown. The template inserts it as-is. Formatting passes through to the agent.
 
 ## Use all available issue fields
 
-The `.issue` object is normalized across tracker backends, so the same field names work whether you're polling Jira, Linear, or a forge's issues. Common fields you'll reach for: `.issue.identifier` (the human-readable key, like `PROJ-123`), `.issue.title`, `.issue.description`, `.issue.labels` (a lowercase list), and `.issue.blocked_by` (never nil, resolved before every session starts). `.issue.priority` is an integer or nil depending on whether the tracker supplies one — `{{ if .issue.priority }}` guards both cases.
+The `.issue` object is normalized across tracker backends, so the same field names work whether you're polling Jira, Linear, or a forge's issues. Common fields you'll reach for: `.issue.identifier` (the human-readable key, like `PROJ-123`), `.issue.title`, `.issue.description`, `.issue.labels` (a lowercase list), and `.issue.blocked_by` (never nil, resolved before every session starts). `.issue.priority` is an integer or nil depending on whether the tracker supplies one. `{{ if .issue.priority }}` guards both cases.
 
 For the complete field list with every type and nil/empty distinction, see the [`.issue` table in the workflow config reference](/reference/workflow-config/#issue).
 
@@ -64,7 +64,7 @@ Reaction dispatches add one more top-level variable each, carrying the context t
 {{< callout type="info" >}}
 **What counts as falsy in `{{ if }}`**
 
-`0`, `""` (empty string), `nil`, `false`, and empty collections (`[]`, `{}`) all evaluate to `false`. This means `{{ if .issue.description }}` skips absent descriptions, `{{ if .attempt }}` skips the first try, and `{{ if .issue.blocked_by }}` skips empty blocker lists — no explicit comparison needed.
+`0`, `""` (empty string), `nil`, `false`, and empty collections (`[]`, `{}`) all evaluate to `false`. This means `{{ if .issue.description }}` skips absent descriptions, `{{ if .attempt }}` skips the first try, and `{{ if .issue.blocked_by }}` skips empty blocker lists. No explicit comparison is needed.
 {{< /callout >}}
 
 ## Branch on first run, continuation, and retry
@@ -73,21 +73,21 @@ A single template serves three modes. Use `.attempt` and `.run.is_continuation` 
 
 ```jinja {hl_lines=[1,8,15]}
 {{ if not .run.is_continuation }}
-## First Run
+## First run
 
 Read the specification. Understand the problem before writing code.
 Write tests first, then implement the solution.
 {{ end }}
 
 {{ if .run.is_continuation }}
-## Continuation (Turn {{ .run.turn_number }}/{{ .run.max_turns }})
+## Continuation (turn {{ .run.turn_number }}/{{ .run.max_turns }})
 
 You are resuming. Check `git status` and test output.
 Continue from where the previous turn left off.
 {{ end }}
 
 {{ if and .attempt (not .run.is_continuation) }}
-## Retry — Attempt {{ .attempt }}
+## Retry (attempt {{ .attempt }})
 
 A previous attempt failed. Do not repeat the same approach.
 Diagnose the root cause before making changes.
@@ -130,12 +130,12 @@ Blockers are a list of objects. Iterate with `{{ range }}`:
 {{< callout type="warning" >}}
 **The dot changes inside `{{ range }}`**
 
-Inside a `range` block, `.` is rebound to the current list element — not the root data. Writing `{{ .issue.identifier }}` inside `{{ range .issue.blocked_by }}` fails because `.` is now a blocker object, not the top-level map. Use the dollar-sign prefix `{{ $.issue.identifier }}` to reach the root from inside any `range` or `with` block. `sortie validate` detects this mistake statically and emits a `dot_context` warning.
+Inside a `range` block, `.` is rebound to the current list element, not the root data. Writing `{{ .issue.identifier }}` inside `{{ range .issue.blocked_by }}` fails because `.` is now a blocker object, not the top-level map. Use the dollar-sign prefix `{{ $.issue.identifier }}` to reach the root from inside any `range` or `with` block. `sortie validate` detects this mistake statically and emits a `dot_context` warning.
 {{< /callout >}}
 
 ### Comments
 
-Comments carry human feedback and review notes. Each has `.id`, `.author`, `.body`, and `.created_at`. The field is `nil` when not fetched and an empty list when no comments exist — both are falsy in `{{ if }}`:
+Comments carry human feedback and review notes. Each has `.id`, `.author`, `.body`, and `.created_at`. The field is `nil` when not fetched and an empty list when no comments exist. Both are falsy in `{{ if }}`:
 
 ```jinja
 {{ if .issue.comments }}
@@ -168,7 +168,7 @@ Sortie ships three functions beyond Go's template builtins:
 {{< callout type="info" >}}
 **Pipe argument order**
 
-The pipe (`|`) passes the value as the **last** argument. `{{ .issue.labels | join ", " }}` calls `join(", ", labels)` — the separator comes first in the function signature because the piped list is appended at the end.
+The pipe (`|`) passes the value as the **last** argument. `{{ .issue.labels | join ", " }}` calls `join(", ", labels)`. The separator comes first in the function signature because the piped list is appended at the end.
 {{< /callout >}}
 
 `toJSON` is useful when the agent needs structured data. Instead of a range loop for blockers:
@@ -235,13 +235,13 @@ Check the logs for the rendered prompt. Render errors appear with line numbers.
 ## Avoid common mistakes
 
 **Referencing a variable that doesn't exist.**
-Sortie runs in strict mode (`missingkey=error`). A typo like `{{ .issue.titel }}` fails rendering immediately instead of producing an empty string. `sortie validate` catches these statically — unknown fields like `.issue.titel` produce an `unknown_field` warning, and unknown top-level variables like `{{ .config }}` produce an `unknown_var` warning. Check field names against the variable table above.
+Sortie runs in strict mode (`missingkey=error`). A typo like `{{ .issue.titel }}` fails rendering immediately instead of producing an empty string. `sortie validate` catches these statically: unknown fields like `.issue.titel` produce an `unknown_field` warning, and unknown top-level variables like `{{ .config }}` produce an `unknown_var` warning. Check field names against the variable table above.
 
 **Forgetting to guard nil fields.**
 `.issue.parent` is `nil` when no parent exists. Accessing `.issue.parent.identifier` without a guard fails the render with `nil pointer evaluating interface {}.identifier`, and the worker attempt ends there:
 
 ```jinja
-{{/* Wrong — render fails when parent is nil */}}
+{{/* Wrong: render fails when parent is nil */}}
 Parent: {{ .issue.parent.identifier }}
 
 {{/* Correct */}}
@@ -286,24 +286,24 @@ You are a senior engineer. Your work is tracked by Sortie.
 ## Rules
 
 1. Read relevant docs before writing code.
-2. Run `make lint && make test` — all checks must pass.
+2. Run `make lint && make test`. All checks must pass.
 3. Keep changes minimal.
 {{ if not .run.is_continuation }}
 
-## First Run
+## First run
 
 Start by reading the specification and existing code.
 Write tests first. Implement second.
 {{ end }}
 {{ if .run.is_continuation }}
 
-## Continuation (Turn {{ .run.turn_number }}/{{ .run.max_turns }})
+## Continuation (turn {{ .run.turn_number }}/{{ .run.max_turns }})
 
 Review workspace state and continue. Do not restart from scratch.
 {{ end }}
 {{ if and .attempt (not .run.is_continuation) }}
 
-## Retry — Attempt {{ .attempt }}
+## Retry (attempt {{ .attempt }})
 
 A previous attempt failed. Diagnose before changing code.
 {{ end }}

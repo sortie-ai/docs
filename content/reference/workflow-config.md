@@ -9,8 +9,6 @@ url: /reference/workflow-config/
 ---
 `WORKFLOW.md` is a Markdown file with YAML front matter. Front matter between `---` delimiters defines runtime settings. The body after the closing `---` is the default prompt template, rendered per issue with Go `text/template`. When the front matter defines [dispatch rules](/guides/configure-dispatch-rules/), a matching rule can select a different per-rule template file in place of the body.
 
-See also: [CLI reference](/reference/cli/) for startup flags, [environment variables reference](/reference/environment/) for `$VAR` behavior, [error reference](/reference/errors/) for configuration error diagnostics, [Jira adapter reference](/reference/adapter-jira/) for Jira-specific fields, [GitHub adapter reference](/reference/adapter-github/) for GitHub-specific fields, [Linear adapter reference](/reference/adapter-linear/) for Linear-specific fields, [Gitea adapter reference](/reference/adapter-gitea/) for Gitea-specific fields, [GitLab adapter reference](/reference/adapter-gitlab/) for GitLab-specific fields, [Claude Code adapter reference](/reference/adapter-claude-code/) for Claude Code pass-through options, [Copilot CLI adapter reference](/reference/adapter-copilot/) for Copilot CLI pass-through options, [Codex adapter reference](/reference/adapter-codex/) for Codex pass-through options, [OpenCode CLI adapter reference](/reference/adapter-opencode/) for OpenCode pass-through options, [Kiro CLI adapter reference](/reference/adapter-kiro/) for Kiro CLI pass-through options, [Configure dispatch rules](/guides/configure-dispatch-rules/) for routing issues to different agents and prompt templates, [Configure CI feedback](/guides/configure-ci-feedback/) for operational guidance.
-
 > [!TIP]
 > Most configuration fields in this reference can be overridden by `SORTIE_*` environment variables without modifying the workflow file. See the [environment variables reference](/reference/environment/#configuration-overrides) for the full list and precedence rules.
 
@@ -76,6 +74,7 @@ agent:
   turn_timeout_ms: 1800000            # 30 min per turn
   read_timeout_ms: 10000              # 10 s startup timeout
   stall_timeout_ms: 300000            # 5 min inactivity detection
+  stop_grace_ms: 5000                 # 5 s to exit before a force kill
   max_retry_backoff_ms: 120000        # 2 min max retry delay
   max_concurrent_agents_by_state:
     in progress: 3                    # Per-state concurrency cap
@@ -201,7 +200,7 @@ Issue tracker connection and query settings.
 | `terminal_states` | list of strings | `[]`                  | Issue states that trigger workspace cleanup. This is the primary removal ground and is always on; the opt-in age bound in [`workspace.retention_days`](#workspace) is the second. |
 | `query_filter`    | string          | `""`                  | Query fragment that narrows candidate and terminal-state queries. For Jira: a JQL expression appended to the query. For Linear: an `IssueFilter` JSON object merged into the query (see the Linear example below). For Gitea: a URL query fragment merged into the repository issue-list query (see the Gitea example below). For GitLab: a URL query fragment merged into the project issue-list query, key-checked against a closed allowlist (see the GitLab example below). |
 | `handoff_state`   | string          | _(absent)_            | Target state after a successful agent run. Absent disables handoff.     |
-| `no_change_state` | string          | _(absent)_            | Target state for a run that declared the requested outcome already held (`no-change-needed` on `.sortie/status`). Absent falls back to `handoff_state`. Requires `handoff_state` to be set, and must equal `handoff_state` or name a member of `terminal_states` - the one target-state field allowed to name a terminal state. See [handoff evidence: declaring that nothing needed changing](/reference/state-machine/#declaring-that-nothing-needed-changing). |
+| `no_change_state` | string          | _(absent)_            | Target state for a run that declared the requested outcome already held (`no-change-needed` on `.sortie/status`). Absent falls back to `handoff_state`. Requires `handoff_state` to be set, and must equal `handoff_state` or name a member of `terminal_states`. It is the one target-state field allowed to name a terminal state. See [handoff evidence: declaring that nothing needed changing](/reference/state-machine/#declaring-that-nothing-needed-changing). |
 | `handoff_evidence` | string         | `"observed"`           | Evidence policy consulted before the handoff write. `observed` withholds the write only on a positively observed absence of workspace change; `strict` also withholds it when evidence cannot be determined; `off` performs no evidence check and leaves the write governed by the other handoff conditions alone. See [state machine reference](/reference/state-machine/#handoff-evidence). |
 | `in_progress_state` | string        | _(absent)_            | Target state for dispatch-time transition at the start of each worker attempt. Absent disables dispatch-time transitions. |
 | `api_version`     | string          | `"3"`                 | Jira REST API version: `"3"` for Jira Cloud, `"2"` for Jira Server / Data Center. Quote the value; a bare integer draws a `sortie validate` advisory. Adapters other than Jira ignore this field. `sortie validate` rejects a value other than `"2"` or `"3"`, and rejects `"2"` against an `.atlassian.net` endpoint. See the [Jira adapter reference](/reference/adapter-jira/#api_version) for deployment-mode behavior and [offline validation](/reference/adapter-jira/#offline-validation) for the full check list. |
@@ -223,14 +222,14 @@ At least one of `active_states` or `terminal_states` must be non-empty. When bot
 
 `handoff_state`, when set, must not appear in `active_states` (causes immediate re-dispatch loop) or `terminal_states` (handoff is not a terminal outcome). Jira handoff requires write permissions on the API token: `write:jira-work` (classic) or `write:issue:jira` (granular).
 
-`no_change_state`, when set, requires `handoff_state` to be non-empty - a declared run with no handoff path performs no transition. Compared case-insensitively, its value must equal `handoff_state` or name a member of `terminal_states` as written, with no fallback to an adapter's default terminal list; any other value is a configuration error. Unlike its sibling target-state fields, naming a terminal state is exactly the case `no_change_state` exists for - a handoff with no pull request and no diff put in front of a reviewer - so a terminal `no_change_state` is never the default and stays an explicit opt-in.
+`no_change_state`, when set, requires `handoff_state` to be non-empty: a declared run with no handoff path performs no transition. Compared case-insensitively, its value must equal `handoff_state` or name a member of `terminal_states` as written, with no fallback to an adapter's default terminal list; any other value is a configuration error. Unlike its sibling target-state fields, naming a terminal state is exactly the case `no_change_state` exists for (a handoff with no pull request and no diff put in front of a reviewer), so a terminal `no_change_state` is never the default and stays an explicit opt-in.
 
 `in_progress_state`, when set, must appear in `active_states` (otherwise reconciliation would immediately cancel the worker after the transition). It must not appear in `terminal_states` or collide with `handoff_state`. If the issue is already in the target state at dispatch time, the transition call is skipped (debug log only). Other transition failures at runtime are non-fatal: the worker logs a warning and continues to workspace preparation. Requires the same write permissions as `handoff_state`.
 
 `handoff_evidence`, when set, must be one of `observed`, `strict`, or `off`. The check is a closed-set comparison that needs no network access, so an invalid value is rejected offline at startup, on dynamic reload, and by `sortie validate`.
 
 > [!NOTE]
-> Workspace cleanup for issues that reach a terminal state while no worker is running is handled by a periodic sweep, not by an instant event. The sweep runs every 60 poll cycles - with the default 30-second `polling.interval_ms`, cleanup occurs within approximately 30 minutes; with a 60-second interval, within approximately 60 minutes. When a worker is still running and reconciliation detects a terminal state, cleanup happens on the current poll tick. On the same pass, and only after that terminal check, the sweep applies a second removal ground based on workspace age; it is opt-in and off by default (see [`workspace.retention_days`](#workspace)). At startup Sortie runs the terminal check alone: it queries the tracker for the states of the workspace directories it finds and removes those reported terminal, and it cleans nothing on that pass if the listing or the tracker read fails.
+> Workspace cleanup for issues that reach a terminal state while no worker is running is handled by a periodic sweep, not by an instant event. The sweep runs every 60 poll cycles: with the default 30-second `polling.interval_ms`, cleanup occurs within approximately 30 minutes; with a 60-second interval, within approximately 60 minutes. When a worker is still running and reconciliation detects a terminal state, cleanup happens on the current poll tick. On the same pass, and only after that terminal check, the sweep applies a second removal ground based on workspace age; it is opt-in and off by default (see [`workspace.retention_days`](#workspace)). At startup Sortie runs the terminal check alone: it queries the tracker for the states of the workspace directories it finds and removes those reported terminal, and it cleans nothing on that pass if the listing or the tracker read fails.
 
 ### Tracker comments
 
@@ -242,7 +241,7 @@ The `comments` sub-object controls whether Sortie posts plain-text comments on t
 | `on_completion` | Worker exits normally | Session ID, duration, turns completed. Includes "(re-queuing)" suffix when a continuation retry is scheduled. |
 | `on_failure` | Worker exits with an error | Session ID, duration, truncated error message (200 char limit), retry status and next attempt number. |
 
-Comment failures are non-fatal. A failed comment logs WARN and never blocks dispatch, completion, retry, or handoff. Completion and failure comments are posted from a detached goroutine - the event loop is never blocked by the tracker API.
+Comment failures are non-fatal. A failed comment logs WARN and never blocks dispatch, completion, retry, or handoff. Completion and failure comments are posted from a detached goroutine: the event loop is never blocked by the tracker API.
 
 No comment is posted on worker cancellation (stall timeout, reconciliation, shutdown).
 
@@ -498,20 +497,43 @@ Coding agent adapter, concurrency, timeouts, and retry behavior. These fields co
 
 | Field                            | Type    | Default         | Description                                                                           |
 | -------------------------------- | ------- | --------------- | ------------------------------------------------------------------------------------- |
-| `kind`                           | string  | `claude-code`   | Agent adapter identifier. Built-in adapters: `claude-code`, `copilot-cli`, `codex`, `opencode`, `kiro`, and `mock`, which simulates a session for local testing and launches no process. |
-| `command`                        | string  | adapter-defined | Command to launch the agent for adapters that run as a local subprocess (`claude-code`, `copilot-cli`, `codex`, `opencode`, `kiro`). Adapters that do not start a local process ignore this field. |
+| `kind`                           | string  | `claude-code`   | Agent adapter identifier. Built-in adapters: `claude-code`, `copilot-cli`, `codex`, `opencode`, `kiro`, `agent-client-protocol` (a generic kind driving any runtime that speaks the [Agent Client Protocol](/reference/adapter-agent-client-protocol/), named by `command`), and `mock`, which simulates a session for local testing and launches no process. |
+| `command`                        | string  | adapter-defined | Command to launch the agent for adapters that run as a local subprocess (`claude-code`, `copilot-cli`, `codex`, `opencode`, `kiro`, `agent-client-protocol`). Adapters that do not start a local process ignore this field. For `agent-client-protocol` this field has no default and also carries the flag or subcommand that puts the named binary into protocol mode. |
 | `max_turns`                      | integer | `20`            | Maximum turns per worker session. The worker re-checks tracker state after each turn. |
-| `max_sessions`                   | integer | `0` (unlimited) | Maximum completed sessions per issue before the orchestrator stops retrying. Must be non-negative. The separate `max_consecutive_absences` governs the consecutive-absence ceiling below - it is no longer derived from this field. Reaching this ceiling also posts one comment on the issue naming the session budget and `agent.max_sessions` as the setting that raises it. |
-| `max_tokens`                     | integer | `0` (unlimited) | Cumulative per-issue token ceiling. Sortie sums the `total_tokens` recorded for every session of the issue from run history and stops dispatching new sessions once the sum reaches a non-zero budget. The check runs before re-dispatch; it never stops a running session. Independent of `max_sessions`; the first ceiling reached wins. A run whose agent reported no token usage contributes nothing to the sum; that case and a failed token-sum query both allow the dispatch with a warning instead of blocking it. Must be non-negative. Reaching this ceiling also posts one comment on the issue naming the token budget and `agent.max_tokens` as the setting that raises it. |
-| `max_consecutive_absences`       | integer | `3`             | Bounds how many runs in a row may be observed to have produced no evidence of work before the issue is parked. Any run that produces evidence of work resets the count to zero. The separate `max_sessions` governs the total per-issue session budget; the two ceilings are independent. Unlike `max_sessions` and `max_tokens`, `0` does not mean unlimited here - `0` and negative values are rejected as a configuration error. |
+| `max_sessions`                   | integer | `0` (unlimited) | Maximum completed sessions per issue before the orchestrator stops retrying. Must be non-negative. The separate `max_consecutive_absences` governs the consecutive-absence ceiling below. It is no longer derived from this field. Reaching this ceiling also posts one comment on the issue naming the session budget and `agent.max_sessions` as the setting that raises it. |
+| `max_tokens`                     | integer | `0` (unlimited) | Cumulative per-issue token ceiling. Sortie sums the `total_tokens` recorded for every completed session of the issue from run history, adds the running session's own reported spend, and stops once the sum reaches a non-zero budget. Three lanes evaluate it: the retry timer and the poll tick's rebuild each block the next dispatch, and the event loop stops the session already running as soon as a usage figure carries the sum to the ceiling. A session stopped that way is recorded with status `budget_stopped` and increments `sortie_runs_stopped_by_budget_total`. Independent of `max_sessions`; the first ceiling reached wins. A run whose agent reported no token usage contributes nothing to the sum; that case and a failed token-sum query both allow the dispatch with a warning instead of blocking it. On the in-flight lane a failed read leaves the run going, unless the running session's own spend has reached the ceiling by itself, which needs no read to establish. Must be non-negative. Reaching this ceiling also posts one comment on the issue naming the token budget and `agent.max_tokens` as the setting that raises it, and counting the sessions stopped in flight when there were any. |
+| `max_consecutive_absences`       | integer | `3`             | Bounds how many runs in a row may be observed to have produced no evidence of work before the issue is parked. Any run that produces evidence of work resets the count to zero. The separate `max_sessions` governs the total per-issue session budget; the two ceilings are independent. Unlike `max_sessions` and `max_tokens`, `0` does not mean unlimited here: `0` and negative values are rejected as a configuration error. |
 | `max_concurrent_agents`          | integer | `10`            | Global concurrency limit across all issues.                                           |
 | `max_concurrent_agents_by_state` | map     | `{}`            | Per-state concurrency limits. Keys are state names, lowercased for matching. Non-positive or non-numeric entries are silently ignored. |
 | `turn_timeout_ms`                | integer | `3600000` (1h)  | Total timeout for a single agent turn. Must be positive; a non-positive value is rejected when the configuration loads. Unlike `stall_timeout_ms` below, this bound cannot be disabled. |
 | `read_timeout_ms`                | integer | `5000` (5s)     | Timeout for startup and synchronous operations.                                       |
 | `stall_timeout_ms`               | integer | `300000` (5m)   | Inactivity timeout based on event stream gaps. `0` or negative disables stall detection. |
+| `stop_grace_ms`                  | integer | `5000` (5s)     | How long an adapter waits for the agent to exit on its own after a graceful termination signal, before it force-terminates the process group. Must be positive and no greater than `9223372036854` (about 292 years); any other value is rejected when the configuration loads. An adapter that launches no process, such as `mock`, has no such period. Stopping one session is allowed this value plus a fixed 15 seconds for the stderr collection and process reaping that follow it, 20 seconds at the default. Raising this value raises both that bound and the [shutdown worker-drain ceiling](/reference/cli/#signals) by the same amount. |
 | `max_retry_backoff_ms`           | integer | `300000` (5m)   | Maximum delay cap for exponential backoff on retries.                                 |
 
-`max_concurrent_agents`, `max_concurrent_agents_by_state`, `max_retry_backoff_ms`, `max_sessions`, `max_tokens`, and `max_consecutive_absences` reload dynamically without restart; `max_tokens` takes effect at the next retry evaluation. All other fields apply to future dispatches only, except where the per-field Dynamic reload table at the end of this document states a finer-grained answer.
+`max_concurrent_agents`, `max_concurrent_agents_by_state`, `max_retry_backoff_ms`, `max_sessions`, `max_tokens`, and `max_consecutive_absences` reload dynamically without restart; a reloaded `max_tokens` reaches the sessions already running from the next poll tick onward, and applies at the next retry evaluation. All other fields apply to future dispatches only, except where the per-field Dynamic reload table at the end of this document states a finer-grained answer.
+
+### Usage reporting by agent kind
+
+Every agent kind Sortie ships declares when a session's token figures reach the orchestrator and what those figures attribute to. The dashboard prints that declaration in the **Usage reporting** field of an expanded [running session](/reference/dashboard/#running-sessions-table), and the [JSON API](/reference/http-api/#get-apiv1state-system-state) carries it as `usage_arrival` and `usage_attribution`. The pair is resolved per session rather than fixed per kind: a kind's own pass-through block and whether the session runs over SSH can put a different pair in force, and the Usage reporting column names every case where they do.
+
+| Agent kind | Usage reporting | How the figure is produced |
+|---|---|---|
+| `claude-code` | `figures arrive during each turn, per model` | The runtime reports usage on each model API request while the turn is still streaming. See [Claude Code adapter reference](/reference/adapter-claude-code/#token-accounting). |
+| `copilot-cli` | `figures arrive when a turn ends, per model` on a local launch, `this session reports no token usage` over SSH | The authoritative figure is the runtime's own session-state journal, read from disk after the turn's subprocess exits, naming whichever model's usage grew the most since the previous record. An SSH launch skips that read. See [Copilot CLI adapter reference](/reference/adapter-copilot/#token-accounting). |
+| `codex` | `figures arrive during each turn, per model` | A dedicated token-usage notification carries a run-cumulative snapshot once per model API request. See [Codex adapter reference](/reference/adapter-codex/#token-accounting). |
+| `opencode` | `figures arrive when a turn ends, per model` | An export subprocess, run after the turn's subprocess exits, recovers the figure. See [OpenCode CLI adapter reference](/reference/adapter-opencode/#token-accounting). |
+| `kiro` | `this session reports no token usage` | The headless path emits an abstract credits figure on stderr, never input or output token counts. See [Kiro CLI adapter reference](/reference/adapter-kiro/#token-accounting). |
+| `agent-client-protocol` | `this session reports no token usage` | The protocol's own usage notification reports context occupancy rather than a per-turn count, and the adapter takes no figure from it. See [Agent Client Protocol adapter reference](/reference/adapter-agent-client-protocol/#token-accounting). |
+| `mock` | `figures arrive during each turn, as a session total`, with `, per model` instead when `mock.model_name` is set to a non-empty value, and `this session reports no token usage` when `mock.report_token_usage` is `false` whatever else the block sets | Canned figures from a simulated session. The kind launches no process, and its own block decides what a session reports. |
+
+Three behaviors follow from when a figure arrives.
+
+`agent.max_tokens` bounds the session in progress for a kind whose figures arrive at all, and bounds nothing for a kind that reports none: Sortie records `token ceiling cannot bound this run` at the dispatch that starts such a session, and `agent.turn_timeout_ms` is the bound that remains for it. See [how to control agent costs](/guides/control-costs/#cap-tokens-per-issue) for what the ceiling does when a session reaches it.
+
+A session's API request count is a count of requests only where figures arrive during each turn, the one arrival that emits a figure per model API request. The dashboard's **API Requests** field and the API's `api_request_count` carry a number for such a session while no turn has begun or once a figure has arrived. They carry no count for one whose first turn has begun with nothing counted, or for any other session.
+
+[`token_rates`](#token_rates) prices a session from the figures it reports, so a kind reporting none has nothing to price and its estimated cost stays blank. [`sortie validate`](/reference/cli/#validate) reports an inert ceiling as an `agent.kind.no_usage_reporting` warning and an unpriceable kind as an `agent.kind.no_cost_estimate` warning, each naming the kind, so neither has to be discovered from a budget that never fires or a blank column.
 
 ```yaml
 agent:
@@ -903,7 +925,7 @@ When more than one entry sets `max_per_session`, the effective cap is the maximu
 > [!NOTE]
 > Environment variable overrides for `notifications` fields are not supported. Backend configuration must come from WORKFLOW.md; environment values reach a backend only through `$VAR` references inside its entry.
 
-The `webhook` backend is an outbound POST to an operator-supplied endpoint. Sortie has no inbound webhook receiver of its own - it discovers tracker state only by polling - so this is the only kind of webhook Sortie has.
+The `webhook` backend is an outbound POST to an operator-supplied endpoint. Sortie has no inbound webhook receiver of its own (it discovers tracker state only by polling), so this is the only kind of webhook Sortie has.
 
 ```yaml
 notifications:
@@ -947,7 +969,7 @@ The second exception is a value that stops the agent kind resuming a session acr
 
 A session that a [`dispatch` rule](#dispatch) routed to an agent kind other than the workflow default reads that kind's own block, on every attempt of that session. The block named by `agent.kind` applies only to sessions no rule routed elsewhere.
 
-A kind that `dispatch.default.agent` or a `dispatch.rules[i].agent` names, and that differs from the top-level `agent.kind`, must carry its own top-level block in the front matter - an empty one is enough, written as `codex: {}` or as a bare `codex:` key with nothing after it. A block present as a scalar or a list does not count. Its absence is a `dispatch.agent.missing_block` error at startup, on every workflow reload, and from `sortie validate`, naming the selector that introduced the kind and the block it expects; the workflow does not start until the block is added. The check is skipped for a kind the agent registry does not recognize, since that is already reported separately as an unknown adapter kind. `agent.command` stays workflow-wide regardless: a routed kind's own block cannot override it, so adding the block satisfies this check without changing which binary the route launches.
+A kind that `dispatch.default.agent` or a `dispatch.rules[i].agent` names, and that differs from the top-level `agent.kind`, must carry its own top-level block in the front matter. An empty one is enough, written as `codex: {}` or as a bare `codex:` key with nothing after it. A block present as a scalar or a list does not count. Its absence is a `dispatch.agent.missing_block` error at startup, on every workflow reload, and from `sortie validate`, naming the selector that introduced the kind and the block it expects; the workflow does not start until the block is added. The check is skipped for a kind the agent registry does not recognize, since that is already reported separately as an unknown adapter kind. `agent.command` stays workflow-wide regardless: a routed kind's own block cannot override it, so adding the block satisfies this check without changing which binary the route launches.
 
 ### `claude-code`
 
@@ -1099,6 +1121,19 @@ kiro:
   model: <model-id>
 ```
 
+### `agent-client-protocol`
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `mcp_config` | string | _(none)_ | Path to an MCP server configuration file, resolved relative to the WORKFLOW.md directory when not absolute. Its servers are merged into the copy Sortie generates for its own tool sidecar; the original is never modified, and a file already declaring `sortie-tools` fails the attempt. |
+
+This kind names no default runtime and has no other pass-through fields: every runtime-specific setting, such as a model flag or a trust switch, is part of `agent.command` itself rather than a field in this block. The adapter re-expresses the generated MCP configuration's servers on `session/new`, on a local launch only; an SSH session receives none, and reaches no Sortie tool. See the [Agent Client Protocol adapter reference](/reference/adapter-agent-client-protocol/) for the full lifecycle, the transport-level limits every runtime on this kind shares, and [MCP](/reference/adapter-agent-client-protocol/#mcp) for the delivery detail.
+
+```yaml
+agent-client-protocol:
+  mcp_config: ./mcp-servers.json
+```
+
 ### `file` (file-based tracker)
 
 | Field  | Type   | Description                                                        |
@@ -1114,7 +1149,7 @@ file:
 
 ## Extensions
 
-Unknown top-level keys are collected into an extensions map for forward compatibility. The orchestrator does not validate extension fields at runtime; each consumer defines its own schema. However, [`sortie validate`](/reference/cli/#validate) emits advisory warnings for unknown top-level keys that are not recognized extensions or adapter pass-through blocks - catching typos before deployment.
+Unknown top-level keys are collected into an extensions map for forward compatibility. The orchestrator does not validate extension fields at runtime; each consumer defines its own schema. However, [`sortie validate`](/reference/cli/#validate) emits advisory warnings for unknown top-level keys that are not recognized extensions or adapter pass-through blocks, catching typos before deployment.
 
 ### `server`
 
@@ -1142,10 +1177,10 @@ Process-wide log verbosity and output format. Controls the minimum severity leve
 
 | Field | Type | Default | Required | Dynamic Reload | Description |
 |---|---|---|---|---|---|
-| `logging.level` | string | `info` | No | **No** - requires restart | Log verbosity: `debug`, `info`, `warn`, `error` (case-insensitive). |
-| `logging.format` | string | `text` | No | **No** - requires restart | Log output format: `text` or `json` (case-insensitive). `text` emits structured `key=value` lines. `json` emits newline-delimited JSON objects. |
+| `logging.level` | string | `info` | No | **No** (requires restart) | Log verbosity: `debug`, `info`, `warn`, `error` (case-insensitive). |
+| `logging.format` | string | `text` | No | **No** (requires restart) | Log output format: `text` or `json` (case-insensitive). `text` emits structured `key=value` lines. `json` emits newline-delimited JSON objects. |
 
-The CLI [`--log-level`](/reference/cli/#-log-level) flag takes precedence over `logging.level`, and [`--log-format`](/reference/cli/#-log-format) takes precedence over `logging.format`. Changing either field in the workflow file takes effect only after a restart; dynamic reload does not re-initialize the log handler.
+The CLI [`--log-level`](/reference/cli/#--log-level) flag takes precedence over `logging.level`, and [`--log-format`](/reference/cli/#--log-format) takes precedence over `logging.format`. Changing either field in the workflow file takes effect only after a restart; dynamic reload does not re-initialize the log handler.
 
 Unknown values for either field cause startup failure with exit code `1`.
 
@@ -1166,12 +1201,15 @@ Per-adapter token pricing for cost estimation on the [dashboard](/reference/dash
 | `token_rates.<kind>.output_per_mtok` | number | _(not set)_ | USD per million output tokens. |
 | `token_rates.<kind>.cache_read_per_mtok` | number | _(not set)_ | USD per million cache-read tokens. |
 
-Each rate field is optional. A missing field means cost is not estimated for that token type. A zero value is valid and produces `$0.00`. Partial rates are accepted - configuring only `output_per_mtok` computes cost from output tokens alone.
+Each rate field is optional. A missing field means cost is not estimated for that token type. A zero value is valid and produces `$0.00`. Partial rates are accepted: configuring only `output_per_mtok` computes cost from output tokens alone.
+
+An entry keyed to an agent kind that reports no token usage for the sessions a workflow produces has no effect: there is nothing to price, and the dashboard's Est. Cost field for such a session stays blank. [`sortie validate`](/reference/cli/#validate) reports that combination as an `agent.kind.no_cost_estimate` warning naming the kind, so it is not something to discover from a blank column. Whether a kind reports usage can depend on the launch: `copilot-cli` reports it locally and none over SSH, so adding a [`worker.ssh_hosts`](#worker) pool can make a previously effective entry inert.
 
 Validation rules:
 
 - `token_rates` must be a map when present. Non-map values produce a warning (not a fatal error).
 - Rate values must be non-negative numbers. Negative values produce a warning and are treated as not configured.
+- An entry keyed to the empty string is dropped with a warning. It prices no kind.
 - Invalid sub-values produce warnings logged at startup. They do not prevent boot.
 
 Token rates do not reload dynamically. Changes require a process restart, consistent with `server.port` and `server.host`.
@@ -1213,7 +1251,7 @@ When `ssh_hosts` is absent or empty, all agents run locally. The `ssh_strict_hos
 
 | Value | Behavior |
 |---|---|
-| `accept-new` | Trust on first use - accept unknown host keys, reject changed keys. Default. |
+| `accept-new` | Trust on first use: accept unknown host keys, reject changed keys. Default. |
 | `yes` | Refuse connections unless the host key is already in `known_hosts`. Requires pre-populated `known_hosts`. |
 | `no` | Accept any host key. Intended for isolated test or CI environments with ephemeral hosts. |
 
@@ -1402,7 +1440,7 @@ Sortie watches `WORKFLOW.md` for filesystem changes and re-applies configuration
 | `agent.max_concurrent_agents_by_state` | Next dispatch decision.                |
 | `agent.max_retry_backoff_ms`           | Next retry schedule.                   |
 | `agent.max_sessions`                   | Next retry evaluation.                 |
-| `agent.max_tokens`                     | Next retry evaluation.                 |
+| `agent.max_tokens`                     | Next poll tick for a session already running; next retry evaluation for a blocked dispatch. |
 | `agent.max_consecutive_absences`       | Next worker exit, retry evaluation, or poll-tick park sweep. |
 | `tracker.*`                            | Future dispatches and reconciliation.  |
 | `tracker.comments.on_dispatch`         | Future dispatches.                     |
@@ -1410,6 +1448,7 @@ Sortie watches `WORKFLOW.md` for filesystem changes and re-applies configuration
 | `hooks.*`                              | Future hook executions.                |
 | `agent.kind`, `agent.command`, `agent.max_turns` | Future dispatches.            |
 | `agent.turn_timeout_ms`, `agent.read_timeout_ms`, `agent.stall_timeout_ms` | Future worker attempts. |
+| `agent.stop_grace_ms`                  | Future worker attempts for the per-session stop bound, which each attempt freezes when it starts. The shutdown worker-drain ceiling reads the active value instead, so a reloaded value bounds the next shutdown without waiting for a new attempt. |
 | `worker.ssh_hosts`, `worker.max_concurrent_agents_per_host`, `worker.ssh_strict_host_key_checking` | Dynamic. Future dispatches use the reloaded value; in-flight sessions are unaffected. |
 | Prompt template                        | Future worker attempts.                |
 | `dispatch.rules`, `dispatch.default`   | Future claims. In-flight issues keep the agent and template frozen at first dispatch. |

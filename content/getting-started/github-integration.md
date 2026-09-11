@@ -6,7 +6,7 @@ author: Sortie AI
 date: 2026-03-30
 weight: 40
 ---
-In this tutorial, we will connect Sortie to a GitHub repository, watch it discover issues by state labels, process them through a mock agent, and verify that GitHub reflects the state change — a label swap that moves the issue into a review column. By the end, you will have a working GitHub integration that polls for issues, dispatches an agent, and transitions states without any manual intervention.
+In this tutorial, we will connect Sortie to a GitHub repository, watch it discover issues by state labels, process them through a mock agent, and verify that GitHub reflects the state change, a label swap that moves the issue into a review column. By the end, you will have a working GitHub integration that polls for issues, dispatches an agent, and transitions states without any manual intervention.
 
 We use the mock agent on purpose. The quick start taught you how Sortie works with local files. This tutorial isolates the next variable: a real issue tracker. Once GitHub works, swapping in a real agent is a one-line change.
 
@@ -21,13 +21,13 @@ We use the mock agent on purpose. The quick start taught you how Sortie works wi
 
 ### Create a personal access token
 
-Sortie authenticates with the GitHub API using a Bearer token. You need a personal access token (PAT) — either a [classic token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-personal-access-token-classic) or a [fine-grained token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-fine-grained-personal-access-token).
+Sortie authenticates with the GitHub API using a Bearer token. You need a personal access token (PAT): either a [classic token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-personal-access-token-classic) or a [fine-grained token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-fine-grained-personal-access-token).
 
 For a **classic token**, select the `repo` scope. For a **fine-grained token**, grant Issues read/write and Contents read permissions on your target repository.
 
 Copy the token. You cannot view it again after closing the page.
 
-Unlike Jira's `email:token` format, the GitHub token is the raw string by itself — no colon, no email prefix.
+Unlike Jira's `email:token` format, the GitHub token is the raw string by itself: no colon, no email prefix.
 
 ### Set environment variables
 
@@ -51,7 +51,7 @@ You should see your token printed back. If the output is blank, re-run the `expo
 
 ### Prepare state labels
 
-GitHub Issues has only two native states: open and closed. Sortie maps richer workflow states through labels. Create four labels in your repository — these are Sortie's defaults for the GitHub adapter:
+GitHub Issues has only two native states: open and closed. Sortie maps richer workflow states through labels. Create four labels in your repository. These are Sortie's defaults for the GitHub adapter:
 
 | Label | Purpose |
 |---|---|
@@ -69,7 +69,7 @@ gh label create review --repo owner/repo
 gh label create done --repo owner/repo
 ```
 
-These are the label names the GitHub adapter ships as defaults. In the `WORKFLOW.md` we write next, `backlog` and `in-progress` are the active states, `review` is the handoff target, and `done` is the terminal state. You can use different names — match them in `WORKFLOW.md` and Sortie will follow your naming.
+These are the label names the GitHub adapter ships as defaults. In the `WORKFLOW.md` we write next, `backlog` and `in-progress` are the active states, `review` is the handoff target, and `done` is the terminal state. You can use different names. Match them in `WORKFLOW.md` and Sortie will follow your naming.
 
 ### Create a test issue
 
@@ -123,11 +123,11 @@ A few things to notice:
 
 - `tracker.kind: github` tells Sortie to use the GitHub adapter instead of the local file adapter from the quick start.
 - `tracker.project: owner/repo` identifies your repository. The format is `owner/repo`, not a Jira project key.
-- `$SORTIE_GITHUB_TOKEN` resolves from the environment variable we set earlier. The token is a single string — no `email:token` format like Jira.
+- `$SORTIE_GITHUB_TOKEN` resolves from the environment variable we set earlier. The token is a single string, with no `email:token` format like Jira.
 - No `tracker.endpoint` is needed. Sortie defaults to `https://api.github.com`.
 - `active_states` lists label names that qualify issues for dispatch. Label comparison is case-insensitive, so `Backlog` and `backlog` both match.
 - `handoff_state: review` tells Sortie to move the issue to "review" after the agent finishes. Sortie removes the current state label, adds the `review` label, and leaves the issue open for a human to look at. A handoff state has to stay outside both `active_states` and `terminal_states`, which is why `review` is not in the active list here. (See the [state constraints reference](/reference/workflow-config/#constraints) for the rule.)
-- `agent.kind: mock` uses the built-in mock agent. No subprocess, no file changes — it proves the tracker loop works.
+- `agent.kind: mock` uses the built-in mock agent. No subprocess, no file changes. It proves the tracker loop works.
 - `max_turns: 1` limits each mock session to a single turn. Enough to prove the flow.
 - `polling.interval_ms: 30000` polls GitHub every 30 seconds.
 
@@ -208,7 +208,7 @@ Start Sortie:
 sortie ./WORKFLOW.md
 ```
 
-You should see output like this (the `tick completed` lines carry more fields than shown here — only the ones relevant to this walkthrough are called out):
+You should see output like this (the `tick completed` lines carry more fields than shown here; only the ones relevant to this walkthrough are called out):
 
 ```
 level=INFO msg="sortie starting" version=0.x.x workflow_path=/home/you/sortie-github/WORKFLOW.md
@@ -231,7 +231,7 @@ Here is what happened, step by step:
 3. Sortie created a workspace directory and started a mock agent session.
 4. The mock agent ran one turn and exited normally.
 5. Sortie removed the `backlog` label and added the `review` label via the GitHub API. The issue stayed open.
-6. The next poll found zero candidates — `review` is not an active state, so the issue no longer qualifies for dispatch.
+6. The next poll found zero candidates: `review` is not an active state, so the issue no longer qualifies for dispatch.
 
 Notice the second `tick completed` line: `candidates=0`. Sortie has nothing left to process.
 
@@ -259,7 +259,7 @@ If the label did not change: review the Sortie logs for error messages and confi
 
 ## What we built
 
-We connected Sortie to a live GitHub repository and ran the full orchestration cycle against a real issue. Sortie polled GitHub for open issues, matched one by its `backlog` label, dispatched a mock agent session, and handed the issue off to "review" — removing the old label and adding the new one, with the issue left open for a human.
+We connected Sortie to a live GitHub repository and ran the full orchestration cycle against a real issue. Sortie polled GitHub for open issues, matched one by its `backlog` label, dispatched a mock agent session, and handed the issue off to "review", removing the old label and adding the new one, with the issue left open for a human.
 
 The key difference from Jira: GitHub has no native workflow states beyond open and closed, so Sortie manages state entirely through labels. More flexible, because there is no workflow to configure on the tracker side. The `active_states` labels still have to exist first, since an issue can only carry a label someone already created.
 

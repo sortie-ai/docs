@@ -13,7 +13,7 @@ Wire Sortie into your Prometheus and Grafana stack so you can track agent sessio
 
 - Sortie installed and running ([installation guide](/getting-started/installation/))
 - Prometheus installed and scraping targets
-- Grafana installed (optional — needed for the dashboard step)
+- Grafana installed (optional, needed for the dashboard step)
 
 {{% steps %}}
 
@@ -40,7 +40,7 @@ sortie_dispatches_total{outcome="error"} 1
 sortie_tokens_total{type="input"} 284500
 ```
 
-If you get `connection refused`, Sortie isn't running or the server was disabled with `--port 0`. Check the startup logs — Sortie prints the listen address at boot. To use a different port, pass `--port <N>` or set `server.port` in your WORKFLOW.md front matter.
+If you get `connection refused`, Sortie isn't running or the server was disabled with `--port 0`. Check the startup logs. Sortie prints the listen address at boot. To use a different port, pass `--port <N>` or set `server.port` in your WORKFLOW.md front matter.
 
 ### Add Sortie as a Prometheus scrape target
 
@@ -68,17 +68,17 @@ Reload Prometheus to pick up the new config:
 curl -X POST http://localhost:9090/-/reload
 ```
 
-Open the Prometheus UI at `http://localhost:9090/targets` (or Status > Targets). The `sortie` job should appear with state **UP**. If it shows **DOWN**, Prometheus can't reach the Sortie host — check network connectivity and firewall rules.
+Open the Prometheus UI at `http://localhost:9090/targets` (or Status > Targets). The `sortie` job should appear with state **UP**. If it shows **DOWN**, Prometheus can't reach the Sortie host. Check network connectivity and firewall rules.
 
 ### Verify metrics are flowing
 
 Paste these queries into the Prometheus expression browser to confirm data is arriving.
 
-**`sortie_sessions_running`** — returns the number of active agent sessions right now. If Sortie is idle, this is 0. If agents are working, you'll see a positive integer.
+**`sortie_sessions_running`**: returns the number of active agent sessions right now. If Sortie is idle, this is 0. If agents are working, you'll see a positive integer.
 
-**`rate(sortie_dispatches_total[5m])`** — dispatch rate per second over the last 5 minutes. Two series appear: `outcome="success"` and `outcome="error"`. Both at zero is normal when Sortie has no work queued.
+**`rate(sortie_dispatches_total[5m])`**: dispatch rate per second over the last 5 minutes. Two series appear: `outcome="success"` and `outcome="error"`. Both at zero is normal when Sortie has no work queued.
 
-**`sortie_build_info`** — returns a single series with value 1 and labels `version` and `go_version`. This confirms Sortie's version metadata is reaching Prometheus:
+**`sortie_build_info`**: returns a single series with value 1 and labels `version` and `go_version`. This confirms Sortie's version metadata is reaching Prometheus:
 
 ```
 sortie_build_info{version="1.21.0", go_version="go1.26.1"} 1
@@ -105,6 +105,7 @@ The dashboard includes these panels, grouped into collapsible rows:
 | Poll cycle health | Poll success/error/skip counts with duration overlay |
 | Reconciliation actions | Reconciliation outcome rate by action |
 | Budget Exhaustions | Issue entries into the budget-exhausted set over the last hour, by reason |
+| Runs Stopped In Flight | Sessions stopped in flight by a budget ceiling, by reason |
 | Tracker API | Tracker adapter call rate by operation and result |
 | Handoff transitions | Handoff transition outcome counters |
 | Dispatch transitions | Dispatch-time transition outcome counters |
@@ -123,7 +124,7 @@ Panels auto-adapt to your scrape interval.
 
 ### Alerting queries
 
-These PromQL expressions catch the operational problems you care about most. Each one is ready to drop into an Alertmanager rule or Grafana alert — you know how to wire that part up, so here are the expressions.
+These PromQL expressions catch the operational problems you care about most. Each one is ready to drop into an Alertmanager rule or Grafana alert. You know how to wire that part up, so here are the expressions.
 
 **No successful dispatches in 30 minutes.** Sortie may be stalled, misconfigured, or the tracker has no work:
 
@@ -131,7 +132,7 @@ These PromQL expressions catch the operational problems you care about most. Eac
 rate(sortie_dispatches_total{outcome="success"}[30m]) == 0
 ```
 
-**High dispatch error rate.** More than 10% of dispatches are failing — workspace preparation or agent spawn is broken:
+**High dispatch error rate.** More than 10% of dispatches are failing (workspace preparation or agent spawn is broken):
 
 ```promql
   rate(sortie_dispatches_total{outcome="error"}[5m])
@@ -139,7 +140,7 @@ rate(sortie_dispatches_total{outcome="success"}[30m]) == 0
 > 0.1
 ```
 
-**Token burn rate exceeding budget.** Adjust the threshold to match your cost appetite — this example fires above 100k tokens per hour:
+**Token burn rate exceeding budget.** Adjust the threshold to match your cost appetite. This example fires above 100k tokens per hour:
 
 ```promql
 sum(rate(sortie_tokens_total[1h])) > 100000
@@ -151,7 +152,7 @@ sum(rate(sortie_tokens_total[1h])) > 100000
 sortie_slots_available == 0
 ```
 
-Set this with a `for: 15m` duration in your alert rule. Brief saturation is normal during batch dispatches — sustained saturation is a problem.
+Set this with a `for: 15m` duration in your alert rule. Brief saturation is normal during batch dispatches. Sustained saturation is a problem.
 
 **Auto-merge keeps escalating.** Auto-merge is exhausting its retry budget and handing PRs back to a human instead of merging them, usually because CI is failing or branch protection is blocking the merge:
 
@@ -167,4 +168,4 @@ Pair this with a `for: 30m` duration so a single escalation does not page you. A
 
 Sortie metrics are now flowing into Prometheus, you have a Grafana dashboard for at-a-glance monitoring, and you have alerting queries for the failure modes that matter. For the complete list of every metric, label, and bucket boundary, see the [Prometheus metrics reference](/reference/prometheus-metrics/). For per-issue debugging through the JSON API, see the [HTTP API reference](/reference/http-api/). For the built-in HTML dashboard, see the [dashboard reference](/reference/dashboard/).
 
-Running more than one Sortie instance? Add each one as a scrape target under the same job and Prometheus already gives you a per-instance and fleet-wide view with no change to Sortie — see [how to aggregate metrics across instances](/guides/aggregate-metrics-across-instances/) for the multi-target config, the caveat on the shipped dashboard, and the `sortie stats` alternative for a point-in-time rollup instead of a live one.
+Running more than one Sortie instance? Add each one as a scrape target under the same job and Prometheus already gives you a per-instance and fleet-wide view with no change to Sortie. See [how to aggregate metrics across instances](/guides/aggregate-metrics-across-instances/) for the multi-target config, the caveat on the shipped dashboard, and the `sortie stats` alternative for a point-in-time rollup instead of a live one.

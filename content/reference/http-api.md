@@ -6,25 +6,25 @@ date: 2026-04-13
 weight: 40
 url: /reference/http-api/
 ---
-Sortie embeds an HTTP server that exposes a JSON API, an HTML dashboard, health probes, and Prometheus metrics - all on a single port.
+Sortie embeds an HTTP server that exposes a JSON API, an HTML dashboard, health probes, and Prometheus metrics, all on a single port.
 
 ## Server configuration
 
 The HTTP server starts by default on `127.0.0.1:7678` with no flags required.
 
-**Override the port** - pass `--port <N>` when launching Sortie:
+**Override the port**: pass `--port <N>` when launching Sortie:
 
 ```sh
 sortie --port 9090 WORKFLOW.md
 ```
 
-**Override the bind address** - pass `--host <ADDR>` for container deployments:
+**Override the bind address**: pass `--host <ADDR>` for container deployments:
 
 ```sh
 sortie --host 0.0.0.0 WORKFLOW.md
 ```
 
-**Workflow config** - set `server.port` and `server.host` in the WORKFLOW.md front matter extensions:
+**Workflow config**: set `server.port` and `server.host` in the WORKFLOW.md front matter extensions:
 
 ```yaml
 ---
@@ -39,13 +39,13 @@ CLI flags take precedence over extension keys. Port `0` disables the server enti
 
 When the default port (7678) is already occupied and no port was explicitly requested, Sortie logs a warning and starts without the HTTP server. When an explicit port is in use, Sortie exits with code `1`.
 
-The HTTP server is not started in [`--dry-run`](/reference/cli/#-dry-run) mode. Changing the port or host requires a restart - there is no hot-rebind.
+The HTTP server is not started in [`--dry-run`](/reference/cli/#--dry-run) mode. Changing the port or host requires a restart: there is no hot-rebind.
 
 For the full `server` extension schema, see [WORKFLOW.md configuration reference](/reference/workflow-config/). For Prometheus metric definitions, see [Prometheus metrics reference](/reference/prometheus-metrics/).
 
 ---
 
-## GET / - HTML dashboard
+## GET /: HTML dashboard
 
 Server-rendered HTML page showing real-time system state. Auto-refreshes in the browser.
 
@@ -65,7 +65,7 @@ The run history table lists recently completed sessions. Each entry contains:
 |---|---|---|
 | `identifier` | string | Tracker-assigned issue identifier (e.g., `"PROJ-123"`). |
 | `attempt` | integer | One-based retry attempt number. |
-| `status` | string | Terminal outcome: `"succeeded"`, `"failed"`, `"cancelled"`, `"ci_failed"`, or `"needs_person"`. |
+| `status` | string | Terminal outcome: `"succeeded"`, `"failed"`, `"cancelled"`, `"ci_failed"`, `"needs_person"`, or `"budget_stopped"`. `"budget_stopped"` is a session the per-issue token ceiling cancelled while it was still running; `error` then carries the token figures behind the stop. |
 | `workflow_file` | string | Path to the workflow definition used for this run. |
 | `started_at` | string | Formatted start timestamp. |
 | `completed_at` | string | Formatted completion timestamp. |
@@ -178,7 +178,7 @@ sqlite3 .sortie.db "SELECT review_metadata FROM run_history WHERE review_metadat
 
 ---
 
-## GET /api/v1/state - System state
+## GET /api/v1/state: System state
 
 Returns a full runtime snapshot: running sessions, retry queue, aggregate totals, and rate limits.
 
@@ -221,7 +221,11 @@ curl http://localhost:7678/api/v1/state
       },
       "tool_time_percent": 34.7,
       "api_time_percent": 51.2,
-      "tokens_measured": true
+      "tokens_measured": true,
+      "usage_arrival": "incremental",
+      "usage_attribution": "per_model",
+      "tokens_pending": false,
+      "api_requests_measured": true
     }
   ],
   "retrying": [
@@ -265,26 +269,48 @@ curl http://localhost:7678/api/v1/state
 | Field | Description |
 |---|---|
 | `display_identifier` | Human-facing identifier when the tracker distinguishes it from `issue_identifier`. Omitted when empty. |
-| `tokens` | Nested object with `input_tokens`, `output_tokens`, `total_tokens`, and `cache_read_tokens` for this session. `total_tokens` is `input_tokens + output_tokens`; `cache_read_tokens` is a subset of `input_tokens`, never an addition to it. All four are `0` when `tokens_measured` is `false`. |
-| `tokens_measured` | `false` when the coding agent has reported no token usage for this session, making the zeros in `tokens` an absence of measurement rather than a measurement of zero. `true` once any usage figure has been reported. |
+| `tokens` | Nested object with `input_tokens`, `output_tokens`, `total_tokens`, and `cache_read_tokens` for this session. `total_tokens` is `input_tokens + output_tokens`; `cache_read_tokens` is a subset of `input_tokens`, never an addition to it. Each member is an integer or `null`, and the four are `null` together, exactly when `tokens_measured` is `false`. |
+| `tokens_measured` | `false` until the coding agent reports token usage for this session, including before the first turn begins; that is what makes the members of `tokens` `null` rather than `0`. `true` once any usage figure has been reported. |
 | `workspace_path` | Absolute filesystem path to the issue's workspace directory. |
 | `model_name` | LLM model in use. Omitted when unknown. |
-| `api_request_count` | Total API requests made by the agent in this session. |
-| `requests_by_model` | Breakdown of API requests per model. Omitted when empty. |
+| `api_request_count` | Count of LLM API requests, one per `token_usage` event received during this session. Integer or `null`, and `null` exactly when `api_requests_measured` is `false`. |
+| `requests_by_model` | Breakdown of API requests per model. Omitted when `api_requests_measured` is `false`, when `usage_attribution` is anything other than `"per_model"`, or when the breakdown is empty. |
 | `tool_time_percent` | Percentage of elapsed wall-clock time spent in tool execution. `null` when not yet computed. |
 | `api_time_percent` | Percentage of elapsed wall-clock time spent waiting on API calls. `null` when not yet computed. |
+| `usage_arrival` | When this session's token figures arrive, frozen at dispatch from the agent kind, its configuration, and whether the session runs over SSH. `"incremental"` (one figure per LLM API request, while the turn is still running), `"turn_end"` (at most one figure per turn, after the turn's work is over), `"none"` (no figure is ever produced), or `""` when the kind declares nothing. |
+| `usage_attribution` | What this session's token figures attribute to, frozen alongside `usage_arrival`. `"per_model"` (a figure names the model that produced it), `"session_total"` (figures are session-level totals with no model), `"none"` (there is no figure to attribute), or `""` when the kind declares nothing. |
+| `tokens_pending` | `true` only when `usage_arrival` is `"turn_end"`, `tokens_measured` is `true`, and the turn whose figure is still to settle has not ended. The counts in `tokens` then exclude the turn in progress rather than being final. |
+| `api_requests_measured` | `true` exactly when `api_request_count` is non-null. It requires `usage_arrival` to be `"incremental"`, and then either a figure already counted or no turn yet begun. A `"turn_end"` session is never measured, because its counter settles at most once per turn rather than once per request; an `"incremental"` session with nothing counted is not measured either once its first turn has begun, whatever its agent kind declares. |
+
+The same row on a session that has measured nothing, showing only the fields that differ:
+
+```json
+{
+  "tokens": {
+    "input_tokens": null,
+    "output_tokens": null,
+    "total_tokens": null,
+    "cache_read_tokens": null
+  },
+  "api_request_count": null,
+  "tokens_measured": false,
+  "api_requests_measured": false
+}
+```
+
+`model_name` and `requests_by_model` are absent from that row rather than empty. A `null` figure is the absence of a measurement, not a measurement of zero: a consumer aggregating figures across rows must skip a `null` rather than add it as `0`.
 
 **`budget_exhausted[]` entries:** Issues held out of dispatch by a per-issue budget ceiling ([`agent.max_sessions`](/reference/workflow-config/#agent) or [`agent.max_tokens`](/reference/workflow-config/#agent)).
 
 | Field | Description |
 |---|---|
-| `reason` | `session_budget` or `token_budget` - which ceiling stopped dispatch. |
+| `reason` | `session_budget` or `token_budget`: which ceiling stopped dispatch. |
 | `used_sessions`, `budget_sessions` | Completed sessions for the issue against the configured `agent.max_sessions`. |
-| `used_tokens`, `budget_tokens` | Measured cumulative tokens against the configured `agent.max_tokens`. `used_tokens` is `null` when `reason` is `session_budget`. |
-| `unmeasured_sessions` | Count of the issue's sessions whose agent reported no token usage. `null` when `reason` is `session_budget`. |
+| `used_tokens`, `budget_tokens` | Measured cumulative tokens against the configured `agent.max_tokens`. `used_tokens` is `null` only on a `session_budget` entry, and there only when the token ceiling has not been evaluated for the issue: `agent.max_tokens` is `0`, or reading the issue's token spend failed. |
+| `unmeasured_sessions` | Count of the issue's sessions whose agent reported no token usage. `null` exactly when `used_tokens` is `null`. |
 | `exhausted_at` | When the hold began. |
 
-**`agent_totals`:** Cumulative across all sessions since Sortie started. `seconds_running` includes elapsed time from currently active sessions, not only completed ones.
+**`agent_totals`:** Cumulative across all sessions since Sortie's database was created, carried over when Sortie restarts; a session whose coding agent has reported no token usage, running or completed, adds nothing to its four token counts. `seconds_running` includes elapsed time from currently active sessions, not only completed ones.
 
 **`active_estimated_cost_usd`:** Estimated total cost across currently running sessions, computed from configured [token rates](/reference/workflow-config/#token_rates) and each running session's agent adapter kind. Sessions whose `tokens_measured` is `false` are excluded. Omitted when token rates are not configured or no running session both matches a configured rate and has reported token usage. This is a presentation-layer estimate, not provider billing data.
 
@@ -299,7 +325,7 @@ curl http://localhost:7678/api/v1/state
 
 ---
 
-## GET /api/v1/{identifier} - Issue detail
+## GET /api/v1/{identifier}: Issue detail
 
 Returns issue-specific runtime and debug details. The `{identifier}` path parameter is the issue identifier (e.g., `MT-649`), not the internal issue ID.
 
@@ -345,7 +371,11 @@ curl http://localhost:7678/api/v1/MT-649
     },
     "tool_time_percent": 34.7,
     "api_time_percent": 51.2,
-    "tokens_measured": true
+    "tokens_measured": true,
+    "usage_arrival": "incremental",
+    "usage_attribution": "per_model",
+    "tokens_pending": false,
+    "api_requests_measured": true
   },
   "retry": null,
   "budget_exhausted": null,
@@ -442,7 +472,7 @@ When an issue has neither a running session nor a pending retry, but is held out
 
 ---
 
-## POST /api/v1/refresh - Trigger poll cycle
+## POST /api/v1/refresh: Trigger poll cycle
 
 Queues an immediate poll and reconciliation cycle. Useful for CI integrations that push issues and want Sortie to pick them up without waiting for the next poll interval.
 
@@ -461,9 +491,9 @@ curl -X POST http://localhost:7678/api/v1/refresh
 }
 ```
 
-`coalesced: true` means a refresh was already pending when your request arrived. The request was not lost - it merged with the existing pending signal. You don't need to retry.
+`coalesced: true` means a refresh was already pending when your request arrived. The request was not lost. It merged with the existing pending signal. You don't need to retry.
 
-### Response (409 Conflict - draining)
+### Response (409 Conflict, draining)
 
 If Sortie is shutting down, the refresh is rejected:
 
@@ -486,7 +516,7 @@ If Sortie is shutting down, the refresh is rejected:
 
 ---
 
-## GET /livez - Liveness probe
+## GET /livez: Liveness probe
 
 Lightweight liveness check for container orchestrators. Returns `200` when the process is alive, `503` when draining.
 
@@ -502,7 +532,7 @@ curl http://localhost:7678/livez
 }
 ```
 
-### Response (503 - draining)
+### Response (503, draining)
 
 ```json
 {
@@ -512,7 +542,7 @@ curl http://localhost:7678/livez
 
 ---
 
-## GET /readyz - Readiness probe
+## GET /readyz: Readiness probe
 
 Deep readiness check that validates database connectivity, preflight configuration, and workflow loading. Use this for Kubernetes readiness probes or load balancer health checks.
 
@@ -535,7 +565,7 @@ curl http://localhost:7678/readyz
 }
 ```
 
-### Response (503 - one or more checks failed)
+### Response (503, one or more checks failed)
 
 ```json
 {
@@ -567,7 +597,7 @@ Each check is independent. `status` is `"pass"` only when every individual check
 
 ---
 
-## GET /metrics - Prometheus metrics
+## GET /metrics: Prometheus metrics
 
 Standard Prometheus text exposition format. Available on the same port as all other endpoints when the HTTP server is enabled.
 
@@ -575,7 +605,7 @@ Standard Prometheus text exposition format. Available on the same port as all ot
 curl http://localhost:7678/metrics
 ```
 
-Returns `text/plain` with Prometheus metric families. For the full metric catalog - names, labels, types, PromQL examples, and cardinality model - see [Prometheus metrics reference](/reference/prometheus-metrics/).
+Returns `text/plain` with Prometheus metric families. For the full metric catalog (names, labels, types, PromQL examples, and cardinality model), see [Prometheus metrics reference](/reference/prometheus-metrics/).
 
 ---
 
@@ -603,7 +633,7 @@ All JSON API errors use a consistent structure:
 
 ## Method enforcement
 
-Every endpoint enforces its allowed HTTP method. Sending the wrong method returns `405 Method Not Allowed` with an `Allow` header indicating the correct method, and a JSON error envelope - not plain text.
+Every endpoint enforces its allowed HTTP method. Sending the wrong method returns `405 Method Not Allowed` with an `Allow` header indicating the correct method, and a JSON error envelope, not plain text.
 
 ```sh
 curl -X DELETE http://localhost:7678/api/v1/state

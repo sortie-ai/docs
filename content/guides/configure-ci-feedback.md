@@ -12,7 +12,7 @@ CI feedback closes the loop between your CI pipeline and Sortie's agents. When a
 ## Prerequisites
 
 - Sortie running with the GitHub, Gitea, or GitLab tracker adapter (`tracker.kind: github`, `gitea`, or `gitlab`), see [Connect to GitHub](/guides/connect-to-github/), [Connect to Gitea](/guides/connect-to-gitea/), or [Connect to GitLab](/guides/connect-to-gitlab/)
-- A branch-per-issue hook workflow that pushes commits — see [Setup workspace hooks](/guides/setup-workspace-hooks/)
+- A branch-per-issue hook workflow that pushes commits, see [Setup workspace hooks](/guides/setup-workspace-hooks/)
 - CI configured on the repository (GitHub Actions, Gitea Actions, GitLab CI/CD, or any system that reports through the forge's status API)
 - An access token with the scope the CI provider needs for its status route: GitHub needs `repo`; see the [GitLab adapter reference](/reference/adapter-gitlab/#scm-and-ci-surface) and the [Gitea adapter reference](/reference/adapter-gitea/#scm-and-ci-surface) for their scopes
 - A source-control adapter, resolved from `reactions.ci_failure.provider` when no other [PR reaction](/guides/setup-pr-reactions/) configures one; every active reaction's provider must then agree, or `sortie validate` reports a mismatch offline and Sortie exits at startup
@@ -104,7 +104,7 @@ CI feedback needs a repository to query and a ref to check. It gets these from t
 {"branch": "sortie/PROJ-123", "sha": "abc123def456", "pushed_at": "2026-04-10T12:00:00Z", "pr_number": 42, "owner": "myorg", "repo": "myrepo"}
 ```
 
-Once the watch is seeded, the orchestrator resolves the pull request's current head itself, through the SCM adapter, on every poll, rather than reading a ref recorded once. The `pushed_at` timestamp is used only by startup recovery for handoff-stage issues — it determines whether a previously pushed branch is still fresh enough to re-poll after a restart. If absent, recovery falls back to the agent run's `completed_at` time. See [Resume sessions across restarts](/guides/resume-sessions-across-restarts/) for the recovery model.
+Once the watch is seeded, the orchestrator resolves the pull request's current head itself, through the SCM adapter, on every poll, rather than reading a ref recorded once. The `pushed_at` timestamp is used only by startup recovery for handoff-stage issues. It determines whether a previously pushed branch is still fresh enough to re-poll after a restart. If absent, recovery falls back to the agent run's `completed_at` time. See [Resume sessions across restarts](/guides/resume-sessions-across-restarts/) for the recovery model.
 
 Here's an `after_run` hook that pushes, opens a pull request, and writes the SCM metadata:
 
@@ -346,11 +346,11 @@ For the full `reactions.ci_failure` field list, including `watch_window_ms` and 
 
 ## Related guides
 
-- [Configure retry behavior](/guides/configure-retry-behavior/) — `max_sessions`, backoff, stall detection
-- [Connect to GitHub](/guides/connect-to-github/) — GitHub adapter setup, token scopes
-- [Setup workspace hooks](/guides/setup-workspace-hooks/) — hook scripts, environment variables
-- [Write a prompt template](/guides/write-prompt-template/) — template syntax, `{{ .ci_failure }}` variable
-- [Agent extensions reference](/reference/agent-extensions/) — `.sortie/status` protocol
-- [State machine reference](/reference/state-machine/) — claim lifecycle, retry states
-- [Prometheus metrics reference](/reference/prometheus-metrics/) — CI-related metrics
-- [Error reference](/reference/errors/) — CI error kinds
+- [Configure retry behavior](/guides/configure-retry-behavior/): `max_sessions`, backoff, stall detection
+- [Connect to GitHub](/guides/connect-to-github/): GitHub adapter setup, token scopes
+- [Setup workspace hooks](/guides/setup-workspace-hooks/): hook scripts, environment variables
+- [Write a prompt template](/guides/write-prompt-template/): template syntax, `{{ .ci_failure }}` variable
+- [Agent extensions reference](/reference/agent-extensions/): `.sortie/status` protocol
+- [State machine reference](/reference/state-machine/): claim lifecycle, retry states
+- [Prometheus metrics reference](/reference/prometheus-metrics/): CI-related metrics
+- [Error reference](/reference/errors/): CI error kinds

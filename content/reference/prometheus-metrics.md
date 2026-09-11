@@ -6,14 +6,14 @@ date: 2026-03-26
 weight: 60
 url: /reference/prometheus-metrics/
 ---
-Sortie exposes a `/metrics` endpoint in Prometheus text exposition format on the same port as the JSON API and HTML dashboard. The HTTP server starts by default on port `7678`. See [CLI reference](/reference/cli/#-port) for port and host configuration.
+Sortie exposes a `/metrics` endpoint in Prometheus text exposition format on the same port as the JSON API and HTML dashboard. The HTTP server starts by default on port `7678`. See [CLI reference](/reference/cli/#--port) for port and host configuration.
 
 > [!NOTE]
-> When the HTTP server is disabled (`--port 0`), the orchestrator uses a no-op metrics implementation. Metrics are not collected internally - they are discarded, not buffered.
+> When the HTTP server is disabled (`--port 0`), the orchestrator uses a no-op metrics implementation. Metrics are not collected internally: they are discarded, not buffered.
 
 ## Gauges
 
-Point-in-time values. Sortie updates these after every state mutation - dispatch, worker exit, retry, reconciliation.
+Point-in-time values. Sortie updates these after every state mutation: dispatch, worker exit, retry, reconciliation.
 
 | Name | Labels | Description | Producing layer |
 |---|---|---|---|
@@ -39,12 +39,13 @@ Monotonically increasing. Apply `rate()` or `increase()` to extract per-second o
 | `sortie_retries_total` | `trigger` | Retry scheduling events. `trigger` is `error` (failed attempt), `continuation` (successful turn, more work remains), `timer` (retry timer fired), or `stall` (stall timeout detected). | Coordination |
 | `sortie_reconciliation_actions_total` | `action` | Reconciliation outcomes per issue checked. `action` is `stop` (issue state no longer active), `cleanup` (terminal state, workspace removed), `keep` (still active, no action), `sweep_cleanup` (terminal state, workspace removed by the periodic sweep), or `sweep_expired` (workspace removed by the sweep's age-based retention bound). | Coordination |
 | `sortie_poll_cycles_total` | `result` | Poll tick outcomes. `result` is `success` (fetched and dispatched), `error` (tracker fetch failed), or `skipped` (preflight validation failed, dispatch skipped). | Coordination |
-| `sortie_tracker_requests_total` | `operation`, `result` | Tracker adapter API calls. Each adapter method increments this independently - the orchestrator never touches it. `operation` includes `fetch_candidates`, `fetch_issue`, `fetch_comments`, `fetch_blockers` (the per-candidate blocker read on GitHub and Gitea), `transition`, and `comment`. `result` is `success` or `error`. | Integration |
+| `sortie_tracker_requests_total` | `operation`, `result` | Tracker adapter API calls. Each adapter method increments this independently. The orchestrator never touches it. `operation` includes `fetch_candidates`, `fetch_issue`, `fetch_comments`, `fetch_blockers` (the per-candidate blocker read on GitHub and Gitea), `transition`, and `comment`. `result` is `success` or `error`. | Integration |
 | `sortie_handoff_transitions_total` | `result` | Handoff state transition outcomes. `result` is `success` (issue transitioned), `error` (transition API failed, retry scheduled as fallback), `skipped` (a handoff state is configured but no transition was performed, for one of three reasons this label does not distinguish: the issue had already reached a terminal state, it had left the active set, or the run's evidence verdict withheld the handoff and the verification read taken before recording that outcome reported the issue terminal), or `withheld` (the evidence verdict withheld the handoff and that verification read did not report a terminal state, so the run is recorded as failed). Never recorded when `handoff_state` is unset. | Coordination |
 | `sortie_issue_parks_total` | `reason` | Issue park events. `reason` is `handoff_absence` (the consecutive handoff-absence ceiling was reached) or `agent_blocked` (the agent reported itself blocked). | Coordination |
-| `sortie_budget_exhaustions_total` | `reason` | Issues entering the per-issue budget-exhausted set. `reason` is `session_budget` or `token_budget`. Incremented once per hold, by whichever lane - the poll-tick rebuild or the retry timer - discovers it. | Coordination |
+| `sortie_budget_exhaustions_total` | `reason` | Issues entering the per-issue budget-exhausted set. `reason` is `session_budget` or `token_budget`. Incremented once per hold, by whichever lane (the poll-tick rebuild or the retry timer) discovers it. | Coordination |
+| `sortie_runs_stopped_by_budget_total` | `reason` | Sessions the orchestrator stopped in flight on reaching a per-issue budget ceiling. `reason` is `token_budget`, the only value produced: a session is counted whole, so the session ceiling cannot be crossed part-way through one. Incremented once per stopped session, on the event loop that observed the usage figure. | Coordination |
 | `sortie_dispatch_transitions_total` | `result` | Dispatch-time in-progress transition outcomes. `result` is `success` (issue transitioned at dispatch), `error` (transition API failed; worker continues to workspace preparation), or `skipped` (issue was already in the target state). Only recorded when [`tracker.in_progress_state`](/reference/workflow-config/) is configured. | Coordination |
-| `sortie_tracker_comments_total` | `lifecycle`, `result` | Tracker comment attempts. `lifecycle` is `dispatch`, `completion`, or `failure` (gated on [`tracker.comments.*`](/reference/workflow-config/) flags), or `budget_hold` (the notice posted when a per-issue budget ceiling is reached, independent of those flags and paced to at most ten notices per thirty-second window). `result` is `success` or `error`. Comment failures are non-fatal - they increment the `error` result but never block the orchestrator. | Coordination |
+| `sortie_tracker_comments_total` | `lifecycle`, `result` | Tracker comment attempts. `lifecycle` is `dispatch`, `completion`, or `failure` (gated on [`tracker.comments.*`](/reference/workflow-config/) flags), or `budget_hold` (the notice posted when a per-issue budget ceiling is reached, independent of those flags and paced to at most ten notices per thirty-second window). `result` is `success` or `error`. Comment failures are non-fatal: they increment the `error` result but never block the orchestrator. | Coordination |
 | `sortie_tool_calls_total` | `tool`, `result` | Agent tool call completions. `tool` is the tool name (e.g., `Bash`, `tracker_api`). `result` is `success` or `error`. | Coordination |
 | `sortie_ci_status_checks_total` | `result` | CI status check outcomes. `result` is `passing`, `pending`, `failing`, or `error`. Only recorded when the CI reconciliation loop runs. | Coordination |
 | `sortie_ci_escalations_total` | `action` | CI escalation actions, taken when checks remain non-passing beyond the configured threshold and when a [`triage` command](/reference/reactions/#triage-command) answers `escalate`. `action` is `label`, `comment`, or `error`. | Coordination |
@@ -59,7 +60,7 @@ Monotonically increasing. Apply `rate()` or `increase()` to extract per-second o
 | `sortie_candidate_holds_total` | `reason` | Candidates the dispatch loop held instead of starting. `reason` is `blocked_by` (a blocker has not reached a terminal state), `blockers_unresolved` (the blocker read for this candidate failed, or this poll had already given up on further reads after an earlier failure), `blockers_not_read` (this poll's per-candidate blocker-read budget was already spent), or `blockers_incomplete` (the blocker list was not authoritative and nothing was available to complete it). Incremented once per held candidate; never incremented for a candidate rejected by a basic eligibility or capacity check. See [candidate eligibility](/reference/state-machine/#candidate-eligibility). | Coordination |
 | `sortie_self_review_iterations_total` | `verdict` | Self-review iterations by outcome. `verdict` is `pass` (verification succeeded), `iterate` (agent re-prompted for another attempt), or `none` (no verdict produced). Only recorded when [`self_review.enabled: true`](/reference/workflow-config/) is set. When self-review is disabled, this counter remains at zero. | Coordination |
 | `sortie_self_review_sessions_total` | `final_verdict` | Self-review sessions by final outcome. `final_verdict` is `pass`, `iterate`, or `none`. One increment per completed self-review session. Only recorded when self-review is enabled. | Coordination |
-| `sortie_self_review_cap_reached_total` | - | Self-review sessions that hit the iteration cap without passing. A sustained non-zero rate means verification commands are consistently failing - check your `self_review.verify_commands` configuration. Only recorded when self-review is enabled. | Coordination |
+| `sortie_self_review_cap_reached_total` | - | Self-review sessions that hit the iteration cap without passing. A sustained non-zero rate means verification commands are consistently failing. Check your `self_review.verify_commands` configuration. Only recorded when self-review is enabled. | Coordination |
 
 ## Histograms
 
@@ -71,7 +72,7 @@ Distribution summaries with pre-defined buckets. Query percentiles with `histogr
 | `sortie_worker_duration_seconds` | `exit_type` | Wall-clock time per worker session, from spawn to exit. `exit_type` takes the same values as `sortie_worker_exits_total`: `normal`, `error`, `cancelled`, or `soft_stop`. | Exponential from 10s, factor 2, 12 buckets (10s → ~5.7h) | Coordination |
 | `sortie_self_review_verification_duration_seconds` | `command` | Wall-clock time per verification command execution during self-review. `command` is the first 64 characters of the shell command. Only recorded when self-review is enabled. | Exponential from 10s, factor 2, 12 buckets (10s → ~5.7h) | Coordination |
 
-The poll duration histogram is tuned for O(seconds) cycles - tracker API latency plus dispatch overhead. The worker duration histogram covers the full range from quick failures (tens of seconds) to long-running agent sessions (hours).
+The poll duration histogram is tuned for O(seconds) cycles: tracker API latency plus dispatch overhead. The worker duration histogram covers the full range from quick failures (tens of seconds) to long-running agent sessions (hours).
 
 Bucket boundaries for `sortie_poll_duration_seconds`: 0.1, 0.2, 0.4, 0.8, 1.6, 3.2, 6.4, 12.8, 25.6, 51.2 seconds.
 
@@ -98,15 +99,15 @@ sortie_build_info
 
 You will not find `issue_id` or `issue_identifier` as Prometheus labels. This is deliberate.
 
-Sortie's concurrency is O(10) agents, not O(10,000) microservice endpoints - but issue identifiers are unbounded over time. Adding them as labels would create an ever-growing number of time series that degrades Prometheus storage and query performance for no operational benefit.
+Sortie's concurrency is O(10) agents, not O(10,000) microservice endpoints. Issue identifiers, though, are unbounded over time. Adding them as labels would create an ever-growing number of time series that degrades Prometheus storage and query performance for no operational benefit.
 
 Prometheus answers aggregate questions: "How many sessions are running?", "What is the token burn rate?", "Are dispatches failing?" The [JSON API](/reference/http-api/) answers per-issue questions: "What is PROJ-42 doing right now?", "How many tokens has this session consumed?" Use both.
 
-None of the labels above name the Sortie instance itself, because Sortie's metrics registry has no concept of one. Prometheus supplies that separation on the scrape side instead: every series gets an `instance` label (the scraped `host:port`) and a `job` label (the `job_name` from `scrape_configs`), regardless of what the exporter emits. Point one Prometheus at several Sortie processes and those two labels are what let you view each instance separately or sum across all of them — see [how to aggregate metrics across instances](/guides/aggregate-metrics-across-instances/).
+None of the labels above name the Sortie instance itself, because Sortie's metrics registry has no concept of one. Prometheus supplies that separation on the scrape side instead: every series gets an `instance` label (the scraped `host:port`) and a `job` label (the `job_name` from `scrape_configs`), regardless of what the exporter emits. Point one Prometheus at several Sortie processes and those two labels are what let you view each instance separately or sum across all of them. See [how to aggregate metrics across instances](/guides/aggregate-metrics-across-instances/).
 
 ## PromQL examples
 
-These queries assume the default 15-second scrape interval. Adjust `rate()` windows if your interval differs - the window should span at least 4 scrape intervals.
+These queries assume the default 15-second scrape interval. Adjust `rate()` windows if your interval differs. The window should span at least 4 scrape intervals.
 
 ### Token burn rate
 
@@ -122,7 +123,7 @@ Tokens per minute, broken down by `input`, `output`, and `cache_read`. Multiply 
 sum(rate(sortie_dispatches_total[5m])) by (outcome)
 ```
 
-Dispatches per second by outcome. A sustained non-zero `outcome="error"` rate means workspace preparation or agent spawn is failing - check structured logs for the root cause.
+Dispatches per second by outcome. A sustained non-zero `outcome="error"` rate means workspace preparation or agent spawn is failing. Check structured logs for the root cause.
 
 To get the error ratio as a percentage:
 
@@ -144,7 +145,7 @@ Current running sessions. For capacity headroom:
 sortie_slots_available / (sortie_sessions_running + sortie_slots_available) * 100
 ```
 
-Percentage of dispatch capacity remaining. Alert when this stays below 10% - you are running near your concurrency ceiling.
+Percentage of dispatch capacity remaining. Alert when this stays below 10%: you are running near your concurrency ceiling.
 
 ### Worker duration percentiles
 
@@ -154,7 +155,7 @@ histogram_quantile(0.95, rate(sortie_worker_duration_seconds_bucket[30m]))
 histogram_quantile(0.99, rate(sortie_worker_duration_seconds_bucket[30m]))
 ```
 
-p50, p95, and p99 worker session duration over the last 30 minutes. Use a wider window (30m+) because worker sessions are long-lived - a 5-minute window may not contain enough completed sessions for meaningful percentiles.
+p50, p95, and p99 worker session duration over the last 30 minutes. Use a wider window (30m+) because worker sessions are long-lived: a 5-minute window may not contain enough completed sessions for meaningful percentiles.
 
 ### Retry rate by trigger
 
@@ -162,7 +163,7 @@ p50, p95, and p99 worker session duration over the last 30 minutes. Use a wider 
 sum(rate(sortie_retries_total[5m])) by (trigger)
 ```
 
-Retries per second by trigger type. A spike in `trigger="error"` retries signals systemic agent failures. A spike in `trigger="stall"` retries means agents are hanging - check `agent.stall_timeout_ms` in your workflow config.
+Retries per second by trigger type. A spike in `trigger="error"` retries signals systemic agent failures. A spike in `trigger="stall"` retries means agents are hanging. Check `agent.stall_timeout_ms` in your workflow config.
 
 ### Poll cycle duration trend
 
@@ -190,7 +191,7 @@ rate(sortie_self_review_sessions_total{final_verdict="pass"}[30m])
 * 100
 ```
 
-Percentage of self-review sessions that ended with a passing verdict over the last 30 minutes. A declining pass rate means agents are producing code that fails verification commands more often - review your prompt templates and verify commands. Use a wider window (30m+) because self-review sessions complete infrequently.
+Percentage of self-review sessions that ended with a passing verdict over the last 30 minutes. A declining pass rate means agents are producing code that fails verification commands more often. Review your prompt templates and verify commands. Use a wider window (30m+) because self-review sessions complete infrequently.
 
 For cap-hit monitoring:
 
@@ -228,7 +229,7 @@ sum(rate(sortie_dispatch_rule_match_total[1h])) by (layer, rule)
 sum(rate(sortie_candidate_holds_total[1h])) by (reason)
 ```
 
-Candidates held per second, broken down by reason. A sustained `blocked_by` rate reflects real open dependencies in the tracker. A sustained `blockers_unresolved` or `blockers_not_read` rate on GitHub or Gitea points at a read problem instead - a token missing the dependency scope, a rate limit, or a candidate volume that regularly exceeds the four-request-per-poll budget - and is worth checking against `sortie_tracker_requests_total{operation="fetch_blockers"}`.
+Candidates held per second, broken down by reason. A sustained `blocked_by` rate reflects real open dependencies in the tracker. A sustained `blockers_unresolved` or `blockers_not_read` rate on GitHub or Gitea points at a read problem instead (a token missing the dependency scope, a rate limit, or a candidate volume that regularly exceeds the four-request-per-poll budget), and is worth checking against `sortie_tracker_requests_total{operation="fetch_blockers"}`.
 
 ## Grafana dashboard
 
@@ -268,6 +269,7 @@ The dashboard organizes panels into nine collapsible rows. Each panel maps to on
 | Reactions & Routing | Review escalations | `sortie_review_escalations_total` | Time series (rate) by `action` |
 | Reactions & Routing | Dispatch rule matches | `sortie_dispatch_rule_match_total` | Time series (rate) by `layer` |
 | Reactions & Routing | Candidate holds | `sortie_candidate_holds_total` | Time series (rate) by `reason` |
+| Reactions & Routing | Runs Stopped In Flight | `sortie_runs_stopped_by_budget_total` | Stat by `reason` |
 
 Import the JSON file in Grafana via **Dashboards → Import → Upload JSON file**. Set your Prometheus data source when prompted.
 
@@ -282,7 +284,7 @@ scrape_configs:
       - targets: ["localhost:7678"]
 ```
 
-Replace `localhost:7678` with the host and port where Sortie's HTTP server is running. Sortie binds to `127.0.0.1` by default - if Prometheus runs on a different machine, pass `--host 0.0.0.0` to Sortie or configure a reverse proxy to make the port reachable.
+Replace `localhost:7678` with the host and port where Sortie's HTTP server is running. Sortie binds to `127.0.0.1` by default. If Prometheus runs on a different machine, pass `--host 0.0.0.0` to Sortie or configure a reverse proxy to make the port reachable.
 
 To scrape more than one Sortie instance, add more entries to `targets`. See [how to aggregate metrics across instances](/guides/aggregate-metrics-across-instances/) for the full multi-instance pattern and its limits.
 

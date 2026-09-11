@@ -24,16 +24,15 @@ Sortie takes no position on how your adapter is produced: by hand, by a hired de
 
 ### Understand the agent adapter contract
 
-The contract is `domain.AgentAdapter` in `internal/domain/agent.go`. It has exactly four methods.
+The contract is `domain.AgentAdapter` in `internal/domain/agent.go`. It has exactly three methods.
 
 | Method | What it must do | When the orchestrator calls it |
 |---|---|---|
 | `StartSession(ctx, params) (Session, error)` | Validate the workspace, resolve the binary, build per-session state, return an opaque `Session`. For fork-per-turn agents, start no long-lived process here. | Once per issue session, before the first turn. |
 | `RunTurn(ctx, session, params) (TurnResult, error)` | Execute one turn for `params.Prompt`, deliver events through `params.OnEvent`, return the outcome. | Once per turn; continuation turns reuse the same `Session`. |
 | `StopSession(ctx, session) error` | Terminate cleanly and release resources. Safe to call after a failed `RunTurn`. | Exactly once per session, after the last turn. |
-| `EventStream() <-chan domain.AgentEvent` | Return the async event channel, or `nil` for synchronous adapters. | Once, to learn whether the adapter pushes events asynchronously. |
 
-There are two delivery modes, and you pick one. A synchronous adapter returns `nil` from `EventStream()` and delivers every event through the `OnEvent` callback on `RunTurnParams` during the turn. An asynchronous adapter returns a live channel and pushes events onto it. Every bundled adapter is synchronous; the channel exists for a future push-based transport. The rest of this guide builds a synchronous adapter.
+There is exactly one delivery mode: every event reaches the orchestrator synchronously, through the `OnEvent` callback on `RunTurnParams`, during the turn that produced it. Call it as many times as you have events to report, and only while your own `RunTurn` call is still running.
 
 The orchestrator reacts to a normalized event vocabulary, not to your CLI's native messages. These are the `AgentEventType` values you are most likely to emit.
 
@@ -50,7 +49,7 @@ The orchestrator reacts to a normalized event vocabulary, not to your CLI's nati
 
 The data flows like this. `StartSession` receives `StartSessionParams` (the workspace path, an `AgentConfig`, an optional `ResumeSessionID`, SSH fields, and an MCP config path) and returns a `Session` whose `Internal any` field carries your adapter state opaquely. `RunTurn` receives that `Session` plus `RunTurnParams` (the rendered `Prompt`, the `Issue`, and the `OnEvent` callback) and returns a `TurnResult` (`SessionID`, `ExitReason`, `Usage`, `UsageMeasured`). The orchestrator copies `SessionID` and token deltas out of the events and the result; it never reads `Session.Internal`. Set `UsageMeasured` only once the runtime has reported a usage figure for the session: a `false` value with zero `Usage` records the spend as unknown rather than as nothing, which is what keeps a token budget from silently treating an unmeasurable agent as free.
 
-**Verify:** you can state, for your agent, whether it delivers events synchronously (return `nil` from `EventStream`) and which `AgentEventType` values its output maps to.
+**Verify:** you can state, for your agent, which `AgentEventType` values its output maps to and when each one fires during a turn.
 
 ### Choose your execution model
 
@@ -79,7 +78,7 @@ internal/agent/acme/
 
 | File | Role |
 |---|---|
-| `acme.go` | Holds the adapter struct, the `init()` registration, and `StartSession` / `RunTurn` / `StopSession` / `EventStream`. Carries the package doc comment. |
+| `acme.go` | Holds the adapter struct, the `init()` registration, and `StartSession` / `RunTurn` / `StopSession`. Carries the package doc comment. |
 | `command.go` | Holds `passthroughConfig`, `parsePassthroughConfig`, `buildArgs`, and the SSH command builder. All CLI flags live here. |
 | `parse.go` | Holds the output parser (JSONL decode for structured agents, ANSI stripping and stderr classification for plain-transcript agents) and any marker constants. |
 
@@ -89,7 +88,7 @@ Generic naming applies everywhere in core, but this package is where the kind st
 
 ### Register the adapter
 
-Registration runs from `init()` and binds your kind string to a constructor. Use `RegisterWithMeta` so you can declare that the agent needs a launch command, what your adapter does with the MCP configuration Sortie generates for its own tools, and whether any of your own pass-through keys stops the agent resuming a session.
+Registration runs from `init()` and binds your kind string to a constructor. Use `RegisterWithMeta` so you can declare that the agent needs a launch command, what your adapter does with the MCP configuration Sortie generates for its own tools, when your runtime's token figures arrive and what they attribute to, and whether any of your own pass-through keys stops the agent resuming a session.
 
 ```go {filename="acme.go"}
 package acme
@@ -101,8 +100,10 @@ import (
 
 func init() {
 	registry.Agents.RegisterWithMeta("acme", NewACMEAdapter, registry.AgentMeta{
-		RequiresCommand: true,
-		MCPInjection:    registry.MCPInjectionUnsupported,
+		RequiresCommand:  true,
+		MCPInjection:     registry.MCPInjectionUnsupported,
+		UsageArrival:     registry.UsageArrivalIncremental,
+		UsageAttribution: registry.UsageAttributionPerModel,
 	})
 }
 
@@ -131,7 +132,25 @@ The kind string `"acme"` is the exact value an operator writes in `agent.kind` i
 
 Declare the truth about what your adapter does today, not what the CLI could theoretically be made to do. The declaration is load-bearing in both directions: it decides whether the runtime is pointed at the tool sidecar *and* whether Sortie writes the first-turn tool advertisement, so a session is never told about a tool it cannot call. Leaving the field at its zero value, `MCPInjectionUndeclared`, delivers no channel either, so an undeclared adapter silently gets no tools and no advertisement. Declare it explicitly: start at `MCPInjectionUnsupported` and change the value when you wire delivery up. [`sortie validate`](/reference/cli/#validate) reports any kind with no channel as an `agent.kind.no_tool_channel` warning, which is how an operator finds out.
 
-`SessionResumeBlockedBy` is optional and reports which of *your* pass-through keys, under the pass-through Sortie hands it, stops your runtime continuing a session across separate agent launches. Return the operator-visible key name; return the empty string when the configuration resumes normally. Leave the field out entirely when your runtime has no such key at all - that is the safe answer, and it is what the built-in Codex, Copilot CLI, OpenCode, Kiro and mock kinds do.
+`UsageArrival` and `UsageAttribution` declare when your runtime's token figures reach the orchestrator and what they describe. Every consumer of usage data reads the declaration instead of branching on your kind string: `sortie validate`, the dashboard's Usage reporting field, and the `usage_arrival` and `usage_attribution` fields on each running entry in the [JSON API](/reference/http-api/#get-apiv1state-system-state).
+
+| `UsageArrival` | Paired `UsageAttribution` | What your adapter does |
+|---|---|---|
+| `UsageArrivalIncremental` | `UsageAttributionPerModel` or `UsageAttributionSessionTotal` | Emits one `token_usage` event per model API request, while the turn's work is still in flight. |
+| `UsageArrivalTurnEnd` | `UsageAttributionPerModel` or `UsageAttributionSessionTotal` | Emits at most one `token_usage` event per turn, and only after the turn's work is over. |
+| `UsageArrivalNone` | `UsageAttributionNone` | Never emits one. Every turn is unmeasured, token budgets are inert, and `agent.turn_timeout_ms` is the budget that remains. |
+
+A kind declaring `UsageArrivalTurnEnd` reports through `agentcore.TurnEndUsage` instead of emitting the event or calling `agentcore.FinalizeTurn` yourself. Construct it with `agentcore.NewTurnEndUsage()` exactly once, directly in `StartSession`'s own method body outside every function literal, and store the pointer on your session state; return its `Snapshot()` from `GetUsage`. In `OnFinalize`, build an `*agentcore.RecoveredUsage{Run, Model}` when this turn settled a figure, or leave it `nil` when it settled nothing, and call `state.usage.Finalize(emit, logger, ev, sessionID, apiDurationMS, recovered)` in place of `agentcore.FinalizeTurn`: it emits the one `token_usage` event when `recovered` is non-nil, latches the run's measured verdict, and then calls `FinalizeTurn` itself for the turn's terminal event. `TestUsageDeclarationContractInvariant` in `agentcore` enforces this shape: it fails a `turn_end` package that calls `agentcore.FinalizeTurn` directly, references `domain.EventTokenUsage` directly, or constructs `agentcore.NewTurnEndUsage()` anywhere but that one place. Copilot CLI and OpenCode are the worked examples: both recover their figure from a read that only completes after the subprocess exits, and hand it to `Finalize` as `recovered`.
+
+The two fields move together: `UsageArrivalNone` pairs with `UsageAttributionNone` and with nothing else. Choose `UsageAttributionPerModel` when a usage-bearing event names the model that produced the figure, and `UsageAttributionSessionTotal` when none of them does. Leaving either field at its zero value declares nothing, which the dashboard renders as `not declared`; declare both explicitly.
+
+Declare against the code path that always runs, not against a path your runtime only sometimes feeds. If your authoritative figure only settles after the turn's work is over, such as a post-exit read or an export subprocess, declare `UsageArrivalTurnEnd` and report solely through `agentcore.TurnEndUsage`: a `turn_end` package may not also emit an interim `token_usage` event from data glimpsed mid-turn, so there is no streamed fallback to design in. Read your own emission code before writing the literal, not the CLI's documentation.
+
+Add `UsageSessionRules` when a pass-through setting or the launch mode narrows the pair for part of your configuration space. Each rule pairs a condition on the resolved pass-through and a remote flag with the pair in force when it matches; the first match wins, and your declared pair holds when none does. The built-in `copilot-cli` kind is the worked example: it recovers its authoritative figure from an on-disk journal the adapter never reads over SSH, so one rule narrows a remote session to `UsageArrivalNone` and `UsageAttributionNone`. Leave at least one combination matching no rule, so your declared pair stays reachable. Your condition reads the map and nothing else: it performs no I/O, keeps no reference to the map, and never writes to it.
+
+[`sortie validate`](/reference/cli/#validate) turns a `none` declaration into operator-facing warnings, `agent.kind.no_usage_reporting` when a workflow also sets `agent.max_tokens` and `agent.kind.no_cost_estimate` when it prices your kind in `token_rates`, so an operator learns the setting is inert instead of waiting for a ceiling that never arrives.
+
+`SessionResumeBlockedBy` is optional and reports which of *your* pass-through keys, under the pass-through Sortie hands it, stops your runtime continuing a session across separate agent launches. Return the operator-visible key name; return the empty string when the configuration resumes normally. Leave the field out entirely when your runtime has no such key at all. That is the safe answer, and it is what the built-in Codex, Copilot CLI, OpenCode, Kiro and mock kinds do.
 
 ```go {filename="acme.go"}
 SessionResumeBlockedBy: func(passthrough map[string]any) string {
@@ -269,7 +288,7 @@ This is the decision that shapes the whole adapter. Read your research note and 
 
 #### Structured output
 
-When the CLI emits JSONL (Claude Code and OpenCode do, in addition to Codex), `ParseLine` decodes each line into native events, drives a `UsageAccumulator` to produce `EventTokenUsage`, drives a `ToolTracker` to produce `EventToolResult`, and returns the terminal result line for `OnFinalize` to consume. This sketch follows the Claude Code adapter.
+When the CLI emits JSONL (Claude Code and OpenCode do, in addition to Codex), `ParseLine` decodes each line into native events, drives an `agentcore.RunUsage` to produce `EventTokenUsage`, drives a `ToolTracker` to produce `EventToolResult`, and returns the terminal result line for `OnFinalize` to consume. This sketch follows the Claude Code adapter, an incremental kind; a kind declaring `UsageArrivalTurnEnd`, such as OpenCode, never touches `RunUsage` from `ParseLine` at all. See [Register the adapter](#register-the-adapter) for its pattern.
 
 ```go
 ParseLine: func(line []byte, emit func(domain.AgentEvent), pid string) (any, error) {
@@ -279,15 +298,20 @@ ParseLine: func(line []byte, emit func(domain.AgentEvent), pid string) (any, err
 	}
 	switch event.Type {
 	case "assistant":
-		snapshot, ready := state.acc.AddDelta(event.InputTokens, event.OutputTokens, event.CacheReadTokens)
-		if ready {
-			emit(domain.AgentEvent{Type: domain.EventTokenUsage, Usage: snapshot, Model: state.lastModel})
+		if usage, id, ok := parseAssistantUsage(event); ok {
+			_, seen := state.turnMessages[id]
+			state.turnMessages[id] = componentwiseMaxUsage(state.turnMessages[id], usage)
+			snapshot := state.acc.SetTurnProvisional(sumTurnMessages(state.turnMessages))
+			if !seen {
+				emit(domain.AgentEvent{Type: domain.EventTokenUsage, Usage: snapshot, Model: state.lastModel})
+			}
 		}
 	case "tool_result":
 		if name, durationMS, ok := state.inFlight.End(event.ToolUseID); ok {
 			emit(domain.AgentEvent{Type: domain.EventToolResult, ToolName: name, ToolDurationMS: durationMS})
 		}
 	case "result":
+		state.acc.AddTurn(event.Usage) // settles the turn's authoritative total, superseding every provisional one
 		captured := event
 		return &captured, nil // terminal line: handed to OnFinalize as lastParsed
 	}
@@ -295,7 +319,7 @@ ParseLine: func(line []byte, emit func(domain.AgentEvent), pid string) (any, err
 }
 ```
 
-`AddDelta` returns a snapshot and a `ready` flag; emit the usage event only when `ready` is true, so the orchestrator never receives a report claiming zero output tokens for a real turn. Register tool starts with `ToolTracker.Begin(id, name)` and close them with `End(id)` to get the duration. Construct the accumulator and tracker fresh at the top of each `RunTurn` and return the terminal event reference so the next step can read its status.
+`state.acc` is an `agentcore.RunUsage`, constructed once with `agentcore.NewRunUsage()` in `StartSession` and never reset between turns; `GetUsage` returns its `Snapshot()`. `SetTurnProvisional` replaces the turn's in-flight contribution and returns the raised run-cumulative snapshot to emit; gate the emission on a message id's first sighting, since a streaming CLI can repeat one id across several deltas of the same API request. `AddTurn` folds a turn's authoritative total, read from its terminal event, into the run's settled total, superseding whatever the provisional figures already reported. Register tool starts with `ToolTracker.Begin(id, name)` and close them with `End(id)` to get the duration. Reset the per-turn state, message ids and tool tracker included, at the top of each `RunTurn`; `RunUsage` is the one field that survives across turns. Return the terminal event reference so the next step can read its status.
 
 #### Unstructured output
 
@@ -304,7 +328,9 @@ When the CLI emits a plain transcript with no event stream and no token reportin
 ```go
 ParseLine: func(line []byte, emit func(domain.AgentEvent), pid string) (any, error) {
 	text := stripANSI(string(line))
-	state.turnStdout.WriteString(text)
+	if strings.TrimSpace(text) != "" {
+		state.work.ObserveAssistantOutput()
+	}
 	if text != "" {
 		emit(domain.AgentEvent{
 			Type:     domain.EventNotification,
@@ -317,7 +343,7 @@ ParseLine: func(line []byte, emit func(domain.AgentEvent), pid string) (any, err
 GetUsage: func() domain.TokenUsage { return domain.TokenUsage{} },
 ```
 
-Truncate captured text with `typeutil.TruncateRunes` so a long line does not bloat the event. `agentcore.EmitNotification(emit, text)` is the helper for the simpler case where you do not need to attach the PID. `GetUsage` returns the zero `TokenUsage`, which is how the orchestrator learns this agent has no token data.
+Truncate captured text with `typeutil.TruncateRunes` so a long line does not bloat the event. `agentcore.EmitNotification(emit, text)` is the helper for the simpler case where you do not need to attach the PID. `GetUsage` returns the zero `TokenUsage`, which is how the orchestrator learns this agent has no token data. `state.work` is the per-turn work observer covered under [classify the outcome](#classify-the-outcome-and-pick-the-right-error-kind); a transcript line that is not blank is the only work signal this runtime offers, so that is the one signal the adapter declares and the one it records here.
 
 In both modes, `GetSessionID` returns your current session id and `GetUsage` returns the token snapshot; the skeleton calls them when it builds the `TurnResult` on the cancellation and signal paths. `EmitSessionStartID` is the one optional hook: leave it `nil` if you emit `session_started` from inside `ParseLine` (Claude Code does this on its init line), or set it to a closure returning the session id to emit `session_started` before the scan loop (Copilot CLI does this).
 
@@ -325,7 +351,7 @@ In both modes, `GetSessionID` returns your current session id and `GetUsage` ret
 
 ### Classify the outcome and pick the right error kind
 
-`OnFinalize` reports what it observed; it does not decide the turn. It receives `emit`, `lastParsed` (the last non-nil value `ParseLine` returned), `exitCode`, and `stderrLines`, fills in an `agentcore.TurnEvidence`, and returns `agentcore.FinalizeTurn(emit, logger, ev, meta)`. `FinalizeTurn` applies the disposition rule every adapter shares, emits the terminal event, and builds the paired `(domain.TurnResult, *domain.AgentError)`.
+`OnFinalize` reports what it observed; it does not decide the turn. It receives `emit`, `lastParsed` (the last non-nil value `ParseLine` returned), `exitCode`, and `stderrLines`, fills in an `agentcore.TurnEvidence`, and returns `agentcore.FinalizeTurn(emit, logger, ev, meta)`. `FinalizeTurn` applies the disposition rule every adapter shares, emits the terminal event, and builds the paired `(domain.TurnResult, *domain.AgentError)`. A kind declaring `UsageArrivalTurnEnd` returns `state.usage.Finalize(...)` instead, described under [Register the adapter](#register-the-adapter); it wraps this same call.
 
 That indirection is enforced, not advisory. Constructing a `domain.AgentEvent` or a `domain.AgentError` for your own turn outcome, or calling `agentcore.EmitTurnCompleted`, `EmitTurnFailed`, or `EmitTurnCancelled` directly, breaks the shared decision; a test in `agentcore` walks every adapter package and fails on it. `OnFinalize` must not call `EmitWarnLines` either: the skeleton does that for you when `FinalizeTurn` returns a non-nil error.
 
@@ -337,30 +363,24 @@ Three fields carry the evidence.
 |---|---|
 | `Terminal` | What the runtime reported: `TerminalSuccess`, `TerminalFailure`, `TerminalCancelled`, or `TerminalAbsent` when it reported nothing. Pair a failure with `TerminalErrorKind` and `TerminalMessage`. |
 | `ExitObserved`, `ExitCode` | The turn's own process exit. A persistent-subprocess adapter leaves `ExitObserved` false, because its process outlives the turn. |
-| `Work` | Per-turn evidence that the model produced something: `WorkPresent`, `WorkAbsent`, or `WorkUnobservable` when the runtime exposes no such signal. `WorkDetail` names the signal you looked for, and must be a compile-time constant string. |
+| `Work`, `WorkDetail` | Per-turn evidence that the model produced something. Do not fill the pair in by hand. Construct an `agentcore.WorkObserver` at the top of each turn from an `agentcore.WorkSignals` declaration, naming which of `AssistantOutput` and `ToolActivity` your runtime reports; call `ObserveAssistantOutput` and `ObserveToolActivity` as the stream reports them; then set `ev.Work, ev.WorkDetail = observer.Report()`. The detail is a compile-time constant the observer picks from your declaration, so every adapter declaring the same signals prints the same message. A runtime that reports neither signal builds no observer and leaves both fields at their zero value. |
 
-The rule reads those fields in order and stops at the first match: a terminal report wins outright, then a missing process exit, then a non-zero exit, then the work evidence. A positive report from the runtime is never second-guessed by counting output, and exit code zero is never a success signal on its own, so an adapter with nothing positive to report gets a failed turn.
+The rule reads those fields in order and stops at the first match: a terminal report wins outright, then a missing process exit, then a non-zero exit, then the work evidence. A positive report from the runtime is never second-guessed by counting output, and exit code zero is never a success signal on its own, so an adapter with nothing positive to report gets a failed turn. That holds for an adapter that declared no signal at all: it takes a row of its own, and a clean exit on that row is still a failed turn, because a kind with nothing to observe has produced no evidence either.
 
-For a structured agent, read `lastParsed` and set `Terminal` from the result line. For an unstructured agent, derive it from the exit status and stderr. Kiro is the worked example, and its exit-0 case is ambiguous: the process exits 0 whether or not a turn actually ran, so the only reliable success signal is a credits trailer on stderr.
+For a structured agent, read `lastParsed` and set `Terminal` from the result line. For an unstructured agent, derive it from the exit status, stderr, and the observer. Kiro is the worked example, and its exit-0 case is ambiguous: the process exits 0 whether or not a turn actually ran. Its `RunTurn` opens each turn with `state.work = agentcore.NewWorkObserver(agentcore.WorkSignals{AssistantOutput: true})`, and the credits trailer on stderr is the runtime's own success report, ranking above whatever that observer saw.
 
 ```go
 OnFinalize: func(emit func(domain.AgentEvent), _ any, exitCode int, stderrLines []string) (domain.TurnResult, *domain.AgentError) {
 	creditsSeen, authFailed := classifyStderr(stderrLines)
 
-	// Headless Kiro reports no per-turn token count, so the credits
-	// trailer is the success signal rather than the work evidence.
-	ev := agentcore.TurnEvidence{
-		ExitObserved: true,
-		ExitCode:     exitCode,
-		Work:         agentcore.WorkUnobservable,
-		WorkDetail:   "no credits trailer on stderr",
-	}
+	ev := agentcore.TurnEvidence{ExitObserved: true, ExitCode: exitCode}
+	ev.Work, ev.WorkDetail = state.work.Report()
 
 	switch {
 	case exitCode == 0 && creditsSeen:
 		ev.Terminal = agentcore.TerminalSuccess
 		state.resumeRequested = true
-	case exitCode == 0 && authFailed && state.turnStdout.Len() == 0:
+	case exitCode == 0 && authFailed && !state.work.Observed():
 		ev.Terminal = agentcore.TerminalFailure
 		ev.TerminalErrorKind = domain.ErrResponseError
 		ev.TerminalMessage = "kiro authentication failed"
@@ -371,16 +391,17 @@ OnFinalize: func(emit func(domain.AgentEvent), _ any, exitCode int, stderrLines 
 },
 ```
 
-The error kind is a control-flow decision, not a label. The orchestrator reads it to decide whether to retry. Here is what the rule produces for Kiro's four cases.
+The error kind is a control-flow decision, not a label. The orchestrator reads it to decide whether to retry. Here is what the rule produces for Kiro's five cases.
 
 | Evidence | `ExitReason` | Error kind | Retry behavior |
 |---|---|---|---|
 | exit 0, credits trailer on stderr | `EventTurnCompleted` | none | success |
-| exit 0, auth-failure marker, empty stdout | `EventTurnFailed` | `ErrResponseError` | retryable, exponential backoff |
-| exit 0, no credits trailer | `EventTurnFailed` | `ErrTurnFailed` | retryable, exponential backoff |
+| exit 0, auth-failure marker, no non-blank stdout line | `EventTurnFailed` | `ErrResponseError` | retryable, exponential backoff |
+| exit 0, no credits trailer, a non-blank stdout line | `EventTurnCompleted` | none | success |
+| exit 0, no credits trailer, no non-blank stdout line | `EventTurnFailed` | `ErrTurnFailed` | retryable, exponential backoff |
 | any non-zero exit | `EventTurnFailed` | `ErrPortExit` | retryable, exponential backoff |
 
-Only the first two rows come from evidence Kiro sets itself. The last two are what the shared rule assigns to a zero exit with no work and to a non-zero exit, and every adapter gets them for free. All three failure kinds here are retryable. Other kinds are not: `ErrAgentNotFound`, `ErrInvalidWorkspaceCwd`, `ErrTurnInputRequired`, and `ErrTurnCancelled` are non-retryable, so the orchestrator releases the claim instead of scheduling another attempt. Choose the kind that reflects what the orchestrator should do next, and confirm its retry semantics in the [agent errors reference](/reference/errors/#agent-errors).
+Only the first two rows come from evidence Kiro sets itself. The last three are what the shared rule assigns to a zero exit with work, to a zero exit without it, and to a non-zero exit, and every adapter gets them for free. All three failure kinds here are retryable. Other kinds are not: `ErrAgentNotFound`, `ErrInvalidWorkspaceCwd`, `ErrTurnInputRequired`, and `ErrTurnCancelled` are non-retryable, so the orchestrator releases the claim instead of scheduling another attempt. Choose the kind that reflects what the orchestrator should do next, and confirm its retry semantics in the [agent errors reference](/reference/errors/#agent-errors).
 
 **Verify:** a table test feeds exit codes and stderr fixtures to your adapter and asserts both `ExitReason` and the error kind with `errors.As`. `dispositiontest.AssertDispositionContract` pins each case against the shared rule for you.
 
@@ -388,7 +409,7 @@ Only the first two rows come from evidence Kiro sets itself. The last two are wh
 
 `StartSessionParams.ResumeSessionID` carries the session id from a previous worker attempt for the same issue. An adapter that cannot resume ignores the field; the orchestrator still functions, and each turn starts fresh. If your CLI supports resume, choose the strategy that matches how it identifies sessions.
 
-A session-id-based resume fits a CLI that owns an addressable identifier. Claude Code generates a UUID, threads it through every turn, and passes `--resume <id>` when `ResumeSessionID` is set. A cwd-scoped resume fits a CLI whose headless session id is not enumerable. Kiro cannot name its session, so it adds a bare `--resume` flag that continues the most recent conversation in the workspace directory, and it sets that flag only after the first turn has succeeded (the `resumeRequested` field flips to true in `OnFinalize`). Pick based on what your CLI exposes; both are valid.
+A session-id-based resume fits a CLI that owns an addressable identifier. Claude Code generates a UUID, threads it through every turn, and passes `--resume <id>` when `ResumeSessionID` is set. A cwd-scoped resume fits a CLI whose headless session id is not enumerable. Kiro cannot name its session, so it adds a bare `--resume` flag that continues the most recent conversation in the workspace directory, and it sets that flag only after a turn has printed the credits trailer (the `resumeRequested` field flips to true in `OnFinalize`). Pick based on what your CLI exposes; both are valid.
 
 **Verify:** a test asserts that turn two of a resumed session includes your continuation flag and turn one does not.
 
@@ -396,11 +417,11 @@ A session-id-based resume fits a CLI that owns an addressable identifier. Claude
 
 Make the agent's capabilities and limitations visible to operators, because they change how a workflow must be configured.
 
-Token-usage emission is optional. If the CLI reports tokens, drive a `UsageAccumulator` and emit `EventTokenUsage`; this feeds token-based budgets. If it reports none, leave `TurnResult.Usage` at the zero value, emit no `EventTokenUsage`, and the agent is budgeted by time only, through `agent.turn_timeout_ms`. Kiro is the worked example: its headless path reports an abstract credits figure, never token counts, so token budgets are inert and `agent.turn_timeout_ms` is the time-based budget that remains.
+Token-usage emission is optional. If the CLI reports tokens while a turn is still in flight, drive an `agentcore.RunUsage` and emit `EventTokenUsage` as figures arrive. If your authoritative figure only settles after the turn's work is over, report it through `agentcore.TurnEndUsage` instead, covered under [Register the adapter](#register-the-adapter). If the CLI reports no tokens at all, leave `TurnResult.Usage` at the zero value, emit no `EventTokenUsage`, and the agent is budgeted by time only, through `agent.turn_timeout_ms`. Kiro is the worked example: its headless path reports an abstract credits figure, never token counts, so token budgets are inert and `agent.turn_timeout_ms` is the time-based budget that remains.
 
 Tool permissions are surfaced through the passthrough config. Every run is unattended, so the default has to be a posture the runtime can carry through a turn without stopping to ask, and a pass-through value that reopens the interactive path is refused through the shared configuration-diagnostic channel rather than accepted. Kiro is the worked example again: it exposes a `trust_tools` allowlist and a mutually exclusive `trust_all_tools` switch, resolves to full trust when neither is set, and refuses any narrower posture, because what `kiro-cli` does when it meets an untrusted tool under `--no-interactive` is unestablished. Expose only the flags your CLI actually has, and declare a diagnostic for each one that could let the agent stop and wait.
 
-State these capabilities and limitations in two places so operators find them: the adapter package doc comment, and the agent's docs-site reference page. An operator who reads "this agent reports no token usage; budget it with `turn_timeout_ms`" before they deploy avoids a confusing first run.
+State these capabilities and limitations in three places so operators find them: the `UsageArrival` and `UsageAttribution` declaration on registration, which is the one every Sortie surface reads; the adapter package doc comment; and the agent's docs-site reference page. An operator who reads "this agent reports no token usage; budget it with `turn_timeout_ms`" before they deploy avoids a confusing first run.
 
 **Verify:** the package doc comment names the token-usage support and the tool-permission model, and `sortie validate` accepts a WORKFLOW.md with your `agent` block and extension block.
 
@@ -519,6 +540,8 @@ These steps need repository access an outside contributor does not have. Make th
 
 **Deciding the turn disposition yourself.** Report evidence through `TurnEvidence` and let `FinalizeTurn` decide. Emitting a terminal event or building a `domain.AgentError` for your own outcome fails the conformance test in `agentcore` and re-forks a rule every other adapter shares.
 
+**Emitting your own `token_usage` event, or calling `agentcore.FinalizeTurn` directly, from a package declaring `UsageArrivalTurnEnd`.** Route through `agentcore.TurnEndUsage.Finalize` instead, covered under [Register the adapter](#register-the-adapter); `TestUsageDeclarationContractInvariant` catches this, a separate check from the `TestDispositionContractInvariant` that catches a hand-rolled turn outcome.
+
 **Inventing a structured stream or fabricating token usage where the CLI provides neither.** If there is no token data, `GetUsage` returns the zero `TokenUsage` and you emit no `token_usage` event. Do not synthesize numbers.
 
 **Weakening the workspace validation that `ResolveLaunchTarget` performs.** Path containment and `cwd` validation are security boundaries. Always resolve through `ResolveLaunchTarget`; never bypass it to launch in an unvalidated directory.
@@ -533,17 +556,17 @@ These steps need repository access an outside contributor does not have. Make th
 
 ## Related guides and references
 
-- [Contributing](https://github.com/sortie-ai/sortie/blob/main/CONTRIBUTING.md) - how to contribute to the project
-- [Agent adapter model](/concepts/adapter-model/) - why Sortie uses adapter interfaces and how the registry wires them
-- [Kiro CLI adapter reference](/reference/adapter-kiro/) - the unstructured, time-budgeted worked example
-- [Claude Code adapter reference](/reference/adapter-claude-code/) - the structured-output worked example
-- [Copilot CLI adapter reference](/reference/adapter-copilot/) - a fork-per-turn adapter that emits `session_started` before the scan loop
-- [OpenCode adapter reference](/reference/adapter-opencode/) - a structured adapter that recovers token usage with a second command
-- [Codex adapter reference](/reference/adapter-codex/) - the persistent-subprocess model this guide does not cover
-- [Error reference: agent errors](/reference/errors/#agent-errors) - the error-kind taxonomy and retry classification
-- [WORKFLOW.md reference](/reference/workflow-config/) - the `agent` section and adapter extension blocks
-- [Environment variables reference](/reference/environment/) - credential and gating variables for adapters
-- [Write a custom agent tool](/guides/write-custom-agent-tool/) - the sibling extensibility guide for tools
-- [Scale agents with SSH](/guides/scale-agents-with-ssh/) - the remote-execution path your SSH branch enables
-- [Control costs](/guides/control-costs/) - turn and token budgets that depend on what your adapter reports
-- [Resume sessions across restarts](/guides/resume-sessions-across-restarts/) - how `ResumeSessionID` fits the recovery model
+- [Contributing](https://github.com/sortie-ai/sortie/blob/main/CONTRIBUTING.md): how to contribute to the project
+- [Agent adapter model](/concepts/adapter-model/): why Sortie uses adapter interfaces and how the registry wires them
+- [Kiro CLI adapter reference](/reference/adapter-kiro/): the unstructured, time-budgeted worked example
+- [Claude Code adapter reference](/reference/adapter-claude-code/): the structured-output worked example
+- [Copilot CLI adapter reference](/reference/adapter-copilot/): a fork-per-turn adapter that emits `session_started` before the scan loop
+- [OpenCode adapter reference](/reference/adapter-opencode/): a structured adapter that recovers token usage with a second command
+- [Codex adapter reference](/reference/adapter-codex/): the persistent-subprocess model this guide does not cover
+- [Error reference: agent errors](/reference/errors/#agent-errors): the error-kind taxonomy and retry classification
+- [WORKFLOW.md reference](/reference/workflow-config/): the `agent` section and adapter extension blocks
+- [Environment variables reference](/reference/environment/): credential and gating variables for adapters
+- [Write a custom agent tool](/guides/write-custom-agent-tool/): the sibling extensibility guide for tools
+- [Scale agents with SSH](/guides/scale-agents-with-ssh/): the remote-execution path your SSH branch enables
+- [Control costs](/guides/control-costs/): turn and token budgets that depend on what your adapter reports
+- [Resume sessions across restarts](/guides/resume-sessions-across-restarts/): how `ResumeSessionID` fits the recovery model

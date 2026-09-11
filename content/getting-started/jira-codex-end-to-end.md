@@ -14,7 +14,7 @@ The [Jira integration tutorial](/getting-started/jira-integration/) proved that 
 
 ## Prerequisites
 
-- [Jira integration tutorial](/getting-started/jira-integration/) completed - Sortie connects to your Jira project, and the environment variables `SORTIE_JIRA_ENDPOINT` and `SORTIE_JIRA_API_KEY` are set
+- [Jira integration tutorial](/getting-started/jira-integration/) completed: Sortie connects to your Jira project, and the environment variables `SORTIE_JIRA_ENDPOINT` and `SORTIE_JIRA_API_KEY` are set
 - Codex CLI installed on your machine:
 
     ```bash
@@ -32,7 +32,7 @@ The [Jira integration tutorial](/getting-started/jira-integration/) proved that 
     This is a standard OpenAI API key. Codex CLI uses it to authenticate with the OpenAI API, billed at API rates. The adapter checks for this variable when spawning the app-server subprocess and passes it through to the child process.
 
 - A git repository on GitHub or GitLab that you can push to
-- SSH key or HTTPS token configured for `git push` from your machine - test it:
+- SSH key or HTTPS token configured for `git push` from your machine. Test it:
 
     ```bash
     git ls-remote git@github.com:yourorg/yourrepo.git HEAD
@@ -138,7 +138,7 @@ You are a senior engineer working in this repository.
 ## Rules
 
 1. Read existing code before writing anything new.
-2. Keep changes minimal — implement exactly what the task requires.
+2. Keep changes minimal. Implement exactly what the task requires.
 3. Run any available lint and test commands before finishing.
 {{ if not .run.is_continuation }}
 
@@ -157,7 +157,7 @@ current state. Continue from where the previous turn left off.
 {{ end }}
 {{ if and .attempt (not .run.is_continuation) }}
 
-## Retry — attempt {{ .attempt }}
+## Retry (attempt {{ .attempt }})
 
 A previous attempt failed. Review workspace state and error output before
 making changes. Do not repeat the same approach that failed.
@@ -263,11 +263,8 @@ level=INFO msg="database path resolved" db_path=/home/you/sortie-codex-e2e/.sort
 level=INFO msg="http server listening" addr=127.0.0.1:7678
 level=INFO msg="sortie started"
 level=INFO msg="tick completed" candidates=1 dispatched=1 ... running=1 retrying=0 ...
-level=INFO msg="workspace created" issue_id=10042 issue_identifier=PROJ-55
-level=INFO msg="hook started" hook=after_create issue_identifier=PROJ-55
-level=INFO msg="hook completed" hook=after_create issue_identifier=PROJ-55
-level=INFO msg="hook started" hook=before_run issue_identifier=PROJ-55
-level=INFO msg="hook completed" hook=before_run issue_identifier=PROJ-55
+level=INFO msg="running hook" issue_id=10042 issue_identifier=PROJ-55 hook=after_create workspace=…/workspaces/PROJ-55
+level=INFO msg="running hook" issue_id=10042 issue_identifier=PROJ-55 hook=before_run workspace=…/workspaces/PROJ-55
 level=INFO msg="workspace prepared" issue_id=10042 issue_identifier=PROJ-55 workspace=…/workspaces/PROJ-55
 level=INFO msg="agent session started" issue_id=10042 issue_identifier=PROJ-55 session_id=…
 level=INFO msg="turn started" issue_id=10042 issue_identifier=PROJ-55 turn_number=1 max_turns=3
@@ -279,8 +276,7 @@ When the agent finishes a turn, you will see:
 
 ```
 level=INFO msg="turn completed" issue_id=10042 issue_identifier=PROJ-55 turn_number=1 max_turns=3
-level=INFO msg="hook started" hook=after_run issue_identifier=PROJ-55
-level=INFO msg="hook completed" hook=after_run issue_identifier=PROJ-55
+level=INFO msg="running hook" issue_id=10042 issue_identifier=PROJ-55 hook=after_run workspace=…/workspaces/PROJ-55
 level=INFO msg="worker exiting" issue_id=10042 issue_identifier=PROJ-55 exit_kind=normal turns_completed=1
 level=INFO msg="handoff transition succeeded, releasing claim" issue_id=10042 issue_identifier=PROJ-55 handoff_state="In Review"
 level=INFO msg="tick completed" candidates=0 dispatched=0 ... running=0 retrying=0 ...
@@ -345,7 +341,7 @@ If the status did not change and you see a handoff warning in the logs, the Jira
 
 ### Check the dashboard
 
-Open [http://127.0.0.1:7678/](http://127.0.0.1:7678/) in a browser. You will see summary cards (running sessions, retry queue, free slots, total tokens consumed) and a run history table showing the completed session with its issue identifier, turn count, duration, and exit status.
+Open `http://127.0.0.1:7678/` in a browser. You will see summary cards (running sessions, retry queue, free slots, total tokens consumed) and a run history table showing the completed session with its issue identifier, turn count, duration, and exit status.
 
 {{% /steps %}}
 
@@ -353,20 +349,20 @@ Open [http://127.0.0.1:7678/](http://127.0.0.1:7678/) in a browser. You will see
 
 We ran the complete Sortie lifecycle with the Codex CLI:
 
-- **Poll** - Sortie watched Jira for issues matching the `agent-ready` label.
-- **Clone** - The `after_create` hook cloned the repository into a per-issue workspace.
-- **Branch** - The `before_run` hook created a clean feature branch.
-- **Code** - Codex read the codebase, wrote an implementation, and ran tests.
-- **Push** - The `after_run` hook committed and pushed the changes.
-- **Handoff** - Sortie transitioned the Jira issue to In Review.
+- **Poll**: Sortie watched Jira for issues matching the `agent-ready` label.
+- **Clone**: The `after_create` hook cloned the repository into a per-issue workspace.
+- **Branch**: The `before_run` hook created a clean feature branch.
+- **Code**: Codex read the codebase, wrote an implementation, and ran tests.
+- **Push**: The `after_run` hook committed and pushed the changes.
+- **Handoff**: Sortie transitioned the Jira issue to In Review.
 
 Sortie's adapter-agnostic design means swapping the agent is a config change. The same hooks, prompt template, and orchestration flow work with any supported adapter. To see this same loop with a different agent, try the [Claude Code tutorial](/getting-started/jira-claude-end-to-end/) or the [Copilot CLI tutorial](/getting-started/github-copilot-end-to-end/).
 
 Where to go next:
 
-- [Write a prompt template](/guides/write-prompt-template/) - conditionals, iteration, and template functions for production prompts
-- [WORKFLOW.md configuration reference](/reference/workflow-config/) - every field, every default, every constraint
-- [Monitor with logs](/guides/monitor-with-logs/) - understand the structured log output during long-running sessions
-- [Monitor with Prometheus](/guides/monitor-with-prometheus/) - token usage, session counts, and retry rates as time-series metrics
-- [Codex adapter reference](/reference/adapter-codex/) - pass-through configuration, event stream, and error handling
-- [Scale agents with SSH](/guides/scale-agents-with-ssh/) - remote execution for production workloads
+- [Write a prompt template](/guides/write-prompt-template/): conditionals, iteration, and template functions for production prompts
+- [WORKFLOW.md configuration reference](/reference/workflow-config/): every field, every default, every constraint
+- [Monitor with logs](/guides/monitor-with-logs/): understand the structured log output during long-running sessions
+- [Monitor with Prometheus](/guides/monitor-with-prometheus/): token usage, session counts, and retry rates as time-series metrics
+- [Codex adapter reference](/reference/adapter-codex/): pass-through configuration, event stream, and error handling
+- [Scale agents with SSH](/guides/scale-agents-with-ssh/): remote execution for production workloads

@@ -7,7 +7,7 @@ date: 2026-04-03
 weight: 220
 url: /guides/write-custom-agent-tool/
 ---
-This guide walks you through creating a new tool that agents can call during Sortie sessions. You'll implement the `AgentTool` interface, register your tool in the MCP server, and test it — making it available on the MCP `tools/list` and `tools/call` endpoints, and in the first-turn prompt, for every session that reaches the server at all. Whether a given session reaches it is the agent adapter's decision, not your tool's: see [delivery by agent kind](/reference/agent-extensions/#delivery-by-agent-kind).
+This guide walks you through creating a new tool that agents can call during Sortie sessions. You'll implement the `AgentTool` interface, register your tool in the MCP server, and test it. That makes it available on the MCP `tools/list` and `tools/call` endpoints, and in the first-turn prompt, for every session that reaches the server at all. Whether a given session reaches it is the agent adapter's decision, not your tool's: see [delivery by agent kind](/reference/agent-extensions/#delivery-by-agent-kind).
 
 **Prerequisites:**
 
@@ -163,7 +163,7 @@ Key patterns to follow:
 
 ### Register the tool in the MCP server
 
-Tools are wired explicitly in the `runMCPServer` function in `cmd/sortie/mcpserver.go`. Registration is conditional — register when the tool's dependencies are available, skip when they aren't:
+Tools are wired explicitly in the `runMCPServer` function in `cmd/sortie/mcpserver.go`. Registration is conditional. Register when the tool's dependencies are available, skip when they aren't:
 
 ```go {filename="mcpserver.go",hl_lines=[5,6]}
 // In cmd/sortie/mcpserver.go, inside runMCPServer():
@@ -179,7 +179,7 @@ Three rules:
 
 1. **Explicit wiring only.** Do not use `init()` for registration. All tools are wired in `runMCPServer`.
 2. **Conditional registration.** Check for required environment variables or dependencies before constructing the tool. Skip gracefully if they're absent.
-3. **Unique names.** The `ToolRegistry` panics on duplicate `Name()` values — pick a name that won't collide with existing tools.
+3. **Unique names.** The `ToolRegistry` panics on duplicate `Name()` values. Pick a name that won't collide with existing tools.
 
 ### Test the tool
 
@@ -336,10 +336,10 @@ A tool that blocks indefinitely freezes the agent's session.
 
 ## Related guides and references
 
-- [Agent extensions reference](/reference/agent-extensions/) — tool contracts, response formats, and the full `AgentTool` specification
+- [Agent extensions reference](/reference/agent-extensions/): tool contracts, response formats, and the full `AgentTool` specification
 - [Agent tools concept](/concepts/agent-tools/) for the tier model: what each tier guarantees and how to classify a new tool
-- [Agent communication model](/concepts/agent-communication/) — why tools use the MCP sidecar channel alongside prompts
-- [Environment variables reference](/reference/environment/#mcp-server-environment) — complete table of MCP server session context variables
-- [Use agent tools in prompts](/guides/use-agent-tools-in-prompts/) — how to reference tools from prompt templates
-- [WORKFLOW.md reference](/reference/workflow-config/) — configuring the `agent` section that controls tool availability
-- [Error reference](/reference/errors/) — error kind taxonomy for structured tool error responses
+- [Agent communication model](/concepts/agent-communication/): why tools use the MCP sidecar channel alongside prompts
+- [Environment variables reference](/reference/environment/#mcp-server-environment): complete table of MCP server session context variables
+- [Use agent tools in prompts](/guides/use-agent-tools-in-prompts/): how to reference tools from prompt templates
+- [WORKFLOW.md reference](/reference/workflow-config/): configuring the `agent` section that controls tool availability
+- [Error reference](/reference/errors/): error kind taxonomy for structured tool error responses

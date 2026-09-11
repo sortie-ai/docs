@@ -66,7 +66,7 @@ The `--dry-run` flag suppresses server startup regardless of port or host settin
 
 `--version` (or `-V`) and `-dumpversion` take precedence over `--dry-run` when both are provided.
 
-The startup sequence through preflight validation is identical to a normal run. The dry-run branch diverges after tracker adapter construction - see [startup sequence](#startup-sequence) step 8.
+The startup sequence through preflight validation is identical to a normal run. The dry-run branch diverges after tracker adapter construction (see [startup sequence](#startup-sequence) step 8).
 
 #### Dry-run output
 
@@ -85,7 +85,7 @@ Key fields:
 | `state_slots_available` | Remaining per-state slots for this issue's tracker state. |
 | `priority` | Issue priority (present only when the tracker provides it). |
 | `ssh_host` | Assigned SSH host (present only when SSH worker mode is configured). |
-| `skip_reason` | Present only when a blocker or an SSH host limit is why `would_dispatch` is `false`. Absent for any other ineligibility, such as a full concurrency slot or a basic eligibility check - the candidate log line still reports `would_dispatch=false` in those cases, with no `skip_reason`. |
+| `skip_reason` | Present only when a blocker or an SSH host limit is why `would_dispatch` is `false`. Absent for any other ineligibility, such as a full concurrency slot or a basic eligibility check. The candidate log line still reports `would_dispatch=false` in those cases, with no `skip_reason`. |
 
 `skip_reason` takes one of these values:
 
@@ -124,7 +124,7 @@ An unknown value (e.g., `--log-level trace`) prints an error to stderr and exits
 sortie: unknown log level "trace": accepted values are debug, info, warn, error
 ```
 
-Applied before the workflow file is loaded, so all startup output - including workflow loading errors - respects the requested level.
+Applied before the workflow file is loaded, so all startup output, including workflow loading errors, respects the requested level.
 
 ### `--log-format`
 
@@ -152,7 +152,7 @@ An unknown value (e.g., `--log-format yaml`) prints an error to stderr and exits
 sortie: unknown log format "yaml": accepted values are text, json
 ```
 
-Applied before the workflow file is loaded, so all startup output uses the requested format immediately. Both `--log-format` and `--log-level` can be combined freely - any combination works.
+Applied before the workflow file is loaded, so all startup output uses the requested format immediately. Both `--log-format` and `--log-level` can be combined freely. Any combination works.
 
 ### `--env-file`
 
@@ -174,15 +174,15 @@ The file is re-read on every WORKFLOW.md reload (file change detection). If the 
 
 Sets the listening port for the embedded HTTP server. The server starts by default on port `7678`. All observability surfaces share this port:
 
-- `/` - HTML dashboard ([dashboard reference](/reference/dashboard/))
-- `/api/v1/state` - JSON API ([HTTP API reference](/reference/http-api/))
-- `/api/v1/<identifier>` - Per-issue detail
-- `/api/v1/refresh` - Trigger immediate poll cycle
-- `/livez` - Liveness probe
-- `/readyz` - Readiness probe
-- `/metrics` - Prometheus metrics ([Prometheus metrics reference](/reference/prometheus-metrics/))
+- `/`: HTML dashboard ([dashboard reference](/reference/dashboard/))
+- `/api/v1/state`: JSON API ([HTTP API reference](/reference/http-api/))
+- `/api/v1/<identifier>`: per-issue detail
+- `/api/v1/refresh`: trigger an immediate poll cycle
+- `/livez`: liveness probe
+- `/readyz`: readiness probe
+- `/metrics`: Prometheus metrics ([Prometheus metrics reference](/reference/prometheus-metrics/))
 
-Valid range: `1`–`65535`, or `0` to disable. Port `0` disables the server entirely - no TCP listener, no Prometheus metrics. The orchestrator runs with a no-op metrics implementation.
+Valid range: `1`–`65535`, or `0` to disable. Port `0` disables the server entirely: no TCP listener, no Prometheus metrics. The orchestrator runs with a no-op metrics implementation.
 
 Overrides `server.port` from the WORKFLOW.md [`server` extension](/reference/workflow-config/). When the default port (`7678`) is already occupied and the operator did not explicitly request a port, Sortie logs a warning and starts without the HTTP server. When the operator explicitly requested a port (via `--port` or `server.port`) and it is already in use, Sortie exits with code `1`.
 
@@ -289,28 +289,28 @@ The pipeline checks:
 - `db_path` is a string when present.
 - `agent.max_sessions` is non-negative.
 - `agent.turn_timeout_ms` is positive.
-- Go `text/template` syntax in the prompt body (strict mode - unknown variables and functions are errors).
+- Go `text/template` syntax in the prompt body (strict mode: unknown variables and functions are errors).
 - Template static analysis: dot-context misuse inside `{{ range }}` / `{{ with }}`, unknown top-level variables, and unknown sub-fields of known variables (advisory warnings).
 - `tracker.kind` is present and maps to a registered adapter.
 - `agent.kind` maps to a registered adapter. Defaults to `claude-code` when absent.
 - Fields required by the selected adapter: `tracker.api_key`, `tracker.project`, `agent.command`.
 - At least one of `tracker.active_states` or `tracker.terminal_states` is non-empty.
 - Adapter-specific config validation. When the registered tracker adapter declares a `ValidateTrackerConfig` callback, the pipeline invokes it with the extracted tracker config fields. Adapter validation runs after the generic preflight checks and can produce both errors (block validity) and warnings (advisory). The Jira, GitHub, GitLab, Gitea, and Linear adapters each declare one; the `file` adapter does not. Each adapter reference page lists that adapter's checks, for example [GitHub adapter validation](/reference/adapter-github/#validate-time-checks).
-- Settings block presence (`dispatch.agent.missing_block`), for every agent kind a `dispatch.default.agent` or a `dispatch.rules[i].agent` names, when that kind is registered and differs from the top-level `agent.kind`. The kind must carry its own top-level block in the front matter - an empty one (`codex: {}` or a bare `codex:` key) is enough - or the workflow is refused, naming the selector that introduced the kind and the block it expects. Skipped for a kind the agent registry does not recognize, since that is already reported separately as `agent_adapter`.
+- Settings block presence (`dispatch.agent.missing_block`), for every agent kind a `dispatch.default.agent` or a `dispatch.rules[i].agent` names, when that kind is registered and differs from the top-level `agent.kind`. The kind must carry its own top-level block in the front matter, or the workflow is refused, naming the selector that introduced the kind and the block it expects. An empty block (`codex: {}` or a bare `codex:` key) is enough. Skipped for a kind the agent registry does not recognize, since that is already reported separately as `agent_adapter`.
 - Session-resume refusal (`agent.kind.session_resume`), for every agent kind the configuration can reach. An adapter declares which of its own pass-through keys stops it resuming a session across separate agent launches; when the configuration sets that key to the blocking value, the workflow is refused. Sortie re-dispatches an issue carrying its earlier session after a retry, a continuation, a stall, or a restart, so every resumed turn would fail. The check reads the adapter's declaration and that adapter's own pass-through block, and no core setting; it runs offline with no network access and no subprocess launch. `claude-code.session_persistence` set to `false` is the only key any built-in adapter declares.
 - Agent-adapter config validation, for every agent kind the configuration can reach: the default `agent.kind`, the kind a [dispatch default](/reference/workflow-config/#dispatch) names, and the kind each dispatch rule selects. A registered kind the configuration never names is skipped, because reporting a fault in a block no run reads would be noise. These checks cover the pass-through values that would let the agent stop and wait for a person, and they run offline with no network access and no subprocess launch. The Codex, Claude Code, Copilot CLI, OpenCode, and Kiro adapters each declare them: see [Codex](/reference/adapter-codex/#validate-time-checks), [Claude Code](/reference/adapter-claude-code/#validate-time-checks), [Copilot CLI](/reference/adapter-copilot/#validate-time-checks), [OpenCode](/reference/adapter-opencode/#validate-time-checks), and [Kiro](/reference/adapter-kiro/#validate-time-checks).
 - Workspace root directory exists (or can be created) and is writable.
 
 The pipeline does **not** check:
 
-- **Value ranges**, for most fields. `agent.max_sessions`, `agent.max_tokens`, `agent.max_consecutive_absences`, `agent.turn_timeout_ms`, `workspace.retention_days`, `ci_feedback.max_retries`, `ci_feedback.max_log_lines`, the `self_review` integer fields, `reactions.*.max_retries`, and the `reactions.ci_failure` integer fields are checked and reject an out-of-range value as a configuration error. Negative values for `polling.interval_ms` or other timeout fields are accepted. Zero replaces with a built-in default for `polling.interval_ms` and `agent.read_timeout_ms`; for `agent.stall_timeout_ms` zero is kept and disables stall detection. `agent.turn_timeout_ms` must be positive; any other value is rejected rather than replaced.
+- **Value ranges**, for most fields. `agent.max_sessions`, `agent.max_tokens`, `agent.max_consecutive_absences`, `agent.turn_timeout_ms`, `agent.stop_grace_ms`, `workspace.retention_days`, `ci_feedback.max_retries`, `ci_feedback.max_log_lines`, the `self_review` integer fields, `reactions.*.max_retries`, and the `reactions.ci_failure` integer fields are checked and reject an out-of-range value as a configuration error. Negative values for `polling.interval_ms` or other timeout fields are accepted. Zero replaces with a built-in default for `polling.interval_ms` and `agent.read_timeout_ms`; for `agent.stall_timeout_ms` zero is kept and disables stall detection. `agent.turn_timeout_ms` and `agent.stop_grace_ms` must be positive; any other value is rejected rather than replaced.
 - **Format constraints.** `tracker.endpoint` is not checked for valid URL syntax. Path fields are not checked for existence (except `workspace.root`).
 
 #### Advisory warnings
 
-Beyond the error-level checks above, `validate` runs static analysis on the front matter and the prompt template, plus one check on the resolved configuration, emitting **warnings** for likely-wrong patterns. Warnings do not block validity - `valid` remains `true` and the exit code is `0` when only warnings are present. Runtime behavior is unchanged; warnings surface patterns that the orchestrator would silently accept or that would produce unexpected output.
+Beyond the error-level checks above, `validate` runs static analysis on the front matter and the prompt template, plus four checks on the resolved configuration, emitting **warnings** for likely-wrong patterns. Warnings do not block validity: `valid` remains `true` and the exit code is `0` when only warnings are present. Runtime behavior is unchanged; warnings surface patterns that the orchestrator would silently accept or that would produce unexpected output.
 
-Six warning classes across two analysis passes, two configuration checks, plus adapter-specific warnings when the tracker adapter declares config validation (see [adapter-specific warning check values](#adapter-specific-warning-check-values)):
+Six warning classes across two analysis passes, four configuration checks, plus adapter-specific warnings when the tracker adapter declares config validation (see [adapter-specific warning check values](#adapter-specific-warning-check-values)):
 
 **Front matter analysis:**
 
@@ -320,16 +320,20 @@ Six warning classes across two analysis passes, two configuration checks, plus a
 
 **Template static analysis:**
 
-- **Dot-context misuse** (`dot_context`). A reference to a top-level data key (`.issue`, `.attempt`, `.run`) inside a `{{ range }}` or `{{ with }}` block where the dot has been redefined. Almost always a bug - use the `$` prefix (`$.issue.title`) to reach root data from inside these blocks.
+- **Dot-context misuse** (`dot_context`). A reference to a top-level data key (`.issue`, `.attempt`, `.run`) inside a `{{ range }}` or `{{ with }}` block where the dot has been redefined. Almost always a bug. Use the `$` prefix (`$.issue.title`) to reach root data from inside these blocks.
 - **Unknown template variable** (`unknown_var`). A top-level variable reference not in the template data contract. For example, `{{ .config }}` or `{{ $.settings }}`. Valid top-level variables are `.issue`, `.attempt`, and `.run`.
 - **Unknown sub-field** (`unknown_field`). A sub-field of a known top-level variable that does not exist in the domain schema. For example, `{{ .run.foo }}` or `{{ .issue.nonexistent }}`. Also flags sub-field access on scalar variables like `{{ .attempt.something }}`.
 
 **Configuration checks:**
 
-- **Unreachable `mcp_config`** (`agent.mcp_config`). An agent block sets `mcp_config` for a kind whose adapter delivers the generated MCP configuration to the agent process in no form at all, so the value cannot reach the agent. `kiro` is one such built-in kind, and any custom adapter declaring the same disposition draws the warning too. `claude-code` and `copilot-cli` deliver the generated file itself, so the check never fires for them. `codex` and `opencode` deliver that file's servers re-expressed rather than the file, and only on a local launch; the check does not fire for them either, because validation reads the workflow file offline and cannot know which sessions will be dispatched to an SSH host. Set `mcp_config` in one of those two blocks and dispatch the session over SSH, and you get neither the warning nor the effect.
-- **No tool execution channel** (`agent.kind.no_tool_channel`). The agent kind delivers no channel for Sortie's tools even on a local launch, so the session can neither call them nor be told about them. It fires for every kind whose adapter declares that it never delivers the generated MCP configuration, `kiro` being one such built-in kind, and for any adapter that declares no MCP disposition at all. It does not fire for `codex` or `opencode`, whose channel exists locally; validation reads the workflow file offline and cannot know which sessions will be dispatched to an SSH host.
+- **Unreachable `mcp_config`** (`agent.mcp_config`). An agent kind's pass-through block sets `mcp_config` (`kiro.mcp_config`, for example; the `agent:` section carries no such key) for a kind whose adapter delivers the generated MCP configuration to the agent process in no form at all, so the value cannot reach the agent. `kiro` is one such built-in kind, and any custom adapter declaring the same disposition draws the warning too. `claude-code` and `copilot-cli` deliver the generated file itself, so the check never fires for them. `codex`, `opencode`, and `agent-client-protocol` deliver that file's servers re-expressed rather than the file, and only on a local launch; the check does not fire for them either, because validation reads the workflow file offline and cannot know which sessions will be dispatched to an SSH host. Set `mcp_config` in one of those three blocks and dispatch the session over SSH, and you get neither the warning nor the effect.
+- **No tool execution channel** (`agent.kind.no_tool_channel`). The agent kind delivers no channel for Sortie's tools even on a local launch, so the session can neither call them nor be told about them. It fires for every kind whose adapter declares that it never delivers the generated MCP configuration, `kiro` being one such built-in kind, and for any adapter that declares no MCP disposition at all. It does not fire for `codex`, `opencode`, or `agent-client-protocol`, whose channel exists locally; validation reads the workflow file offline and cannot know which sessions will be dispatched to an SSH host.
+- **Token ceiling on a kind that reports no usage** (`agent.kind.no_usage_reporting`). `agent.max_tokens` is set against an agent kind whose declared usage reporting yields no figure for the sessions this configuration produces, so the per-issue token ceiling has nothing to count against. Budget those sessions by time instead, through `agent.turn_timeout_ms`.
+- **Rates priced for a kind that reports no usage** (`agent.kind.no_cost_estimate`). A [`token_rates`](/reference/workflow-config/#token_rates) entry prices an agent kind that reports no token usage for the sessions this configuration produces, so no cost can be estimated for it and the dashboard's Est. Cost field stays blank. Remove the entry or move the workload to a kind that reports usage.
 
-Both configuration checks run for every agent kind the configuration can reach, including one named only by a [dispatch rule](/reference/workflow-config/#dispatch), and each kind reports its own warning.
+Unlike the two checks above them, the two usage checks read [`worker.ssh_hosts`](/reference/workflow-config/#worker) and resolve the disposition for a remote launch when the pool is non-empty. `copilot-cli` reports usage on a local launch and none over SSH, so a workflow that adds a host pool draws both warnings where the same file without one drew neither.
+
+All four configuration checks run for every agent kind the configuration can reach, including one named only by a [dispatch rule](/reference/workflow-config/#dispatch), and each kind reports its own warning.
 
 #### Arguments
 
@@ -350,7 +354,7 @@ Invalid `--format` values produce an error and exit `1`.
 
 #### Output formats
 
-**Text** (default) - each diagnostic is written to stderr, one per line, prefixed with its severity:
+**Text** (default): each diagnostic is written to stderr, one per line, prefixed with its severity:
 
 ```
 error: tracker.kind: tracker.kind is required
@@ -376,7 +380,7 @@ When the workflow file itself cannot be loaded, a single error line is emitted:
 error: workflow_load: workflow file not found: /path/to/WORKFLOW.md: ...
 ```
 
-**JSON** (`--format json`) - a single JSON object is written to stdout on both success and failure:
+**JSON** (`--format json`): a single JSON object is written to stdout on both success and failure:
 
 ```json
 {"valid":true,"errors":[],"warnings":[]}
@@ -454,8 +458,10 @@ Warning diagnostics use a separate set of check values. They appear only in the 
 | `dot_context` | Reference to a top-level data key (`.issue`, `.attempt`, `.run`) inside a `{{ range }}` or `{{ with }}` block where dot is the current element, not root data. Use `$` prefix to fix. |
 | `unknown_var` | Top-level template variable not in the data contract. Valid variables: `.issue`, `.attempt`, `.run`. |
 | `unknown_field` | Sub-field of a known top-level variable that does not exist in the domain schema (e.g., `.issue.nonexistent`, `.run.foo`). |
-| `agent.mcp_config` | An agent block sets `mcp_config` for a kind whose adapter delivers the generated MCP configuration to the agent process in no form at all, so the value cannot reach the agent. |
+| `agent.mcp_config` | An agent kind's pass-through block sets `mcp_config` for a kind whose adapter delivers the generated MCP configuration to the agent process in no form at all, so the value cannot reach the agent. |
 | `agent.kind.no_tool_channel` | The agent kind has no tool execution channel, so Sortie's tools are neither advertised in the first-turn prompt nor callable during the session. |
+| `agent.kind.no_usage_reporting` | `agent.max_tokens` is set against an agent kind that reports no token usage for the sessions this configuration produces, so the per-issue token ceiling has nothing to count against. |
+| `agent.kind.no_cost_estimate` | `token_rates` prices an agent kind that reports no token usage for the sessions this configuration produces, so no cost can be estimated for it. |
 
 #### Adapter-specific warning check values
 
@@ -538,7 +544,7 @@ Both messages exit `1`.
 
 Which figures a report can carry depends on the database it reads, not on the version of the binary reading it. The command inspects the live `run_history` column set and reports the result as `schema_tier`. There are exactly two values.
 
-**`full`** - the table carries all five optional column groups:
+**`full`**: the table carries all five optional column groups:
 
 | Group | Columns | Figures it supplies |
 |---|---|---|
@@ -548,7 +554,7 @@ Which figures a report can carry depends on the database it reads, not on the ve
 | Tokens | `input_tokens`, `output_tokens`, `total_tokens`, `cache_read_tokens` | Token sums and every derived cost figure |
 | Token measurement | `tokens_measured` | Which runs the coding agent could measure, and so which ones the token and cost figures cover |
 
-**`base`** - at least one group is missing. The report falls back to run counts, the outcome breakdown, the coding-agent breakdown, and durations. Turns, tokens, cost, the dispatch-rule breakdown, the prompt-template breakdown, and the self-review section are all left out.
+**`base`**: at least one group is missing. The report falls back to run counts, the outcome breakdown, the coding-agent breakdown, and durations. Turns, tokens, cost, the dispatch-rule breakdown, the prompt-template breakdown, and the self-review section are all left out.
 
 The tier is all-or-nothing by design. A database carrying four of the five groups still reports `base`, and the report then drops the groups it does carry along with the ones it never recorded. The warning names both lists so the two are not confused:
 
@@ -572,7 +578,7 @@ Both formats carry the same figures. Breakdown rows are sorted by descending run
 
 The summary's duration and mean-turn figures cover **succeeded runs only**, so they describe the work that landed rather than the volume attempted. Token sums, and every cost figure derived from them, cover **measured runs only**: a run whose coding agent reported no token usage records that fact and is left out of those figures instead of counting as a run that spent nothing. A run counts as succeeded when its status is exactly `succeeded`. Cost is never stored; it is derived at report time from the token counts and the configured rates. See [control agent costs](/guides/control-costs/#monitor-spending) for where this fits among the other cost surfaces.
 
-**Text** (default) - the report is written to stdout. Warnings are written to stderr, after a blank line, one per line, each prefixed `warning: `. The two streams can be redirected independently.
+**Text** (default): the report is written to stdout. Warnings are written to stderr, after a blank line, one per line, each prefixed `warning: `. The two streams can be redirected independently.
 
 The report opens with four header lines (`workflow:`, `database:`, `covering:`, `generated:`), then the summary block, then one table per breakdown, then any footnotes. Column headers are upper-cased, rows are indented two spaces, and a nullable figure with no value renders as `-`.
 
@@ -644,7 +650,7 @@ No runs finished in this range.
 
 The first appears when neither bound was given, the second when at least one was.
 
-**JSON** (`--format json`) - a single document is written to stdout, compact and on one line, terminated by a newline. Every array field is always present and never `null`. Every scalar figure the report cannot supply is `null`. For piping the document into your own metrics store, see [aggregate metrics across instances](/guides/aggregate-metrics-across-instances/).
+**JSON** (`--format json`): a single document is written to stdout, compact and on one line, terminated by a newline. Every array field is always present and never `null`. Every scalar figure the report cannot supply is `null`. For piping the document into your own metrics store, see [aggregate metrics across instances](/guides/aggregate-metrics-across-instances/).
 
 Envelope:
 
@@ -892,8 +898,8 @@ The MCP server does not validate environment variable presence at startup. Valid
 
 The MCP server exits cleanly when either:
 
-- **stdin closes** - the agent runtime terminates the stdio pipe. The JSON-RPC reader detects EOF and returns.
-- **Context cancellation** - the signal handler cancels the context.
+- **stdin closes**: the agent runtime terminates the stdio pipe. The JSON-RPC reader detects EOF and returns.
+- **Context cancellation**: the signal handler cancels the context.
 
 No explicit shutdown handshake. The server's lifetime is bound to the agent runtime's stdio pipe.
 
@@ -910,11 +916,11 @@ No explicit shutdown handshake. The server's lifetime is bound to the agent runt
 
 When no version or help flag is present, Sortie executes these steps in order:
 
-1. **Intercept short flags and parse.** Short aliases (`-h`, `-V`) are intercepted before subcommand dispatch and before flag parsing. If `-h` (or `-help`) is found, help is printed to stdout and the process exits `0`. If `-V` is found, the version banner is printed to stdout and the process exits `0`. Subcommand tokens (`validate`, `stats`, `mcp-server`) and the POSIX `--` terminator stop the scan - `-h` after a subcommand is handled by the subcommand itself. After interception, remaining flags are parsed normally. Unknown flags exit with code `1` and print a one-line error to stderr (the full help text is not printed on errors). `--env-file` path (when provided) is resolved to absolute and exported as `SORTIE_ENV_FILE`.
+1. **Intercept short flags and parse.** Short aliases (`-h`, `-V`) are intercepted before subcommand dispatch and before flag parsing. If `-h` (or `-help`) is found, help is printed to stdout and the process exits `0`. If `-V` is found, the version banner is printed to stdout and the process exits `0`. Subcommand tokens (`validate`, `stats`, `mcp-server`) and the POSIX `--` terminator stop the scan: `-h` after a subcommand is handled by the subcommand itself. After interception, remaining flags are parsed normally. Unknown flags exit with code `1` and print a one-line error to stderr (the full help text is not printed on errors). `--env-file` path (when provided) is resolved to absolute and exported as `SORTIE_ENV_FILE`.
 2. **Resolve workflow path.** Relative paths resolve to absolute against the working directory.
 3. **Initialize logging.** Structured output to stderr. Uses `--log-level` and `--log-format` flags when set; otherwise defaults to `INFO` level with `text` format for the duration of startup.
-4. **Load and watch workflow file.** Start a filesystem watcher for dynamic config reload. During config parsing, [`SORTIE_*` overrides](/reference/environment/#configuration-overrides) are applied - including `.env` file loading when enabled.
-5. **Preflight validation.** Verify `tracker.kind` is registered, `agent.kind` is registered, required API keys are present, active/terminal state lists are non-empty, adapter-specific config validation passes (when declared), and the workspace root is writable. Failure exits with code `1` - no database file is created on disk.
+4. **Load and watch workflow file.** Start a filesystem watcher for dynamic config reload. During config parsing, [`SORTIE_*` overrides](/reference/environment/#configuration-overrides) are applied, including `.env` file loading when enabled.
+5. **Preflight validation.** Verify `tracker.kind` is registered, `agent.kind` is registered, required API keys are present, active/terminal state lists are non-empty, adapter-specific config validation passes (when declared), and the workspace root is writable. Failure exits with code `1`. No database file is created on disk.
 6. **Resolve log level and format.** When `--log-level` was not set, check `logging.level` from the workflow config. When `--log-format` was not set, check `logging.format` from the workflow config. If either differs from the startup default, re-initialize the logger before emitting the startup message.
 7. **Resolve server port and host.** The `--port` and `--host` flags override `server.port` and `server.host` from config. An invalid value exits `1`. No socket is bound yet.
 8. **Construct tracker adapter.** Instantiate the tracker adapter from the registry using the configuration map, with `user_agent` set to `sortie/<version>`.
@@ -940,7 +946,7 @@ Any step that fails prints a diagnostic to stderr and exits with code `1`.
 | `0` | Clean shutdown (signal received), help output (`-h`, `--help`), version output (`-V`, `--version`, `-dumpversion`), successful `validate`, successful `--dry-run`, a `stats` report (including one whose range matched no runs), or clean `mcp-server` shutdown. |
 | `1` | Startup failure: unknown flag, too many arguments, missing or unreadable workflow file, invalid configuration, preflight validation failure, or database open/migration error. Also used by `validate` for any validation failure, by `--dry-run` when the tracker fetch fails, by `stats` for usage and load errors, and by `mcp-server` for startup or runtime errors. |
 
-Sortie does not define exit codes above `1`. Agent subprocess failures, tracker errors, and runtime exceptions are handled internally through the retry and reconciliation mechanisms - they do not affect the process exit code.
+Sortie does not define exit codes above `1`. Agent subprocess failures, tracker errors, and runtime exceptions are handled internally through the retry and reconciliation mechanisms. They do not affect the process exit code.
 
 ---
 
@@ -955,16 +961,17 @@ Both signals trigger the same sequence:
 
 1. Stop accepting new dispatches.
 2. Cancel all running worker contexts.
-3. Wait up to 30 seconds for workers to exit (worker drain timeout). Worker results are processed through the normal exit handler during drain - run history is persisted and retry entries are recorded. Refresh signals arriving during this window are discarded.
-4. Wait up to 35 seconds for the detached tracker calls (comments, labels) still in flight.
-5. Cancel pending retry timers.
-6. Shut down the HTTP server with a 5-second timeout for in-flight responses.
-7. Close the SQLite database.
-8. Exit with code `0`.
+3. Wait for workers to exit. The ceiling derives from [`agent.stop_grace_ms`](/reference/workflow-config/#agent): 50 seconds at the default `5000`, and one second longer for each extra second of stop grace. Worker results are processed through the normal exit handler during drain: run history is persisted and retry entries are recorded. Refresh signals arriving during this window are discarded.
+4. Wait up to 35 seconds for the reaction triage runs still in flight. Cancellation has already terminated their process groups, so this wait returns promptly in practice.
+5. Wait up to 35 seconds for the detached tracker calls (comments, labels) still in flight.
+6. Cancel pending retry timers.
+7. Shut down the HTTP server with a 5-second timeout for in-flight responses.
+8. Close the SQLite database.
+9. Exit with code `0`.
 
 During drain, `/livez` and `/readyz` return `503`, and `POST /api/v1/refresh` returns `409 Conflict` with `queued: false` instead of `202 Accepted`.
 
-A second signal during drain is not intercepted - the OS terminates the process immediately.
+A second `SIGINT` or `SIGTERM` during shutdown ends every drain still waiting at once, and shutdown continues from the step after it. Each abandoned drain logs a warning naming what was given up. Later signals do nothing.
 
 ---
 
@@ -1129,8 +1136,8 @@ sortie mcp-server --workflow /opt/sortie/WORKFLOW.md
 
 ## See also
 
-- [WORKFLOW.md configuration reference](/reference/workflow-config/) - all config fields
-- [Environment variables reference](/reference/environment/) - `SORTIE_*` config overrides, agent runtime vars, `$VAR` indirection, hook env
-- [HTTP API reference](/reference/http-api/) - JSON API endpoints and response shapes
-- [Dashboard reference](/reference/dashboard/) - built-in HTML monitoring dashboard
-- [Prometheus metrics reference](/reference/prometheus-metrics/) - metric names, types, labels, and PromQL examples
+- [WORKFLOW.md configuration reference](/reference/workflow-config/): all config fields
+- [Environment variables reference](/reference/environment/): `SORTIE_*` config overrides, agent runtime vars, `$VAR` indirection, hook env
+- [HTTP API reference](/reference/http-api/): JSON API endpoints and response shapes
+- [Dashboard reference](/reference/dashboard/): built-in HTML monitoring dashboard
+- [Prometheus metrics reference](/reference/prometheus-metrics/): metric names, types, labels, and PromQL examples

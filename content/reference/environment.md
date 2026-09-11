@@ -6,7 +6,7 @@ date: 2026-04-26
 weight: 30
 url: /reference/environment/
 ---
-Sortie supports `SORTIE_*` environment variable overrides for most configuration fields, with optional `.env` file loading. Environment variables flow in six distinct directions - each covered in its own section below.
+Sortie supports `SORTIE_*` environment variable overrides for most configuration fields, with optional `.env` file loading. Environment variables flow in six distinct directions, each covered in its own section below.
 
 | Section | Direction | When it matters |
 |---|---|---|
@@ -28,7 +28,7 @@ Each `SORTIE_*` environment variable below overrides one [WORKFLOW.md](/referenc
 Four sources feed configuration, highest priority first:
 
 1. **`SORTIE_*` environment variables** in the real process environment
-2. **`.env` file values** (opt-in via `SORTIE_ENV_FILE` or [`--env-file`](/reference/cli/#-env-file))
+2. **`.env` file values** (opt-in via `SORTIE_ENV_FILE` or [`--env-file`](/reference/cli/#--env-file))
 3. **WORKFLOW.md front matter** YAML
 4. **Built-in defaults**
 
@@ -40,7 +40,7 @@ A real env var always beats a `.env` value for the same key. Both beat whatever 
 |---|---|---|
 | `SORTIE_TRACKER_KIND` | [`tracker.kind`](/reference/workflow-config/#tracker) | string |
 | `SORTIE_TRACKER_ENDPOINT` | [`tracker.endpoint`](/reference/workflow-config/#tracker) | string |
-| `SORTIE_TRACKER_API_KEY` | [`tracker.api_key`](/reference/workflow-config/#tracker) | string (secret - never logged) |
+| `SORTIE_TRACKER_API_KEY` | [`tracker.api_key`](/reference/workflow-config/#tracker) | string (secret, never logged) |
 | `SORTIE_TRACKER_PROJECT` | [`tracker.project`](/reference/workflow-config/#tracker) | string |
 | `SORTIE_TRACKER_ACTIVE_STATES` | [`tracker.active_states`](/reference/workflow-config/#tracker) | csv |
 | `SORTIE_TRACKER_TERMINAL_STATES` | [`tracker.terminal_states`](/reference/workflow-config/#tracker) | csv |
@@ -62,7 +62,7 @@ A real env var always beats a `.env` value for the same key. Both beat whatever 
 
 | Env var | Overrides | Type |
 |---|---|---|
-| `SORTIE_WORKSPACE_ROOT` | [`workspace.root`](/reference/workflow-config/#workspace) | string (path - `~` expanded) |
+| `SORTIE_WORKSPACE_ROOT` | [`workspace.root`](/reference/workflow-config/#workspace) | string (path, `~` expanded) |
 | `SORTIE_WORKSPACE_RETENTION_DAYS` | [`workspace.retention_days`](/reference/workflow-config/#workspace) | int (days) |
 
 ### Agent variables
@@ -74,6 +74,7 @@ A real env var always beats a `.env` value for the same key. Both beat whatever 
 | `SORTIE_AGENT_TURN_TIMEOUT_MS` | [`agent.turn_timeout_ms`](/reference/workflow-config/#agent) | int |
 | `SORTIE_AGENT_READ_TIMEOUT_MS` | [`agent.read_timeout_ms`](/reference/workflow-config/#agent) | int |
 | `SORTIE_AGENT_STALL_TIMEOUT_MS` | [`agent.stall_timeout_ms`](/reference/workflow-config/#agent) | int |
+| `SORTIE_AGENT_STOP_GRACE_MS` | [`agent.stop_grace_ms`](/reference/workflow-config/#agent) | int |
 | `SORTIE_AGENT_MAX_CONCURRENT_AGENTS` | [`agent.max_concurrent_agents`](/reference/workflow-config/#agent) | int |
 | `SORTIE_AGENT_MAX_TURNS` | [`agent.max_turns`](/reference/workflow-config/#agent) | int |
 | `SORTIE_AGENT_MAX_RETRY_BACKOFF_MS` | [`agent.max_retry_backoff_ms`](/reference/workflow-config/#agent) | int |
@@ -85,7 +86,7 @@ A real env var always beats a `.env` value for the same key. Both beat whatever 
 
 | Env var | Overrides | Type |
 |---|---|---|
-| `SORTIE_DB_PATH` | [`db_path`](/reference/workflow-config/#db_path) | string (path - `~` expanded) |
+| `SORTIE_DB_PATH` | [`db_path`](/reference/workflow-config/#db_path) | string (path, `~` expanded) |
 
 ### Control variables
 
@@ -95,7 +96,7 @@ These are not config field overrides. They control how overrides are loaded.
 |---|---|---|
 | `SORTIE_ENV_FILE` | Path to a `.env` file containing `SORTIE_*` overrides | string |
 
-When [`--env-file`](/reference/cli/#-env-file) is provided, the CLI resolves the path to absolute and exports it as `SORTIE_ENV_FILE` in the process environment. This ensures the value is captured by the `SORTIE_*` prefix scan and propagated to the MCP server, which runs in a different working directory and needs the absolute path to locate the `.env` file. When both `SORTIE_ENV_FILE` and `--env-file` are set, the CLI flag wins.
+When [`--env-file`](/reference/cli/#--env-file) is provided, the CLI resolves the path to absolute and exports it as `SORTIE_ENV_FILE` in the process environment. This ensures the value is captured by the `SORTIE_*` prefix scan and propagated to the MCP server, which runs in a different working directory and needs the absolute path to locate the `.env` file. When both `SORTIE_ENV_FILE` and `--env-file` are set, the CLI flag wins.
 
 ### Type coercion
 
@@ -123,8 +124,8 @@ A value that parses successfully can still be rejected by configuration validati
 | `dispatch.*` | No override variables exist; rule definitions and template paths must come from WORKFLOW.md |
 | `notifications` | No override variables exist; backend configuration must come from WORKFLOW.md, though `$VAR` references inside an entry still resolve |
 | Extension sections (`server`, `worker`, `claude-code`, etc.) | Plugin-owned configuration; overrides belong to the adapter |
-| `logging.level` | Controlled by the [`--log-level`](/reference/cli/#-log-level) CLI flag |
-| `logging.format` | Controlled by the [`--log-format`](/reference/cli/#-log-format) CLI flag |
+| `logging.level` | Controlled by the [`--log-level`](/reference/cli/#--log-level) CLI flag |
+| `logging.format` | Controlled by the [`--log-format`](/reference/cli/#--log-format) CLI flag |
 
 ### `.env` file support
 
@@ -210,7 +211,7 @@ Rules:
 
 - One `KEY=VALUE` per line. No multiline values.
 - `#` lines and blank lines are ignored.
-- Optional single or double quotes around values - outer quotes are stripped, no escape processing.
+- Optional single or double quotes around values. Outer quotes are stripped, with no escape processing.
 - Only keys starting with `SORTIE_` are loaded. All other keys are silently ignored.
 - No variable interpolation within values. `$HOME` in a `.env` value is the literal string `$HOME`.
 - Real environment variables always take precedence over `.env` values.
@@ -229,7 +230,7 @@ Each item is trimmed of surrounding whitespace. Empty items (from trailing comma
 
 ### Interaction with `$VAR` indirection
 
-When a `SORTIE_*` override is set for a field, it replaces the YAML value entirely. The [`$VAR` expansion](#var-indirection-in-workflowmd) that would normally run on the YAML value is skipped for that field. Values from env overrides are literal - `$` characters are not expanded.
+When a `SORTIE_*` override is set for a field, it replaces the YAML value entirely. The [`$VAR` expansion](#var-indirection-in-workflowmd) that would normally run on the YAML value is skipped for that field. Values from env overrides are literal: `$` characters are not expanded.
 
 Example: WORKFLOW.md has `api_key: $MY_TOKEN`. If `SORTIE_TRACKER_API_KEY=tok$5abc` is set, the `api_key` becomes the literal string `tok$5abc`. The `$MY_TOKEN` indirection never executes. The `$5` is not expanded.
 
@@ -239,7 +240,7 @@ Path fields (`workspace.root`, `db_path`) still receive `~` expansion even when 
 
 ## Agent runtime variables
 
-Agent adapters spawn subprocesses that inherit the **full** parent process environment. Sortie validates none of these variables - they pass straight through, and if one is missing, the agent subprocess fails, not Sortie. `COPILOT_HOME` is the one Sortie reads for itself, to locate a file the runtime writes.
+Agent adapters spawn subprocesses that inherit the **full** parent process environment. Sortie validates none of these variables: they pass straight through, and if one is missing, the agent subprocess fails, not Sortie. `COPILOT_HOME` is the one Sortie reads for itself, to locate a file the runtime writes.
 
 | Variable | Required by | Description |
 |---|---|---|
@@ -261,12 +262,12 @@ Agent adapters spawn subprocesses that inherit the **full** parent process envir
 
 **A missing `ANTHROPIC_API_KEY` is the most common `claude-code` deployment failure.** Sortie starts and polls the tracker normally, but every agent session fails at launch with an auth error. The Sortie logs show a worker exit with `exit_type=error`; the root cause is only visible in the agent's stderr output.
 
-**For `copilot-cli`, a missing GitHub token is the equivalent failure.** The adapter's preflight check validates that at least one of `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN` is set, or that `gh auth status` succeeds. If none are available, `StartSession` fails with `agent_not_found`. The Copilot CLI itself implements try-and-fallback across these three variables - precedence matters only when multiple sources hold different valid tokens.
+**For `copilot-cli`, a missing GitHub token is the equivalent failure.** The adapter's preflight check validates that at least one of `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN` is set, or that `gh auth status` succeeds. If none are available, `StartSession` fails with `agent_not_found`. The Copilot CLI itself implements try-and-fallback across these three variables. Precedence matters only when multiple sources hold different valid tokens.
 
 {{< callout type="warning" >}}
 **Classic PATs do not work with Copilot CLI**
 
-Copilot CLI requires a **fine-grained personal access token** (prefix `github_pat_`) with the **Copilot Requests** permission enabled. Classic PATs (prefix `ghp_`) fail authentication silently - the CLI falls through all three token variables and reports no valid credential. OAuth tokens (`gho_` from `copilot auth login`) and GitHub App user-to-server tokens (`ghu_`) also work. If you see authentication failures despite having a token set, check the token prefix.
+Copilot CLI requires a **fine-grained personal access token** (prefix `github_pat_`) with the **Copilot Requests** permission enabled. Classic PATs (prefix `ghp_`) fail authentication silently: the CLI falls through all three token variables and reports no valid credential. OAuth tokens (`gho_` from `copilot auth login`) and GitHub App user-to-server tokens (`ghu_`) also work. If you see authentication failures despite having a token set, check the token prefix.
 {{< /callout >}}
 
 **For `codex`, a missing `CODEX_API_KEY` produces the same pattern as Claude Code.** Sortie starts normally, but every agent session fails with an authentication error during the app-server initialization handshake. If `CODEX_API_KEY` is unset, the adapter attempts to use cached credentials from `~/.codex/auth.json`; if those are also absent or expired, `StartSession` fails with `response_error`. In SSH mode, the adapter injects `CODEX_API_KEY` into the remote command line because OpenSSH drops local environment variables by default.
@@ -285,6 +286,8 @@ In local mode the adapter injects only the managed `OPENCODE_*` values above; ev
 
 **For `kiro`, authentication is a single credential.** The adapter reads `KIRO_API_KEY` and validates it at `StartSession` before any turn runs, so a missing or invalid key surfaces as a startup error. In SSH mode the adapter injects `KIRO_API_KEY` inline into the remote command because OpenSSH drops local environment variables. See the [Kiro CLI adapter reference](/reference/adapter-kiro/) for the credential preflight and headless behavior.
 
+**For `agent-client-protocol`, Sortie manages no credential at all.** This kind names no default runtime, so there is no fixed variable to preflight or document here: whichever binary `agent.command` names reads its own credential from the inherited environment, exactly like every other agent adapter's subprocess. See the [Agent Client Protocol adapter reference](/reference/adapter-agent-client-protocol/) for the kind itself, and [Gemini CLI](/reference/agent-client-protocol-gemini/) or [Kiro CLI](/reference/agent-client-protocol-kiro/) on that route for what each of those two runtimes actually reads.
+
 ---
 
 ## `$VAR` indirection in WORKFLOW.md
@@ -297,11 +300,11 @@ Selected [WORKFLOW.md configuration](/reference/workflow-config/) fields resolve
 
 Three expansion modes exist. The mode depends on the field.
 
-**Reference only** - Expands only when the **entire** trimmed value is a variable reference (`$VAR` or `${VAR}`). Mixed content like `https://example.com/$VAR` is returned unchanged, preventing destructive rewriting of URIs and paths.
+**Reference only**: Expands only when the **entire** trimmed value is a variable reference (`$VAR` or `${VAR}`). Mixed content like `https://example.com/$VAR` is returned unchanged, preventing destructive rewriting of URIs and paths.
 
-**Anywhere in string** - Full `os.ExpandEnv` semantics. Expands `$VAR` and `${VAR}` references **anywhere** in the string, including within larger values.
+**Anywhere in string**: Full `os.ExpandEnv` semantics. Expands `$VAR` and `${VAR}` references **anywhere** in the string, including within larger values.
 
-**Path** - Expands `~` or `~/` at the start of the value to the user's home directory, then applies full `os.ExpandEnv`.
+**Path**: Expands `~` or `~/` at the start of the value to the user's home directory, then applies full `os.ExpandEnv`.
 
 ### Fields with `$VAR` support
 
@@ -318,7 +321,7 @@ Three expansion modes exist. The mode depends on the field.
 | `workspace.root` | Path | `~/workspace/sortie` | `/home/deploy/workspace/sortie` |
 | `db_path` | Path | `$SORTIE_DB_DIR/sortie.db` | `/var/lib/sortie/sortie.db` |
 
-Fields in the core schema outside this table - `agent.kind`, `agent.max_turns`, hook scripts, `ci_feedback`, `self_review`, `reactions`, and `dispatch` - are treated as literal strings with no expansion.
+Fields in the core schema outside this table (`agent.kind`, `agent.max_turns`, hook scripts, `ci_feedback`, `self_review`, `reactions`, and `dispatch`) are treated as literal strings with no expansion.
 
 [Adapter pass-through blocks](/reference/workflow-config/#adapter-pass-through-configuration) (`claude-code`, `worker`, `github`, and similar top-level blocks named after a `kind`) and each [`notifications`](/reference/workflow-config/#notifications) entry are the exception: every string leaf in those blocks is resolved with the same anywhere-in-string semantics, independently of the table above.
 
@@ -335,7 +338,7 @@ For the GitLab adapter, the conventions are `$SORTIE_GITLAB_TOKEN` for `tracker.
 | Scenario | Behavior |
 |---|---|
 | `$VAR` resolves to an empty string | The field is treated as missing. For required fields (e.g., `tracker.api_key` when the adapter declares it required), this is a startup error. |
-| The referenced variable does not exist in the environment | Same as empty - `os.ExpandEnv` returns `""` for undefined variables. |
+| The referenced variable does not exist in the environment | Same as empty: `os.ExpandEnv` returns `""` for undefined variables. |
 | `tracker.handoff_state` resolves to empty | Startup error: `config: tracker.handoff_state: resolved to empty (check environment variable)`. |
 | `tracker.no_change_state` resolves to empty | Startup error: `config: tracker.no_change_state: resolved to empty (check environment variable)`. |
 | `db_path` resolves to empty | Startup error: `config: db_path: resolved to empty (check environment variable)`. |
@@ -396,12 +399,12 @@ Both paths sit in a temporary directory created for the run, outside the workspa
 
 Beyond the injected variables above, hooks inherit two categories from the parent Sortie process:
 
-**Platform allowlist** - A fixed set of standard infrastructure variables, varying by OS:
+**Platform allowlist**: A fixed set of standard infrastructure variables, varying by OS:
 
 - *POSIX (Linux, macOS):* `PATH`, `HOME`, `SHELL`, `TMPDIR`, `USER`, `LOGNAME`, `TERM`, `LANG`, `LC_ALL`, `SSH_AUTH_SOCK`
 - *Windows:* `PATH`, `SYSTEMROOT`, `COMSPEC`, `PATHEXT`, `USERPROFILE`, `TEMP`, `TMP`, `APPDATA`, `LOCALAPPDATA`, `HOMEDRIVE`, `HOMEPATH`, `USERNAME`
 
-**`SORTIE_*` prefix** - All parent environment variables whose names start with `SORTIE_` are inherited. This includes any `SORTIE_*` variables set via [configuration overrides](#configuration-overrides). This is the intended mechanism for passing additional values (API tokens, repository URLs, custom flags) into hooks without exposing the full process environment.
+**`SORTIE_*` prefix**: All parent environment variables whose names start with `SORTIE_` are inherited. This includes any `SORTIE_*` variables set via [configuration overrides](#configuration-overrides). This is the intended mechanism for passing additional values (API tokens, repository URLs, custom flags) into hooks without exposing the full process environment.
 
 ### Stripped variables
 
@@ -446,7 +449,7 @@ When the same variable name exists in both the parent environment (via `SORTIE_*
 
 ## MCP server environment
 
-The MCP tool server (`sortie mcp-server`) runs as a child process of the agent runtime, not of the Sortie orchestrator. The agent runtime constructs the MCP server's environment from the names in the `env` field of `.sortie/mcp.json` - a variable not listed in that block does not reach the server. Where the adapter re-expresses the file rather than handing over its path, a listed name can be delivered as a name alone, its value resolved from the agent runtime's own process environment: see [translated delivery](#translated-delivery-and-the-env-block). The worker writes per-session context variables and all `SORTIE_*`-prefixed process environment variables into this block before launching the agent. It writes the file for every agent kind, but the chain runs end to end only where the adapter delivers those servers to its runtime - directly as the file's path, or re-expressed in the form that runtime parses. Where it delivers neither, nothing spawns the server and the `env` block reaches nobody; see [delivery by agent kind](/reference/agent-extensions/#delivery-by-agent-kind).
+The MCP tool server (`sortie mcp-server`) runs as a child process of the agent runtime, not of the Sortie orchestrator. The agent runtime constructs the MCP server's environment from the names in the `env` field of `.sortie/mcp.json`: a variable not listed in that block does not reach the server. Where the adapter re-expresses the file rather than handing over its path, a listed name can be delivered as a name alone, its value resolved from the agent runtime's own process environment: see [translated delivery](#translated-delivery-and-the-env-block). The worker writes per-session context variables and all `SORTIE_*`-prefixed process environment variables into this block before launching the agent. It writes the file for every agent kind, but the chain runs end to end only where the adapter delivers those servers to its runtime, either directly as the file's path or re-expressed in the form that runtime parses. Where it delivers neither, nothing spawns the server and the `env` block reaches nobody; see [delivery by agent kind](/reference/agent-extensions/#delivery-by-agent-kind).
 
 ### Environment composition
 
@@ -461,7 +464,7 @@ The `env` block is built in two layers:
 | `SORTIE_ISSUE_ID` | string | Tracker-internal issue ID. Scopes tool operations to the current issue. |
 | `SORTIE_ISSUE_IDENTIFIER` | string | Human-readable ticket key (e.g., `PROJ-123`). Used by `tracker_api` for project-level scoping. |
 | `SORTIE_WORKSPACE` | string | Absolute path to the per-issue workspace directory. |
-| `SORTIE_DB_PATH` | string | Absolute path to the Sortie SQLite database. The MCP server opens this in read-only mode for Tier 1 tools that query run history (e.g., `workspace_history`). This is the same resolved path that the orchestrator uses - if you set `SORTIE_DB_PATH` as a [configuration override](#configuration-overrides), the MCP server receives that same value. |
+| `SORTIE_DB_PATH` | string | Absolute path to the Sortie SQLite database. The MCP server opens this in read-only mode for Tier 1 tools that query run history (e.g., `workspace_history`). This is the same resolved path that the orchestrator uses. If you set `SORTIE_DB_PATH` as a [configuration override](#configuration-overrides), the MCP server receives that same value. |
 | `SORTIE_SESSION_ID` | string | Opaque session identifier for the current worker run. Used by tools that query session-specific data (e.g., `cost_budget`, which uses it to include the running session's token spend). |
 | `SORTIE_SESSION_AGENT_KIND` | string | Dispatch-frozen agent kind for the session (e.g., `claude-code`). Written unconditionally; may be empty when no agent kind is resolved. Consumed by the `notify_operator` envelope to record the agent that ran the session. |
 | `SORTIE_ATTEMPT` | string | Current retry attempt number as a decimal integer. Written when the orchestrator has attempt information (retries and continuations). Absent on the very first dispatch. Starts at `1` for the first retry and increments on subsequent retries. |
@@ -472,13 +475,13 @@ Per-session variables always win. A stale `SORTIE_ISSUE_ID` in the process envir
 
 Tier 2 tools (like `tracker_api`) need tracker API credentials. These reach the MCP server through the `env` block: the worker's process environment contains credential variables (e.g., `SORTIE_JIRA_API_KEY` referenced by `tracker.api_key: $SORTIE_JIRA_API_KEY`), the `SORTIE_*` prefix scan collects them, and the worker writes them into `.sortie/mcp.json`. The MCP server parses the workflow file with the same config loader the orchestrator uses, so its `$VAR` resolution (see [`$VAR` indirection in WORKFLOW.md](#var-indirection-in-workflowmd)) expands references against these variables.
 
-When the operator uses [`--env-file`](/reference/cli/#-env-file), the CLI exports the resolved absolute path as `SORTIE_ENV_FILE` in the process environment. The prefix scan captures this variable, so the MCP server receives the `.env` file path and applies the overrides in it through the same loader.
+When the operator uses [`--env-file`](/reference/cli/#--env-file), the CLI exports the resolved absolute path as `SORTIE_ENV_FILE` in the process environment. The prefix scan captures this variable, so the MCP server receives the `.env` file path and applies the overrides in it through the same loader.
 
-The `.sortie/mcp.json` file is written with `0o600` permissions (owner read/write only) and resides within the per-issue workspace directory. The credential is already available to the agent subprocess via `os.Environ()` - writing it to the config file does not expand the agent's access.
+The `.sortie/mcp.json` file is written with `0o600` permissions (owner read/write only) and resides within the per-issue workspace directory. The credential is already available to the agent subprocess via `os.Environ()`: writing it to the config file does not expand the agent's access.
 
 ### Controlled environment
 
-Unlike the [hook subprocess environment](#hook-subprocess-environment), which uses a POSIX allowlist plus `SORTIE_*` prefix filter on the parent process, the MCP server's environment is the one the `env` block names. Where an adapter re-expresses the configuration rather than passing its path, a name in that block can be resolved against the agent runtime's own process environment instead of against a value written into the configuration; see [translated delivery](#translated-delivery-and-the-env-block). Either way the names come from the `env` block. Sortie writes no variable outside the `SORTIE_*` namespace into the configuration and asks for none by name, so a non-`SORTIE_*` variable of the orchestrator's process (e.g., `PATH`, `HOME`, `ANTHROPIC_API_KEY`) is not one Sortie hands to the MCP server. The prefix acts as a bounded namespace - no non-Sortie secrets leak into the config file.
+Unlike the [hook subprocess environment](#hook-subprocess-environment), which uses a POSIX allowlist plus `SORTIE_*` prefix filter on the parent process, the MCP server's environment is the one the `env` block names. Where an adapter re-expresses the configuration rather than passing its path, a name in that block can be resolved against the agent runtime's own process environment instead of against a value written into the configuration; see [translated delivery](#translated-delivery-and-the-env-block). Either way the names come from the `env` block. Sortie writes no variable outside the `SORTIE_*` namespace into the configuration and asks for none by name, so a non-`SORTIE_*` variable of the orchestrator's process (e.g., `PATH`, `HOME`, `ANTHROPIC_API_KEY`) is not one Sortie hands to the MCP server. The prefix acts as a bounded namespace: no non-Sortie secrets leak into the config file.
 
 ### Translated delivery and the `env` block
 
@@ -488,7 +491,7 @@ The reason is the delivery route. That adapter's configuration travels on the ap
 
 ### Relationship to hook variables
 
-Four per-session variables (`SORTIE_ISSUE_ID`, `SORTIE_ISSUE_IDENTIFIER`, `SORTIE_WORKSPACE`, `SORTIE_ATTEMPT`) are shared with the [hook subprocess environment](#hook-subprocess-environment). `SORTIE_DB_PATH`, `SORTIE_SESSION_ID`, and `SORTIE_SESSION_AGENT_KIND` are specific to the MCP execution channel - hooks don't receive them. In hooks, `SORTIE_ATTEMPT` is always present (defaulting to `0` on the first dispatch). In the MCP env block, `SORTIE_ATTEMPT` is written only when the orchestrator has attempt information (retries and continuations); on the very first dispatch it is absent from the per-session set, though it may still appear if the operator's process environment contains a `SORTIE_ATTEMPT` variable captured by the `SORTIE_*` prefix scan.
+Four per-session variables (`SORTIE_ISSUE_ID`, `SORTIE_ISSUE_IDENTIFIER`, `SORTIE_WORKSPACE`, `SORTIE_ATTEMPT`) are shared with the [hook subprocess environment](#hook-subprocess-environment). `SORTIE_DB_PATH`, `SORTIE_SESSION_ID`, and `SORTIE_SESSION_AGENT_KIND` are specific to the MCP execution channel: hooks don't receive them. In hooks, `SORTIE_ATTEMPT` is always present (defaulting to `0` on the first dispatch). In the MCP env block, `SORTIE_ATTEMPT` is written only when the orchestrator has attempt information (retries and continuations); on the very first dispatch it is absent from the per-session set, though it may still appear if the operator's process environment contains a `SORTIE_ATTEMPT` variable captured by the `SORTIE_*` prefix scan.
 
 ---
 
@@ -513,7 +516,7 @@ SORTIE_VERSION=1.19.0 SORTIE_INSTALL_DIR=/opt/bin \
 
 ## See also
 
-- [WORKFLOW.md configuration reference](/reference/workflow-config/) - all configuration fields, defaults, and types
-- [CLI reference](/reference/cli/) - command-line flags (including [`--env-file`](/reference/cli/#-env-file)) and exit codes
-- [Agent extensions reference](/reference/agent-extensions/) - tool schemas, MCP execution channel, and response formats
-- [Prometheus metrics reference](/reference/prometheus-metrics/) - `sortie_*` metric names (these are Prometheus metrics, not environment variables)
+- [WORKFLOW.md configuration reference](/reference/workflow-config/): all configuration fields, defaults, and types
+- [CLI reference](/reference/cli/): command-line flags (including [`--env-file`](/reference/cli/#--env-file)) and exit codes
+- [Agent extensions reference](/reference/agent-extensions/): tool schemas, MCP execution channel, and response formats
+- [Prometheus metrics reference](/reference/prometheus-metrics/): `sortie_*` metric names (these are Prometheus metrics, not environment variables)

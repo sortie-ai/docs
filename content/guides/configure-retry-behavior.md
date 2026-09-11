@@ -7,7 +7,7 @@ date: 2026-03-28
 weight: 60
 url: /guides/configure-retry-behavior/
 ---
-Make Sortie's retries match your operational needs — cap runaway loops, tune backoff timing, and catch stalled sessions before they waste slots.
+Make Sortie's retries match your operational needs: cap runaway loops, tune backoff timing, and catch stalled sessions before they waste slots.
 
 ## Prerequisites
 
@@ -29,7 +29,7 @@ agent:
 
 With `max_sessions: 3`, Sortie runs up to three completed worker sessions for each issue. After the third session finishes without resolving the issue, Sortie releases the claim and the issue stays in its current tracker state for human review.
 
-The distinction between sessions and turns matters here. `max_sessions` counts completed worker sessions — full invocations of the worker loop. `max_turns` (default: `20`) counts turns *within* a single session. A session that fails on turn 2 of 5 still counts as one completed session toward the budget. The two settings multiply to bound worst-case effort:
+The distinction between sessions and turns matters here. `max_sessions` counts completed worker sessions (full invocations of the worker loop). `max_turns` (default: `20`) counts turns *within* a single session. A session that fails on turn 2 of 5 still counts as one completed session toward the budget. The two settings multiply to bound worst-case effort:
 
 $$
 \text{max\_sessions} \times \text{max\_turns} = \text{maximum total turns per issue}
@@ -43,7 +43,7 @@ level=WARN msg="effort budget exhausted, blocking re-dispatch" issue_id="PROJ-42
 
 At that point, the issue is no longer Sortie's problem. Check the [dashboard](/reference/dashboard/) run history to see what each session accomplished.
 
-A second ceiling guards cost rather than attempts. When [`agent.max_tokens`](/reference/workflow-config/#agent) is set, Sortie also sums the tokens consumed across the issue's completed sessions before every re-dispatch and blocks the issue once the sum reaches the budget. The effect is identical to session exhaustion: claim released, retry entry dropped, issue left for human review. The two ceilings are independent and whichever fills first wins; when one evaluation finds both exhausted, the logged reason names the token budget (`token_budget`). If the token query fails, the check fails open and dispatch proceeds. For choosing a budget and the cost math, see [how to control agent costs](/guides/control-costs/).
+A second ceiling guards cost rather than attempts. When [`agent.max_tokens`](/reference/workflow-config/#agent) is set, Sortie also sums the tokens consumed across the issue's completed sessions before every re-dispatch and blocks the issue once the sum reaches the budget. The effect at that point is identical to session exhaustion: claim released, retry entry dropped, issue left for human review. It differs in one way that matters here: this ceiling does not wait for a session boundary. Reaching it during a session cancels that session, which ends the attempt with status `budget_stopped` and schedules no retry. The two ceilings are independent and whichever fills first wins; when one evaluation finds both exhausted, the logged reason names the token budget (`token_budget`). If the token query fails, the pre-dispatch check fails open and dispatch proceeds. For choosing a budget and the cost math, see [how to control agent costs](/guides/control-costs/).
 
 ```yaml
 agent:
@@ -60,7 +60,7 @@ level=WARN msg="token budget exhausted, blocking re-dispatch" issue_id="PROJ-42"
 
 Sortie distinguishes a run that produced nothing observable in the workspace from a run that failed outright. Under [`tracker.handoff_evidence`](/reference/workflow-config/#tracker) at its default, `observed` (and under `strict`), a run whose workspace shows no evidence of work does not advance the issue. It is retried on the same exponential backoff as an error, not the 1-second continuation delay below. See the [state machine reference](/reference/state-machine/#handoff-evidence) for the full three-verdict rule this follows.
 
-Left alone, an issue stuck in that loop would retry forever. Sortie counts consecutive runs whose handoff was withheld this way and stops once the count reaches a ceiling: [`agent.max_consecutive_absences`](/reference/workflow-config/#agent), which defaults to `3` and is a separate setting from `agent.max_sessions` - raising or lowering one does not move the other. Unlike `max_sessions`, `0` does not mean unlimited here: `0` and negative values are rejected as a configuration error, because an unbounded absence sequence is exactly what this ceiling exists to prevent. With the default, an issue that never shows evidence of work gets the initial run plus two retries, then parks on the third absence.
+Left alone, an issue stuck in that loop would retry forever. Sortie counts consecutive runs whose handoff was withheld this way and stops once the count reaches a ceiling: [`agent.max_consecutive_absences`](/reference/workflow-config/#agent), which defaults to `3` and is a separate setting from `agent.max_sessions`. Raising or lowering one does not move the other. Unlike `max_sessions`, `0` does not mean unlimited here: `0` and negative values are rejected as a configuration error, because an unbounded absence sequence is exactly what this ceiling exists to prevent. With the default, an issue that never shows evidence of work gets the initial run plus two retries, then parks on the third absence.
 
 ```yaml
 agent:
@@ -91,7 +91,7 @@ Release a parked issue with any one of three gestures:
 
 If [`tracker.query_filter`](/reference/workflow-config/#tracker) excludes the parking label from the issues Sortie fetches, Sortie can never confirm the label is present, so removing it never releases the park either. Release those issues by moving them to a different state instead.
 
-A review-comment or CI continuation retry is never stopped by this ceiling; it runs on its own retry budget. The consecutive-absence count is neither kept nor consulted when `tracker.handoff_evidence` is `off`. And a run that ends with no evidence verdict at all, such as an agent that reports itself blocked, leaves the count exactly where it stood: it neither advances it nor resets it. So does a run whose withheld verdict Sortie discarded because the issue had reached a terminal state by the time the outcome was recorded - a finished issue does not move toward the ceiling.
+A review-comment or CI continuation retry is never stopped by this ceiling; it runs on its own retry budget. The consecutive-absence count is neither kept nor consulted when `tracker.handoff_evidence` is `off`. And a run that ends with no evidence verdict at all, such as an agent that reports itself blocked, leaves the count exactly where it stood: it neither advances it nor resets it. So does a run whose withheld verdict Sortie discarded because the issue had reached a terminal state by the time the outcome was recorded. A finished issue does not move toward the ceiling.
 
 ## Tune backoff timing
 
@@ -99,7 +99,7 @@ Sortie uses two different retry strategies depending on what happened, and they 
 
 ### Continuation retries (1-second delay)
 
-When an agent finishes its turns normally but the issue is still in an active tracker state, Sortie treats this as "keep going" — not an error. It waits 1 second and dispatches a new session. This also applies when a handoff transition fails, but not when the handoff is withheld by the evidence policy: that outcome takes the exponential-backoff lane below, covered under [park issues stuck in a loop of empty runs](#park-issues-stuck-in-a-loop-of-empty-runs).
+When an agent finishes its turns normally but the issue is still in an active tracker state, Sortie treats this as "keep going," not an error. It waits 1 second and dispatches a new session. This also applies when a handoff transition fails, but not when the handoff is withheld by the evidence policy: that outcome takes the exponential-backoff lane below, covered under [park issues stuck in a loop of empty runs](#park-issues-stuck-in-a-loop-of-empty-runs).
 
 You don't configure this delay. It's fixed at 1,000 ms because the agent succeeded; there's no reason to wait.
 
@@ -134,10 +134,10 @@ Some failures indicate a configuration problem that retrying won't fix. Sortie r
 | `turn_cancelled` | Turn was killed (e.g., stall detection) |
 | `turn_input_required` | Agent asked for human input |
 | Tracker auth errors | 401/403 from your tracker |
-| `tracker_not_found` | 404 — issue or resource doesn't exist |
+| `tracker_not_found` | 404: issue or resource doesn't exist |
 | `tracker_payload_error` | Malformed tracker response |
 
-When you see these, the fix is operational — install the binary, fix the workspace path, rotate the API key. The log line is explicit:
+When you see these, the fix is operational: install the binary, fix the workspace path, rotate the API key. The log line is explicit:
 
 ```
 level=ERROR msg="worker run failed, non-retryable, releasing claim" error="agent: agent_not_found: agent command \"claude\" not found: exec: \"claude\": executable file not found in $PATH"
@@ -155,7 +155,7 @@ A stalled session produces no events but holds a concurrency slot. Two timeouts 
 
 ```yaml
 agent:
-  stall_timeout_ms: 300000  # 5 min — kill silent sessions
+  stall_timeout_ms: 300000  # kill silent sessions after 5 min
 ```
 
 Sortie checks for stalls every poll tick. It measures time since the last agent event (or session start, whichever is more recent). If that exceeds `stall_timeout_ms`, the worker is cancelled and an exponential-backoff retry is scheduled. You'll see:
@@ -166,7 +166,7 @@ level=WARN msg="stall detected, cancelling worker" issue_id="PROJ-42" elapsed_ms
 
 ### Turn timeout
 
-`agent.turn_timeout_ms` is the hard cap on total time for a single agent turn. Default: `3600000` (1 hour). This fires regardless of agent activity — even a chatty agent gets killed when time's up.
+`agent.turn_timeout_ms` is the hard cap on total time for a single agent turn. Default: `3600000` (1 hour). This fires regardless of agent activity. Even a chatty agent gets killed when time's up.
 
 Unlike `stall_timeout_ms`, this bound cannot be turned off. The value must be positive; a non-positive `turn_timeout_ms` stops the workflow from loading.
 
@@ -182,7 +182,7 @@ Keep `stall_timeout_ms` shorter than `turn_timeout_ms`. Stall detection catches 
 Here's a conservative configuration that balances reliability with resource efficiency:
 
 ```yaml {hl_lines=["4-6","8-10"]}
-# WORKFLOW.md — agent block
+# WORKFLOW.md: agent block
 agent:
   kind: claude-code
   max_turns: 3
@@ -198,7 +198,7 @@ What this means in practice: each issue gets up to 3 sessions. Each session runs
 
 Worst case for a single issue: 3 sessions × 3 turns × 30 minutes = 4.5 hours of compute time, plus retry delays between sessions. In reality, most issues resolve in one session, and failed turns trigger backoff well before hitting the turn timeout.
 
-If an error retry fires but no concurrency slot is available, the retry is rescheduled at the same backoff interval — it doesn't lose its place in the queue or reset its attempt counter.
+If an error retry fires but no concurrency slot is available, the retry is rescheduled at the same backoff interval. It doesn't lose its place in the queue or reset its attempt counter.
 
 ## Verify retry behavior
 

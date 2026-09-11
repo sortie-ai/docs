@@ -129,7 +129,7 @@ The container needs credentials for the **agent** (to run code) and the **tracke
 |---|---|
 | GitHub Issues | `SORTIE_GITHUB_TOKEN`, `SORTIE_GITHUB_PROJECT` |
 | Jira | `SORTIE_JIRA_API_KEY`, `SORTIE_JIRA_ENDPOINT`, `SORTIE_JIRA_PROJECT` |
-| File (local testing) | None — configured in `WORKFLOW.md` |
+| File (local testing) | None (configured in `WORKFLOW.md`) |
 
 For tracker setup details, see [How to connect to GitHub Issues](/guides/connect-to-github/) or [How to connect to Jira](/guides/connect-to-jira/).
 
@@ -260,7 +260,7 @@ docker run --rm --init \
 
 ## Handle process reaping
 
-Sortie handles `SIGTERM` for graceful shutdown, but orphaned grandchild processes — agent subprocesses that outlive their parent — need an init process for zombie reaping.
+Sortie handles `SIGTERM` for graceful shutdown, but orphaned grandchild processes (agent subprocesses that outlive their parent) need an init process for zombie reaping.
 
 The `--init` flag in the `docker run` examples above handles this. It injects Docker's built-in tini as PID 1.
 
@@ -278,7 +278,7 @@ ENTRYPOINT ["tini", "--", "/usr/bin/sortie", "--host", "0.0.0.0", "--log-format"
 
 Claude Code enforces a non-root requirement: `--dangerously-skip-permissions` exits with an error under UID 0. Even for agents without this restriction, running as non-root is a security best practice.
 
-The example Dockerfiles above create a `sortie` user at UID 1000. On `node:*-slim` base images, UID 1000 is already claimed by the `node` user — remove it first with `userdel -r node` before creating your own.
+The example Dockerfiles above create a `sortie` user at UID 1000. On `node:*-slim` base images, UID 1000 is already claimed by the `node` user. Remove it first with `userdel -r node` before creating your own.
 
 If your base image has a different UID layout, adjust accordingly:
 
@@ -293,8 +293,8 @@ Sortie exposes two health endpoints:
 
 | Endpoint | Purpose |
 |---|---|
-| `/readyz` | Readiness — checks database, preflight, and workflow state. Returns HTTP 503 if any subsystem is unhealthy. |
-| `/livez` | Liveness — returns HTTP 200 unless the server is draining (graceful shutdown in progress). |
+| `/readyz` | Readiness: checks database, preflight, and workflow state. Returns HTTP 503 if any subsystem is unhealthy. |
+| `/livez` | Liveness: returns HTTP 200 unless the server is draining (graceful shutdown in progress). |
 
 Use `/readyz` for Docker `HEALTHCHECK` because it detects real failures (broken database, invalid workflow), not just process liveness:
 
@@ -359,7 +359,7 @@ Cross-compile for a different architecture:
 docker build --platform linux/arm64 -t sortie:arm64 .
 ```
 
-The builder stage runs on the host architecture and uses Go's native cross-compilation — no QEMU emulation needed.
+The builder stage runs on the host architecture and uses Go's native cross-compilation. No QEMU emulation is needed.
 
 ## Adapt for a different agent
 
@@ -400,7 +400,7 @@ docker inspect --format='{{.State.Health.Status}}' <container-id>
 
 ## Example Dockerfiles
 
-The Dockerfiles in this guide are self-contained — copy them into your project and build directly. The Sortie repository also maintains reference versions that track the latest best practices:
+The Dockerfiles in this guide are self-contained. Copy them into your project and build directly. The Sortie repository also maintains reference versions that track the latest best practices:
 
 | File | Agent | Base Image |
 |---|---|---|

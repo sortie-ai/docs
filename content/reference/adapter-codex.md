@@ -32,6 +32,7 @@ These fields control the orchestrator's scheduling behavior. They are not passed
 | `turn_timeout_ms` | integer | `3600000` (1 hour) | Total timeout for a single `RunTurn` call. The orchestrator cancels the turn context when exceeded. |
 | `read_timeout_ms` | integer | `5000` (5 seconds) | Bounds three waits for a message the app-server may never send: the `account/login/completed` notification, the `thread/started` notification, and the wait for `turn/completed` after a cancelled turn's `turn/interrupt`. It does not bound the `initialize`, `account/read`, `thread/start`, or `thread/resume` responses, which are bounded by the caller's context instead. Falls back to 30 seconds when unset or not positive. |
 | `stall_timeout_ms` | integer | `300000` (5 minutes) | Maximum time between consecutive events before the orchestrator treats the session as stalled. `0` or negative disables stall detection. |
+| `stop_grace_ms` | integer | `5000` (5 seconds) | How long the adapter waits for the subprocess to exit on its own after a graceful termination signal, before it force-terminates the process group. Must be positive. |
 | `max_retry_backoff_ms` | integer | `300000` (5 minutes) | Maximum delay cap for exponential backoff between retry attempts. |
 
 ```yaml
@@ -53,7 +54,7 @@ These fields are adapter-specific. Most map to a JSON-RPC parameter on `thread/s
 | `model` | `model` (thread/start, turn/start) | string | _(CLI default)_ | LLM model identifier, forwarded unchanged. See `codex --help` on your installed version for the accepted values. |
 | `effort` | `effort` (turn/start) | string | _(CLI default)_ | Reasoning effort level, forwarded unchanged. See `codex --help` on your installed version for the accepted values. |
 | `approval_policy` | `approvalPolicy` (thread/start) | string | `never` | When the app-server asks for a decision before running a command or applying an edit. `never` is the only value Sortie accepts; which policies Codex itself offers is Codex's to document. See [approval policy and sandbox](#approval-policy-and-sandbox). |
-| `thread_sandbox` | `sandbox` (thread/start) | string | `workspaceWrite` | Sandbox mode for the thread. The adapter rewrites the four camelCase spellings it recognizes - `readOnly`, `workspaceWrite`, `dangerFullAccess`, `externalSandbox` - into the kebab-case forms `thread/start` expects, and forwards any other value untouched. See [approval policy and sandbox](#approval-policy-and-sandbox). |
+| `thread_sandbox` | `sandbox` (thread/start) | string | `workspaceWrite` | Sandbox mode for the thread. The adapter rewrites the four camelCase spellings it recognizes (`readOnly`, `workspaceWrite`, `dangerFullAccess`, `externalSandbox`) into the kebab-case forms `thread/start` expects, and forwards any other value untouched. See [approval policy and sandbox](#approval-policy-and-sandbox). |
 | `turn_sandbox_policy` | `sandboxPolicy` (turn/start) | map | _(see below)_ | Per-turn sandbox policy override, merged key-by-key on top of the adapter's default policy and able to replace any key in it. Setting it also makes the adapter send `sandboxPolicy` on every turn rather than only the first. |
 | `personality` | `personality` (thread/start) | string | _(none)_ | Personality preset. |
 | `mcp_config` | _(none; read by the worker)_ | string | _(none)_ | Path to an operator-supplied MCP server configuration file, resolved relative to the WORKFLOW.md directory when not absolute. Its servers are merged into the generated configuration, and the adapter translates the merged result onto the app-server command line on a local launch. See [MCP](#mcp). |
@@ -157,7 +158,7 @@ Sends a `turn/start` JSON-RPC request on the existing thread and reads event not
 2. Sends the request and waits for the matching response.
 3. Enters the event loop, selecting on the message channel and context cancellation.
 4. Dispatches notifications by method name (see [event stream](#event-stream)).
-5. On context cancellation, writes one best-effort `turn/interrupt` to the app-server's stdin - not through the cancelled context - then keeps reading for `read_timeout_ms` in case the app-server reports its own `turn/completed`. Past that bound the turn returns cancelled.
+5. On context cancellation, writes one best-effort `turn/interrupt` to the app-server's stdin (not through the cancelled context), then keeps reading for `read_timeout_ms` in case the app-server reports its own `turn/completed`. Past that bound the turn returns cancelled.
 6. On `turn/completed`, emits the terminal turn event carrying the session's cumulative usage and returns `TurnResult`.
 
 ### `StopSession`
@@ -165,19 +166,15 @@ Sends a `turn/start` JSON-RPC request on the existing thread and reads event not
 Terminates the persistent app-server subprocess. Safe to call when no subprocess is active.
 
 1. Signals the reader goroutine to stop. Closes the stdin pipe.
-2. Sends `SIGTERM` to the process group. Waits up to 5 seconds.
-3. Force-kills via `SIGKILL` if still running.
+2. Sends `SIGTERM` to the process group. Waits up to `stop_grace_ms`, or until the caller's deadline expires, whichever comes first.
+3. Force-kills via `SIGKILL` if still running. A stop the caller's deadline ended returns that deadline's error, so the caller learns the stop did not finish on its own terms.
 4. Waits for the reader goroutine to finish.
-
-### `EventStream`
-
-Returns `nil`. The adapter delivers all events synchronously through the `OnEvent` callback in `RunTurn`.
 
 ---
 
 ## Process shutdown
 
-Because the subprocess persists across turns, `StopSession` handles shutdown rather than `RunTurn`. The shutdown sequence closes stdin (EOF signal), sends `SIGTERM` to the process group, waits up to 5 seconds, then escalates to `SIGKILL`. On Windows, a Job Object with `KILL_ON_JOB_CLOSE` terminates the process tree on shutdown or crash.
+Because the subprocess persists across turns, `StopSession` handles shutdown rather than `RunTurn`. The shutdown sequence closes stdin (EOF signal), sends `SIGTERM` to the process group, waits up to `stop_grace_ms`, then escalates to `SIGKILL`. The caller's deadline is a second bound on that wait: whichever expires first ends the graceful phase. On Windows, a Job Object with `KILL_ON_JOB_CLOSE` terminates the process tree on shutdown or crash.
 
 `RunTurn` handles context cancellation by writing one `turn/interrupt` request to stdin and then reading for at most `read_timeout_ms` more, so the app-server has a bounded chance to report the turn's own completion. The app-server acknowledges no client-sent response, so that bound is what keeps an unacknowledged interrupt from holding the turn open.
 
@@ -195,7 +192,7 @@ Token counts do not travel on the turn-completion notification. They arrive on t
 
 ## Token accounting
 
-Reported token counts are cumulative over the whole session the orchestrator opened, across every turn of it, and never decrease. Unlike the Claude Code adapter, which derives its figures from the event stream and the turn's terminal event, the Codex adapter reads a dedicated `thread/tokenUsage/updated` notification.
+Reported token counts are cumulative over the whole session the orchestrator opened, across every turn of it, and never decrease. Unlike the Claude Code adapter, which derives its figures from the event stream and the turn's terminal event, the Codex adapter reads a dedicated `thread/tokenUsage/updated` notification. For this kind's declaration beside every other kind's, see the [usage reporting table](/reference/workflow-config/#usage-reporting-by-agent-kind).
 
 ### Accumulation logic
 
@@ -207,7 +204,9 @@ Reported token counts are cumulative over the whole session the orchestrator ope
 
 ### Model tracking
 
-The adapter does not extract a model name from event payloads. The `Model` field on `token_usage` events is empty. The model is configured via `codex.model` in WORKFLOW.md but not echoed in turn events.
+The reported model comes from the `model` field of whichever response opened the session's thread (`thread/start` or `thread/resume`), read once at session start and reused for every `token_usage` event afterward rather than re-read per turn. It reflects the runtime's own report, not a mirror of the `codex.model` value the adapter requested. The field is empty when the response omits it; that is never treated as an error.
+
+A running turn can be moved to a different model by a `model/rerouted` notification. When its destination model is named, it replaces the tracked model for the rest of the session; a reroute with no named destination leaves the tracked model unchanged. Either way, the adapter emits a `notification` event describing the reroute, so stall detection still sees activity.
 
 ### API timing
 
@@ -368,7 +367,7 @@ Three more conditions fail the session with `response_error` when the merged con
 
 An HTTP entry's headers carry a fourth condition of their own; see [HTTP headers](#http-headers).
 
-Codex also reads its own MCP server list from configuration files of its own, entirely outside anything this adapter writes; which files it consults, and under what trust conditions, is Codex's to document - see the [external references](#external-references). Because the adapter runs the app-server with the per-issue workspace as its working directory, whatever project-scoped configuration behavior Codex has applies to that workspace like any other Codex working directory.
+Codex also reads its own MCP server list from configuration files of its own, entirely outside anything this adapter writes; which files it consults, and under what trust conditions, is Codex's to document. See the [external references](#external-references). Because the adapter runs the app-server with the per-issue workspace as its working directory, whatever project-scoped configuration behavior Codex has applies to that workspace like any other Codex working directory.
 
 ---
 
@@ -388,7 +387,9 @@ The adapter registers itself under kind `"codex"` via an `init` function in `int
 |---|---|
 | `RequiresCommand` | `true` |
 | `ValidateAgentConfig` | the check described in [Validate-time checks](#validate-time-checks) |
-| `MCPInjection` | `translated` - the adapter re-expresses the generated configuration's servers in the form its runtime parses, and delivers that on a local launch only. See [MCP](#mcp). |
+| `MCPInjection` | `translated`: the adapter re-expresses the generated configuration's servers in the form its runtime parses, and delivers that on a local launch only. See [MCP](#mcp). |
+| `UsageArrival` | `incremental`: one usage figure per model API request, emitted while the turn's work is still in flight. See [Token accounting](#token-accounting). |
+| `UsageAttribution` | `per_model`: a usage figure names the model the runtime reported using. See [Model tracking](#model-tracking). |
 
 The orchestrator's preflight validation uses `RequiresCommand` to produce a specific error message if the binary cannot be found before attempting session creation.
 
@@ -405,10 +406,10 @@ The orchestrator's preflight validation uses `RequiresCommand` to produce a spec
 | Session ID source | UUID generated by adapter | Discovered from `result` event | Thread ID from `thread/start` response |
 | Resume mechanism | `--resume <UUID>` (new subprocess) | `--resume <sessionId>` or `--continue` | `thread/resume` (JSON-RPC) or automatic within session |
 | Input token reporting | Per-request, from the result event's per-model breakdown | Recovered from the runtime's session-state journal after exit | From `thread/tokenUsage/updated`, baseline-subtracted |
-| Model reporting | From `assistant` events | Not available | Not available |
+| Model reporting | From `assistant` events | From `assistant.message`/`model.message` records | From the thread-open response, updated on reroute |
 | Permission mode | `--permission-mode` or `--dangerously-skip-permissions` | `--autopilot` + `--no-ask-user` + `--allow-all` | `approvalPolicy: "never"` (JSON-RPC param) |
 | Sandbox enforcement | None at adapter level | None at adapter level | Requested through `sandbox` on `thread/start` and `sandboxPolicy` on `turn/start`; enforcement is the app-server's |
-| Sortie's tools | Generated config path on `--mcp-config` | Generated config path on `--additional-mcp-config` | Generated servers re-expressed as `-c mcp_servers.<name>=...` overrides, local launch only - see [MCP](#mcp) |
+| Sortie's tools | Generated config path on `--mcp-config` | Generated config path on `--additional-mcp-config` | Generated servers re-expressed as `-c mcp_servers.<name>=...` overrides, local launch only; see [MCP](#mcp) |
 | Authentication | No preflight; the CLI reads the inherited environment | `COPILOT_GITHUB_TOKEN` / `GH_TOKEN` / `GITHUB_TOKEN` / `gh auth` | `CODEX_API_KEY`, or credentials the app-server already holds |
 | Inner turn limit | `claude-code.max_turns` | `copilot-cli.max_autopilot_continues` | None (agent runs to completion per turn) |
 
@@ -418,22 +419,22 @@ For Claude Code configuration, see [Claude Code adapter reference](/reference/ad
 
 ## External references
 
-- [Codex Documentation](https://developers.openai.com/codex) - official OpenAI documentation site for the Codex CLI
-- [`openai/codex` on GitHub](https://github.com/openai/codex) - Codex CLI source repository, releases, and issue tracker
-- [Codex `config.md`](https://github.com/openai/codex/blob/main/docs/config.md) - sandbox modes, approval policies, and other settings this adapter forwards via JSON-RPC params
-- [JSON-RPC 2.0 specification](https://www.jsonrpc.org/specification) - wire format used over Codex's stdin/stdout
-- [OpenAI API authentication](https://platform.openai.com/docs/api-reference/authentication) - the `CODEX_API_KEY` credential format
-- [Model Context Protocol specification](https://modelcontextprotocol.io/specification) - the protocol behind the `mcpToolCall` items in the event stream and the `mcpServer/elicitation/request` approval request
+- [Codex Documentation](https://developers.openai.com/codex): official OpenAI documentation site for the Codex CLI
+- [`openai/codex` on GitHub](https://github.com/openai/codex): Codex CLI source repository, releases, and issue tracker
+- [Codex `config.md`](https://github.com/openai/codex/blob/main/docs/config.md): sandbox modes, approval policies, and other settings this adapter forwards via JSON-RPC params
+- [JSON-RPC 2.0 specification](https://www.jsonrpc.org/specification): wire format used over Codex's stdin/stdout
+- [OpenAI API authentication](https://platform.openai.com/docs/api-reference/authentication): the `CODEX_API_KEY` credential format
+- [Model Context Protocol specification](https://modelcontextprotocol.io/specification): the protocol behind the `mcpToolCall` items in the event stream and the `mcpServer/elicitation/request` approval request
 
 ---
 
 ## Related pages
 
-- [Jira + Codex end-to-end tutorial](/getting-started/jira-codex-end-to-end/) - step-by-step walkthrough from Jira issue to pushed branch
-- [WORKFLOW.md configuration reference](/reference/workflow-config/) - full `agent` schema and `codex` extension block
-- [Environment variables reference](/reference/environment/) - `CODEX_API_KEY` and related variables
-- [Error reference](/reference/errors/#agent-errors) - all agent error kinds with retry behavior
-- [How to control agent costs](/guides/control-costs/) - session caps, turn caps, concurrency limits, and model selection
-- [How to write a prompt template](/guides/write-prompt-template/) - template variables, conditionals, and built-in functions
-- [How to scale agents with SSH](/guides/scale-agents-with-ssh/) - remote execution setup and host pool configuration
-- [State machine reference](/reference/state-machine/) - orchestration states, turn lifecycle, and stall detection
+- [Jira + Codex end-to-end tutorial](/getting-started/jira-codex-end-to-end/): step-by-step walkthrough from Jira issue to pushed branch
+- [WORKFLOW.md configuration reference](/reference/workflow-config/): full `agent` schema and `codex` extension block
+- [Environment variables reference](/reference/environment/): `CODEX_API_KEY` and related variables
+- [Error reference](/reference/errors/#agent-errors): all agent error kinds with retry behavior
+- [How to control agent costs](/guides/control-costs/): session caps, turn caps, concurrency limits, and model selection
+- [How to write a prompt template](/guides/write-prompt-template/): template variables, conditionals, and built-in functions
+- [How to scale agents with SSH](/guides/scale-agents-with-ssh/): remote execution setup and host pool configuration
+- [State machine reference](/reference/state-machine/): orchestration states, turn lifecycle, and stall detection

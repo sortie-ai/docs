@@ -31,6 +31,9 @@ Comprehensive reference for every CLI flag, configuration field, API endpoint, a
   {{< card link="adapter-codex" title="Codex" subtitle="Configuration, JSON-RPC protocol, persistent subprocess, including SSH." >}}
   {{< card link="adapter-opencode" title="OpenCode" subtitle="Configuration, session lifecycle, and output parsing, including SSH." >}}
   {{< card link="adapter-kiro" title="Kiro CLI" subtitle="Configuration, session lifecycle, and output parsing, including SSH." >}}
+  {{< card link="adapter-agent-client-protocol" title="Agent Client Protocol" subtitle="The generic, runtime-neutral kind: configuration, session lifecycle, and transport-level limits." >}}
+  {{< card link="agent-client-protocol-gemini" title="Gemini CLI (Agent Client Protocol)" subtitle="Installation, credentials, launch switches, and runtime limitations on that route." >}}
+  {{< card link="agent-client-protocol-kiro" title="Kiro CLI (Agent Client Protocol)" subtitle="The credential caveat that decides whether this route is worth taking." >}}
 {{< /cards >}}
 
 ## Tracker adapters

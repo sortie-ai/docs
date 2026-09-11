@@ -32,6 +32,7 @@ These fields control the orchestrator's scheduling behavior. They are not passed
 | `turn_timeout_ms` | integer | `3600000` (1 hour) | Total timeout for a single `RunTurn` call. The orchestrator cancels the turn context when exceeded. |
 | `read_timeout_ms` | integer | `5000` (5 seconds) | Timeout for startup and synchronous operations. |
 | `stall_timeout_ms` | integer | `300000` (5 minutes) | Maximum time between consecutive events before the orchestrator treats the session as stalled. `0` or negative disables stall detection. |
+| `stop_grace_ms` | integer | `5000` (5 seconds) | How long the adapter waits for the subprocess to exit on its own after a graceful termination signal, before it force-terminates the process group. Must be positive. |
 | `max_retry_backoff_ms` | integer | `300000` (5 minutes) | Maximum delay cap for exponential backoff between retry attempts. |
 
 ```yaml
@@ -86,7 +87,7 @@ Setting `max_autopilot_continues` too low causes Copilot to exit mid-task. Setti
 
 ### Tool scoping behavior
 
-The adapter passes `--allow-all` to auto-approve all tool calls unless `allowed_tools` is a non-whitespace value. `--allow-all` grants tool approval, file-path verification, and URL access in one flag, and `allowed_tools` is itself an approval allow-list - a subset of that grant - so the grant would subsume and defeat it if both were sent.
+The adapter passes `--allow-all` to auto-approve all tool calls unless `allowed_tools` is a non-whitespace value. `--allow-all` grants tool approval, file-path verification, and URL access in one flag, and `allowed_tools` is itself an approval allow-list (a subset of that grant), so the grant would subsume and defeat it if both were sent.
 
 `denied_tools`, `available_tools`, and `excluded_tools` do not affect `--allow-all`. They are forwarded alongside it: a `--deny-tool` rule outranks the grant for a matching call, and `--available-tools` / `--excluded-tools` control what the model sees rather than what it may do. Setting one of these three, without setting `allowed_tools`, still runs with `--allow-all` present.
 
@@ -96,9 +97,9 @@ Every invocation also includes `--autopilot` and `--no-ask-user`, which are alwa
 
 Sortie generates one MCP server configuration per session, declaring a `sortie-tools` stdio server that exposes Sortie's own tools to the agent. When that generated file exists, the adapter passes it to `--additional-mcp-config` as `@<path>`, regardless of whether `copilot-cli.mcp_config` is also set.
 
-When `copilot-cli.mcp_config` names an operator-supplied file, Sortie reads it, inserts the `sortie-tools` entry into its `mcpServers` object, and writes the merged result - the same merge the Claude Code adapter performs, since both read from the orchestrator-generated config. A relative path resolves against the directory containing `WORKFLOW.md`. A server already named `sortie-tools` in the operator's file fails generation with a name-collision error rather than being silently overwritten.
+When `copilot-cli.mcp_config` names an operator-supplied file, Sortie reads it, inserts the `sortie-tools` entry into its `mcpServers` object, and writes the merged result. This is the same merge the Claude Code adapter performs, since both read from the orchestrator-generated config. A relative path resolves against the directory containing `WORKFLOW.md`. A server already named `sortie-tools` in the operator's file fails generation with a name-collision error rather than being silently overwritten.
 
-Only when no such merge has taken place - `MCPConfigPath` is empty - does the adapter fall back to forwarding `copilot-cli.mcp_config` directly to `--additional-mcp-config`. In that fallback path the adapter also decides how to present the value to the flag: a value starting with `{` is passed through as inline JSON, a value already starting with `@` is passed through unchanged, and any other value is treated as a file path and prefixed with `@`, matching the flag's own file-vs-inline convention.
+Only when no such merge has taken place (`MCPConfigPath` is empty) does the adapter fall back to forwarding `copilot-cli.mcp_config` directly to `--additional-mcp-config`. In that fallback path the adapter also decides how to present the value to the flag: a value starting with `{` is passed through as inline JSON, a value already starting with `@` is passed through unchanged, and any other value is treated as a file path and prefixed with `@`, matching the flag's own file-vs-inline convention.
 
 ### Runtime-denied permission requests
 
@@ -153,7 +154,7 @@ The subprocess lifecycle belongs to the shared fork-per-turn skeleton in `intern
 1. Builds the CLI argument list from session state and pass-through configuration.
 2. Always includes: `-p <prompt>`, `--output-format json`, `-s`, `--autopilot`, `--no-ask-user`, and `--max-autopilot-continues <n>` (`50` when `copilot-cli.max_autopilot_continues` is unset or not positive).
 3. Applies session management flags (see [session resume mechanism](#session-resume-mechanism)).
-4. Spawns the subprocess with `exec.CommandContext`, overriding its default cancel behavior - see [process shutdown](#process-shutdown) for how.
+4. Spawns the subprocess with `exec.CommandContext`, overriding its default cancel behavior (see [process shutdown](#process-shutdown) for how).
 5. Sets `cmd.Dir` to the workspace path and `cmd.Env` to the full parent process environment.
 6. Emits `session_started` event before the scan loop begins.
 7. Reads stdout line by line via a buffered scanner (64 KB initial buffer, 10 MB max line).
@@ -168,22 +169,18 @@ The subprocess lifecycle belongs to the shared fork-per-turn skeleton in `intern
 Terminates a running subprocess. Safe to call when no subprocess is active.
 
 1. Sends a graceful shutdown signal to the process group (POSIX: `SIGTERM`; Windows: `CTRL_BREAK_EVENT`).
-2. Waits up to 5 seconds for the process to exit.
+2. Waits up to `stop_grace_ms` for the process to exit.
 3. Force-terminates the process tree if still running (POSIX: `SIGKILL` to process group; Windows: `TerminateJobObject`).
-
-### `EventStream`
-
-Returns `nil`. The adapter delivers all events synchronously through the `OnEvent` callback in `RunTurn`.
 
 ---
 
 ## Process shutdown
 
-`exec.CommandContext` sends an immediate kill signal on context cancellation by default. The agent process would have no chance to flush output buffers, close network connections, or emit final token-usage events. The adapter overrides that default: `cmd.Cancel` is set to send a graceful shutdown signal instead of a kill (POSIX: `SIGTERM`; Windows: `CTRL_BREAK_EVENT` via the process group), and `cmd.WaitDelay` bounds how long `Wait` gives the process to exit after that signal - 5 seconds - before force-killing it (POSIX: `SIGKILL`; Windows: `TerminateJobObject`). This covers both orchestrator-initiated cancellation (reconciliation kill, stall detection) and shutdown signals, since all of them reach the subprocess through the same context.
+`exec.CommandContext` sends an immediate kill signal on context cancellation by default. The agent process would have no chance to flush output buffers, close network connections, or emit final token-usage events. The adapter overrides that default: `cmd.Cancel` is set to send a graceful shutdown signal instead of a kill (POSIX: `SIGTERM`; Windows: `CTRL_BREAK_EVENT` via the process group), and `cmd.WaitDelay` bounds how long `Wait` gives the process to exit after that signal (`stop_grace_ms`) before force-killing it (POSIX: `SIGKILL`; Windows: `TerminateJobObject`). This covers both orchestrator-initiated cancellation (reconciliation kill, stall detection) and shutdown signals, since all of them reach the subprocess through the same context.
 
 On all platforms, the subprocess is placed in its own process group at launch. On Windows, the subprocess is additionally assigned to a Job Object with `KILL_ON_JOB_CLOSE`, so the entire process tree (including MCP servers and other children) is terminated on shutdown or if Sortie crashes.
 
-`StopSession` follows the same shape independently of context cancellation: it sends the graceful signal, waits up to 5 seconds, and force-kills the process group if the wait times out.
+`StopSession` follows the same shape independently of context cancellation: it sends the graceful signal, waits up to `stop_grace_ms`, and force-kills the process group if the wait elapses. A `StopSession` context that is cancelled first also force-kills the process group, and the adapter returns the context's error.
 
 ---
 
@@ -197,9 +194,9 @@ Most of the stream is informational and reaches the logs as `notification` event
 
 ## Token accounting
 
-**Key difference from Claude Code:** Copilot CLI's JSONL stream carries no input token counts anywhere. `assistant.message` events carry output counts only, and the `result` event's `usage` object carries premium requests, durations, and code-change stats but no token breakdown. Full counts come from the runtime's own session-state journal on disk, read after the subprocess exits.
+**Key difference from Claude Code:** Copilot CLI's JSONL stream carries no token counts at all. The `result` event's `usage` object carries premium requests, durations, and code-change stats but no token breakdown. Every figure, and the model that produced it, comes from the runtime's own session-state journal on disk, read once after the subprocess exits.
 
-Reported counts are cumulative over the whole session the orchestrator opened, across every turn of it, and never decrease.
+Reported counts are cumulative over the whole session the orchestrator opened, across every turn of it, and never decrease. For this kind's declaration beside every other kind's, see the [usage reporting table](/reference/workflow-config/#usage-reporting-by-agent-kind).
 
 ### Session-state journal
 
@@ -209,14 +206,17 @@ The runtime writes one journal per session at `<COPILOT_HOME>/session-state/<ses
 
 ### Accumulation logic
 
-1. Each `assistant.message` event with `outputTokens` in its data increments a running output-only estimate, emitted as a `token_usage` event. Input and cache-read stay 0 in this estimate.
-2. After the subprocess exits, the adapter reads the journal. The journal is cumulative across every invocation that resumed the same session, so the adapter subtracts a baseline — the shutdown record that predates this run — to recover the run's own contribution. That figure replaces the output-only estimate.
-3. The journal read is skipped in SSH mode, when the session ID is unknown or fails a path-segment check, and when the boundary record needed to separate this run's spend from a resumed session's prior spend is no longer available. The read is also abandoned when the journal exceeds 64 MB or holds a line above 10 MB.
-4. When the journal is unavailable, the output-only estimate stands. The run still counts as measured if any `assistant.message` carried the output-token field, so its recorded total is output-only, with no input or cache-read component. Only a run where neither source produced a figure is recorded as unmeasured.
+1. After the subprocess exits, the adapter reads the journal's last `session.shutdown` record. The journal is cumulative across every invocation that resumed the same session, so the adapter subtracts a baseline (the shutdown record that predates this run) to recover the run's own contribution, and reads the model behind it from the same record (see [Model tracking](#model-tracking)).
+2. The read is skipped in SSH mode, and when the session ID is unknown or fails a path-segment check. It is abandoned mid-read, rather than skipped, when the journal exceeds 64 MB or a line in it exceeds 10 MB. Baseline resolution runs once, at the run's first successful read: if that read is also the run's very first attempt, the shutdown record just before the current one becomes the baseline, whether or not this run created the session. If an earlier attempt already ran and failed before that first success, a session this run created still resolves to a zero baseline and keeps recovering; a session this run only resumed does not, because the boundary record needed to separate this run's own spend from what came before is already gone, and recovery is abandoned for the rest of the run.
+3. A turn whose read is skipped, fails, or finds no `session.shutdown` record yet reports no figure. A run in which no turn ever recovers one is recorded as unmeasured; the run-cumulative total a turn recovers only rises, so it stands even when a later turn's read produces nothing further.
+
+The kind's [declared usage reporting](#adapter-registration) is built on the journal read, which is the source that always runs on a local launch. Over SSH it does not run, and the declaration for a remote session is that nothing is reported: the dashboard shows an em dash for that session's Model, API Requests, Tokens, and Est. Cost, and [`sortie validate`](/reference/cli/#validate) warns when such a workflow also sets `agent.max_tokens` or prices this kind in `token_rates`.
 
 ### Model tracking
 
-Copilot CLI does not report the model name in event payloads. The `Model` field on `token_usage` events is empty. Per-model cost attribution is not available for this adapter.
+The model name comes from the same session-state journal record that supplies the token totals, not from the stdout stream. Between the current `session.shutdown` record and the one before it, the adapter compares each `modelMetrics` entry's combined input and output tokens and names the key with the largest growth, breaking a tie by whichever name sorts first; a model with zero or negative growth since the previous record is not a candidate.
+
+A record with no `modelMetrics` map, or whose entries show no growth over the previous one, names no model. The adapter does not fall back to the configured `copilot-cli.model` value in that case, since that field names the model requested rather than the model the runtime actually used.
 
 ### API timing
 
@@ -232,11 +232,11 @@ The adapter observes tool execution by correlating `tool.execution_start` and `t
 
 1. A `tool.execution_start` event records the tool name and a monotonic timestamp in an in-flight map, keyed by `toolCallId`.
 2. A `tool.execution_complete` event looks up the matching `toolCallId` in the in-flight map.
-3. The adapter emits a `tool_result` event with `ToolName`, `ToolDurationMS`, and `ToolError` (inverted from the `success` field: `ToolError = !success`). On a match, `ToolName` and the elapsed duration come from the in-flight entry. With no match - the completion arrived without a recorded start - the event still fires, carrying the tool name from the completion event and a duration of `0`.
+3. The adapter emits a `tool_result` event with `ToolName`, `ToolDurationMS`, and `ToolError` (inverted from the `success` field: `ToolError = !success`). On a match, `ToolName` and the elapsed duration come from the in-flight entry. With no match (the completion arrived without a recorded start), the event still fires, carrying the tool name from the completion event and a duration of `0`.
 
 ### Tool error detail
 
-**Key difference from Claude Code:** the `success` boolean is the only error signal. There is no error text extraction or ANSI stripping. The Claude Code adapter extracts error text from `tool_result` content blocks and applies XML stripping, ANSI removal, and truncation - the Copilot CLI adapter reports only whether the tool succeeded or failed.
+**Key difference from Claude Code:** the `success` boolean is the only error signal. There is no error text extraction or ANSI stripping. The Claude Code adapter extracts error text from `tool_result` content blocks and applies XML stripping, ANSI removal, and truncation. The Copilot CLI adapter reports only whether the tool succeeded or failed.
 
 ---
 
@@ -255,10 +255,10 @@ The outcome is not decided by the exit code alone. The shared decision table eva
 | `result` event carrying `exitCode: 0`, a `session.task_complete` event reporting `success` true or omitted | `turn_completed` | _(none)_ |
 | `result` event carrying any other `exitCode`, or carrying no `exitCode` field | `turn_failed` | `turn_failed` |
 | No `result` event, non-zero exit | `turn_failed` | `port_exit` |
-| No `result` event, exit `0`, this turn reported no output tokens | `turn_failed` | `turn_failed` |
-| No `result` event, exit `0`, this turn reported output tokens | `turn_completed` | _(none)_ |
+| No `result` event, exit `0`, no message from the agent and no tool call this turn | `turn_failed` | `turn_failed` |
+| No `result` event, exit `0`, a message from the agent or a tool call this turn | `turn_completed` | _(none)_ |
 
-The cancellation and exit-`127` rows are decided before the adapter's own classifier runs. The output-token test reads this turn's own count, not the run-cumulative figure. Stderr from a failing turn is re-emitted at WARN level.
+The cancellation and exit-`127` rows are decided before the adapter's own classifier runs. The work test reads this turn's own stream rather than any token count. A message from the agent is a non-empty `data.content` on an `assistant.message`, or any `assistant.message_delta`, whose event type names an assistant message even though its payload stays unparsed. A tool call is a non-empty `data.toolRequests` on an `assistant.message`, or a `tool.execution_start` or `tool.execution_complete` whose data parsed. Stderr from a failing turn is re-emitted at WARN level.
 
 A `result` event with `exitCode: 0` is not decisive by itself: the adapter also checks whether this turn saw a `session.task_complete` report, the runtime's own record of whether the work finished. The [`max_autopilot_continues`](#agentmax_turns-vs-copilot-climax_autopilot_continues) ceiling can stop the runtime mid-task with a clean exit and no such report; without this check that outcome read as an ordinary success. `turn_incomplete` is retried like the other transient turn failures, on exponential backoff, and the retry resumes the same session with a fresh continuation ceiling. Raise `copilot-cli.max_autopilot_continues` if the task genuinely needs more autopilot steps per turn. No other built-in adapter reports `turn_incomplete` today.
 
@@ -341,7 +341,7 @@ At runtime, the Copilot CLI handles its own authentication using whichever token
 {{< callout type="warning" >}}
 **A present token does not guarantee a working one**
 
-Sortie's preflight only checks that one of the token variables is set, or that `gh auth status` succeeds - it does not inspect the token's type or scopes. Whether a given token authenticates with Copilot CLI, and what type and permission it needs, is GitHub's to document; see [managing your personal access tokens](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens) in the external references. A token that satisfies Sortie's preflight can still be rejected by the CLI itself at runtime.
+Sortie's preflight only checks that one of the token variables is set, or that `gh auth status` succeeds. It does not inspect the token's type or scopes. Whether a given token authenticates with Copilot CLI, and what type and permission it needs, is GitHub's to document; see [managing your personal access tokens](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens) in the external references. A token that satisfies Sortie's preflight can still be rejected by the CLI itself at runtime.
 {{< /callout >}}
 
 ---
@@ -350,7 +350,7 @@ Sortie's preflight only checks that one of the token variables is set, or that `
 
 The adapter is safe for concurrent use. One `CopilotAdapter` instance serves all sessions. Per-session state (workspace path, session ID, process handle) is isolated in the opaque `Session.Internal` field. A mutex guards the subprocess handle for concurrent access between `RunTurn` and `StopSession`.
 
-No adapter-level serialization is needed for `RunTurn` calls - each spawns an independent subprocess with its own stdout pipe and scanner.
+No adapter-level serialization is needed for `RunTurn` calls: each spawns an independent subprocess with its own stdout pipe and scanner.
 
 ---
 
@@ -362,7 +362,10 @@ The adapter registers itself under kind `"copilot-cli"` via an `init` function i
 |---|---|
 | `RequiresCommand` | `true` |
 | `ValidateAgentConfig` | the check described in [Validate-time checks](#validate-time-checks) |
-| `MCPInjection` | `supported` - the adapter hands the generated configuration file's path to the agent process, on a local launch and over SSH alike. See [Sortie's own tools and the `mcp_config` field](#sorties-own-tools-and-the-mcp_config-field). |
+| `MCPInjection` | `supported`: the adapter hands the generated configuration file's path to the agent process, on a local launch and over SSH alike. See [Sortie's own tools and the `mcp_config` field](#sorties-own-tools-and-the-mcp_config-field). |
+| `UsageArrival` | `turn_end`: the authoritative figure is the session-state journal read after the subprocess exits, at most once per turn. The stdout stream itself carries no token counts to fall back on. See [Token accounting](#token-accounting). |
+| `UsageAttribution` | `per_model`: the journal's `session.shutdown` record names the model whose usage grew the most since the previous record. See [Model tracking](#model-tracking). |
+| `UsageSessionRules` | One rule: a session launched over SSH declares `none` for both, because the journal read is skipped in SSH mode and nothing else settles an authoritative figure. See [SSH remote execution](#ssh-remote-execution). |
 
 The orchestrator's preflight validation uses `RequiresCommand` to produce a specific error message if the binary cannot be found before attempting session creation.
 
@@ -378,7 +381,7 @@ The orchestrator's preflight validation uses `RequiresCommand` to produce a spec
 | Session ID at start | UUID generated by adapter | Discovered from first `result` event |
 | Resume flag | `--resume <UUID>` | `--resume <sessionId>` or `--continue` fallback |
 | Input token reporting | Per-request, from the result event's per-model breakdown | Recovered from the runtime's session-state journal after exit; unavailable in SSH mode |
-| Model reporting | From `assistant` events | Not available |
+| Model reporting | From `assistant` events | From the session-state journal's `session.shutdown` record, after the subprocess exits |
 | Permission mode | `--permission-mode` or `--dangerously-skip-permissions` | `--autopilot` + `--no-ask-user`, plus `--allow-all` unless `allowed_tools` is set |
 | Tool error detail | Error text with XML/ANSI stripping | Boolean `success` flag only |
 | Authentication | `ANTHROPIC_API_KEY` (+ Bedrock, Vertex) | `COPILOT_GITHUB_TOKEN` / `GH_TOKEN` / `GITHUB_TOKEN` / `gh auth` |
@@ -391,19 +394,19 @@ For Claude Code configuration, see [Claude Code adapter reference](/reference/ad
 
 ## External references
 
-- [Using GitHub Copilot in the command line](https://docs.github.com/en/copilot/using-github-copilot/using-github-copilot-in-the-command-line) - official Copilot CLI documentation
-- [`gh auth login` reference](https://cli.github.com/manual/gh_auth_login) - establishes the credentials this adapter inherits when no `*_TOKEN` env var is set
-- [Managing your personal access tokens](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens) - GitHub token types and permissions
-- [Model Context Protocol specification](https://modelcontextprotocol.io/specification) - the MCP server protocol consumed via `--additional-mcp-config`
+- [Using GitHub Copilot in the command line](https://docs.github.com/en/copilot/using-github-copilot/using-github-copilot-in-the-command-line): official Copilot CLI documentation
+- [`gh auth login` reference](https://cli.github.com/manual/gh_auth_login): establishes the credentials this adapter inherits when no `*_TOKEN` env var is set
+- [Managing your personal access tokens](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens): GitHub token types and permissions
+- [Model Context Protocol specification](https://modelcontextprotocol.io/specification): the MCP server protocol consumed via `--additional-mcp-config`
 
 ---
 
 ## Related pages
 
-- [WORKFLOW.md configuration reference](/reference/workflow-config/) - full `agent` schema and `copilot-cli` extension block
-- [Environment variables reference](/reference/environment/) - GitHub token variables
-- [Error reference](/reference/errors/#agent-errors) - all agent error kinds with retry behavior
-- [How to control agent costs](/guides/control-costs/) - turn caps, session caps, concurrency limits, and model selection
-- [How to write a prompt template](/guides/write-prompt-template/) - template variables, conditionals, and built-in functions
-- [How to scale agents with SSH](/guides/scale-agents-with-ssh/) - remote execution setup and host pool configuration
-- [State machine reference](/reference/state-machine/) - orchestration states, turn lifecycle, and stall detection
+- [WORKFLOW.md configuration reference](/reference/workflow-config/): full `agent` schema and `copilot-cli` extension block
+- [Environment variables reference](/reference/environment/): GitHub token variables
+- [Error reference](/reference/errors/#agent-errors): all agent error kinds with retry behavior
+- [How to control agent costs](/guides/control-costs/): turn caps, session caps, concurrency limits, and model selection
+- [How to write a prompt template](/guides/write-prompt-template/): template variables, conditionals, and built-in functions
+- [How to scale agents with SSH](/guides/scale-agents-with-ssh/): remote execution setup and host pool configuration
+- [State machine reference](/reference/state-machine/): orchestration states, turn lifecycle, and stall detection

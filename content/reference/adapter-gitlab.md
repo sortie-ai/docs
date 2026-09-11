@@ -50,7 +50,7 @@ tracker:
 
 ### `endpoint`
 
-The instance base URL, for example `https://gitlab.example.com`. Optional: an empty or whitespace-only value becomes `https://gitlab.com`, so a GitLab.com workflow omits the field entirely. The adapter validates a present value as an absolute `http` or `https` URL carrying a hostname, with neither a query nor a fragment, trims trailing slashes, and appends `/api/v4`, tolerating a value that already ends in `/api/v4` without appending it twice. A value that fails the URL check - including a port-only authority such as `http://:80`, which has no hostname, and a bare IPv6 host, which must be bracketed as `http://[fd00::1]:3000` - fails construction with `tracker_payload_error` before any network call.
+The instance base URL, for example `https://gitlab.example.com`. Optional: an empty or whitespace-only value becomes `https://gitlab.com`, so a GitLab.com workflow omits the field entirely. The adapter validates a present value as an absolute `http` or `https` URL carrying a hostname, with neither a query nor a fragment, trims trailing slashes, and appends `/api/v4`, tolerating a value that already ends in `/api/v4` without appending it twice. A value that fails the URL check (including a port-only authority such as `http://:80`, which has no hostname, and a bare IPv6 host, which must be bracketed as `http://[fd00::1]:3000`) fails construction with `tracker_payload_error` before any network call.
 
 Plain-`http` endpoints send the token in cleartext in the `PRIVATE-TOKEN` header. `sortie validate` warns on an `http` endpoint and on a value already ending in `/api/v4`.
 
@@ -651,7 +651,7 @@ The project checks are evaluated in that order and report the first fault that a
 
 Community Edition is the compatibility floor: the adapter depends only on what Community Edition provides, and no minimum GitLab version is claimed. Every tracker operation works there, with one degradation in the normalized issue model.
 
-That degradation is `BlockedBy`. GitLab's blocking issue-link type is not available on Community Edition, so the adapter normalizes blockers to an empty slice and no issue is ever held out of dispatch for a blocker. Sortie does not synthesize a blocker from a generic relation, because a related issue is not a blocking one. A GitLab.com namespace on a lower subscription plan can hit the same gap through licence gating instead of absence, which fails differently for the same reason - the value exists but the license check rejects it, an authorization-shaped failure rather than a parameter-validation one.
+That degradation is `BlockedBy`. GitLab's blocking issue-link type is not available on Community Edition, so the adapter normalizes blockers to an empty slice and no issue is ever held out of dispatch for a blocker. Sortie does not synthesize a blocker from a generic relation, because a related issue is not a blocking one. A GitLab.com namespace on a lower subscription plan can hit the same gap through licence gating instead of absence, which fails differently for the same reason: the value exists but the license check rejects it, an authorization-shaped failure rather than a parameter-validation one.
 
 Which features each GitLab edition and tier includes is GitLab's to document, and the adapter avoids the licence-gated surface entirely rather than degrading against it.
 
@@ -668,23 +668,23 @@ Most of what separates these three is their own API surface, which each vendor d
 
 ## External references
 
-- [GitLab REST API](https://docs.gitlab.com/api/rest/) - base URL, pagination, and request conventions
-- [REST API authentication](https://docs.gitlab.com/api/rest/authentication/) - how the token is presented and which token types are accepted
-- [Issues API](https://docs.gitlab.com/api/issues/) - the issue surface this adapter reads and writes, including its filter parameters
-- [Notes API](https://docs.gitlab.com/api/notes/) - the comment surface behind `tracker.comments`
-- [Merge requests API](https://docs.gitlab.com/api/merge_requests/) - the surface behind the SCM role
-- [Personal access tokens](https://docs.gitlab.com/user/profile/personal_access_tokens/) - creating a token and what each scope covers
+- [GitLab REST API](https://docs.gitlab.com/api/rest/): base URL, pagination, and request conventions
+- [REST API authentication](https://docs.gitlab.com/api/rest/authentication/): how the token is presented and which token types are accepted
+- [Issues API](https://docs.gitlab.com/api/issues/): the issue surface this adapter reads and writes, including its filter parameters
+- [Notes API](https://docs.gitlab.com/api/notes/): the comment surface behind `tracker.comments`
+- [Merge requests API](https://docs.gitlab.com/api/merge_requests/): the surface behind the SCM role
+- [Personal access tokens](https://docs.gitlab.com/user/profile/personal_access_tokens/): creating a token and what each scope covers
 
 ---
 
 ## Related pages
 
-- [How to connect Sortie to GitLab](/guides/connect-to-gitlab/) - setup instructions with token creation, state mapping, and verification
-- [WORKFLOW.md configuration reference](/reference/workflow-config/) - full schema for the `tracker` section and all other configuration
-- [Error reference](/reference/errors/#tracker-errors) - all tracker error kinds with retry behavior and operator actions
-- [Environment variables reference](/reference/environment/) - `$VAR` expansion modes and agent passthrough variables
-- [GitHub adapter reference](/reference/adapter-github/) - the closest sibling forge adapter
-- [Gitea adapter reference](/reference/adapter-gitea/) - the other self-hostable forge adapter
-- [State machine reference](/reference/state-machine/) - orchestration states, candidate eligibility, and how tracker state drives dispatch
-- [Prometheus metrics reference](/reference/prometheus-metrics/) - `sortie_tracker_requests_total` and related counters
-- [How to write a prompt template](/guides/write-prompt-template/) - using `.issue` fields populated by this adapter in templates
+- [How to connect Sortie to GitLab](/guides/connect-to-gitlab/): setup instructions with token creation, state mapping, and verification
+- [WORKFLOW.md configuration reference](/reference/workflow-config/): full schema for the `tracker` section and all other configuration
+- [Error reference](/reference/errors/#tracker-errors): all tracker error kinds with retry behavior and operator actions
+- [Environment variables reference](/reference/environment/): `$VAR` expansion modes and agent passthrough variables
+- [GitHub adapter reference](/reference/adapter-github/): the closest sibling forge adapter
+- [Gitea adapter reference](/reference/adapter-gitea/): the other self-hostable forge adapter
+- [State machine reference](/reference/state-machine/): orchestration states, candidate eligibility, and how tracker state drives dispatch
+- [Prometheus metrics reference](/reference/prometheus-metrics/): `sortie_tracker_requests_total` and related counters
+- [How to write a prompt template](/guides/write-prompt-template/): using `.issue` fields populated by this adapter in templates

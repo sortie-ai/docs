@@ -7,7 +7,7 @@ date: 2026-03-30
 weight: 90
 url: /guides/orchestrate-across-repositories/
 ---
-Run separate Sortie instances per repository so that cross-service features -- frontend, backend, data layer -- are handled in parallel, each agent working in the correct codebase, coordinated through your issue tracker.
+Run separate Sortie instances per repository so that cross-service features (frontend, backend, data layer) are handled in parallel, each agent working in the correct codebase, coordinated through your issue tracker.
 
 ## Prerequisites
 
@@ -47,9 +47,9 @@ You need each Sortie instance to pick up only the subtasks that belong to its re
 Create a parent story or epic, then subtasks per repo. Label each subtask with its target repository:
 
 - Parent: `PLATFORM-100: Add HubSpot marketplace install flow`
-- Subtask: `PLATFORM-101: Data proxy -- raw code exchange` (label: `repo:data-proxy`)
-- Subtask: `PLATFORM-102: Backend -- forward marketplace params` (label: `repo:backend`)
-- Subtask: `PLATFORM-103: Frontend -- marketplace install button` (label: `repo:frontend`)
+- Subtask: `PLATFORM-101: Data proxy, raw code exchange` (label: `repo:data-proxy`)
+- Subtask: `PLATFORM-102: Backend, forward marketplace params` (label: `repo:backend`)
+- Subtask: `PLATFORM-103: Frontend, marketplace install button` (label: `repo:frontend`)
 
 Each Sortie instance filters by its repo's label:
 
@@ -71,7 +71,7 @@ See [connect to Jira](/guides/connect-to-jira/) for full JQL filter syntax.
 
 Two approaches depending on how your team tracks work.
 
-**Centralized tracking** -- all subtasks live in a single orchestration repo (or a monorepo). Each issue gets a component label. Every Sortie instance points at the same repo but filters by label:
+**Centralized tracking**: all subtasks live in a single orchestration repo (or a monorepo). Each issue gets a component label. Every Sortie instance points at the same repo but filters by label:
 
 ```yaml
 # frontend/WORKFLOW.md
@@ -84,7 +84,7 @@ tracker:
   terminal_states: [done]
 ```
 
-**Distributed tracking** -- each repository has its own issues. Each Sortie instance points at its own repo:
+**Distributed tracking**: each repository has its own issues. Each Sortie instance points at its own repo:
 
 ```yaml
 # frontend/WORKFLOW.md
@@ -199,9 +199,9 @@ You are a senior engineer working on the **frontend** repository.
 ## Repository context
 
 This is a Next.js application. Key directories:
-- `src/pages/` -- page routes
-- `src/components/` -- shared components
-- `src/lib/` -- API clients and utilities
+- `src/pages/`: page routes
+- `src/components/`: shared components
+- `src/lib/`: API clients and utilities
 
 ## Constraints
 

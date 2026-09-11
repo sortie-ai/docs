@@ -12,7 +12,7 @@ The GitHub integration tutorial proved that Sortie can talk to your issue tracke
 
 ## Prerequisites
 
-- [GitHub integration tutorial](/getting-started/github-integration/) completed — Sortie connects to your GitHub repository and `SORTIE_GITHUB_TOKEN` is set
+- [GitHub integration tutorial](/getting-started/github-integration/) completed: Sortie connects to your GitHub repository and `SORTIE_GITHUB_TOKEN` is set
 - Copilot CLI installed on your machine:
 
     ```bash
@@ -21,7 +21,7 @@ The GitHub integration tutorial proved that Sortie can talk to your issue tracke
 
     You should see a version string. If the command is not found, install the [Copilot CLI](https://docs.github.com/en/copilot/using-github-copilot/using-github-copilot-in-the-command-line) and follow its own prerequisites.
 
-- GitHub authentication for Copilot CLI — the adapter checks for tokens in this order: `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`. If none are set, it falls back to `gh auth status`. The fastest path is to reuse the token you already have:
+- GitHub authentication for Copilot CLI. The adapter checks for tokens in this order: `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`. If none are set, it falls back to `gh auth status`. The fastest path is to reuse the token you already have:
 
     ```bash
     export GITHUB_TOKEN="$SORTIE_GITHUB_TOKEN"
@@ -41,7 +41,7 @@ No `ANTHROPIC_API_KEY` needed. That is the key difference from the [Claude Code 
 
 ### Create a GitHub issue
 
-Create an issue with the `backlog` label. Pick a task that is concrete and verifiable — the agent reads the description as its primary instruction.
+Create an issue with the `backlog` label. Pick a task that is concrete and verifiable. The agent reads the description as its primary instruction.
 
 ```bash
 gh issue create --repo yourorg/yourrepo \
@@ -52,7 +52,7 @@ gh issue create --repo yourorg/yourrepo \
 
 Note the issue number in the output (e.g., `#5`). We will see it in the logs later.
 
-Vague descriptions like "improve the API" produce vague results. Concrete tasks — add a file, fix a specific bug, write a test — work best with any coding agent.
+Vague descriptions like "improve the API" produce vague results. Concrete tasks (add a file, fix a specific bug, write a test) work best with any coding agent.
 
 ### Set up the project directory
 
@@ -129,7 +129,7 @@ You are a senior engineer working in this repository.
 ## Rules
 
 1. Read existing code before writing anything new.
-2. Keep changes minimal — implement exactly what the task requires.
+2. Keep changes minimal. Implement exactly what the task requires.
 3. Run any available lint and test commands before finishing.
 {{ if not .run.is_continuation }}
 
@@ -148,7 +148,7 @@ current state. Continue from where the previous turn left off.
 {{ end }}
 {{ if and .attempt (not .run.is_continuation) }}
 
-## Retry — attempt {{ .attempt }}
+## Retry (attempt {{ .attempt }})
 
 A previous attempt failed. Review workspace state and error output before
 making changes. Do not repeat the same approach that failed.
@@ -159,11 +159,11 @@ If you followed the [Claude Code end-to-end tutorial](/getting-started/jira-clau
 
 ### Tracker: GitHub instead of Jira
 
-`tracker.kind: github` uses the GitHub adapter. The project field takes `owner/repo` format, and `api_key: $SORTIE_GITHUB_TOKEN` is a single Bearer token — no `email:token` format like Jira. State is managed through labels: when Sortie transitions an issue, it removes the old state label, adds the new one, and closes the issue if the target state is terminal. No Jira workflow configuration required.
+`tracker.kind: github` uses the GitHub adapter. The project field takes `owner/repo` format, and `api_key: $SORTIE_GITHUB_TOKEN` is a single Bearer token, with no `email:token` format like Jira. State is managed through labels: when Sortie transitions an issue, it removes the old state label, adds the new one, and closes the issue if the target state is terminal. No Jira workflow configuration required.
 
 ### Agent: Copilot CLI instead of Claude Code
 
-`agent.kind: copilot-cli` uses the Copilot CLI adapter. Where the Claude Code tutorial sets `permission_mode: bypassPermissions`, Copilot CLI always runs with `--autopilot` and `--no-ask-user`, and adds `--allow-all` too as long as you leave `allowed_tools` unset — no extra permission field needed.
+`agent.kind: copilot-cli` uses the Copilot CLI adapter. Where the Claude Code tutorial sets `permission_mode: bypassPermissions`, Copilot CLI always runs with `--autopilot` and `--no-ask-user`, and adds `--allow-all` too as long as you leave `allowed_tools` unset. No extra permission field is needed.
 
 The `copilot-cli` section is a pass-through to the Copilot CLI binary. `max_autopilot_continues: 50` is the inner turn budget, analogous to `claude-code.max_turns`. With three Sortie turns and 50 autopilot continues each, the agent gets up to 150 total steps to finish the task. `model: gpt-4.1` selects the LLM model. Replace it with your preferred model.
 
@@ -211,17 +211,14 @@ level=INFO msg="database path resolved" db_path=/home/you/sortie-github-e2e/.sor
 level=INFO msg="http server listening" addr=127.0.0.1:7678
 level=INFO msg="sortie started"
 level=INFO msg="tick completed" candidates=1 dispatched=1 ... running=1 retrying=0 ...
-level=INFO msg="workspace created" issue_id=5 issue_identifier=5
-level=INFO msg="hook started" hook=after_create issue_identifier=5
-level=INFO msg="hook completed" hook=after_create issue_identifier=5
-level=INFO msg="hook started" hook=before_run issue_identifier=5
-level=INFO msg="hook completed" hook=before_run issue_identifier=5
+level=INFO msg="running hook" issue_id=5 issue_identifier=5 hook=after_create workspace=…/workspaces/5
+level=INFO msg="running hook" issue_id=5 issue_identifier=5 hook=before_run workspace=…/workspaces/5
 level=INFO msg="workspace prepared" issue_id=5 issue_identifier=5 workspace=…/workspaces/5
 level=INFO msg="agent session started" issue_id=5 issue_identifier=5 session_id=…
 level=INFO msg="turn started" issue_id=5 issue_identifier=5 turn_number=1 max_turns=3
 ```
 
-The agent is now working. A Copilot CLI session typically takes 3–10 minutes depending on the task complexity and model. The agent reads files, writes code, runs tests — each action appears as events in the log at `debug` level.
+The agent is now working. A Copilot CLI session typically takes 3–10 minutes depending on the task complexity and model. The agent reads files, writes code, and runs tests. Each action appears as events in the log at `debug` level.
 
 Notice that issue identifiers are bare numbers (`5`, not `#5` or `PROJ-55`). Both `Issue.ID` and `Issue.Identifier` are the issue number for the GitHub adapter.
 
@@ -229,8 +226,7 @@ When the agent finishes, you will see:
 
 ```
 level=INFO msg="turn completed" issue_id=5 issue_identifier=5 turn_number=1 max_turns=3
-level=INFO msg="hook started" hook=after_run issue_identifier=5
-level=INFO msg="hook completed" hook=after_run issue_identifier=5
+level=INFO msg="running hook" issue_id=5 issue_identifier=5 hook=after_run workspace=…/workspaces/5
 level=INFO msg="worker exiting" issue_id=5 issue_identifier=5 exit_kind=normal turns_completed=1
 level=INFO msg="handoff transition succeeded, releasing claim" issue_id=5 issue_identifier=5 handoff_state=review
 level=INFO msg="tick completed" candidates=0 dispatched=0 ... running=0 retrying=0 ...
@@ -307,15 +303,15 @@ Open `http://127.0.0.1:7678/` in a browser while Sortie is running. You will see
 
 ## What we built
 
-We ran the complete Sortie lifecycle with Copilot CLI on GitHub Issues — entirely GitHub-native. One token authenticates both the tracker and the agent. Sortie polled GitHub, cloned the repository, launched the Copilot CLI, let it write and test code, pushed the result to a branch, and moved the issue to review.
+We ran the complete Sortie lifecycle with Copilot CLI on GitHub Issues, entirely GitHub-native. One token authenticates both the tracker and the agent. Sortie polled GitHub, cloned the repository, launched the Copilot CLI, let it write and test code, pushed the result to a branch, and moved the issue to review.
 
-The same orchestration loop powers the [Claude Code end-to-end tutorial](/getting-started/jira-claude-end-to-end/) and the [Codex end-to-end tutorial](/getting-started/jira-codex-end-to-end/) with different agents and trackers. Sortie's adapter-agnostic design means swapping `copilot-cli` for `claude-code` or `codex` is a config change — the prompt template, hooks, and overall flow carry over.
+The same orchestration loop powers the [Claude Code end-to-end tutorial](/getting-started/jira-claude-end-to-end/) and the [Codex end-to-end tutorial](/getting-started/jira-codex-end-to-end/) with different agents and trackers. Sortie's adapter-agnostic design means swapping `copilot-cli` for `claude-code` or `codex` is a config change. The prompt template, hooks, and overall flow carry over.
 
 Where to go next:
 
-- [Write a prompt template](/guides/write-prompt-template/) — conditionals, iteration, and template functions for production prompts
-- [WORKFLOW.md configuration reference](/reference/workflow-config/) — every field, every default, every constraint
-- [Monitor with Prometheus](/guides/monitor-with-prometheus/) — token usage, session counts, and retry rates as time-series metrics
-- [Copilot CLI adapter reference](/reference/adapter-copilot/) — CLI flags, event stream, and pass-through configuration
-- [GitHub adapter reference](/reference/adapter-github/) — field mapping, state derivation, and rate limiting
-- [Scale agents with SSH](/guides/scale-agents-with-ssh/) — remote execution for production workloads
+- [Write a prompt template](/guides/write-prompt-template/): conditionals, iteration, and template functions for production prompts
+- [WORKFLOW.md configuration reference](/reference/workflow-config/): every field, every default, every constraint
+- [Monitor with Prometheus](/guides/monitor-with-prometheus/): token usage, session counts, and retry rates as time-series metrics
+- [Copilot CLI adapter reference](/reference/adapter-copilot/): CLI flags, event stream, and pass-through configuration
+- [GitHub adapter reference](/reference/adapter-github/): field mapping, state derivation, and rate limiting
+- [Scale agents with SSH](/guides/scale-agents-with-ssh/): remote execution for production workloads

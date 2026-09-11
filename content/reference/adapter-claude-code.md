@@ -32,6 +32,7 @@ These fields control the orchestrator's scheduling behavior. They are not passed
 | `turn_timeout_ms` | integer | `3600000` (1 hour) | Total timeout for a single `RunTurn` call. The orchestrator cancels the turn context when exceeded. |
 | `read_timeout_ms` | integer | `5000` (5 seconds) | Timeout for startup and synchronous operations. |
 | `stall_timeout_ms` | integer | `300000` (5 minutes) | Maximum time between consecutive events before the orchestrator treats the session as stalled. `0` or negative disables stall detection. |
+| `stop_grace_ms` | integer | `5000` (5 seconds) | How long the adapter waits for the subprocess to exit on its own after a graceful termination signal, before it force-terminates the process group. Must be positive. |
 | `max_retry_backoff_ms` | integer | `300000` (5 minutes) | Maximum delay cap for exponential backoff between retry attempts. |
 
 ```yaml
@@ -89,7 +90,7 @@ Setting `claude-code.max_turns` too low causes Claude Code to exit mid-task. Set
 
 ### Fallback model scope
 
-The adapter forwards `fallback_model` to `--fallback-model` unchanged and does not validate or interpret it - it may name a single model or a comma-separated list. Which failure classes Claude Code treats as fallback-eligible, and any limit on how many models a chain may name, are the CLI's own behavior; see the [external references](#external-references) for where to look it up.
+The adapter forwards `fallback_model` to `--fallback-model` unchanged and does not validate or interpret it. The value may name a single model or a comma-separated list. Which failure classes Claude Code treats as fallback-eligible, and any limit on how many models a chain may name, are the CLI's own behavior; see the [external references](#external-references) for where to look it up.
 
 Whatever the CLI decides applies only within the current invocation. The adapter spawns one CLI invocation per turn, and each turn starts that invocation with the configured primary model.
 
@@ -172,7 +173,7 @@ Spawns a Claude Code subprocess, reads JSONL events from stdout, and delivers no
 The subprocess lifecycle itself belongs to the shared fork-per-turn skeleton in `internal/agent/agentcore`, which the Copilot CLI and Kiro adapters use as well; the Claude Code adapter supplies the argument list, the line parser, and the end-of-turn classifier.
 
 1. Builds the CLI argument list from session state and pass-through configuration.
-2. Spawns the subprocess with `exec.CommandContext`, overriding its default cancel behavior - see [process shutdown](#process-shutdown) for how.
+2. Spawns the subprocess with `exec.CommandContext`, overriding its default cancel behavior (see [process shutdown](#process-shutdown) for how).
 3. Sets `cmd.Dir` to the workspace path and `cmd.Env` to the full parent process environment.
 4. Reads stdout line by line via a buffered scanner (64 KB initial buffer, 10 MB max line), while a separate goroutine drains stderr.
 5. Parses each line as JSON and dispatches to the appropriate event handler. A line that fails to parse becomes a `malformed` event and the scan continues.
@@ -193,22 +194,18 @@ Every invocation includes `--output-format stream-json` and `--verbose`.
 Terminates a running subprocess. Safe to call when no subprocess is active.
 
 1. Sends a graceful shutdown signal to the process group (POSIX: `SIGTERM`; Windows: `CTRL_BREAK_EVENT`).
-2. Waits up to 5 seconds for the process to exit.
+2. Waits up to `stop_grace_ms` for the process to exit.
 3. Force-terminates the process tree if still running (POSIX: `SIGKILL` to process group; Windows: `TerminateJobObject`).
-
-### `EventStream`
-
-Returns `nil`. The adapter delivers all events synchronously through the `OnEvent` callback in `RunTurn`.
 
 ---
 
 ## Process shutdown
 
-`exec.CommandContext` sends an immediate kill signal on context cancellation by default. The agent process would have no chance to flush output buffers, close network connections, or emit final token-usage events. The adapter overrides that default: `cmd.Cancel` is set to send a graceful shutdown signal instead of a kill (POSIX: `SIGTERM`; Windows: `CTRL_BREAK_EVENT` via the process group), and `cmd.WaitDelay` bounds how long `Wait` gives the process to exit after that signal - 5 seconds - before force-killing it (POSIX: `SIGKILL`; Windows: `TerminateJobObject`). This covers both orchestrator-initiated cancellation (reconciliation kill, stall detection) and shutdown signals, since all of them reach the subprocess through the same context.
+`exec.CommandContext` sends an immediate kill signal on context cancellation by default. The agent process would have no chance to flush output buffers, close network connections, or emit final token-usage events. The adapter overrides that default: `cmd.Cancel` is set to send a graceful shutdown signal instead of a kill (POSIX: `SIGTERM`; Windows: `CTRL_BREAK_EVENT` via the process group), and `cmd.WaitDelay` is set to `stop_grace_ms`, bounding how long `Wait` gives the process to exit after that signal before force-killing it (POSIX: `SIGKILL`; Windows: `TerminateJobObject`). This covers both orchestrator-initiated cancellation (reconciliation kill, stall detection) and shutdown signals, since all of them reach the subprocess through the same context.
 
 On all platforms, the subprocess is placed in its own process group at launch. On Windows, the subprocess is additionally assigned to a Job Object with `KILL_ON_JOB_CLOSE`, so the entire process tree (including MCP servers and other children) is terminated on shutdown or if Sortie crashes.
 
-`StopSession` follows the same shape independently of context cancellation: it sends the graceful signal, waits up to 5 seconds, and force-kills the process group if the wait times out.
+`StopSession` follows the same shape independently of context cancellation: it sends the graceful signal, waits up to `stop_grace_ms`, and force-kills the process group if the wait elapses. A `StopSession` context that is cancelled first also force-kills the process group, and the adapter returns the context's error.
 
 ---
 
@@ -222,13 +219,13 @@ Two mappings carry consequences a user can act on. A tool call the runtime denie
 
 ## Token accounting
 
-Reported token counts are cumulative over the whole session the orchestrator opened, across every turn of it, and never decrease. The `result` event at the end of each turn carries the authoritative figure for that turn; `assistant` events supply a provisional running estimate while the turn is still in flight.
+Reported token counts are cumulative over the whole session the orchestrator opened, across every turn of it, and never decrease. The `result` event at the end of each turn carries the authoritative figure for that turn; `assistant` events supply a provisional running estimate while the turn is still in flight. For this kind's declaration beside every other kind's, see the [usage reporting table](/reference/workflow-config/#usage-reporting-by-agent-kind).
 
 ### Accumulation logic
 
 1. Each `assistant` event carrying a `usage` object contributes a provisional per-message figure, keyed by the message id. Claude Code repeats one message id across every streamed event of the same model request and grows the usage object as the response generates, so the adapter keeps the largest value seen per id rather than summing the repeats.
 2. A `token_usage` event is emitted the first time a message id is seen, and not again for that id, so the count matches API requests rather than stream events.
-3. On the `result` event, the per-model `modelUsage` breakdown is summed across every model entry, added to the session's settled total, and the turn's provisional contribution is cleared. The reported snapshot is raised against the highest snapshot already reported, so settling never lowers a figure the turn already published. The top-level `usage` object is used only when `modelUsage` is absent or empty. `modelUsage` is preferred because the top-level figure excludes sub-agent activity while the breakdown includes it — see [how to use sub-agents](/guides/use-subagents-with-sortie/#account-for-sub-agent-costs).
+3. On the `result` event, the per-model `modelUsage` breakdown is summed across every model entry, added to the session's settled total, and the turn's provisional contribution is cleared. The reported snapshot is raised against the highest snapshot already reported, so settling never lowers a figure the turn already published. The top-level `usage` object is used only when `modelUsage` is absent or empty. `modelUsage` is preferred because the top-level figure excludes sub-agent activity while the breakdown includes it. See [how to use sub-agents](/guides/use-subagents-with-sortie/#account-for-sub-agent-costs).
 4. In both shapes, `input_tokens` is the sum of the plain input count, cache-read tokens, and cache-creation tokens; `cache_read_tokens` carries the cache-read count separately as a subset of input; `total_tokens` is computed as `input_tokens + output_tokens` rather than read from any vendor total.
 
 ### Model tracking
@@ -280,10 +277,10 @@ The outcome is not decided by the exit code alone. The shared decision table eva
 | `result` event with subtype `success` and `is_error` false | `turn_completed` | _(none)_ |
 | `result` event that is `is_error` or has any other subtype | `turn_failed` | `turn_failed` |
 | No `result` event, non-zero exit | `turn_failed` | `port_exit` |
-| No `result` event, exit `0`, this turn produced no output tokens | `turn_failed` | `turn_failed` |
-| No `result` event, exit `0`, this turn produced output tokens | `turn_completed` | _(none)_ |
+| No `result` event, exit `0`, no message from the agent and no tool call this turn | `turn_failed` | `turn_failed` |
+| No `result` event, exit `0`, a message from the agent or a tool call this turn | `turn_completed` | _(none)_ |
 
-The human-input, cancellation, and exit-`127` rows are decided before the adapter's own classifier runs. The output-token test reads this turn's own assistant output, not the run-cumulative figure. Stderr from a failing turn is re-emitted at WARN level.
+The human-input, cancellation, and exit-`127` rows are decided before the adapter's own classifier runs. The work test reads this turn's own stream rather than the run-cumulative token figure. A message from the agent is a `text` content block carrying text on an `assistant` message; a tool call is a `tool_use` or `tool_result` block. Stderr from a failing turn is re-emitted at WARN level.
 
 ### Stdout scanner failure
 
@@ -331,7 +328,7 @@ SSH exit code `255` indicates a connection failure (refused, timeout, unreachabl
 
 Sortie does not manage Claude Code's API credentials. The adapter spawns the subprocess with the full parent process environment (`cmd.Env = os.Environ()`), and Claude Code reads its authentication variables directly.
 
-The adapter runs no credential preflight and names no credential variable of its own: it neither reads nor sets one, and `StartSession` succeeds whether or not the environment can authenticate the CLI. Which variables authenticate a given backend - Anthropic's API, a cloud vendor's hosted models, or a gateway in front of either - is Claude Code's to document; see the [external references](#external-references) and the [environment variables reference](/reference/environment/#agent-runtime-variables).
+The adapter runs no credential preflight and names no credential variable of its own: it neither reads nor sets one, and `StartSession` succeeds whether or not the environment can authenticate the CLI. Which variables authenticate a given backend (Anthropic's API, a cloud vendor's hosted models, or a gateway in front of either) is Claude Code's to document; see the [external references](#external-references) and the [environment variables reference](/reference/environment/#agent-runtime-variables).
 
 A credential the CLI rejects therefore surfaces as a failing turn rather than as a session that refuses to start.
 
@@ -341,7 +338,7 @@ A credential the CLI rejects therefore surfaces as a failing turn rather than as
 
 The adapter is safe for concurrent use. One `ClaudeCodeAdapter` instance serves all sessions. Per-session state (workspace path, session ID, process handle) is isolated in the opaque `Session.Internal` field. A mutex guards the subprocess handle for concurrent access between `RunTurn` and `StopSession`.
 
-No adapter-level serialization is needed for `RunTurn` calls - each spawns an independent subprocess with its own stdout pipe and scanner.
+No adapter-level serialization is needed for `RunTurn` calls: each spawns an independent subprocess with its own stdout pipe and scanner.
 
 ---
 
@@ -353,8 +350,10 @@ The adapter registers itself under kind `"claude-code"` via an `init` function i
 |---|---|
 | `RequiresCommand` | `true` |
 | `ValidateAgentConfig` | the check described in [Validate-time checks](#validate-time-checks) |
-| `MCPInjection` | `supported` - the adapter hands the generated configuration file's path to the agent process, on a local launch and over SSH alike. See [Sortie's own tools and the `mcp_config` field](#sorties-own-tools-and-the-mcp_config-field). |
+| `MCPInjection` | `supported`: the adapter hands the generated configuration file's path to the agent process, on a local launch and over SSH alike. See [Sortie's own tools and the `mcp_config` field](#sorties-own-tools-and-the-mcp_config-field). |
 | `SessionResumeBlockedBy` | `session_persistence` when the `claude-code` block sets that key to the boolean `false`, and nothing otherwise. This is the declaration the generic `agent.kind.session_resume` refusal reads. See [Session persistence and resume](#session-persistence-and-resume). |
+| `UsageArrival` | `incremental`: one usage figure per model API request, emitted while the turn's work is still in flight. See [Token accounting](#token-accounting). |
+| `UsageAttribution` | `per_model`: a usage figure names the model that produced it. See [Model tracking](#model-tracking). |
 
 The orchestrator's preflight validation uses `RequiresCommand` to produce a specific error message if the binary cannot be found before attempting session creation.
 
@@ -362,19 +361,19 @@ The orchestrator's preflight validation uses `RequiresCommand` to produce a spec
 
 ## External references
 
-- [Claude Code overview](https://docs.anthropic.com/en/docs/claude-code) - Anthropic's official product documentation
-- [Claude Code CLI reference](https://docs.anthropic.com/en/docs/claude-code/cli-reference) - every flag this adapter forwards (`--permission-mode`, `--output-format`, `--resume`, `--mcp-config`, etc.)
-- [`anthropics/claude-code` on GitHub](https://github.com/anthropics/claude-code) - source repository, releases, and issue tracker
-- [Model Context Protocol specification](https://modelcontextprotocol.io/specification) - the MCP server protocol consumed via `--mcp-config`
+- [Claude Code overview](https://docs.anthropic.com/en/docs/claude-code): Anthropic's official product documentation
+- [Claude Code CLI reference](https://docs.anthropic.com/en/docs/claude-code/cli-reference): every flag this adapter forwards (`--permission-mode`, `--output-format`, `--resume`, `--mcp-config`, etc.)
+- [`anthropics/claude-code` on GitHub](https://github.com/anthropics/claude-code): source repository, releases, and issue tracker
+- [Model Context Protocol specification](https://modelcontextprotocol.io/specification): the MCP server protocol consumed via `--mcp-config`
 
 ---
 
 ## Related pages
 
-- [WORKFLOW.md configuration reference](/reference/workflow-config/) - full `agent` schema and `claude-code` extension block
-- [Environment variables reference](/reference/environment/#agent-runtime-variables) - `ANTHROPIC_API_KEY`, Bedrock, Vertex AI, and proxy variables
-- [Error reference](/reference/errors/#agent-errors) - all agent error kinds with retry behavior
-- [How to control agent costs](/guides/control-costs/) - per-turn budget, turn caps, session caps, and concurrency limits
-- [How to write a prompt template](/guides/write-prompt-template/) - template variables, conditionals, and built-in functions
-- [How to scale agents with SSH](/guides/scale-agents-with-ssh/) - remote execution setup and host pool configuration
-- [State machine reference](/reference/state-machine/) - orchestration states, turn lifecycle, and stall detection
+- [WORKFLOW.md configuration reference](/reference/workflow-config/): full `agent` schema and `claude-code` extension block
+- [Environment variables reference](/reference/environment/#agent-runtime-variables): `ANTHROPIC_API_KEY`, Bedrock, Vertex AI, and proxy variables
+- [Error reference](/reference/errors/#agent-errors): all agent error kinds with retry behavior
+- [How to control agent costs](/guides/control-costs/): per-turn budget, turn caps, session caps, and concurrency limits
+- [How to write a prompt template](/guides/write-prompt-template/): template variables, conditionals, and built-in functions
+- [How to scale agents with SSH](/guides/scale-agents-with-ssh/): remote execution setup and host pool configuration
+- [State machine reference](/reference/state-machine/): orchestration states, turn lifecycle, and stall detection

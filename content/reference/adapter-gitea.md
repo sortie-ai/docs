@@ -53,7 +53,7 @@ tracker:
 
 The instance base URL, for example `https://gitea.example.com`. Required: Gitea is self-hosted, so there is no default host, and an empty value is a construction error. Surrounding whitespace and trailing slashes are trimmed. The adapter appends `/api/v1`, and tolerates a value that already ends in `/api/v1` without appending it twice. Plain-`http` endpoints send the token in cleartext; `sortie validate` warns on an `http` endpoint and on a value already ending in `/api/v1`.
 
-A non-empty value must also parse as an absolute `http` or `https` URL carrying a hostname, with neither a query nor a fragment; this is rejected at construction, before any client is built, rather than surfacing later as a network error. An IPv6 literal must be bracketed - `http://[fd00::1]:3000`, not `http://fd00::1:3000` - the unbracketed form being exactly how such an address appears in `ip addr` output on a self-hosted instance. The same rule applies wherever an endpoint reaches this adapter family: the tracker, the SCM adapter, and the CI status provider - see [SCM and CI surface](#scm-and-ci-surface) for where those two read theirs.
+A non-empty value must also parse as an absolute `http` or `https` URL carrying a hostname, with neither a query nor a fragment; this is rejected at construction, before any client is built, rather than surfacing later as a network error. An IPv6 literal must be bracketed: `http://[fd00::1]:3000`, not `http://fd00::1:3000`. The unbracketed form is exactly how such an address appears in `ip addr` output on a self-hosted instance. The same rule applies wherever an endpoint reaches this adapter family: the tracker, the SCM adapter, and the CI status provider (see [SCM and CI surface](#scm-and-ci-surface) for where those two read theirs).
 
 ### `project`
 
@@ -275,7 +275,7 @@ For the full error taxonomy and operator guidance, see the [error reference](/re
 
 The `gitea` kind also provides an SCM adapter and a CI status provider, so a Gitea-backed deployment drives the same pull-request reactions as a GitHub-backed one: review-comment feedback, CI-failure escalation, auto-merge, and branch cleanup. The reaction kinds and their lifecycle are provider-agnostic and documented in the [reactions reference](/reference/reactions/); `provider: gitea` on a reaction block activates this adapter, and [how to set up PR reactions](/guides/setup-pr-reactions/) covers the operator procedure. This section documents only the Gitea-specific behavior. Gitea exposes no GraphQL API and no aggregate review-decision or check-runs endpoint, so every read below is composed from REST routes under `/api/v1`.
 
-Both surfaces read `endpoint` from a top-level `gitea:` block first, the same [adapter pass-through configuration](/reference/workflow-config/#adapter-pass-through-configuration) mechanism the [`user_agent` field](#configuration) uses, and fall back to `tracker.endpoint` when the block omits it and `tracker.kind` is also `gitea`. Whichever value they resolve is validated exactly like `tracker.endpoint`: a value that is not an absolute http(s) URL with a hostname is rejected at construction, before either adapter builds a client. `sortie validate` only inspects `tracker.endpoint`, so a `gitea:` block endpoint that would fail this check is not caught offline - it surfaces the first time Sortie starts.
+Both surfaces read `endpoint` from a top-level `gitea:` block first, the same [adapter pass-through configuration](/reference/workflow-config/#adapter-pass-through-configuration) mechanism the [`user_agent` field](#configuration) uses, and fall back to `tracker.endpoint` when the block omits it and `tracker.kind` is also `gitea`. Whichever value they resolve is validated exactly like `tracker.endpoint`: a value that is not an absolute http(s) URL with a hostname is rejected at construction, before either adapter builds a client. `sortie validate` only inspects `tracker.endpoint`, so a `gitea:` block endpoint that would fail this check is not caught offline. It surfaces the first time Sortie starts.
 
 ### SCM read operations
 
@@ -393,18 +393,18 @@ Most of what separates the two is their own API surface, which each vendor docum
 
 ## External references
 
-- [Gitea API reference](https://docs.gitea.com/api/next/) - the generated reference for every route this adapter uses
-- [API usage](https://docs.gitea.com/development/api-usage) - base path, authentication, and pagination conventions
-- [Swagger explorer](https://gitea.com/api/swagger) - the live schema, useful for confirming a payload against your own version
+- [Gitea API reference](https://docs.gitea.com/api/next/): the generated reference for every route this adapter uses
+- [API usage](https://docs.gitea.com/development/api-usage): base path, authentication, and pagination conventions
+- [Swagger explorer](https://gitea.com/api/swagger): the live schema, useful for confirming a payload against your own version
 
 ---
 
 ## Related pages
 
-- [How to connect Sortie to Gitea](/guides/connect-to-gitea/) - setup instructions with token creation, state mapping, and verification
-- [WORKFLOW.md configuration reference](/reference/workflow-config/) - full schema for the `tracker` section and all other configuration
-- [Error reference](/reference/errors/#tracker-errors) - all tracker error kinds with retry behavior and operator actions
-- [Environment variables reference](/reference/environment/) - `$VAR` expansion modes and agent passthrough variables
-- [GitHub adapter reference](/reference/adapter-github/) - the closest sibling forge adapter
-- [State machine reference](/reference/state-machine/) - orchestration states, candidate eligibility, and how tracker state drives dispatch
-- [How to write a prompt template](/guides/write-prompt-template/) - using `.issue` fields populated by this adapter in templates
+- [How to connect Sortie to Gitea](/guides/connect-to-gitea/): setup instructions with token creation, state mapping, and verification
+- [WORKFLOW.md configuration reference](/reference/workflow-config/): full schema for the `tracker` section and all other configuration
+- [Error reference](/reference/errors/#tracker-errors): all tracker error kinds with retry behavior and operator actions
+- [Environment variables reference](/reference/environment/): `$VAR` expansion modes and agent passthrough variables
+- [GitHub adapter reference](/reference/adapter-github/): the closest sibling forge adapter
+- [State machine reference](/reference/state-machine/): orchestration states, candidate eligibility, and how tracker state drives dispatch
+- [How to write a prompt template](/guides/write-prompt-template/): using `.issue` fields populated by this adapter in templates

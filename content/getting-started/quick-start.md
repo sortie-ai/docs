@@ -5,9 +5,9 @@ author: Sortie AI
 date: 2026-03-23
 weight: 20
 ---
-In this tutorial, we will run Sortie — an autonomous coding agent orchestrator — end-to-end on your machine. By the end,
+In this tutorial, we will run Sortie (an autonomous coding agent orchestrator) end-to-end on your machine. By the end,
 you will have watched Sortie poll for issues, spin up workspaces, run mock
-agent sessions, and record the results — all without touching Jira or any
+agent sessions, and record the results, all without touching Jira or any
 external API.
 
 ## Prerequisites
@@ -15,7 +15,7 @@ external API.
 - Sortie installed and on your `PATH` ([installation guide](/getting-started/installation/))
 - This tutorial uses a mock agent, so no real coding agent is needed yet.
   When you move to a real agent like Claude Code, first verify it handles
-  issues well in a manual terminal session — Sortie automates the scheduling,
+  issues well in a manual terminal session. Sortie automates the scheduling,
   not the quality of the agent's output.
 
 Confirm Sortie is ready:
@@ -103,7 +103,7 @@ Fix the following issue.
 
 This single file drives everything Sortie does. The YAML front matter between
 the `---` fences configures the tracker, agent, and polling interval. The
-Markdown body below is a prompt template — Sortie renders it once per issue
+Markdown body below is a prompt template. Sortie renders it once per issue
 and sends it to the agent.
 
 Notice a few things:
@@ -148,7 +148,7 @@ level=INFO msg="tick completed" candidates=0 dispatched=0 ... running=0 retrying
 Let's walk through what happened:
 
 1. Sortie loaded `WORKFLOW.md` and read `issues.json`. It found two issues in
-   the "To Do" state — `DEMO-1` and `DEMO-2`.
+   the "To Do" state: `DEMO-1` and `DEMO-2`.
 2. For each issue, it created a workspace directory and started a mock agent
    session. The `no tool execution channel` line is the mock agent being
    honest, not an error: it launches no process, so Sortie's own agent tools
@@ -159,7 +159,7 @@ Let's walk through what happened:
    `handoff_state` from our config).
 5. On the next poll cycle, Sortie found zero candidates and went idle.
 
-Notice the second `tick completed` line shows `candidates=0` — there is
+Notice the second `tick completed` line shows `candidates=0`: there is
 nothing left to process. Press **Ctrl+C** to stop Sortie.
 
 ### Check the results
@@ -191,15 +191,15 @@ the next `sortie ./WORKFLOW.md` runs the same demo again.
 
 We ran the full Sortie lifecycle without any external services:
 
-- **Poll** — Sortie watched `issues.json` for issues in the "To Do" state.
-- **Dispatch** — Each matching issue got its own workspace and agent session.
-- **Execute** — The mock agent ran two turns per issue.
-- **Handoff** — Sortie transitioned completed issues to "Done."
-- **Persist** — Run results were recorded in `.sortie.db`.
+- **Poll**: Sortie watched `issues.json` for issues in the "To Do" state.
+- **Dispatch**: Each matching issue got its own workspace and agent session.
+- **Execute**: The mock agent ran two turns per issue.
+- **Handoff**: Sortie transitioned completed issues to "Done."
+- **Persist**: Run results were recorded in `.sortie.db`.
 
 The mock agent doesn't modify code, but the lifecycle is identical to a real
 agent session. In production, you would swap `mock` for `claude-code` and
-`file` for `jira` or `github` — the orchestration works the same way. The quality of the
+`file` for `jira` or `github`. The orchestration works the same way. The quality of the
 agent's output depends on your prompt and agent configuration, not on Sortie.
 
 

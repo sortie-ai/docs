@@ -14,7 +14,7 @@ See also: [agent communication model](/concepts/agent-communication/) for why tw
 
 ## `.sortie/status` file protocol
 
-The agent-to-orchestrator advisory signal. This is not a tool - it's an out-of-band file written by the agent to tell the orchestrator "stop dispatching me." No SDK, no network call, no runtime dependency. One shell command.
+The agent-to-orchestrator advisory signal. This is not a tool: it's an out-of-band file written by the agent to tell the orchestrator "stop dispatching me." No SDK, no network call, no runtime dependency. One shell command.
 
 ### Path
 
@@ -38,7 +38,7 @@ All three values suppress continuation retry and eventually release the issue cl
 
 ### Orchestrator behavior
 
-When Sortie detects a recognized value in `.sortie/status`, all three signals complete the current turn normally and break the turn loop -- no further turns are attempted. From there they diverge.
+When Sortie detects a recognized value in `.sortie/status`, all three signals complete the current turn normally and break the turn loop: no further turns are attempted. From there they diverge.
 
 **`blocked`:**
 
@@ -55,14 +55,14 @@ When Sortie detects a recognized value in `.sortie/status`, all three signals co
 4. Releases the issue claim.
 5. Does **not** schedule a continuation retry.
 
-If the handoff transition in step 3 fails (network error, permission denied, nil adapter), the orchestrator logs a warning and releases the claim without retry. The agent finished its work -- retrying would be wrong.
+If the handoff transition in step 3 fails (network error, permission denied, nil adapter), the orchestrator logs a warning and releases the claim without retry. The agent finished its work. Retrying would be wrong.
 
 **`no-change-needed`:**
 
-1. Where `self_review.enabled` and the issue is still active, enters the [self-review phase](/guides/configure-self-review/) before exiting, on the same admission terms as `needs-human-review`. If the phase does not confirm the declaration - anything other than exactly one iteration ending on a `pass` verdict, with no failing verification result - the declaration is retracted, and the run exits as an ordinary normal exit: the [handoff-evidence policy](/reference/state-machine/#handoff-evidence) inspects the workspace for the verdict exactly as it would for a run with no declaration at all. On a deployment with self-review disabled, no such check runs and the declaration stands unverified.
+1. Where `self_review.enabled` and the issue is still active, enters the [self-review phase](/guides/configure-self-review/) before exiting, on the same admission terms as `needs-human-review`. If the phase does not confirm the declaration (anything other than exactly one iteration ending on a `pass` verdict, with no failing verification result), the declaration is retracted, and the run exits as an ordinary normal exit: the [handoff-evidence policy](/reference/state-machine/#handoff-evidence) inspects the workspace for the verdict exactly as it would for a run with no declaration at all. On a deployment with self-review disabled, no such check runs and the declaration stands unverified.
 2. Exits the worker run.
 3. A declaration that stands always counts as work observed and is never withheld: when `tracker.handoff_state` is configured, the issue is still active, the dispatch drives issue state, and no terminal observation intervenes, performs the handoff transition to `tracker.no_change_state` where that field is set, or to `tracker.handoff_state` otherwise.
-4. Releases the issue claim, resets the consecutive handoff-absence count, and releases a park held for consecutive absences - unless `tracker.handoff_evidence` is `off`, under which no verdict is computed and neither the reset nor the park release happens; resolving the transition target is the declaration's only effect there.
+4. Releases the issue claim, resets the consecutive handoff-absence count, and releases a park held for consecutive absences. Where `tracker.handoff_evidence` is `off`, no verdict is computed and neither the reset nor the park release happens; resolving the transition target is the declaration's only effect there.
 5. Does **not** schedule a continuation retry.
 
 A parked issue is released by one of three gestures: the tracker state changes to something other than the one it was parked in, the parking label is removed and confirmed gone, or a later run for the issue produces observable work. See [the release rules](/concepts/agent-communication/) for the confirmation guard and the query-filter caveat. A `needs-human-review` exit with no `tracker.handoff_state` configured performs no tracker write at all, so the issue is immediately eligible for re-dispatch on the next poll.
@@ -73,7 +73,7 @@ The full interaction between `.sortie/status` and `tracker.handoff_state` is doc
 
 | Condition | Behavior |
 |---|---|
-| File absent | Normal behavior - continue and retry as configured. |
+| File absent | Normal behavior: continue and retry as configured. |
 | Unrecognized value | Ignored. Warning logged. Normal behavior continues. |
 | Read error | Treated as absent. Warning logged. Never fails the worker run. |
 | Symlink on `.sortie/` or `status` | Rejected via `Lstat` check. Treated as absent. Warning logged. |
@@ -98,9 +98,9 @@ already held before you started and you made no change to reach it. Do not write
 productive work.
 ```
 
-Continuation turns do not repeat the instructions. You can include your own instructions in prompt templates too - duplicates are harmless.
+Continuation turns do not repeat the instructions. You can include your own instructions in prompt templates too. Duplicates are harmless.
 
-During the self-review phase, a second injected instruction supersedes this one for the duration of the phase: it tells the agent to report through `.sortie/review_verdict.json` instead, that writing `needs-human-review` to `.sortie/status` there neither ends the phase nor substitutes for a verdict, and that `blocked` still ends the phase. This second instruction names only those two values; it says nothing about `no-change-needed`. In the loop itself, though, only `blocked` is read for anything - any other value written during the phase, `no-change-needed` included, is inert there the same way an in-phase `needs-human-review` is.
+During the self-review phase, a second injected instruction supersedes this one for the duration of the phase: it tells the agent to report through `.sortie/review_verdict.json` instead, that writing `needs-human-review` to `.sortie/status` there neither ends the phase nor substitutes for a verdict, and that `blocked` still ends the phase. This second instruction names only those two values; it says nothing about `no-change-needed`. In the loop itself, though, only `blocked` is read for anything: any other value written during the phase, `no-change-needed` included, is inert there the same way an in-phase `needs-human-review` is.
 
 ### Cleanup and protection
 
@@ -124,13 +124,13 @@ Sortie delivers tools to agents via an MCP stdio server running as a sidecar pro
 
 Before each agent session, the worker generates `.sortie/mcp.json` inside the workspace directory. This file declares the `sortie-tools` MCP server entry with the absolute path to the `sortie` binary, the workflow path, and session environment variables. What each adapter does with it differs; see [delivery by agent kind](#delivery-by-agent-kind).
 
-The agent runtime spawns `sortie mcp-server` as its own child process - the orchestrator worker does not manage the MCP server lifecycle. Any MCP-compatible agent can call tools without adapter-specific integration.
+The agent runtime spawns `sortie mcp-server` as its own child process. The orchestrator worker does not manage the MCP server lifecycle. Any MCP-compatible agent can call tools without adapter-specific integration.
 
-Session context (issue ID, workspace path, database path, credentials) flows to the MCP server via the `env` block in `.sortie/mcp.json`. Credentials (`SORTIE_*` variables from the orchestrator process) are explicitly included in this block - they do not rely on process inheritance. See [MCP server environment](/reference/environment/#mcp-server-environment) for the full variable table.
+Session context (issue ID, workspace path, database path, credentials) flows to the MCP server via the `env` block in `.sortie/mcp.json`. Credentials (`SORTIE_*` variables from the orchestrator process) are explicitly included in this block. They do not rely on process inheritance. See [MCP server environment](/reference/environment/#mcp-server-environment) for the full variable table.
 
 If the agent block belonging to the session's own agent kind specifies `mcp_config`, Sortie merges the file it names with the `sortie-tools` entry. The operator's config must not use the reserved server name `sortie-tools`. The merge happens before the session starts, so an unreadable path or a config declaring `sortie-tools` fails the attempt whether or not the adapter goes on to forward the result.
 
-Sortie also appends tool documentation to the first-turn prompt for discoverability alongside MCP `tools/list`. That advertisement is written only for a session that has a channel; a session without one is told nothing about tools. If the agent calls an unrecognized tool name, the MCP server returns an error response and continues the session - it does not stall or crash.
+Sortie also appends tool documentation to the first-turn prompt for discoverability alongside MCP `tools/list`. That advertisement is written only for a session that has a channel; a session without one is told nothing about tools. If the agent calls an unrecognized tool name, the MCP server returns an error response and continues the session. It does not stall or crash.
 
 ### Delivery by agent kind
 
@@ -143,8 +143,9 @@ The worker writes `.sortie/mcp.json` for every agent kind. Getting its servers t
 | `codex` | Local launch only | The runtime accepts no config path, so the generated servers are re-expressed as configuration overrides on the app-server command line. See [Codex adapter reference](/reference/adapter-codex/#mcp). |
 | `opencode` | Local launch only | The runtime accepts no config path, so the generated servers are re-expressed as the runtime's own configuration document, delivered in the turn's environment. See [OpenCode adapter reference](/reference/adapter-opencode/#mcp). |
 | `kiro` | Never | The backend profile gate disables MCP under API-key authentication, so there is nothing to deliver to. See [Kiro adapter reference](/reference/adapter-kiro/#mcp). |
+| `agent-client-protocol` | Local launch only, and only for a server the runtime's own handshake supports | The runtime accepts no config path, so the generated servers are re-expressed on `session/new`. An HTTP server is withheld when the handshake does not advertise HTTP MCP support. See [Agent Client Protocol adapter reference](/reference/adapter-agent-client-protocol/#mcp). |
 
-The two `local launch only` kinds withhold delivery on an SSH launch deliberately: every route to a remote agent passes through the local `ssh` command line, so delivering there would put the configuration's credential values on an argument list any other user of the orchestrator host can read. A remote `codex` or `opencode` session therefore reaches no tool, and its first-turn prompt names none.
+The three `local launch only` kinds withhold delivery on an SSH launch deliberately: every route to a remote agent passes through the local `ssh` command line, so delivering there would put the configuration's credential values on an argument list any other user of the orchestrator host can read. A remote `codex`, `opencode`, or `agent-client-protocol` session therefore reaches no tool, and its first-turn prompt names none.
 
 A session that reaches no tools receives no advertisement either, whichever row it falls in. That is what keeps the prompt and the channel consistent: Sortie does not name a tool it cannot deliver.
 
@@ -154,7 +155,7 @@ For a kind whose adapter delivers the configuration in no form at all, an `mcp_c
 
 ## `tracker_api`
 
-Read and write access to the configured issue tracker (Jira, GitHub Issues, file-based). The agent does not need its own API key - Sortie uses the tracker credentials from [WORKFLOW.md](/reference/workflow-config/). All operations are scoped to the configured `tracker.project`; the agent cannot access issues in other projects.
+Read and write access to the configured issue tracker (Jira, GitHub Issues, file-based). The agent does not need its own API key. Sortie uses the tracker credentials from [WORKFLOW.md](/reference/workflow-config/). All operations are scoped to the configured `tracker.project`; the agent cannot access issues in other projects.
 
 `tracker_api` is a **[Tier 2](/concepts/agent-tools/)** tool: it requires an external dependency (a tracker API with valid credentials and project). Sortie registers the tool only when a valid tracker configuration with credentials and project is present in WORKFLOW.md.
 
@@ -282,7 +283,7 @@ Lists active-state issues in the configured project. No parameters beyond `opera
 ]
 ```
 
-Each entry has the same shape as a `fetch_issue` response, with one exception: `blocked_by` can be `null` instead of `[]`. This operation lists tracker candidates directly and does not run the per-issue blocker read the dispatch loop performs before starting a session, so on a tracker that cannot carry blockers with its candidate list, an issue whose dependencies have not been read yet reports `null` rather than an empty list. On Gitea, every `search_issues` entry reports `blocked_by: null`, because that read never happens on this path. On GitHub, an entry reports `[]` when the tracker's own dependency count already proves the issue has no dependencies, and `null` otherwise. `fetch_issue` on the same issue always reads the dependencies route directly and returns `[]` or a populated array, never `null`. Jira, Linear, and the file adapter are unaffected: their candidate lists already carry a resolved `blocked_by`. Only issues matching the configured `active_states` are returned - the candidates for dispatch, not every issue in the project.
+Each entry has the same shape as a `fetch_issue` response, with one exception: `blocked_by` can be `null` instead of `[]`. This operation lists tracker candidates directly and does not run the per-issue blocker read the dispatch loop performs before starting a session, so on a tracker that cannot carry blockers with its candidate list, an issue whose dependencies have not been read yet reports `null` rather than an empty list. On Gitea, every `search_issues` entry reports `blocked_by: null`, because that read never happens on this path. On GitHub, an entry reports `[]` when the tracker's own dependency count already proves the issue has no dependencies, and `null` otherwise. `fetch_issue` on the same issue always reads the dependencies route directly and returns `[]` or a populated array, never `null`. Jira, Linear, and the file adapter are unaffected: their candidate lists already carry a resolved `blocked_by`. Only issues matching the configured `active_states` are returned: the candidates for dispatch, not every issue in the project.
 
 ---
 
@@ -345,12 +346,12 @@ The `kind` field is a machine-readable category. The `message` field is a human-
 
 | Kind | Meaning |
 |---|---|
-| `invalid_input` | Malformed request - missing required field, unknown field, or unparseable JSON. |
+| `invalid_input` | Malformed request: missing required field, unknown field, or unparseable JSON. |
 | `unsupported_operation` | The `operation` value is not one of the four recognized operations. |
 | `project_scope_violation` | The requested issue belongs to a different project than the configured `tracker.project`. |
 | `tracker_transport_error` | Network or connection failure reaching the tracker API. Also returned on request cancellation or deadline exceeded. |
 | `tracker_auth_error` | Authentication failure (HTTP 401/403). The tracker API key is invalid or lacks permissions. |
-| `tracker_api_error` | Tracker API error - rate limiting, 5xx server errors, or other non-200 responses. |
+| `tracker_api_error` | Tracker API error: rate limiting, 5xx server errors, or other non-200 responses. |
 | `tracker_not_found` | The requested issue does not exist (HTTP 404). |
 | `tracker_payload_error` | Malformed response from the tracker, or an invalid state transition. |
 | `internal_error` | Unexpected internal failure. If you see this, [report a bug](https://github.com/sortie-ai/sortie/issues). |
@@ -363,7 +364,7 @@ For retry behavior and operator actions for each tracker error kind, see the [er
 
 The tool enforces that all operations target issues within `tracker.project` from [WORKFLOW.md](/reference/workflow-config/). If the agent passes an issue ID that resolves to a different project, the tool returns a `project_scope_violation` error before performing any mutation.
 
-This is a defense-in-depth measure. The primary access control is the tracker adapter's own API scoping - JQL project filter for Jira, repository scope for GitHub. The tool-level check catches edge cases where the API key happens to have cross-project access.
+This is a defense-in-depth measure. The primary access control is the tracker adapter's own API scoping: JQL project filter for Jira, repository scope for GitHub. The tool-level check catches edge cases where the API key happens to have cross-project access.
 
 When `tracker.project` is empty (e.g., the file-based tracker), project scoping is disabled.
 
@@ -371,7 +372,7 @@ When `tracker.project` is empty (e.g., the file-based tracker), project scoping 
 
 ## `sortie_status`
 
-Read-only session metadata. The agent calls this tool to check how many turns remain, how long the session has been running, and how many tokens have been consumed. Zero external calls - reads a local file only.
+Read-only session metadata. The agent calls this tool to check how many turns remain, how long the session has been running, and how many tokens have been consumed. It reads a local file only, with zero external calls.
 
 `sortie_status` is a **Tier 1** tool: no external dependencies. Registered when `SORTIE_WORKSPACE` is set in the MCP server environment.
 
@@ -385,7 +386,7 @@ No parameters. The agent sends an empty JSON object:
 
 ### How it works
 
-The tool reads `.sortie/state.json`, a file the worker goroutine writes at session start and updates at the beginning of each turn and on token usage events. The tool validates the file before reading: symlinks are rejected via `Lstat`, and files larger than 4 KiB are refused.
+The tool reads `.sortie/state.json`, a file the worker goroutine writes at session start, at the start of each turn, and again whenever a measurement arrives: on a token usage event, on any event carrying a non-zero usage payload, or on a turn's result carrying a measurement. The tool validates the file before reading: symlinks are rejected via `Lstat`, and files larger than 4 KiB are refused.
 
 ### Response fields
 
@@ -398,16 +399,19 @@ The fields below are returned under `data` in the standard success envelope:
 | `turns_remaining` | integer | `max_turns - turn_number`, clamped to 0. |
 | `attempt` | integer or null | Retry/continuation attempt number. `null` on first run. |
 | `session_duration_seconds` | float | Wall-clock time since session started (millisecond precision). |
-| `tokens` | object | Token usage counters for the current session. |
+| `tokens` | object | Token usage counters for the current session. Its four members are integer or null, and they are null together, exactly when `tokens_measured` is `false`. |
+| `tokens_measured` | boolean | Whether the session's token figures are a measurement. `true` before the first turn begins and once a figure has reached the worker; `false` from the start of turn 1 until one does. |
 
 Token usage fields:
 
 | Field | Type | Description |
 |---|---|---|
-| `input_tokens` | integer | Total input tokens consumed. |
-| `output_tokens` | integer | Total output tokens generated. |
-| `total_tokens` | integer | Sum of input and output tokens. |
-| `cache_read_tokens` | integer | Tokens served from prompt cache. |
+| `input_tokens` | integer or null | Total input tokens consumed. |
+| `output_tokens` | integer or null | Total output tokens generated. |
+| `total_tokens` | integer or null | Sum of input and output tokens. |
+| `cache_read_tokens` | integer or null | Tokens served from prompt cache. |
+
+Zeros beside `tokens_measured: true` are themselves a measurement, and they arise two ways: a session that has not begun a turn, whose zeros are proven because nothing has run, and a runtime that measured the work and found it cost nothing. A state file that carries figures and no `tokens_measured` field reads as `tokens_measured: false`, and its figures are not reported.
 
 ### Example response
 
@@ -427,8 +431,23 @@ Token usage fields:
       "output_tokens": 12000,
       "total_tokens": 57000,
       "cache_read_tokens": 8000
-    }
+    },
+    "tokens_measured": true
   }
+}
+```
+
+**Success, no measurement yet** (the `data` fields that differ):
+
+```json
+{
+  "tokens": {
+    "input_tokens": null,
+    "output_tokens": null,
+    "total_tokens": null,
+    "cache_read_tokens": null
+  },
+  "tokens_measured": false
 }
 ```
 
@@ -451,13 +470,13 @@ The failure shape is the same structured envelope every built-in tool uses.
 | Kind | Meaning |
 |---|---|
 | `state_unavailable` | The state file is absent, a symlink, oversized, or unreadable. |
-| `state_malformed` | The state file is present but unparseable - malformed JSON or an invalid `started_at`. |
+| `state_malformed` | The state file is present but unparseable: malformed JSON or an invalid `started_at`. |
 
 ---
 
 ## `workspace_history`
 
-Read-only access to prior run history for the current issue. The agent calls this tool to see what happened in previous attempts - whether they succeeded, failed, were cancelled, or failed CI. Useful for avoiding repeated mistakes on retry.
+Read-only access to prior run history for the current issue. The agent calls this tool to see what happened in previous attempts: whether they succeeded, failed, were cancelled, or failed CI. Useful for avoiding repeated mistakes on retry.
 
 `workspace_history` is a **Tier 1** tool: queries the local SQLite database in read-only mode, no external calls. Registered when both `SORTIE_DB_PATH` and `SORTIE_ISSUE_ID` are set and the database can be opened in read-only mode. If the database open fails, the MCP server continues without this tool (non-fatal).
 
@@ -490,7 +509,7 @@ Per entry:
 | `agent_adapter` | string | Which agent adapter was used (e.g., `claude-code`). |
 | `started_at` | string | ISO-8601 timestamp. |
 | `completed_at` | string | ISO-8601 timestamp. |
-| `status` | string | Terminal status: `succeeded`, `failed`, `cancelled`, `ci_failed`, or `needs_person`. `needs_person` marks a run that stopped because the agent asked for a decision only a person could give; it is distinct from `failed` and takes no retry. |
+| `status` | string | Terminal status: `succeeded`, `failed`, `cancelled`, `ci_failed`, `needs_person`, or `budget_stopped`. `needs_person` marks a run that stopped because the agent asked for a decision only a person could give; it is distinct from `failed` and takes no retry. `budget_stopped` marks a run the per-issue token ceiling stopped in flight; it is distinct from `cancelled`, which covers a stall, a terminal tracker state, and shutdown. |
 | `error` | string or null | Error message if failed; `null` on success. |
 
 ### Example response
@@ -560,9 +579,9 @@ The failure shape is the same structured envelope every built-in tool uses.
 
 ## `cost_budget`
 
-Read-only token accounting for the current issue. The agent calls this tool to check cumulative token spend across all of the issue's sessions and the remaining budget, then decide whether to skip an expensive step, return partial work, or hand off before the orchestrator's token ceiling blocks the next session. Where `sortie_status` reports token usage for the current session (read from `.sortie/state.json`), `cost_budget` reports cumulative spend across every session for the issue (read from SQLite) and compares it against the configured budget.
+Read-only token accounting for the current issue. The agent calls this tool to check cumulative token spend across all of the issue's sessions and the remaining budget, then decide whether to skip an expensive step, return partial work, or hand off before the token ceiling cancels the session it is running in or blocks the next one. Where `sortie_status` reports token usage for the current session (read from `.sortie/state.json`), `cost_budget` reports cumulative spend across every session for the issue (read from SQLite) and compares it against the configured budget.
 
-`cost_budget` is a **Tier 1** tool: queries the local SQLite database in read-only mode, no external calls. Registered when both `SORTIE_DB_PATH` and `SORTIE_ISSUE_ID` are set and the database can be opened in read-only mode - the same condition as `workspace_history`, sharing the same read-only connection. If the database open fails, the MCP server continues without both tools (non-fatal). When `SORTIE_SESSION_ID` is also set, the reading includes the running session's recorded spend; without it, only completed sessions count.
+`cost_budget` is a **Tier 1** tool: queries the local SQLite database in read-only mode, no external calls. Registered when both `SORTIE_DB_PATH` and `SORTIE_ISSUE_ID` are set and the database can be opened in read-only mode. That is the same condition as `workspace_history`, and the two share the same read-only connection. If the database open fails, the MCP server continues without both tools (non-fatal). When `SORTIE_SESSION_ID` is also set, the reading includes the running session's recorded spend; without it, only completed sessions count.
 
 ### Input schema
 
@@ -576,7 +595,7 @@ No parameters. The agent sends an empty JSON object:
 
 The tool sums `total_tokens` across the issue's `run_history` rows (one per completed session) and adds the running session's recorded total from `session_metadata`. The orchestrator updates `session_metadata` incrementally during the session, throttled to at most one write per issue every two seconds and driven by token usage events, so the running number stays current. That total is added only when the stored session ID matches `SORTIE_SESSION_ID`, so a stale row from an earlier session is never counted. Nothing is counted twice: a running session reaches `run_history` only when it ends.
 
-A session whose coding agent reported no token usage is recorded as unmeasured: its token figures are zero, that zero carries no information, and the session is counted in `unmeasured_sessions` instead of contributing to `used_tokens`.
+A session whose coding agent reported no token usage is recorded as unmeasured: its spend is unknown, not zero, so it adds nothing to `used_tokens` and `unmeasured_sessions` counts it.
 
 Run-history rows written before the token columns existed (migration 011) read as zero, so spend recorded before the upgrade is invisible to the budget. Rows written before the measurement flag existed (migration 012) count as measured, because their provenance is not recoverable.
 
@@ -596,7 +615,7 @@ The fields below are returned under `data` in the standard success envelope:
 
 `used_tokens` includes the running session while `used_sessions` excludes it. The asymmetry is deliberate: a session is either finished or not, tokens accrue continuously, and a reading that ignored in-flight spend would be useless at exactly the moment the agent consults it.
 
-The orchestrator enforces the same numbers. When `used_tokens` reaches a non-zero `budget_tokens`, the next re-dispatch for the issue is blocked. See [how to control agent costs](/guides/control-costs/) for the enforcement behavior and budget strategy.
+The orchestrator enforces the same ceiling against a fresher figure than this one. `used_tokens` carries the running session's spend as last written to `session_metadata`, at most one write per issue every two seconds, while the check that stops a session in flight adds that session's live in-memory total instead. The reading an agent gets back therefore trails the enforced figure by up to one write interval, and never leads it. When the sum reaches a non-zero `budget_tokens`, the running session is cancelled and the next re-dispatch for the issue is blocked. See [how to control agent costs](/guides/control-costs/) for the enforcement behavior and budget strategy.
 
 ### Example response
 
@@ -790,7 +809,7 @@ All tools provide structured `error.kind` values for programmatic handling. The 
 
 ## Using tools in prompt templates
 
-Sortie appends tool documentation to the first-turn prompt automatically - you don't need to reproduce schemas or describe the tools' existence. Both the prompt text and MCP `tools/list` reach a session that has an execution channel, and neither reaches one that does not (see [delivery by agent kind](#delivery-by-agent-kind)). Task-specific guidance you write yourself is not gated that way: it renders into the prompt whatever kind the session runs, so phrase it conditionally if a workflow can dispatch to a kind with no channel.
+Sortie appends tool documentation to the first-turn prompt automatically. You don't need to reproduce schemas or describe the tools' existence. Both the prompt text and MCP `tools/list` reach a session that has an execution channel, and neither reaches one that does not (see [delivery by agent kind](#delivery-by-agent-kind)). Task-specific guidance you write yourself is not gated that way: it renders into the prompt whatever kind the session runs, so phrase it conditionally if a workflow can dispatch to a kind with no channel.
 
 You can add task-specific guidance about *when* to use tools in your prompt template. Write this in natural language:
 
@@ -804,7 +823,7 @@ You have access to Sortie tools via MCP. Use them to:
 - Transition the issue when done with the tracker_api tool (transition_issue operation)
 ```
 
-Do not include JSON tool call syntax in prompt templates. An agent with an MCP client calls tools through it, not by writing JSON into the prompt. Natural language instructions are sufficient - the schemas travel with the advertisement.
+Do not include JSON tool call syntax in prompt templates. An agent with an MCP client calls tools through it, not by writing JSON into the prompt. Natural language instructions are sufficient: the schemas travel with the advertisement.
 
 For detailed patterns and worked examples, see [how to use agent tools in prompts](/guides/use-agent-tools-in-prompts/).
 
@@ -812,14 +831,14 @@ For detailed patterns and worked examples, see [how to use agent tools in prompt
 
 ## See also
 
-- [Agent communication model](/concepts/agent-communication/) - why two channels (file protocol + MCP tools) exist
-- [Agent tools concept](/concepts/agent-tools/) - the tier model: what each tier guarantees and when each tool registers
-- [Security model](/concepts/security/) - trust boundaries for outbound notifications and agent-generated content
-- [How to use agent tools in prompts](/guides/use-agent-tools-in-prompts/) - task-specific tool guidance for workflow authors
-- [How to write a custom agent tool](/guides/write-custom-agent-tool/) - implementing the `Tool` interface
-- [Environment variables reference](/reference/environment/#mcp-server-environment) - MCP server env vars
-- [WORKFLOW.md configuration reference](/reference/workflow-config/) - `agent` section, `agent.max_turns`
-- [Error reference](/reference/errors/) - tracker error kinds with retry behavior
-- [State machine reference](/reference/state-machine/) - orchestration states, retry suppression
-- [Prometheus metrics reference](/reference/prometheus-metrics/) - `sortie_tool_calls_total` counter
-- [A2O protocol specification](https://github.com/sortie-ai/sortie/blob/main/docs/agent-to-orchestrator-protocol.md) - full normative spec
+- [Agent communication model](/concepts/agent-communication/): why two channels (file protocol + MCP tools) exist
+- [Agent tools concept](/concepts/agent-tools/): the tier model: what each tier guarantees and when each tool registers
+- [Security model](/concepts/security/): trust boundaries for outbound notifications and agent-generated content
+- [How to use agent tools in prompts](/guides/use-agent-tools-in-prompts/): task-specific tool guidance for workflow authors
+- [How to write a custom agent tool](/guides/write-custom-agent-tool/): implementing the `Tool` interface
+- [Environment variables reference](/reference/environment/#mcp-server-environment): MCP server env vars
+- [WORKFLOW.md configuration reference](/reference/workflow-config/): `agent` section, `agent.max_turns`
+- [Error reference](/reference/errors/): tracker error kinds with retry behavior
+- [State machine reference](/reference/state-machine/): orchestration states, retry suppression
+- [Prometheus metrics reference](/reference/prometheus-metrics/): `sortie_tool_calls_total` counter
+- [A2O protocol specification](https://github.com/sortie-ai/sortie/blob/main/docs/agent-to-orchestrator-protocol.md): full normative spec

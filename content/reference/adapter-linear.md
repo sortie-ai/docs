@@ -274,7 +274,7 @@ The adapter registers itself under kind `"linear"` via an `init` function in `in
 | `ValidateTrackerConfig` | Offline config diagnostics for `sortie validate`. |
 | `DefaultActiveStates` | `["Backlog", "Todo", "In Progress"]`, applied when `active_states` is absent; see [default mapping](#default-mapping). |
 | `DefaultTerminalStates` | `["Done", "Canceled", "Duplicate"]`, applied when `terminal_states` is absent; see [default mapping](#default-mapping). |
-| `BlockerSource` | `candidates` — a candidate fetch already carries every blocker Linear reports; see [blocker extraction](#blocker-extraction). |
+| `BlockerSource` | `candidates`: a candidate fetch already carries every blocker Linear reports; see [blocker extraction](#blocker-extraction). |
 
 The orchestrator's preflight validation uses `RequiresProject` and `RequiresAPIKey` to produce specific error messages before adapter construction. `ValidateTrackerConfig` runs the Linear-specific offline checks without making network calls: endpoint shape, team-key format, the `SORTIE_LINEAR_API_KEY` hint, a key carrying surrounding whitespace or lacking the `lin_api_` prefix, empty or padded state names, and active-terminal state overlap. A present `endpoint` that does not parse as an absolute http(s) URL with a hostname is reported as `tracker.endpoint.invalid`; an empty value is not, since the adapter substitutes the default host for it. Unlike the sibling forge adapters, there is no plain-`http` warning here, because Linear has no self-hosted deployment mode to make the distinction meaningful. An empty or padded state name is an error here, not a warning as on the sibling forge adapters, because the adapter matches a configured name against the team's workflow states exactly. State collisions involving `handoff_state` or `in_progress_state` are rejected by the generic configuration layer before adapter validation runs, for every `tracker.kind`.
 
@@ -298,21 +298,21 @@ See the [Jira adapter reference](/reference/adapter-jira/) and the [GitHub adapt
 
 ## External references
 
-- [Linear GraphQL API](https://linear.app/developers/graphql) - schema, authentication, and the personal API key this adapter uses
-- [Pagination](https://linear.app/developers/pagination) - cursor conventions behind the adapter's page walking
-- [Filtering](https://linear.app/developers/filtering) - filter syntax valid in `tracker.query_filter`
-- [Rate limiting](https://linear.app/developers/rate-limiting) - current request and complexity budgets
+- [Linear GraphQL API](https://linear.app/developers/graphql): schema, authentication, and the personal API key this adapter uses
+- [Pagination](https://linear.app/developers/pagination): cursor conventions behind the adapter's page walking
+- [Filtering](https://linear.app/developers/filtering): filter syntax valid in `tracker.query_filter`
+- [Rate limiting](https://linear.app/developers/rate-limiting): current request and complexity budgets
 
 ---
 
 ## Related pages
 
-- [How to connect Sortie to Linear](/guides/connect-to-linear/) - setup instructions with authentication, state mapping, and verification
-- [WORKFLOW.md configuration reference](/reference/workflow-config/) - full schema for the `tracker` section and all other configuration
-- [Error reference](/reference/errors/#tracker-errors) - all tracker error kinds with retry behavior and operator actions
-- [Environment variables reference](/reference/environment/) - `$VAR` expansion modes and agent passthrough variables
-- [Prometheus metrics reference](/reference/prometheus-metrics/) - `sortie_tracker_requests_total` and related counters
-- [How to write a prompt template](/guides/write-prompt-template/) - using `.issue` fields (populated by this adapter) in templates
-- [State machine reference](/reference/state-machine/) - orchestration states, candidate eligibility, and how tracker state drives dispatch
-- [How to use the file adapter for local testing](/guides/use-file-adapter-for-testing/) - test prompts and hooks without Linear API credentials
-- [Dashboard reference](/reference/dashboard/) - live monitoring of issues fetched by this adapter
+- [How to connect Sortie to Linear](/guides/connect-to-linear/): setup instructions with authentication, state mapping, and verification
+- [WORKFLOW.md configuration reference](/reference/workflow-config/): full schema for the `tracker` section and all other configuration
+- [Error reference](/reference/errors/#tracker-errors): all tracker error kinds with retry behavior and operator actions
+- [Environment variables reference](/reference/environment/): `$VAR` expansion modes and agent passthrough variables
+- [Prometheus metrics reference](/reference/prometheus-metrics/): `sortie_tracker_requests_total` and related counters
+- [How to write a prompt template](/guides/write-prompt-template/): using `.issue` fields (populated by this adapter) in templates
+- [State machine reference](/reference/state-machine/): orchestration states, candidate eligibility, and how tracker state drives dispatch
+- [How to use the file adapter for local testing](/guides/use-file-adapter-for-testing/): test prompts and hooks without Linear API credentials
+- [Dashboard reference](/reference/dashboard/): live monitoring of issues fetched by this adapter

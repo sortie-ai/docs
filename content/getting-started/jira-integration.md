@@ -235,7 +235,7 @@ To fix this:
 
 1. Open your Jira project settings and check the workflow diagram.
 2. Confirm that "In Review" exists and that a transition reaches it from "To Do" (or your issue's current status).
-3. If neither holds, add the status and transition in the Jira workflow editor, or point `handoff_state` at a status that is already reachable. Whichever you pick, keep it out of `active_states` and `terminal_states` — Sortie refuses to start when the handoff target appears in either list.
+3. If neither holds, add the status and transition in the Jira workflow editor, or point `handoff_state` at a status that is already reachable. Whichever you pick, keep it out of `active_states` and `terminal_states`: Sortie refuses to start when the handoff target appears in either list.
 
 {{% /steps %}}
 

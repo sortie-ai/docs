@@ -7,7 +7,7 @@ date: 2026-03-28
 weight: 230
 url: /guides/troubleshoot-common-failures/
 ---
-Each section below covers one failure — the log line you see, why it happens, and what to do. For the full error catalog with every error kind and retry formula, see the [error reference](/reference/errors/).
+Each section below covers one failure: the log line you see, why it happens, and what to do. For the full error catalog with every error kind and retry formula, see the [error reference](/reference/errors/).
 
 ## Agent won't start
 
@@ -42,10 +42,10 @@ The agent binary isn't installed or isn't on `PATH`.
 ## Agent crashes on authentication
 
 ```
-level=ERROR msg="worker run failed, scheduling retry" error="agent: port_exit: exit code 1"
+level=WARN msg="worker run failed, scheduling retry" error="agent turn 1: agent: port_exit: exit code 1" next_attempt=1 delay_ms=10000
 ```
 
-Workers start and immediately crash. The actual cause — a missing `ANTHROPIC_API_KEY` — lives inside the agent subprocess, not in Sortie's error output. This is the most common deployment failure.
+Workers start and immediately crash. The actual cause (a missing `ANTHROPIC_API_KEY`) lives inside the agent subprocess, not in Sortie's error output. This is the most common deployment failure.
 
 1. Verify the variable is set:
 
@@ -61,12 +61,12 @@ Workers start and immediately crash. The actual cause — a missing `ANTHROPIC_A
 
 ```
 level=WARN msg="agent exited without producing output, treating as failure"
-level=ERROR msg="worker run failed, scheduling retry" error="agent: turn_failed: agent exited without producing output"
+level=WARN msg="worker run failed, scheduling retry" error="agent turn 1: agent: turn_failed: agent exited without producing output: no message from the agent and no tool call" next_attempt=1 delay_ms=10000
 ```
 
-The agent subprocess exited with code 0 without reporting a turn outcome, and the adapter found no evidence the model produced anything. What counts as evidence depends on the agent: output tokens for Claude Code and Copilot CLI, assistant output on the run stream for OpenCode, a credits trailer on stderr for Kiro. When the adapter names the signal it looked for, the error line carries it after a colon. Sortie treats every one of these as `turn_failed` and retries with exponential backoff. Common causes:
+The agent subprocess exited with code 0 without reporting a turn outcome, and the adapter found no evidence the model produced anything. Evidence is a message from the agent or a tool call, read from that turn's own stream, and the error line names the signals the adapter looked for after a colon. Claude Code, Copilot CLI, and OpenCode look for both, so their line ends `no message from the agent and no tool call`. Kiro reads a plain transcript that reports no tool activity, so it looks for a message only and its line ends `no message from the agent`. Sortie treats every one of these as `turn_failed` and retries with exponential backoff. Common causes:
 
-1. **MCP config parsing failure.** The agent failed to parse `--additional-mcp-config` or `--mcp-config` and exited silently. Check the WARN-level log lines immediately above the error — Sortie emits the agent's stderr content, which contains the parse error. On `codex` and `opencode` a bad MCP configuration fails differently: those adapters read it themselves before the agent starts, so the session ends with a `response_error` naming the file rather than a silent exit.
+1. **MCP config parsing failure.** The agent failed to parse `--additional-mcp-config` or `--mcp-config` and exited silently. Check the WARN-level log lines immediately above the error. Sortie emits the agent's stderr content, which contains the parse error. On `codex` and `opencode` a bad MCP configuration fails differently: those adapters read it themselves before the agent starts, so the session ends with a `response_error` naming the file rather than a silent exit.
 
 2. **Missing or invalid model configuration.** The agent started but the configured model was unavailable, causing an immediate exit before any LLM work.
 
@@ -78,10 +78,10 @@ Run with `--log-level debug` to see the full subprocess stderr. Fix the root cau
 
 ```
 level=WARN msg="copilot turn ended without a task-completion report" autopilot_continuations_observed=50 max_autopilot_continues=50
-level=ERROR msg="worker run failed, scheduling retry" error="agent: turn_incomplete: agent stopped without reporting the task complete: raise copilot-cli.max_autopilot_continues if the turn needs more steps"
+level=WARN msg="worker run failed, scheduling retry" error="agent turn 1: agent: turn_incomplete: agent stopped without reporting the task complete: raise copilot-cli.max_autopilot_continues if the turn needs more steps" next_attempt=1 delay_ms=10000
 ```
 
-Copilot CLI exited cleanly, but the turn stopped before it produced a `session.task_complete` report - the `--max-autopilot-continues` ceiling was reached mid-task. Only the Copilot CLI adapter can report this; every other agent adapter still has no way to detect a turn cut off partway through.
+Copilot CLI exited cleanly, but the turn stopped before it produced a `session.task_complete` report: the `--max-autopilot-continues` ceiling was reached mid-task. Only the Copilot CLI adapter can report this; every other agent adapter still has no way to detect a turn cut off partway through.
 
 1. **Raise `copilot-cli.max_autopilot_continues`** (default `50`) if the task genuinely needs more autopilot steps per turn. See [`agent.max_turns` vs. `copilot-cli.max_autopilot_continues`](/reference/adapter-copilot/#agentmax_turns-vs-copilot-climax_autopilot_continues) for how this budget relates to `agent.max_turns`.
 
@@ -119,6 +119,20 @@ The agent asked for something no unattended run can supply: an answer to a quest
 
 4. **Narrow the task if neither applies.** An issue whose resolution genuinely needs a human decision is not work an unattended agent can finish, and repeated `needs_person` runs on the same issue are the signal to take it out of the dispatch set.
 
+## A session is stopped in flight by the token budget
+
+```
+level=WARN msg="run stopped by token ceiling" issue_id="PROJ-42" issue_identifier="PROJ-42" session_id="session-abc-002" reason=token_budget used_tokens=1503417 budget_tokens=1500000 issue_tokens_completed=1481200 session_tokens=22217 sum_source=confirmed_read ceiling_setting=agent.max_tokens unmeasured_sessions=0
+```
+
+The issue's cumulative token spend reached [`agent.max_tokens`](/reference/workflow-config/#agent) while a session was running, so Sortie cancelled the worker rather than let the session run to the end over budget. The attempt is recorded with status `budget_stopped`, the claim is released, and no retry is scheduled. At the next poll tick the issue enters the budget-exhausted set, and that is what posts the comment naming the ceiling on the tracker.
+
+1. **Tell it apart from a stall or a reconciliation kill.** Those cancel the same worker context, so the agent reports the same `turn_cancelled` error either way. The recorded status is what separates them: only the token ceiling records `budget_stopped`. See the [worker exit kinds](/reference/errors/#worker-exit-kinds) table.
+
+2. **Read `session_tokens` against `issue_tokens_completed` before changing anything.** `session_tokens` is what the cancelled session had spent; `issue_tokens_completed` is what the issue's earlier sessions had already banked. When the second figure sits just under the budget on its own, the session had almost no room from the start, and raising the ceiling buys the issue another attempt rather than a longer one. When `session_tokens` carries most of the total, one session is spending the whole budget and `agent.max_turns` or the adapter's own per-turn cap is the tighter lever.
+
+3. **Raise the ceiling only if the work is worth it.** `agent.max_tokens` reloads from WORKFLOW.md without a restart, and the new value reaches the sessions already running from the next poll tick. See [how to control agent costs](/guides/control-costs/#cap-tokens-per-issue) for choosing a figure.
+
 ## Issue keeps re-running and never advances
 
 ```
@@ -127,9 +141,9 @@ level=WARN msg="handoff withheld by evidence policy" issue_id="PROJ-42" issue_id
 
 Sortie's default `tracker.handoff_evidence` policy withholds the handoff transition when a run leaves the workspace exactly as it found it. The issue stays in its active tracker state, and Sortie retries it on exponential backoff rather than failing silently or moving it forward on the strength of an exit code alone.
 
-1. **Check what the agent actually did.** A withheld run names its verdict as the run's failure reason in [run history](/reference/dashboard/). If the agent reported success but changed nothing in the workspace, that is exactly the case this policy exists to catch - unless the requested outcome had genuinely already held, which is the next case.
+1. **Check what the agent actually did.** A withheld run names its verdict as the run's failure reason in [run history](/reference/dashboard/). If the agent reported success but changed nothing in the workspace, that is exactly the case this policy exists to catch, unless the requested outcome had genuinely already held, which is the next case.
 
-2. **A run that finds nothing to change should say so.** If the issue's outcome already held before the agent started, the agent can write `no-change-needed` to `.sortie/status` instead of leaving the workspace silently unchanged. Sortie appends this instruction to every first-turn prompt automatically, so no prompt template change is needed. A declaration that survives [self-review](/guides/configure-self-review/) (where enabled) is never withheld and does not count toward the ceiling in item 3 below - it records the run as succeeded and moves the issue to `tracker.no_change_state` if one is configured. See [state machine reference: declaring that nothing needed changing](/reference/state-machine/#declaring-that-nothing-needed-changing). A run that changes nothing and declares nothing keeps the withheld outcome described above.
+2. **A run that finds nothing to change should say so.** If the issue's outcome already held before the agent started, the agent can write `no-change-needed` to `.sortie/status` instead of leaving the workspace silently unchanged. Sortie appends this instruction to every first-turn prompt automatically, so no prompt template change is needed. A declaration that survives [self-review](/guides/configure-self-review/) (where enabled) is never withheld and does not count toward the ceiling in item 3 below. It records the run as succeeded and moves the issue to `tracker.no_change_state` if one is configured. See [state machine reference: declaring that nothing needed changing](/reference/state-machine/#declaring-that-nothing-needed-changing). A run that changes nothing and declares nothing keeps the withheld outcome described above.
 
 3. **A dispatch whose only product is a tracker write is a known false positive.** If your agent's entire job is calling `tracker_api` to transition the issue itself, set `tracker.handoff_evidence: off`. See [workflow configuration](/reference/workflow-config/#tracker).
 
@@ -143,7 +157,7 @@ Sortie's default `tracker.handoff_evidence` policy withholds the handoff transit
 level=ERROR msg="failed to fetch candidate issues" error="tracker: tracker_auth_error: HTTP 401: Unauthorized"
 ```
 
-The API token is wrong, expired, or lacks required permissions. Sortie does not stop polling on this error — it logs it and retries on the next poll interval, so you will see it repeat until you fix the credential.
+The API token is wrong, expired, or lacks required permissions. Sortie does not stop polling on this error. It logs it and retries on the next poll interval, so you will see it repeat until you fix the credential.
 
 1. Verify the environment variable resolves to a non-empty value:
 
@@ -168,12 +182,12 @@ The API token is wrong, expired, or lacks required permissions. Sortie does not 
 level=ERROR msg="failed to construct tracker adapter" error="tracker: tracker_payload_error: gitea: endpoint \"https://gitea.example.com:abc\" is not a valid absolute http(s) url"
 ```
 
-`endpoint` failed to parse as an absolute `http` or `https` URL carrying a hostname. This is a construction-time failure on every adapter that reads an `endpoint` (GitHub, Gitea, GitLab, Linear) — Sortie refuses to start rather than letting a bad value reach the HTTP client and fail later as a network error. The same check runs offline through `sortie validate`, except for a Gitea CI or SCM endpoint set through a top-level `gitea:` override, which validate does not inspect.
+`endpoint` failed to parse as an absolute `http` or `https` URL carrying a hostname. This is a construction-time failure on every adapter that reads an `endpoint` (GitHub, Gitea, GitLab, Linear). Sortie refuses to start rather than letting a bad value reach the HTTP client and fail later as a network error. The same check runs offline through `sortie validate`, except for a Gitea CI or SCM endpoint set through a top-level `gitea:` override, which validate does not inspect.
 
 Three shapes commonly trigger this:
 
 - **A port with no host**, such as `http://:8080`. Give the hostname: `http://gitea.internal:8080`.
-- **An unbracketed IPv6 address**, such as `http://fd00::1:3000` — the exact form an address prints as from `ip addr`. Add brackets around the address: `http://[fd00::1]:3000`.
+- **An unbracketed IPv6 address**, such as `http://fd00::1:3000`, the exact form an address prints as from `ip addr`. Add brackets around the address: `http://[fd00::1]:3000`.
 - **A query string or fragment** appended to the base URL, such as `https://gitlab.example.com?insecure=1`. Remove it; the adapter appends its own API path and has nowhere to put one.
 
 If the endpoint carries a username or password, the error message masks it before printing, so a credential never appears in the log.
@@ -184,7 +198,7 @@ If the endpoint carries a username or password, the error message masks it befor
 level=ERROR msg="template render error in WORKFLOW.md (line 24): can't evaluate field titel in type map[string]any"
 ```
 
-Sortie runs templates in strict mode — unknown variables are hard errors. Three common causes:
+Sortie runs templates in strict mode. Unknown variables are hard errors. Three common causes:
 
 - **Typo in a field name.** Check the name against the [variable table](/guides/write-prompt-template/#use-all-available-issue-fields). The error message names the exact field and line.
 
@@ -204,7 +218,7 @@ Three variants:
 
 - **Permission denied.** The process user can't write to `workspace.root`. Fix permissions or change the root to a writable path like `~/sortie-workspaces`.
 
-- **Containment violation** (`path escapes root`). An issue identifier produced a path outside the workspace root — a security boundary. Investigate the identifiers in your tracker.
+- **Containment violation** (`path escapes root`). An issue identifier produced a path outside the workspace root (a security boundary). Investigate the identifiers in your tracker.
 
 - **Disk full.** Check with `df -h /opt/sortie_workspaces`.
 
@@ -253,9 +267,9 @@ Sortie is polling but finds nothing to dispatch.
 
 4. **Query filter too narrow.** A typo in `tracker.query_filter` returns zero results. Use `--dry-run --log-level debug` to see the full query.
 
-5. **A blocker hasn't cleared, or its list couldn't be read.** An issue held for this reason carries a `skip_reason` in dry-run output: `blocked_by` means a listed blocker hasn't reached a terminal state yet. `blockers_unresolved` and `blockers_not_read` mean Sortie couldn't read the blocker list this poll (a failed read, or the per-poll read budget was already spent on other candidates) and will retry on a later poll - this applies to GitHub and Gitea, which read dependencies separately from the candidate list. See [candidate eligibility](/reference/state-machine/#candidate-eligibility) for the full gate, and `sortie_candidate_holds_total` on the [Prometheus metrics reference](/reference/prometheus-metrics/#counters) to watch this over time instead of one poll at a time.
+5. **A blocker hasn't cleared, or its list couldn't be read.** An issue held for this reason carries a `skip_reason` in dry-run output: `blocked_by` means a listed blocker hasn't reached a terminal state yet. `blockers_unresolved` and `blockers_not_read` mean Sortie couldn't read the blocker list this poll (a failed read, or the per-poll read budget was already spent on other candidates) and will retry on a later poll. This applies to GitHub and Gitea, which read dependencies separately from the candidate list. See [candidate eligibility](/reference/state-machine/#candidate-eligibility) for the full gate, and `sortie_candidate_holds_total` on the [Prometheus metrics reference](/reference/prometheus-metrics/#counters) to watch this over time instead of one poll at a time.
 
-6. **A per-issue budget ceiling was reached.** An issue held by `agent.max_sessions` or `agent.max_tokens` stays in its active tracker state and is skipped on every poll. Check `GET /api/v1/{identifier}` for `status: "budget_exhausted"`, the dashboard's [Budget blocked table](/reference/dashboard/#budget-blocked-table), or grep your logs for `blocking re-dispatch`. Sortie also posts one comment on the issue naming the ceiling that stopped it. See [how to control agent costs](/guides/control-costs/).
+6. **A per-issue budget ceiling was reached.** An issue held by `agent.max_sessions` or `agent.max_tokens` stays in its active tracker state and is skipped on every poll. Check `GET /api/v1/{identifier}` for `status: "budget_exhausted"`, the dashboard's [Budget blocked table](/reference/dashboard/#budget-blocked-table), or grep your logs for `blocking re-dispatch`. Sortie also posts one comment on the issue naming the ceiling that stopped it, and that comment counts the issue's sessions the token ceiling stopped in flight, if any. See [how to control agent costs](/guides/control-costs/).
 
 ## Sortie won't start at all
 
@@ -263,7 +277,7 @@ Sortie is polling but finds nothing to dispatch.
 dispatch preflight failed: tracker.kind is required
 ```
 
-Sortie validates the config at startup and reports all failures at once. Run `sortie validate ./WORKFLOW.md` to see every problem — including advisory warnings for typos in YAML keys and type mismatches that would silently fall back to defaults at runtime. The most common missing fields:
+Sortie validates the config at startup and reports all failures at once. Run `sortie validate ./WORKFLOW.md` to see every problem, including advisory warnings for typos in YAML keys and type mismatches that would silently fall back to defaults at runtime. The most common missing fields:
 
 | Field | Required by |
 |---|---|

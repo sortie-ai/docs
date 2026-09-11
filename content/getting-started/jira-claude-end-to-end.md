@@ -6,7 +6,7 @@ author: Sortie AI
 date: 2026-03-23
 weight: 50
 ---
-In this tutorial, we will wire Sortie to a real coding agent. By the end, you will have watched Sortie pick up a Jira issue, clone your repository, launch Claude Code, let it write and commit code, push the result to a branch, and transition the issue to In Review — hands off.
+In this tutorial, we will wire Sortie to a real coding agent. By the end, you will have watched Sortie pick up a Jira issue, clone your repository, launch Claude Code, let it write and commit code, push the result to a branch, and transition the issue to In Review. Hands off.
 
 The Jira integration tutorial proved that Sortie can talk to your tracker. This tutorial completes the Claude Code automation setup with three new pieces: a real agent, workspace hooks for git operations, and a prompt template that guides the agent through the task.
 
@@ -14,7 +14,7 @@ The Jira integration tutorial proved that Sortie can talk to your tracker. This 
 
 ## Prerequisites
 
-- [Jira integration tutorial](/getting-started/jira-integration/) completed — Sortie connects to your Jira project, and the environment variables `SORTIE_JIRA_ENDPOINT` and `SORTIE_JIRA_API_KEY` are set
+- [Jira integration tutorial](/getting-started/jira-integration/) completed: Sortie connects to your Jira project, and the environment variables `SORTIE_JIRA_ENDPOINT` and `SORTIE_JIRA_API_KEY` are set
 - Claude Code installed on your machine:
 
     ```bash
@@ -30,7 +30,7 @@ The Jira integration tutorial proved that Sortie can talk to your tracker. This 
     ```
 
 - A git repository on GitHub or GitLab that you can push to
-- SSH key or HTTPS token configured for `git push` from your machine — test it:
+- SSH key or HTTPS token configured for `git push` from your machine. Test it:
 
     ```bash
     git ls-remote git@github.com:yourorg/yourrepo.git HEAD
@@ -56,7 +56,7 @@ Create the issue with these details:
 
 Write down the issue identifier (e.g., `PROJ-55`). We will see it in the logs later.
 
-The description matters. A real agent reads it as its primary instruction. Vague descriptions like "improve the API" produce vague results. Concrete, verifiable tasks — add a file, fix a specific bug, write a test — work best.
+The description matters. A real agent reads it as its primary instruction. Vague descriptions like "improve the API" produce vague results. Concrete, verifiable tasks (add a file, fix a specific bug, write a test) work best.
 
 ### Set up the project directory
 
@@ -135,7 +135,7 @@ You are a senior engineer working in this repository.
 ## Rules
 
 1. Read existing code before writing anything new.
-2. Keep changes minimal — implement exactly what the task requires.
+2. Keep changes minimal. Implement exactly what the task requires.
 3. Run any available lint and test commands before finishing.
 {{ if not .run.is_continuation }}
 
@@ -154,14 +154,14 @@ current state. Continue from where the previous turn left off.
 {{ end }}
 {{ if and .attempt (not .run.is_continuation) }}
 
-## Retry — attempt {{ .attempt }}
+## Retry (attempt {{ .attempt }})
 
 A previous attempt failed. Review workspace state and error output before
 making changes. Do not repeat the same approach that failed.
 {{ end }}
 ```
 
-This is a lot of configuration in one file. Let's walk through the new pieces — the parts that were not in the Jira integration tutorial.
+This is a lot of configuration in one file. Let's walk through the new pieces, the parts that were not in the Jira integration tutorial.
 
 > [!WARNING]
 > The `tracker` section is the one you already validated, so `In Review` should exist in your workflow and be reachable from `To Do`. If you changed projects since then, check **Project settings → Workflows** again. A handoff target that Jira cannot reach leaves the issue where it is and Sortie retries the transition on every poll cycle.
@@ -172,11 +172,11 @@ This is a lot of configuration in one file. Let's walk through the new pieces �
 
 Three hooks automate git operations at different lifecycle points:
 
-**`after_create`** runs once, when the workspace directory is first created. We clone the repository into it. The `.` at the end of `git clone` tells git to clone into the current directory — which is the workspace. `--depth 1` fetches only the latest commit for speed.
+**`after_create`** runs once, when the workspace directory is first created. We clone the repository into it. The `.` at the end of `git clone` tells git to clone into the current directory, which is the workspace. `--depth 1` fetches only the latest commit for speed.
 
 **`before_run`** runs before every agent attempt. It fetches the latest code from `main` and creates (or resets) a branch named `sortie/PROJ-55`. On the first run, this creates the branch. On a retry, it resets the branch to a clean state.
 
-**`after_run`** runs after every agent attempt. It stages all changes, commits them if there are any, and pushes the branch. `--force-with-lease` is safe for automation — it pushes only if nobody else modified the remote branch.
+**`after_run`** runs after every agent attempt. It stages all changes, commits them if there are any, and pushes the branch. `--force-with-lease` is safe for automation: it pushes only if nobody else modified the remote branch.
 
 Hooks receive environment variables from the orchestrator. This workflow only needs `SORTIE_ISSUE_IDENTIFIER`, to name the branch, but every hook also gets `SORTIE_ISSUE_ID`, `SORTIE_WORKSPACE`, and `SORTIE_ATTEMPT`. See the [environment variable reference](/reference/environment/#hook-subprocess-environment) for the complete set, including the SSH-only variable that appears when a workflow uses [SSH worker mode](/guides/scale-agents-with-ssh/).
 
@@ -188,17 +188,17 @@ Two sections control the agent, and they have different scopes:
 
 The **`agent`** section configures the orchestrator's scheduling behavior:
 
-- `kind: claude-code` — use the Claude Code adapter.
-- `command: claude` — the CLI binary to launch.
-- `max_turns: 3` — Sortie runs up to three turns per session. After each turn, Sortie re-checks the issue state in Jira. If the issue moved to a terminal state, the session ends. We use a small number here because this is a tutorial.
-- `turn_timeout_ms: 1800000` — each turn has a 30-minute timeout.
-- `max_concurrent_agents: 1` — one agent at a time. We have one issue, so this is fine.
+- `kind: claude-code`: use the Claude Code adapter.
+- `command: claude`: the CLI binary to launch.
+- `max_turns: 3`: Sortie runs up to three turns per session. After each turn, Sortie re-checks the issue state in Jira. If the issue moved to a terminal state, the session ends. We use a small number here because this is a tutorial.
+- `turn_timeout_ms: 1800000`: each turn has a 30-minute timeout.
+- `max_concurrent_agents: 1`: one agent at a time. We have one issue, so this is fine.
 
 The **`claude-code`** section is a pass-through to the Claude Code CLI:
 
-- `permission_mode: bypassPermissions` — auto-approve all tool calls. This is the value to use for unattended operation, and the only one Sortie accepts. Leaving the field out does not make the session interactive: the adapter falls back to the deprecated `--dangerously-skip-permissions`, which bypasses the same checks. Every other mode, `default` included, can stop and prompt, and an unattended run has nobody to answer, so Sortie refuses it before the run starts rather than letting the session reach the prompt.
-- `model: claude-sonnet-4-5` — the model Claude Code uses. `model` is a pass-through string Sortie forwards to the CLI without checking it, so replace this with whatever model identifier your Claude Code installation currently supports.
-- `max_turns: 30` — Claude Code's internal turn budget. This is how many steps Claude Code takes *within a single Sortie turn*. The agent might read files, write code, run tests, and fix errors — each step counts as one Claude Code turn.
+- `permission_mode: bypassPermissions`: auto-approve all tool calls. This is the value to use for unattended operation, and the only one Sortie accepts. Leaving the field out does not make the session interactive: the adapter falls back to the deprecated `--dangerously-skip-permissions`, which bypasses the same checks. Every other mode, `default` included, can stop and prompt, and an unattended run has nobody to answer, so Sortie refuses it before the run starts rather than letting the session reach the prompt.
+- `model: claude-sonnet-4-5`: the model Claude Code uses. `model` is a pass-through string Sortie forwards to the CLI without checking it, so replace this with whatever model identifier your Claude Code installation currently supports.
+- `max_turns: 30`: Claude Code's internal turn budget. This is how many steps Claude Code takes *within a single Sortie turn*. The agent might read files, write code, run tests, and fix errors. Each step counts as one Claude Code turn.
 
 The distinction matters: `agent.max_turns` is how many times Sortie invokes the agent. `claude-code.max_turns` is how many internal steps the agent takes per invocation. Three Sortie turns with 30 internal turns each gives the agent up to 90 total steps to complete the task.
 
@@ -208,9 +208,9 @@ The body after the closing `---` is a Go `text/template` rendered per issue. Tem
 
 The prompt branches on three conditions:
 
-- **First run** (`not .run.is_continuation`) — tells the agent to read the codebase first, then implement.
-- **Continuation** (`.run.is_continuation`) — the agent is resuming in the same session. It should check workspace state and continue.
-- **Retry** (`.attempt` is nonzero and not a continuation) — a previous attempt failed. The agent should diagnose before acting.
+- **First run** (`not .run.is_continuation`): tells the agent to read the codebase first, then implement.
+- **Continuation** (`.run.is_continuation`): the agent is resuming in the same session. It should check workspace state and continue.
+- **Retry** (`.attempt` is nonzero and not a continuation): a previous attempt failed. The agent should diagnose before acting.
 
 ### Validate the configuration
 
@@ -244,24 +244,20 @@ level=INFO msg="database path resolved" db_path=/home/you/sortie-e2e/.sortie.db
 level=INFO msg="http server listening" addr=127.0.0.1:7678
 level=INFO msg="sortie started"
 level=INFO msg="tick completed" candidates=1 dispatched=1 ... running=1 retrying=0 ...
-level=INFO msg="workspace created" issue_id=10042 issue_identifier=PROJ-55
-level=INFO msg="hook started" hook=after_create issue_identifier=PROJ-55
-level=INFO msg="hook completed" hook=after_create issue_identifier=PROJ-55
-level=INFO msg="hook started" hook=before_run issue_identifier=PROJ-55
-level=INFO msg="hook completed" hook=before_run issue_identifier=PROJ-55
+level=INFO msg="running hook" issue_id=10042 issue_identifier=PROJ-55 hook=after_create workspace=…/workspaces/PROJ-55
+level=INFO msg="running hook" issue_id=10042 issue_identifier=PROJ-55 hook=before_run workspace=…/workspaces/PROJ-55
 level=INFO msg="workspace prepared" issue_id=10042 issue_identifier=PROJ-55 workspace=…/workspaces/PROJ-55
 level=INFO msg="agent session started" issue_id=10042 issue_identifier=PROJ-55 session_id=…
 level=INFO msg="turn started" issue_id=10042 issue_identifier=PROJ-55 turn_number=1 max_turns=3
 ```
 
-The agent is now working. This is the part where you wait. A real agent session typically takes 5–15 minutes depending on the task complexity, the model, and your internet connection. The agent reads files, writes code, runs commands, fixes errors — each action appears as events in the log at `debug` level.
+The agent is now working. This is the part where you wait. A real agent session typically takes 5–15 minutes depending on the task complexity, the model, and your internet connection. The agent reads files, writes code, runs commands, and fixes errors. Each action appears as events in the log at `debug` level.
 
 When the agent finishes a turn, you will see:
 
 ```
 level=INFO msg="turn completed" issue_id=10042 issue_identifier=PROJ-55 turn_number=1 max_turns=3
-level=INFO msg="hook started" hook=after_run issue_identifier=PROJ-55
-level=INFO msg="hook completed" hook=after_run issue_identifier=PROJ-55
+level=INFO msg="running hook" issue_id=10042 issue_identifier=PROJ-55 hook=after_run workspace=…/workspaces/PROJ-55
 level=INFO msg="worker exiting" issue_id=10042 issue_identifier=PROJ-55 exit_kind=normal turns_completed=1
 level=INFO msg="handoff transition succeeded, releasing claim" issue_id=10042 issue_identifier=PROJ-55 handoff_state="In Review"
 level=INFO msg="tick completed" candidates=0 dispatched=0 ... running=0 retrying=0 ...
@@ -316,7 +312,7 @@ Back in any directory, verify the branch exists on your remote:
 git ls-remote git@github.com:yourorg/yourrepo.git "refs/heads/sortie/PROJ-55"
 ```
 
-You should see a commit hash. Open your repository on GitHub or GitLab — the `sortie/PROJ-55` branch is there, ready for a pull request.
+You should see a commit hash. Open your repository on GitHub or GitLab. The `sortie/PROJ-55` branch is there, ready for a pull request.
 
 ### Check Jira
 
@@ -326,10 +322,10 @@ If the status did not change and you see a handoff warning in the logs, the Jira
 
 ### Check the dashboard
 
-Open [http://127.0.0.1:7678/](http://127.0.0.1:7678/) in a browser. Sortie serves the dashboard there by default, with no configuration required. You will see:
+Open `http://127.0.0.1:7678/` in a browser. Sortie serves the dashboard there by default, with no configuration required. You will see:
 
 - **Summary cards** at the top: running sessions, retry queue size, free slots, total tokens consumed.
-- **Run history** table showing the completed session — its issue identifier, turn count, duration, and exit status.
+- **Run history** table showing the completed session: its issue identifier, turn count, duration, and exit status.
 
 The dashboard auto-refreshes every 5 seconds. It is useful during longer runs when you want to monitor multiple agents. For this tutorial with a single issue, the logs tell the same story.
 
@@ -339,20 +335,20 @@ The dashboard auto-refreshes every 5 seconds. It is useful during longer runs wh
 
 We ran the complete Sortie lifecycle with a real agent:
 
-- **Poll** — Sortie watched Jira for issues matching the `agent-ready` label.
-- **Clone** — The `after_create` hook cloned the repository into a per-issue workspace.
-- **Branch** — The `before_run` hook created a clean feature branch.
-- **Code** — Claude Code read the codebase, wrote an implementation, and ran tests.
-- **Push** — The `after_run` hook committed and pushed the changes.
-- **Handoff** — Sortie transitioned the Jira issue to In Review.
+- **Poll**: Sortie watched Jira for issues matching the `agent-ready` label.
+- **Clone**: The `after_create` hook cloned the repository into a per-issue workspace.
+- **Branch**: The `before_run` hook created a clean feature branch.
+- **Code**: Claude Code read the codebase, wrote an implementation, and ran tests.
+- **Push**: The `after_run` hook committed and pushed the changes.
+- **Handoff**: Sortie transitioned the Jira issue to In Review.
 
-This is the same loop that runs in production. Increase `agent.max_turns` and `max_concurrent_agents`, point at more issues, and Sortie scales the pattern across your backlog. Swapping the agent is a config change — the same hooks, prompt template, and orchestration flow work with any supported adapter. To see this loop with a different agent, try the [Codex tutorial](/getting-started/jira-codex-end-to-end/) or the [Copilot CLI tutorial](/getting-started/github-copilot-end-to-end/).
+This is the same loop that runs in production. Increase `agent.max_turns` and `max_concurrent_agents`, point at more issues, and Sortie scales the pattern across your backlog. Swapping the agent is a config change. The same hooks, prompt template, and orchestration flow work with any supported adapter. To see this loop with a different agent, try the [Codex tutorial](/getting-started/jira-codex-end-to-end/) or the [Copilot CLI tutorial](/getting-started/github-copilot-end-to-end/).
 
 Where to go next:
 
-- [Write a prompt template](/guides/write-prompt-template/) — use conditionals, iteration, and template functions to build production prompts.
-- [WORKFLOW.md configuration reference](/reference/workflow-config/) — every field, every default, every constraint.
-- [Monitor with logs](/guides/monitor-with-logs/) — understand the structured log output during long-running sessions.
-- [Monitor with Prometheus](/guides/monitor-with-prometheus/) — collect token usage, session counts, and retry rates as time-series metrics.
-- [Use sub-agents with Sortie](/guides/use-subagents-with-sortie/) — delegate work to specialized agents within a session.
-- [Claude Code adapter reference](/reference/adapter-claude-code/) — CLI flags, event stream, and pass-through configuration.
+- [Write a prompt template](/guides/write-prompt-template/): use conditionals, iteration, and template functions to build production prompts
+- [WORKFLOW.md configuration reference](/reference/workflow-config/): every field, every default, every constraint
+- [Monitor with logs](/guides/monitor-with-logs/): understand the structured log output during long-running sessions
+- [Monitor with Prometheus](/guides/monitor-with-prometheus/): collect token usage, session counts, and retry rates as time-series metrics
+- [Use sub-agents with Sortie](/guides/use-subagents-with-sortie/): delegate work to specialized agents within a session
+- [Claude Code adapter reference](/reference/adapter-claude-code/): CLI flags, event stream, and pass-through configuration

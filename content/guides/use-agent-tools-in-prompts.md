@@ -7,7 +7,7 @@ date: 2026-04-03
 weight: 200
 url: /guides/use-agent-tools-in-prompts/
 ---
-Where an agent kind can reach them, Sortie registers its tools via MCP and advertises them in the first-turn prompt — the agent already knows each tool's name, input schema, and response format. This guide shows you how to add prompt instructions that make agents use those tools at the right moments: checking their turn budget, watching the token budget, reviewing prior run history, querying the tracker, escalating to a human when a decision needs one, and signaling when they're stuck.
+Where an agent kind can reach them, Sortie registers its tools via MCP and advertises them in the first-turn prompt: the agent already knows each tool's name, input schema, and response format. This guide shows you how to add prompt instructions that make agents use those tools at the right moments: checking their turn budget, watching the token budget, reviewing prior run history, querying the tracker, escalating to a human when a decision needs one, and signaling when they're stuck.
 
 ## Prerequisites
 
@@ -26,13 +26,14 @@ Not every agent kind can call Sortie's tools, and for two of them it depends on 
 | `codex` | Tools available | No tools |
 | `opencode` | Tools available | No tools |
 | `kiro` | No tools | No tools |
+| `agent-client-protocol` | Tools available, subject to the runtime's own workspace-trust and approval configuration | No tools |
 
-A session with no tools is not told about them either: Sortie withholds the first-turn advertisement rather than name a tool the agent cannot call. Nothing fails — the agent simply works without them.
+A session with no tools is not told about them either: Sortie withholds the first-turn advertisement rather than name a tool the agent cannot call. Nothing fails. The agent simply works without them.
 
 Two consequences for the way you write prompts:
 
-- If you run [agents over SSH](/guides/scale-agents-with-ssh/) and want tools, keep those workflows on `claude-code` or `copilot-cli`. Moving a `codex` or `opencode` workflow onto a host pool silently removes the tools from every session it dispatches.
-- Instructions you write yourself are not withheld. If a workflow can dispatch to a kind with no channel, phrase them conditionally — "If the `cost_budget` tool is available" — the way the `notify_operator` examples below do, so an agent without the tool is not left chasing one.
+- If you run [agents over SSH](/guides/scale-agents-with-ssh/) and want tools, keep those workflows on `claude-code` or `copilot-cli`. Moving a `codex`, `opencode`, or `agent-client-protocol` workflow onto a host pool silently removes the tools from every session it dispatches.
+- Instructions you write yourself are not withheld. If a workflow can dispatch to a kind with no channel, phrase them conditionally ("If the `cost_budget` tool is available") the way the `notify_operator` examples below do, so an agent without the tool is not left chasing one.
 
 Run [`sortie validate`](/reference/cli/#validate) to see where a workflow stands. A kind with no channel anywhere draws an `agent.kind.no_tool_channel` warning; the file stays valid and the exit code stays `0`.
 
@@ -50,7 +51,7 @@ Without this, agents treat every turn as if the budget is unlimited. They start 
 
 ## Guide the agent to watch the token budget
 
-When [`agent.max_tokens`](/reference/workflow-config/#agent) is set, the orchestrator stops dispatching new sessions for an issue once cumulative token spend reaches the budget. The `cost_budget` tool lets the agent see that ceiling coming:
+When [`agent.max_tokens`](/reference/workflow-config/#agent) is set, the orchestrator cancels the session in progress and stops dispatching new ones once the issue's cumulative token spend reaches the budget. An agent that runs into it is cut off mid-turn rather than allowed to wrap up. The `cost_budget` tool lets the agent see that ceiling coming:
 
 ```plaintext
 Before starting expensive work, call the cost_budget tool.
@@ -60,7 +61,7 @@ change, commit what works, and summarize what remains instead of
 starting anything new.
 ```
 
-Tune the threshold to your budget; 100,000 tokens is a sensible reserve when `max_tokens` is in the low millions. Unlike `sortie_status`, which covers the current session only, `cost_budget` reports spend across all of the issue's sessions, including the one in flight. Sessions whose agent reported no usage at all contribute nothing to the total and are counted separately, so a `used_tokens_complete` of `false` means `used_tokens` is a lower bound and `remaining_tokens` is optimistic.
+Tune the threshold to your budget; 100,000 tokens is a sensible reserve when `max_tokens` is in the low millions. Unlike `sortie_status`, which covers the current session only, `cost_budget` reports spend across all of the issue's sessions, including the one in flight. The in-flight part of that figure refreshes at most every two seconds, so it trails what the orchestrator enforces rather than leading it: an agent acting on the reading acts early, never late. Sessions whose agent reported no usage at all contribute nothing to the total and are counted separately, so a `used_tokens_complete` of `false` means `used_tokens` is a lower bound and `remaining_tokens` is optimistic.
 
 The `null` case earns its line in the prompt. `remaining_tokens: null` means the budget is unlimited, not exhausted; an instruction that says "stop when remaining_tokens is low" without it makes the agent wind down on issues that have no token budget at all.
 
@@ -83,7 +84,7 @@ On retry runs (`.attempt >= 1`), you can add a stronger instruction:
 ```jinja
 {{if and .attempt (not .run.is_continuation)}}
 This is retry attempt {{ .attempt }}. Call workspace_history to understand
-what went wrong. The previous approach failed — changing your strategy is
+what went wrong. The previous approach failed. Changing your strategy is
 mandatory, not optional.
 {{end}}
 ```
@@ -98,7 +99,7 @@ The `tracker_api` tool gives the agent read and write access to your issue track
 
 ```plaintext
 Call the tracker_api tool with the search_issues operation to find
-other active issues. Note any that are related to your task — avoid
+other active issues. Note any that are related to your task. Avoid
 duplicating work or introducing conflicts with in-progress changes.
 ```
 
@@ -129,7 +130,7 @@ tool with the transition_issue operation to move the issue to
 "In Review". Do not transition until the CI checks pass.
 ```
 
-This closes the loop — the agent moves the issue forward without human intervention. The target state must match a valid state in your tracker's workflow. For the full list of `tracker_api` operations and their input schemas, see the [agent extensions reference](/reference/agent-extensions/).
+This closes the loop. The agent moves the issue forward without human intervention. The target state must match a valid state in your tracker's workflow. For the full list of `tracker_api` operations and their input schemas, see the [agent extensions reference](/reference/agent-extensions/).
 
 ## Guide the agent to escalate and report progress
 
@@ -150,7 +151,7 @@ A notification does not stop the session or the retry loop. An agent that is gen
 
 ## Guide the agent to signal blocked status
 
-When an agent can't complete a task — missing credentials, ambiguous requirements, a dependency on another issue — it should tell the orchestrator to stop retrying. The `.sortie/status` file is the mechanism:
+When an agent can't complete a task (missing credentials, ambiguous requirements, a dependency on another issue), it should tell the orchestrator to stop retrying. The `.sortie/status` file is the mechanism:
 
 ```plaintext
 If you determine you cannot complete this task because of missing
@@ -171,7 +172,7 @@ reach it:
 DO NOT write this file during normal productive work.
 ```
 
-Sortie auto-injects similar instructions on the first turn, so including your own version is harmless. Custom instructions are useful when you want to be more specific — for example, listing the exact conditions that count as "blocked" in your project.
+Sortie auto-injects similar instructions on the first turn, so including your own version is harmless. Custom instructions are useful when you want to be more specific (for example, listing the exact conditions that count as "blocked" in your project).
 
 The orchestrator reads `.sortie/status` after each turn. Unrecognized values are silently ignored, so only `blocked`, `needs-human-review`, and `no-change-needed` have any effect. For background on why this is a file rather than a tool call, see [agent communication model](/concepts/orchestration/).
 
@@ -217,7 +218,7 @@ is null, there is no token budget. If it is below 100000, wrap up: commit
 what works and summarize what remains.
 
 {{ if not .run.is_continuation }}
-## First Run
+## First run
 
 Check for related issues: call tracker_api with search_issues. Note any
 that overlap with your task.
@@ -226,7 +227,7 @@ Read the specification and existing code before writing anything.
 Write tests first, then implement.
 {{ end }}
 {{ if .run.is_continuation }}
-## Continuation (Turn {{ .run.turn_number }}/{{ .run.max_turns }})
+## Continuation (turn {{ .run.turn_number }}/{{ .run.max_turns }})
 
 Call workspace_history to review what happened in prior turns.
 Call tracker_api with fetch_comments to check for new reviewer feedback.
@@ -235,15 +236,15 @@ If the previous turn failed, do not repeat the same approach. Diagnose
 the root cause before making changes.
 {{ end }}
 {{ if and .attempt (not .run.is_continuation) }}
-## Retry — Attempt {{ .attempt }}
+## Retry (attempt {{ .attempt }})
 
 Call workspace_history to understand what the previous attempt did wrong.
-A different strategy is required — do not retry the same approach.
+A different strategy is required. Do not retry the same approach.
 {{ end }}
 
 ## When You Finish
 
-1. Run `make lint && make test` — all checks must pass.
+1. Run `make lint && make test`. All checks must pass.
 2. Commit and push your changes.
 3. Call tracker_api with transition_issue to move {{ .issue.identifier }}
    to "In Review".
@@ -266,13 +267,13 @@ The flow: the agent checks its budget, gathers context (related issues on first 
 
 ## Common mistakes
 
-**Calling `sortie_status` on every turn.** Once at the start is enough. Calling it every turn wastes tokens on redundant information — the budget changes by one each turn, and the agent can track that from the first response.
+**Calling `sortie_status` on every turn.** Once at the start is enough. Calling it every turn wastes tokens on redundant information: the budget changes by one each turn, and the agent can track that from the first response.
 
 **Treating `remaining_tokens: null` as zero.** `null` means no token budget is configured; `0` means the budget is spent. A prompt that tells the agent to stop when `remaining_tokens` is low, without naming the null case, makes it wind down on issues with unlimited budget. Spell out both cases in the prompt.
 
 **Including tool schemas or JSON call syntax in the prompt.** Sortie already advertises tools via MCP and the first-turn prompt injection. Repeating the schema wastes context window, and writing `{"operation": "search_issues"}` in the prompt is not how agents invoke MCP tools. Use natural language: "Call `tracker_api` with the `search_issues` operation."
 
-**Forgetting `{{if .run.is_continuation}}` guards.** A `workspace_history` call on the first run returns nothing — there is no prior history. Wrap history-related instructions in a continuation or retry guard so the agent skips them when they're useless.
+**Forgetting `{{if .run.is_continuation}}` guards.** A `workspace_history` call on the first run returns nothing. There is no prior history. Wrap history-related instructions in a continuation or retry guard so the agent skips them when they're useless.
 
 **Treating `notify_operator` as a stop signal.** It notifies a human and changes nothing in orchestration: retries continue, the tracker state stays put, the claim stays held. Only `.sortie/status` stops the retry loop. Pair them: notify, then write the file.
 
@@ -282,8 +283,8 @@ The flow: the agent checks its budget, gathers context (related issues on first 
 
 ## Related guides
 
-- [Agent extensions reference](/reference/agent-extensions/) — tool schemas and response formats
-- [Write a prompt template](/guides/write-prompt-template/) — template syntax, variables, conditionals
-- [WORKFLOW.md reference](/reference/workflow-config/) — `agent.max_turns`, `agent.max_sessions`
-- [Configure retry behavior](/guides/configure-retry-behavior/) — retry semantics
-- [Control agent costs](/guides/control-costs/) — budget management
+- [Agent extensions reference](/reference/agent-extensions/): tool schemas and response formats
+- [Write a prompt template](/guides/write-prompt-template/): template syntax, variables, conditionals
+- [WORKFLOW.md reference](/reference/workflow-config/): `agent.max_turns`, `agent.max_sessions`
+- [Configure retry behavior](/guides/configure-retry-behavior/): retry semantics
+- [Control agent costs](/guides/control-costs/): budget management

@@ -14,7 +14,7 @@ This guide configures Sortie to poll issues from a GitHub repository, dispatch a
 - Sortie installed and on your `PATH` ([installation guide](/getting-started/installation/))
 - Quick start completed with the file adapter ([quick start](/getting-started/quick-start/))
 - A GitHub repository where you have permission to manage issues and labels
-- A personal access token (classic or fine-grained) — creation steps below
+- A personal access token, classic or fine-grained (creation steps below)
 
 ## Create a personal access token
 
@@ -57,28 +57,28 @@ Fix #{{ .issue.identifier }}: {{ .issue.title }}
 
 Three fields are required:
 
-- **`api_key`** — a single token string. Unlike Jira, this is *not* an `email:token` pair — it's the PAT by itself. Sent as a `Bearer` token on every request.
-- **`project`** — `owner/repo` format. Must contain exactly one `/` with both segments non-empty. Example: `acme-corp/platform`.
-- **`kind`** — `github`.
+- **`api_key`**: a single token string. Unlike Jira, this is *not* an `email:token` pair. It's the PAT by itself, sent as a `Bearer` token on every request.
+- **`project`**: `owner/repo` format. Must contain exactly one `/` with both segments non-empty. Example: `acme-corp/platform`.
+- **`kind`**: `github`.
 
 The `$VAR` syntax expands environment variables at config load time. If you omit `endpoint`, Sortie defaults to `https://api.github.com`. If you omit `active_states`, Sortie defaults to `["backlog", "in-progress", "review"]`. If you omit `terminal_states`, Sortie defaults to `["done", "wontfix"]`.
 
 ## Map states to labels
 
-This is the key difference from Jira. GitHub has no native workflow states beyond open and closed. Sortie derives richer states from **issue labels** — you control the workflow by defining which labels represent active and terminal states.
+This is the key difference from Jira. GitHub has no native workflow states beyond open and closed. Sortie derives richer states from **issue labels**. You control the workflow by defining which labels represent active and terminal states.
 
-- **`active_states`** — label names for issues eligible for dispatch (e.g., `backlog`, `in-progress`, `review`).
-- **`terminal_states`** — label names for completed issues (e.g., `done`, `wontfix`).
+- **`active_states`**: label names for issues eligible for dispatch (e.g., `backlog`, `in-progress`, `review`).
+- **`terminal_states`**: label names for completed issues (e.g., `done`, `wontfix`).
 
 All comparisons are case-insensitive. Config values are lowercased at startup, so `"In-Progress"` and `"in-progress"` behave identically.
 
-**Create the `active_states` labels before you start.** An issue can only carry a label that already exists, and those labels are what make an issue eligible for dispatch. Create one label per entry in `active_states` and `terminal_states` — GitHub's own documentation covers creating labels through the web UI or the `gh` CLI: [managing labels](https://docs.github.com/en/issues/using-labels-and-milestones-to-track-work/managing-labels).
+**Create the `active_states` labels before you start.** An issue can only carry a label that already exists, and those labels are what make an issue eligible for dispatch. Create one label per entry in `active_states` and `terminal_states`. GitHub's own documentation covers creating labels through the web UI or the `gh` CLI: [managing labels](https://docs.github.com/en/issues/using-labels-and-milestones-to-track-work/managing-labels).
 
 ### How state derivation works
 
-When Sortie reads an issue, it scans the issue's labels against `active_states` first, then `terminal_states`, then `handoff_state`, in config order. The first match wins. Because the handoff label is part of that scan, an issue parked in handoff keeps its own state rather than looking unlabeled. If no label matches at all, Sortie falls back: open issues default to the first entry in `active_states` (`backlog` with the defaults above), and closed issues default to the first entry in `terminal_states` (`done`). This means unlabeled open issues show up as candidates — label them explicitly if you want tighter control.
+When Sortie reads an issue, it scans the issue's labels against `active_states` first, then `terminal_states`, then `handoff_state`, in config order. The first match wins. Because the handoff label is part of that scan, an issue parked in handoff keeps its own state rather than looking unlabeled. If no label matches at all, Sortie falls back: open issues default to the first entry in `active_states` (`backlog` with the defaults above), and closed issues default to the first entry in `terminal_states` (`done`). This means unlabeled open issues show up as candidates. Label them explicitly if you want tighter control.
 
-When Sortie transitions an issue, it removes the old state label, adds the new state label, and closes or reopens the issue as needed. Moving to a terminal state closes the issue. Moving to an active state from a closed issue reopens it. All label operations are idempotent — retrying a failed transition converges to the correct state.
+When Sortie transitions an issue, it removes the old state label, adds the new state label, and closes or reopens the issue as needed. Moving to a terminal state closes the issue. Moving to an active state from a closed issue reopens it. All label operations are idempotent. Retrying a failed transition converges to the correct state.
 
 ## Scope issues with a query filter
 
@@ -128,7 +128,7 @@ tracker:
   terminal_states: [done]
 ```
 
-Sortie removes the current state label (e.g., `in-progress`), adds the `review` label, and keeps the issue open — because `review` is not in `terminal_states`.
+Sortie removes the current state label (e.g., `in-progress`), adds the `review` label, and keeps the issue open, because `review` is not in `terminal_states`.
 
 Constraints:
 
@@ -153,7 +153,7 @@ tracker:
   terminal_states: [done]
 ```
 
-`in_progress_state` must appear in `active_states`. If the issue is already in that state at dispatch time, the transition is skipped. If it fails for other reasons, Sortie logs a warning and continues — the agent session proceeds regardless.
+`in_progress_state` must appear in `active_states`. If the issue is already in that state at dispatch time, the transition is skipped. If it fails for other reasons, Sortie logs a warning and continues. The agent session proceeds regardless.
 
 ## Enable tracker comments
 
@@ -168,7 +168,7 @@ tracker:
     on_failure: true
 ```
 
-Each flag is independent. All default to `false`. Comments are posted as Markdown — no conversion needed, unlike Jira's Atlassian Document Format.
+Each flag is independent. All default to `false`. Comments are posted as Markdown. No conversion is needed, unlike Jira's Atlassian Document Format.
 
 Comment failures are non-fatal. Sortie logs a warning and continues.
 
@@ -249,7 +249,7 @@ The search endpoint is metered far more tightly than the issues endpoint. If you
 level=ERROR msg="failed to fetch candidate issues" error="tracker: tracker_not_found: GET /repos/myorg/myrepo/issues: 404"
 ```
 
-Check that `project` is in `owner/repo` format and that the token has access to the repo. Private repositories require explicit token access — a fine-grained PAT must be scoped to the repo, and a classic PAT must have `repo` scope.
+Check that `project` is in `owner/repo` format and that the token has access to the repo. Private repositories require explicit token access: a fine-grained PAT must be scoped to the repo, and a classic PAT must have `repo` scope.
 
 ### Transition does not change the label
 
