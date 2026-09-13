@@ -6,9 +6,9 @@ date: 2026-04-26
 weight: 120
 url: /reference/adapter-codex/
 ---
-The Codex CLI adapter connects Sortie to the [OpenAI Codex CLI](https://github.com/openai/codex) via a persistent subprocess. It launches `codex app-server`, communicates over JSON-RPC 2.0 on stdin/stdout (JSONL), and normalizes event notifications into domain types. Registered under kind `"codex"`.
+The Codex CLI adapter connects Sortie to the [OpenAI Codex CLI](https://github.com/openai/codex) via a persistent subprocess. It launches `codex app-server`, communicates over JSON-RPC 2.0 on stdin/stdout (JSONL), and normalizes event notifications into Sortie's own event vocabulary. Registered under kind `"codex"`.
 
-Unlike the Claude Code and Copilot CLI adapters, the Codex adapter uses a **persistent subprocess model**. `StartSession` launches the process and keeps it alive across turns. Each `RunTurn` sends a `turn/start` request on the existing thread rather than spawning a new process.
+Unlike the Claude Code and Copilot CLI adapters, the Codex adapter uses a **persistent subprocess model**. The adapter launches the process when the session starts and keeps it alive across turns. Each turn sends a `turn/start` request on the existing thread rather than spawning a new process.
 
 See also: [WORKFLOW.md configuration](/reference/workflow-config/) for the full `agent` schema, [environment variables](/reference/environment/) for `CODEX_API_KEY` and related variables, [error reference](/reference/errors/#agent-errors) for all agent error kinds, [how to write a prompt template](/guides/write-prompt-template/) for template authoring, [Jira + Codex end-to-end tutorial](/getting-started/jira-codex-end-to-end/) for a step-by-step walkthrough.
 
@@ -25,12 +25,12 @@ These fields control the orchestrator's scheduling behavior. They are not passed
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `kind` | string | - | Must be `"codex"` to select this adapter. |
-| `command` | string | `codex app-server` | Path or name of the Codex binary with arguments. Resolved via `exec.LookPath` at session start. The first space-separated token is the binary name; remaining tokens are arguments. |
-| `max_turns` | integer | `20` | Maximum Sortie turns per worker session. The orchestrator calls `RunTurn` up to this many times, re-checking tracker state after each turn. |
+| `command` | string | `codex app-server` | Path or name of the Codex binary with arguments. Resolved from `PATH` at session start. The first space-separated token is the binary name; remaining tokens are arguments. |
+| `max_turns` | integer | `20` | Maximum Sortie turns per worker session. The orchestrator runs a turn up to this many times, re-checking tracker state after each turn. |
 | `max_sessions` | integer | `0` (unlimited) | Maximum completed worker sessions per issue before the orchestrator stops retrying. `0` disables the budget. |
 | `max_concurrent_agents` | integer | `10` | Global concurrency limit across all issues. |
-| `turn_timeout_ms` | integer | `3600000` (1 hour) | Total timeout for a single `RunTurn` call. The orchestrator cancels the turn context when exceeded. |
-| `read_timeout_ms` | integer | `5000` (5 seconds) | Bounds three waits for a message the app-server may never send: the `account/login/completed` notification, the `thread/started` notification, and the wait for `turn/completed` after a cancelled turn's `turn/interrupt`. It does not bound the `initialize`, `account/read`, `thread/start`, or `thread/resume` responses, which are bounded by the caller's context instead. Falls back to 30 seconds when unset or not positive. |
+| `turn_timeout_ms` | integer | `3600000` (1 hour) | Total timeout for a single turn. The orchestrator cancels the turn when exceeded. |
+| `read_timeout_ms` | integer | `5000` (5 seconds) | Bounds every wait on the app-server during session start and turn interruption: the `initialize`, `account/read`, `account/login/start`, `thread/start`, and `thread/resume` responses, the `account/login/completed` and `thread/started` notifications, and, during a turn, the wait for `turn/completed` after a cancelled turn's `turn/interrupt`. Falls back to 30 seconds when unset or not positive. |
 | `stall_timeout_ms` | integer | `300000` (5 minutes) | Maximum time between consecutive events before the orchestrator treats the session as stalled. `0` or negative disables stall detection. |
 | `stop_grace_ms` | integer | `5000` (5 seconds) | How long the adapter waits for the subprocess to exit on its own after a graceful termination signal, before it force-terminates the process group. Must be positive. |
 | `max_retry_backoff_ms` | integer | `300000` (5 minutes) | Maximum delay cap for exponential backoff between retry attempts. |
@@ -70,11 +70,11 @@ codex:
 
 ### `agent.max_turns` and the persistent thread model
 
-The Codex adapter does not have an inner turn limit equivalent to `claude-code.max_turns` or `copilot-cli.max_autopilot_continues`. Each `RunTurn` call sends a single `turn/start` request, and the agent works until it produces a `turn/completed` notification. The orchestrator controls the total number of turns via `agent.max_turns`.
+The Codex adapter does not have an inner turn limit equivalent to `claude-code.max_turns` or `copilot-cli.max_autopilot_continues`. Each turn sends a single `turn/start` request, and the agent works until it produces a `turn/completed` notification. The orchestrator controls the total number of turns via `agent.max_turns`.
 
 | Field | Controls | Scope |
 |---|---|---|
-| `agent.max_turns` | Sortie's orchestrator turn loop | How many times the orchestrator invokes `RunTurn` per worker session. |
+| `agent.max_turns` | Sortie's orchestrator turn loop | How many times the orchestrator runs a turn per worker session. |
 
 Within a single turn, Codex's internal agentic loop runs until completion, interruption, or failure. There is no adapter-level cap on the number of agentic steps within a turn. Use `turn_timeout_ms` to bound wall-clock time per turn.
 
@@ -105,7 +105,7 @@ The two requests spell the sandbox differently, and the adapter translates betwe
 
 ## Validate-time checks
 
-When `agent.kind` is `codex`, the [`sortie validate`](/reference/cli/#validate) pipeline runs a Codex-specific config check in addition to the generic preflight validation. It constructs no adapter instance and makes no network call, and the same check runs at startup and on every workflow reload, so the verdict is identical in all three places.
+When `agent.kind` is `codex`, the [`sortie validate`](/reference/cli/#validate) pipeline runs a Codex-specific config check in addition to the generic preflight validation. It builds no adapter and makes no network call, and the same check runs at startup and on every workflow reload, so the verdict is identical in all three places.
 
 ### Errors
 
@@ -119,20 +119,20 @@ An absent `approval_policy` draws nothing: the adapter sends `never` for it.
 
 ## Session lifecycle
 
-### `StartSession`
+### Session start
 
 Launches the app-server subprocess, performs the JSON-RPC initialization handshake, authenticates if needed, and starts or resumes a thread.
 
-1. Validates that `WorkspacePath` is a non-empty absolute path pointing to an existing directory.
-2. Resolves the `command` via `exec.LookPath` (splits on whitespace to extract the binary and its argument tokens). In SSH mode, resolves the local `ssh` binary instead.
+1. Validates that the workspace path is a non-empty absolute path pointing to an existing directory.
+2. Resolves `command` from `PATH` (splits on whitespace to extract the binary and its argument tokens). In SSH mode, resolves the local `ssh` binary instead.
 3. On a local launch, reads the generated MCP configuration and appends one `-c` / `mcp_servers.<name>=<inline table>` argument pair per declared server to the launch arguments. Skipped entirely in SSH mode. See [MCP](#mcp).
-4. Launches the subprocess with `cmd.Dir` set to the workspace path and `cmd.Env` set to the full parent process environment. Process group isolation via `procutil.SetProcessGroup`.
-5. Wires stdin, stdout, and stderr pipes. Starts a background scanner goroutine on stdout (1 MB max line size).
+4. Launches the subprocess in the workspace path, with the full parent process environment, isolated in its own process group.
+5. Wires stdin, stdout, and stderr pipes, and reads stdout one line at a time (1 MB max line size).
 6. **Initialize handshake:** sends `initialize` request with `clientInfo` and `capabilities.experimentalApi: true`. Waits for response. Sends `initialized` notification.
 7. **Authentication check:** sends `account/read`. If account is null and `CODEX_API_KEY` is set, performs API key login. See [authentication](#authentication).
 8. **Thread start:** sends `thread/start` with model, cwd, approvalPolicy, and sandbox. Records `threadId`. The adapter registers no client-side tool declarations; Sortie's tools reach the session through the MCP servers the runtime spawns from the overrides in step 3.
-9. **Resume path:** if `ResumeSessionID` is non-empty, sends `thread/resume` instead. Falls back to `thread/start` if resume fails.
-10. Returns a `Session` with `ID` set to the thread ID and `AgentPID` set to the subprocess PID.
+9. **Resume path:** if a session ID saved from a previous run is supplied, sends `thread/resume` instead. Falls back to `thread/start` if resume fails.
+10. The session records the thread ID as its session ID, and the subprocess PID as the agent's process ID.
 
 **Errors:**
 
@@ -150,33 +150,45 @@ Launches the app-server subprocess, performs the JSON-RPC initialization handsha
 | Authentication failed | `response_error` |
 | Thread start/resume failed | `response_error` |
 
-### `RunTurn`
+A handshake step whose elapsed `read_timeout_ms` bound fails the session reports the same `response_error` kind as one the app-server itself rejected: nothing in the reported kind tells the two apart. The logged error text still does: a bound that elapsed names either `context deadline exceeded` or, for the wait on `account/login/completed`, `timeout waiting for account/login/completed`; an app-server rejection instead carries the app-server's own protocol-level error text.
+
+### Turn
 
 Sends a `turn/start` JSON-RPC request on the existing thread and reads event notifications until `turn/completed`.
 
 1. Builds `turn/start` params with `threadId`, input (prompt as text), `cwd`, and optionally `sandboxPolicy`, `model`, and `effort`.
 2. Sends the request and waits for the matching response.
-3. Enters the event loop, selecting on the message channel and context cancellation.
+3. Waits for event notifications from the app-server or for the turn to be cancelled, whichever happens first.
 4. Dispatches notifications by method name (see [event stream](#event-stream)).
-5. On context cancellation, writes one best-effort `turn/interrupt` to the app-server's stdin (not through the cancelled context), then keeps reading for `read_timeout_ms` in case the app-server reports its own `turn/completed`. Past that bound the turn returns cancelled.
-6. On `turn/completed`, emits the terminal turn event carrying the session's cumulative usage and returns `TurnResult`.
+5. When the turn is cancelled, writes one best-effort `turn/interrupt` to the app-server's stdin, sent independently of the turn's own cancellation so the write itself still goes through, then keeps reading for `read_timeout_ms` in case the app-server reports its own `turn/completed`. Past that bound the turn ends as cancelled.
+6. On `turn/completed`, emits the terminal turn event carrying the session's cumulative usage, ending the turn.
 
-### `StopSession`
+### Session stop
 
 Terminates the persistent app-server subprocess. Safe to call when no subprocess is active.
 
-1. Signals the reader goroutine to stop. Closes the stdin pipe.
-2. Sends `SIGTERM` to the process group. Waits up to `stop_grace_ms`, or until the caller's deadline expires, whichever comes first.
-3. Force-kills via `SIGKILL` if still running. A stop the caller's deadline ended returns that deadline's error, so the caller learns the stop did not finish on its own terms.
-4. Waits for the reader goroutine to finish.
+1. Closes the JSON-RPC connection, which fails any request still waiting for a response, then closes the stdin pipe without waiting for that close to finish, so a close stuck at the OS level cannot delay the graceful signal or the escalation that follow it.
+2. Sends the graceful shutdown signal to the process group (POSIX: `SIGTERM`; Windows: `CTRL_BREAK_EVENT`). Waits up to `stop_grace_ms`, or until the orchestrator's own deadline expires, whichever comes first.
+3. Force-terminates the process tree if still running (POSIX: `SIGKILL` to process group; Windows: `TerminateJobObject`). A stop that ends because the orchestrator's own deadline expired reports that deadline's error instead of a clean stop, so the orchestrator learns the stop did not finish on its own terms.
+4. Closes the standard-output read end, unblocking any pending read of the app-server's output.
+5. Waits up to two seconds for output reading to finish, then closes both read ends.
+6. Joins the standard-error drain that closing those ends releases, bounded at five more seconds, so the stop does not return while a collector from this session is still reading. What that drain collected is discarded rather than reported; see [runtime standard error](#runtime-standard-error).
 
 ---
 
 ## Process shutdown
 
-Because the subprocess persists across turns, `StopSession` handles shutdown rather than `RunTurn`. The shutdown sequence closes stdin (EOF signal), sends `SIGTERM` to the process group, waits up to `stop_grace_ms`, then escalates to `SIGKILL`. The caller's deadline is a second bound on that wait: whichever expires first ends the graceful phase. On Windows, a Job Object with `KILL_ON_JOB_CLOSE` terminates the process tree on shutdown or crash.
+Because the subprocess persists across turns, the shutdown sequence runs when the session stops, not at the end of each turn. It closes stdin (EOF signal), sends the graceful shutdown signal to the process group, waits up to `stop_grace_ms`, then escalates to a force kill. The caller's deadline is a second bound on that wait: whichever expires first ends the graceful phase. On Unix, the graceful signal is `SIGTERM` and the force kill is `SIGKILL` to the process group. On Windows, the graceful signal is `CTRL_BREAK_EVENT` to the process group, and the subprocess is assigned to a Job Object with `KILL_ON_JOB_CLOSE`: the force kill terminates that Job Object, and closing its handle kills the process tree even when nothing reaches the force kill at all, such as on an orchestrator crash.
 
-`RunTurn` handles context cancellation by writing one `turn/interrupt` request to stdin and then reading for at most `read_timeout_ms` more, so the app-server has a bounded chance to report the turn's own completion. The app-server acknowledges no client-sent response, so that bound is what keeps an unacknowledged interrupt from holding the turn open.
+The adapter owns the subprocess's standard-output and standard-error read ends for the whole session rather than handing them to the process object, so reaping the app-server never closes one while it is still being read. The notifications a runtime sends on its way out reach the turn that was waiting for them instead of being discarded with the reap.
+
+What the reap cannot settle on its own is output reading that does not end with the runtime: a descendant that inherited the output handle can keep it open after the runtime itself is gone, leaving the handshake call or turn with nothing to wait for. A five-second bound from the reap covers this: past it, the output read end and the JSON-RPC connection are closed, and a warning names the bound. The waiting call then ends. A turn ended this way reports `port_exit` naming the runtime's exit rather than the transport error behind it; see [process exit handling](#process-exit-handling).
+
+The same five-second bound also settles standard error, starting at the same reap and running alongside the bound above. Whatever the drain has read by then is kept, and the read end is closed so the drain itself ends instead of blocking for the lifetime of a descendant that inherited the write handle. A failure path that reports the runtime's standard error afterward reads a settled result rather than waiting again; see [runtime standard error](#runtime-standard-error).
+
+When a turn is cancelled, the adapter writes one `turn/interrupt` request to stdin and then reads for at most `read_timeout_ms` more, so the app-server has a bounded chance to report the turn's own completion. The app-server acknowledges no client-sent response, so that bound is what keeps an unacknowledged interrupt from holding the turn open.
+
+Every write to the app-server, including the `turn/start` request that opens a turn and this interrupt, completes once it is queued for delivery, not once the runtime actually reads it. The wait for a response is bounded separately: the turn's own deadline (`turn_timeout_ms`) for `turn/start`, and `read_timeout_ms` for the interrupt's follow-up read described above.
 
 ---
 
@@ -185,6 +197,8 @@ Because the subprocess persists across turns, `StopSession` handles shutdown rat
 The Codex app-server emits JSON-RPC notifications on stdout. The adapter reads each line, separates responses from notifications, and maps notifications onto Sortie's [normalized event vocabulary](/guides/write-custom-agent-adapter/), so what reaches the orchestrator, the logs, and the dashboard is the same set of events every adapter produces. The app-server's own notification methods and payload shapes are Codex's to define; see [external references](#external-references).
 
 Two of those mappings decide how a run ends, and both follow from the [approval policy](#approval-policy-and-sandbox). A request that asks for consent to act is refused in a form that lets the agent try another route, reported as a `notification`, and the turn continues. A request addressed to a person ends the attempt with `turn_input_required`, which releases the claim instead of scheduling a retry and records the run as `needs_person` rather than `failed`.
+
+A server-initiated request arriving outside a turn, whether during the handshake or in the gap between the handshake finishing and the first turn starting, always gets a reply: an `mcpServer/elicitation/request` is declined, and every other method, including one a turn would otherwise recognize and answer specifically, is answered with a method-not-found error instead. Inside a turn, a request this adapter does not otherwise recognize gets that same method-not-found reply rather than being left open. A notification is treated differently outside a turn: only `mcpServer/startupStatus/updated` is acted on there, exactly as [startup failures](#startup-failures) describes, and every other notification arriving before the first turn starts produces no event and is not logged.
 
 Token counts do not travel on the turn-completion notification. They arrive on their own notification; see [token accounting](#token-accounting).
 
@@ -210,7 +224,7 @@ A running turn can be moved to a different model by a `model/rerouted` notificat
 
 ### API timing
 
-The adapter does not track per-request API latency. No `APIDurationMS` field is populated on any event this adapter emits.
+The adapter does not track per-request API latency. No event this adapter emits reports how long an API request took.
 
 ---
 
@@ -220,8 +234,8 @@ The adapter routes no tool call of its own. Sortie's tools reach the session as 
 
 ### Item-level correlation
 
-1. An `item/started` notification with `type` in `commandExecution`, `fileChange`, `mcpToolCall`, or `dynamicToolCall` records the tool name and a monotonic timestamp in an in-flight map, keyed by `item.id`.
-2. An `item/completed` notification looks up the matching `item.id`. When found, the adapter emits a `tool_result` event with `ToolName` and `ToolDurationMS`.
+1. An `item/started` notification with `type` in `commandExecution`, `fileChange`, `mcpToolCall`, or `dynamicToolCall` records the tool name and a start time, keyed by `item.id`.
+2. An `item/completed` notification looks up the matching `item.id`. When found, the adapter emits a `tool_result` event carrying the tool name and how long the call took.
 
 ### Tool error detail
 
@@ -256,22 +270,43 @@ Both `response_error` and `turn_failed` are retryable with exponential backoff b
 
 Because the Codex adapter uses a persistent subprocess, process exit during a turn is abnormal.
 
-| Condition | Error kind |
+| Condition | Error kind | Message |
+|---|---|---|
+| Stdout stream closed during turn | `port_exit` | `subprocess stdout closed unexpectedly` |
+| Error reading stdout | `port_exit` | `stdout read error: <detail>` |
+| `turn/start` response error | `turn_failed` | `turn/start error: <app-server message>` |
+| No `turn/start` response arrives: the turn was cancelled, or the connection ended first | `port_exit` | `turn/start failed: <detail>`, in the run's recorded error only; this row emits no turn event |
+
+Once the release path has given up on reading the output, each `port_exit` row reports `the agent runtime exited before the session finished collecting its output` in place of its own message, and the underlying transport error, where there was one, stays part of the run's recorded error. See [process shutdown](#process-shutdown). The `turn_failed` row carries the app-server's own report and is never replaced.
+
+### Stdout read failure
+
+If reading stdout encounters an error or reaches EOF, the turn emits `turn_failed` and ends with error kind `port_exit`.
+
+### Runtime standard error
+
+The adapter re-emits what the app-server wrote to its standard error at WARN level, one record per line, under the message `agent stderr`. The rule is that a failure reports only where the runtime is already gone: a session that fails during the handshake, and a turn that ends because the output stream ended, carry the runtime's own account of itself rather than an exit status alone. A failure against a runtime that is still running reports nothing, because there is no parting diagnostic to collect and the drain cannot finish while the runtime still holds the write end. A session-start failure that precedes the launch, such as an unreadable MCP configuration, has no subprocess and so no standard error.
+
+| Path | Reports |
 |---|---|
-| Stdout channel closed during turn | `port_exit` |
-| Stdout scanner error | `port_exit` |
-| `turn/start` response error | `turn_failed` |
-| Context cancelled before response | `port_exit` |
+| Any handshake step that fails once the subprocess is running: the initialize exchange, the authentication check, `thread/start`, or the `thread/start` fallback taken after a failed `thread/resume` | Yes |
+| A turn whose event stream closed, or whose stdout stream ended | Yes |
+| A `turn/start` call that failed after the connection had already stopped reading output | Yes |
+| A `turn/start` call that failed while output reading was still running | No |
+| A malformed stdout line, which does not end the connection: reading continues afterward | No |
+| Session stop | No |
 
-### Stdout reader failure
+A session reports at most once, from whichever of those paths reaches the point first. Later failures meet the same dead runtime and have nothing to add. Session stop stays silent throughout: closing the connection ends the event stream, a turn still in flight reads that as its runtime dying, and a stop arriving mid-report suppresses it rather than explaining a runtime the operator stopped on purpose.
 
-If the reader goroutine encounters an error or EOF, it delivers the error to the message channel. `RunTurn` emits `turn_failed` and returns with error kind `port_exit`.
+The report adds no wait of its own once [process shutdown](#process-shutdown) has settled the drain; a report that arrives before it pays the same five-second bound instead. Where that bound expires with output still unread, the lines already collected are reported and a marker after them says later output may be missing.
+
+Every line also reaches the log at DEBUG level as it is read, whatever the session's outcome, so standard error from a session that succeeded is available under `--log-level debug`.
 
 ---
 
 ## Session resume mechanism
 
-Within a session, multi-turn continuation is automatic. Each `RunTurn` sends `turn/start` on the same `threadId`. No resume flag or session ID propagation is needed between turns.
+Within a session, multi-turn continuation is automatic. Each turn sends `turn/start` on the same `threadId`. No resume flag or session ID propagation is needed between turns.
 
 Across sessions (after an orchestrator restart), the adapter sends `thread/resume` with the saved thread ID. History is restored from Codex's on-disk rollout file. If resume fails, the adapter falls back to `thread/start` (new thread, previous context lost).
 
@@ -285,9 +320,9 @@ When the worker configuration includes `ssh_hosts`, the adapter launches the app
 
 ### How it works
 
-1. `StartSession` resolves the local `ssh` binary via `exec.LookPath`. The agent command is stored for remote execution.
+1. Session start resolves the local `ssh` binary from `PATH`. The agent command is stored for remote execution.
 2. Prefixes `CODEX_API_KEY` inline in the remote command if set, since OpenSSH does not forward local environment variables.
-3. Constructs SSH arguments via `sshutil.BuildSSHArgs`.
+3. Builds the SSH connection arguments listed under [SSH options](#ssh-options).
 4. All JSON-RPC communication flows over the SSH tunnel's stdin/stdout.
 
 ### SSH options
@@ -314,9 +349,9 @@ SSH exit code `255` indicates a connection failure (refused, timeout, unreachabl
 
 ## Authentication
 
-Sortie does not manage Codex CLI credentials. The adapter spawns the subprocess with the full parent process environment (`cmd.Env = os.Environ()`), and the Codex CLI reads its authentication variables directly.
+Sortie does not manage Codex CLI credentials. The adapter spawns the subprocess with the full parent process environment, and the Codex CLI reads its authentication variables directly.
 
-Authentication sequence at `StartSession`: sends `account/read`. If `result.account` is non-null, authentication is valid. If null and `CODEX_API_KEY` is set, sends `account/login/start` with `type: "apiKey"`. Waits for `account/login/completed`. If `CODEX_API_KEY` is not set, the adapter proceeds without login (the app-server may use cached credentials).
+Authentication sequence at session start: sends `account/read`. If `result.account` is non-null, authentication is valid. If null and `CODEX_API_KEY` is set, sends `account/login/start` with `type: "apiKey"`. Waits for `account/login/completed`. If `CODEX_API_KEY` is not set, the adapter proceeds without login (the app-server may use cached credentials).
 
 | Auth mode | Mechanism | Notes |
 |---|---|---|
@@ -324,7 +359,7 @@ Authentication sequence at `StartSession`: sends `account/read`. If `result.acco
 | Credentials the runtime already holds | `account/read` returns a non-null account | The adapter performs no login and starts the thread. How those credentials were established is Codex's to document. |
 
 {{< callout type="warning" >}}
-**The adapter never prompts for credentials, and a missing `CODEX_API_KEY` is not by itself an error.** With no key set and no account reported, `StartSession` proceeds to `thread/start` and the failure surfaces there or on the first turn. In SSH mode, `CODEX_API_KEY` is shell-quoted and injected inline in the remote command, because OpenSSH does not forward the orchestrator's local environment.
+**The adapter never prompts for credentials, and a missing `CODEX_API_KEY` is not by itself an error.** With no key set and no account reported, session start proceeds to `thread/start` and the failure surfaces there or on the first turn. In SSH mode, `CODEX_API_KEY` is shell-quoted and injected inline in the remote command, because OpenSSH does not forward the orchestrator's local environment.
 {{< /callout >}}
 
 ---
@@ -333,7 +368,7 @@ Authentication sequence at `StartSession`: sends `account/read`. If `result.acco
 
 `codex app-server` accepts no MCP-config path argument. The adapter delivers the servers rather than the file: it reads the generated `.sortie/mcp.json` and re-expresses each declared server as configuration the runtime parses for itself.
 
-On a local launch, `StartSession` appends one `-c` / `mcp_servers.<name>=<inline table>` argument pair per declared server to the app-server command line. One pair per server rather than one for the whole table, so an operator's own `[mcp_servers]` entries in their own Codex configuration merge with Sortie's instead of being replaced. The runtime spawns each declared server itself over stdio, which makes `sortie-tools` a child of the app-server and the same sidecar every other kind reaches.
+On a local launch, session start appends one `-c` / `mcp_servers.<name>=<inline table>` argument pair per declared server to the app-server command line. One pair per server rather than one for the whole table, so an operator's own `[mcp_servers]` entries in their own Codex configuration merge with Sortie's instead of being replaced. The runtime spawns each declared server itself over stdio, which makes `sortie-tools` a child of the app-server and the same sidecar every other kind reaches.
 
 ### Environment values
 
@@ -351,7 +386,7 @@ A remote session receives no overrides at all. The overrides ride on the app-ser
 
 ### Startup failures
 
-The runtime reports each declared server's startup outcome on its own notification. A failure status is logged at WARN naming the server and the reported reason. It fails neither the turn nor the session: a session that lost its tools this way still runs to completion, and the log is the only place that records it.
+The runtime reports each declared server's startup outcome on its own notification. A failure status is logged at WARN naming the server and the reported reason, whenever it arrives: during the handshake, in the gap before the first turn starts, or during a turn. It fails neither the turn nor the session: a session that lost its tools this way still runs to completion, and the log is the only place that records it.
 
 ### `mcp_config`
 
@@ -368,30 +403,6 @@ Three more conditions fail the session with `response_error` when the merged con
 An HTTP entry's headers carry a fourth condition of their own; see [HTTP headers](#http-headers).
 
 Codex also reads its own MCP server list from configuration files of its own, entirely outside anything this adapter writes; which files it consults, and under what trust conditions, is Codex's to document. See the [external references](#external-references). Because the adapter runs the app-server with the per-issue workspace as its working directory, whatever project-scoped configuration behavior Codex has applies to that workspace like any other Codex working directory.
-
----
-
-## Concurrency safety
-
-The adapter is safe for concurrent use. One `CodexAdapter` instance serves all sessions. Per-session state (workspace path, thread ID, subprocess handle, stdin/stdout pipes) is isolated in the opaque `Session.Internal` field.
-
-A mutex (`state.mu`) guards the subprocess handle, stdin pipe, and stdout pipe against concurrent access from `StopSession` and the turn loop. Within a session, `RunTurn` calls are serialized by the orchestrator.
-
----
-
-## Adapter registration
-
-The adapter registers itself under kind `"codex"` via an `init` function in `internal/agent/codex`. Registration metadata declares:
-
-| Property | Value |
-|---|---|
-| `RequiresCommand` | `true` |
-| `ValidateAgentConfig` | the check described in [Validate-time checks](#validate-time-checks) |
-| `MCPInjection` | `translated`: the adapter re-expresses the generated configuration's servers in the form its runtime parses, and delivers that on a local launch only. See [MCP](#mcp). |
-| `UsageArrival` | `incremental`: one usage figure per model API request, emitted while the turn's work is still in flight. See [Token accounting](#token-accounting). |
-| `UsageAttribution` | `per_model`: a usage figure names the model the runtime reported using. See [Model tracking](#model-tracking). |
-
-The orchestrator's preflight validation uses `RequiresCommand` to produce a specific error message if the binary cannot be found before attempting session creation.
 
 ---
 

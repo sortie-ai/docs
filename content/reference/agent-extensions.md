@@ -55,7 +55,7 @@ When Sortie detects a recognized value in `.sortie/status`, all three signals co
 4. Releases the issue claim.
 5. Does **not** schedule a continuation retry.
 
-If the handoff transition in step 3 fails (network error, permission denied, nil adapter), the orchestrator logs a warning and releases the claim without retry. The agent finished its work. Retrying would be wrong.
+If the handoff transition in step 3 fails (network error or permission denied), the orchestrator logs a warning and releases the claim without retry. The agent finished its work. Retrying would be wrong.
 
 **`no-change-needed`:**
 
@@ -76,11 +76,11 @@ The full interaction between `.sortie/status` and `tracker.handoff_state` is doc
 | File absent | Normal behavior: continue and retry as configured. |
 | Unrecognized value | Ignored. Warning logged. Normal behavior continues. |
 | Read error | Treated as absent. Warning logged. Never fails the worker run. |
-| Symlink on `.sortie/` or `status` | Rejected via `Lstat` check. Treated as absent. Warning logged. |
+| Symlink on `.sortie/` or `status` | Rejected as a symlink. Treated as absent. Warning logged. |
 
 ### Auto-injection
 
-Sortie appends protocol instructions to the first-turn prompt automatically (`RuntimeStatusSuffix`). The agent receives this text without any workflow author configuration:
+Sortie appends protocol instructions to the first-turn prompt automatically. The agent receives this text without any workflow author configuration:
 
 ```
 If you determine that you cannot make further progress on this task without human
@@ -106,7 +106,7 @@ During the self-review phase, a second injected instruction supersedes this one 
 
 Sortie deletes `.sortie/status` before each new dispatch, so a stale signal from a previous run cannot affect the new one.
 
-Sortie deletes it again at each point in a run where it acts on a recognized value: when a completion signal admits the run to the [self-review phase](/guides/configure-self-review/), and after every review turn and every fix turn inside that phase. Which value was read makes no difference at those points; `blocked`, `needs-human-review`, and `no-change-needed` are all removed. The read after a coding turn deletes nothing, so a recognized value written there stays on disk through teardown on a run that never enters the phase. Every deletion is best-effort and applies the same `Lstat` symlink rejection as the read; a deletion that fails is logged and changes nothing else about the run.
+Sortie deletes it again at each point in a run where it acts on a recognized value: when a completion signal admits the run to the [self-review phase](/guides/configure-self-review/), and after every review turn and every fix turn inside that phase. Which value was read makes no difference at those points; `blocked`, `needs-human-review`, and `no-change-needed` are all removed. The read after a coding turn deletes nothing, so a recognized value written there stays on disk through teardown on a run that never enters the phase. Every deletion is best-effort and rejects a symlink the same way the read does; a deletion that fails is logged and changes nothing else about the run.
 
 An absent or empty file therefore carries two meanings: the agent has written nothing, or Sortie has already acted on what it wrote. What an `after_run` hook or a later `cat` finds is a value Sortie has not acted on.
 
@@ -386,7 +386,7 @@ No parameters. The agent sends an empty JSON object:
 
 ### How it works
 
-The tool reads `.sortie/state.json`, a file the worker goroutine writes at session start, at the start of each turn, and again whenever a measurement arrives: on a token usage event, on any event carrying a non-zero usage payload, or on a turn's result carrying a measurement. The tool validates the file before reading: symlinks are rejected via `Lstat`, and files larger than 4 KiB are refused.
+The tool reads `.sortie/state.json`, a file the worker writes at session start, at the start of each turn, and again whenever a measurement arrives: on a token usage event, on any event carrying a non-zero usage payload, or on a turn's result carrying a measurement. The tool validates the file before reading: symlinks are rejected, and files larger than 4 KiB are refused.
 
 ### Response fields
 
@@ -835,7 +835,7 @@ For detailed patterns and worked examples, see [how to use agent tools in prompt
 - [Agent tools concept](/concepts/agent-tools/): the tier model: what each tier guarantees and when each tool registers
 - [Security model](/concepts/security/): trust boundaries for outbound notifications and agent-generated content
 - [How to use agent tools in prompts](/guides/use-agent-tools-in-prompts/): task-specific tool guidance for workflow authors
-- [How to write a custom agent tool](/guides/write-custom-agent-tool/): implementing the `Tool` interface
+- [How to write a custom agent tool](/guides/write-custom-agent-tool/): implementing a custom tool
 - [Environment variables reference](/reference/environment/#mcp-server-environment): MCP server env vars
 - [WORKFLOW.md configuration reference](/reference/workflow-config/): `agent` section, `agent.max_turns`
 - [Error reference](/reference/errors/): tracker error kinds with retry behavior

@@ -26,7 +26,7 @@ The adapter reads its configuration from the `tracker` section of the [WORKFLOW.
 | `endpoint` | string | No | `https://api.github.com` | GitHub API base URL. Override for GitHub Enterprise Server. |
 | `active_states` | list of strings | No | `["backlog", "in-progress", "review"]` | Issue label names that map to active Sortie states. Compared case-insensitively; stored lowercased. |
 | `terminal_states` | list of strings | No | `["done", "wontfix"]` | Issue label names that map to terminal Sortie states. Stored lowercased. |
-| `query_filter` | string | No | `""` | Raw GitHub search qualifier appended to the search query. When set, `FetchCandidateIssues` uses the search endpoint instead of the issues list endpoint. |
+| `query_filter` | string | No | `""` | Raw GitHub search qualifier appended to the search query. When set, candidate polling uses the search endpoint instead of the issues list endpoint. |
 | `handoff_state` | string | No | _(absent)_ | Target label name after a successful agent run. Must appear in neither `active_states` nor `terminal_states`. Created on demand if absent from the repository; see [Pre-creating labels](#pre-creating-labels). |
 | `in_progress_state` | string | No | _(absent)_ | Target label name for dispatch-time transitions. Must appear in `active_states`. |
 | `user_agent` | string | No | `sortie/<version>` | `User-Agent` header sent on all requests. Sortie sets the tracker role's value to its own version string, so only the SCM and CI roles honor an override, set in a top-level `github:` block. |
@@ -47,7 +47,7 @@ Minimum required scopes for classic tokens: `repo` (reads issues, posts comments
 
 Minimum required permissions for fine-grained tokens: **Issues** (read and write), **Metadata** (read).
 
-Accepts [`$VAR` indirection](/reference/environment/#var-indirection-in-workflowmd) anywhere in the string via full `os.ExpandEnv` expansion.
+Accepts [`$VAR` indirection](/reference/environment/#var-indirection-in-workflowmd) in its full form: variable references are expanded anywhere in the string.
 
 ```yaml
 api_key: $SORTIE_GITHUB_TOKEN
@@ -56,7 +56,7 @@ api_key: $GITHUB_TOKEN
 
 ### `project`
 
-Repository in `owner/repo` format, for example `myorg/myrepo`. The adapter splits on the `/` to extract the owner and repository name. A value with zero or more than one `/`, or with empty parts, produces a `tracker_payload_error` at construction time.
+Repository in `owner/repo` format, for example `myorg/myrepo`. The adapter splits on the `/` to extract the owner and repository name. A value with zero or more than one `/`, or with empty parts, produces a `tracker_payload_error` when the adapter is built.
 
 ```yaml
 project: myorg/myrepo
@@ -65,7 +65,7 @@ project: $SORTIE_GITHUB_PROJECT
 
 ### `active_states`
 
-Label names that map to active Sortie states. Issues with one of these labels are eligible for dispatch. Values are compared case-insensitively and stored lowercased at construction time.
+Label names that map to active Sortie states. Issues with one of these labels are eligible for dispatch. Values are compared case-insensitively and stored lowercased when the adapter is built.
 
 When omitted, defaults to `["backlog", "in-progress", "review"]`. These label names must exist in the repository: GitHub has no built-in equivalents.
 
@@ -77,7 +77,7 @@ When omitted, defaults to `["done", "wontfix"]`.
 
 ### `query_filter`
 
-A raw GitHub search qualifier string. When this field is non-empty, `FetchCandidateIssues` switches from the issues list endpoint to the search endpoint and appends this value to the base query `repo:{owner}/{repo} type:issue state:open`.
+A raw GitHub search qualifier string. When this field is non-empty, candidate polling switches from the issues list endpoint to the search endpoint and appends this value to the base query `repo:{owner}/{repo} type:issue state:open`.
 
 ```yaml
 query_filter: "label:agent-ready"
@@ -88,7 +88,7 @@ Do not include `repo:` or `type:issue` in the value. They are added automaticall
 
 ### Pre-creating labels
 
-The adapter never issues an explicit label-creation call. It does not need to: `TransitionIssue` adds the target label through GitHub's add-labels-to-an-issue endpoint, and that endpoint creates a label it does not recognize instead of rejecting it, returning `200` with the label applied. A transition to a label that does not exist yet therefore succeeds rather than producing a `tracker_payload_error`. GitHub does not document this behavior, so treat it as convenient rather than guaranteed.
+The adapter never issues an explicit label-creation call. It does not need to: a transition adds the target label through GitHub's add-labels-to-an-issue endpoint, and that endpoint creates a label it does not recognize instead of rejecting it, returning `200` with the label applied. A transition to a label that does not exist yet therefore succeeds rather than producing a `tracker_payload_error`. GitHub does not document this behavior, so treat it as convenient rather than guaranteed.
 
 Pre-creating the labels is still worth doing, for two reasons. An implicitly created label comes out in GitHub's default gray with no description, whereas a label you create yourself carries the color and wording you chose. More importantly, the labels in `active_states` gate dispatch: an issue can only carry a label that already exists, so a `query_filter` such as `label:agent-ready` matches nothing until someone has created `agent-ready` and applied it.
 
@@ -96,7 +96,7 @@ Pre-creating the labels is still worth doing, for two reasons. An implicitly cre
 
 ## Validate-time checks
 
-When `tracker.kind` is `github`, the [`sortie validate`](/reference/cli/#validate) pipeline runs GitHub-specific config checks in addition to the generic preflight validation. These checks run without constructing an adapter instance or making network calls.
+When `tracker.kind` is `github`, the [`sortie validate`](/reference/cli/#validate) pipeline runs GitHub-specific config checks in addition to the generic preflight validation. These checks run without making network calls.
 
 ### Errors
 
@@ -142,7 +142,7 @@ Additional fixed headers on all requests:
 | `X-GitHub-Api-Version` | A REST API version the adapter pins. Sortie is therefore insulated from a newer API version's changes until the pin moves. |
 | `User-Agent` | `sortie/<version>` on tracker requests; the configured `user_agent` value on SCM and CI requests, defaulting to `sortie/dev` |
 
-The HTTP client has a 30-second per-request timeout. Context cancellation is propagated: a cancelled context causes the in-flight request to return immediately with `context.Canceled`.
+The HTTP client has a 30-second per-request timeout. Cancelling the operation in progress aborts the in-flight request immediately.
 
 ---
 
@@ -174,7 +174,7 @@ An open issue with no state label resolves to `active_states[0]`. A closed issue
 
 ### Case handling
 
-All comparisons are case-insensitive. A label named `"In-Progress"` matches the configured value `"in-progress"`. All stored and compared values are lowercased at construction time.
+All comparisons are case-insensitive. A label named `"In-Progress"` matches the configured value `"in-progress"`. All stored and compared values are lowercased when the adapter is built.
 
 ---
 
@@ -208,41 +208,41 @@ A transition sets the state label and removes the ones it replaces. A comment is
 
 ## Field mapping
 
-| Domain field | GitHub source | Normalization |
+| Template field | GitHub source | Normalization |
 |---|---|---|
-| `ID` | `number` | The issue number as a string. Same value as `Identifier`. |
-| `Identifier` | `number` | The issue number as a string, for example `"42"`. |
-| `Title` | `title` | String, as-is. |
-| `Description` | `body` | Pointer dereferenced. `nil` → `""`. Markdown pass-through. |
-| `Priority` | _(not available)_ | Always `nil`. GitHub issues have no native priority field. |
-| `State` | `labels` + `state` | Derived via [state derivation algorithm](#state-derivation). |
-| `BranchName` | _(not available)_ | Always `""`. Issues API does not expose branch metadata. |
-| `URL` | `html_url` | String, as-is. |
-| `Labels` | `labels[].name` | Each label lowercased. Non-nil empty slice when no labels. |
-| `Assignee` | `assignees[0].login` | First assignee's login. Empty string when no assignees. |
-| `IssueType` | `type.name` | String, as-is. Empty string when `type` is null (organization-level issue types not configured). |
-| `Parent` | `/issues/{id}/parent` | `nil` in list normalization; populated by `FetchIssueByID`. `nil` on 404. |
-| `Comments` | `/issues/{id}/comments` | `nil` in list normalization; populated by `FetchIssueByID` and `FetchIssueComments`. |
-| `BlockedBy` | `/issues/{id}/dependencies/blocked_by` | Empty `[]BlockerRef{}` in list normalization; populated by `FetchIssueByID` or, for a candidate, by the shared blocker resolver. See [blocker extraction](#blocker-extraction). |
-| `CreatedAt` | `created_at` | ISO-8601 string, as-is. |
-| `UpdatedAt` | `updated_at` | ISO-8601 string, as-is. |
+| `.issue.id` | `number` | The issue number as a string. Same value as `.issue.identifier`. |
+| `.issue.identifier` | `number` | The issue number as a string, for example `"42"`. |
+| `.issue.title` | `title` | String, as-is. |
+| `.issue.description` | `body` | `nil` → `""`. Markdown pass-through. |
+| `.issue.priority` | _(not available)_ | Always `nil`. GitHub issues have no native priority field. |
+| `.issue.state` | `labels` + `state` | Derived via [state derivation algorithm](#state-derivation). |
+| `.issue.branch_name` | _(not available)_ | Always `""`. Issues API does not expose branch metadata. |
+| `.issue.url` | `html_url` | String, as-is. |
+| `.issue.labels` | `labels[].name` | Each label lowercased. Non-nil empty list when no labels. |
+| `.issue.assignee` | `assignees[0].login` | First assignee's login. Empty string when no assignees. |
+| `.issue.issue_type` | `type.name` | String, as-is. Empty string when `type` is null (organization-level issue types not configured). |
+| `.issue.parent` | `/issues/{id}/parent` | `nil` in list normalization; populated by a [single-issue read](#single-issue-reads). `nil` on 404. |
+| `.issue.comments` | `/issues/{id}/comments` | `nil` in list normalization; populated by a [single-issue read](#single-issue-reads) or when comments are fetched on demand. |
+| `.issue.blocked_by` | `/issues/{id}/dependencies/blocked_by` | Empty list in list normalization; populated by a [single-issue read](#single-issue-reads) or, for a candidate, by the [blocker extraction](#blocker-extraction) resolver. |
+| `.issue.created_at` | `created_at` | ISO-8601 string, as-is. |
+| `.issue.updated_at` | `updated_at` | ISO-8601 string, as-is. |
 
 ### ID and Identifier
 
-Both `ID` and `Identifier` map to the GitHub issue number. The global integer `id` field returned by the API is not used as the adapter's ID: it cannot be used to look up issues via the REST API. As a result, `FetchIssueStatesByIDs` and `FetchIssueStatesByIdentifiers` are structurally equivalent for this adapter.
+Both `.issue.id` and `.issue.identifier` map to the GitHub issue number. The global integer `id` field returned by the API is not used as the adapter's ID: it cannot be used to look up issues via the REST API. As a result, looking up issue states by ID or by identifier is structurally equivalent for this adapter.
 
 ### Comment normalization
 
-| Domain field | GitHub source | Normalization |
+| Template field | GitHub source | Normalization |
 |---|---|---|
-| `ID` | `id` | The numeric ID as a string. |
-| `Author` | `user.login` | String, as-is. |
-| `Body` | `body` | Markdown pass-through. |
-| `CreatedAt` | `created_at` | ISO-8601 string, as-is. |
+| `.id` | `id` | The numeric ID as a string. |
+| `.author` | `user.login` | String, as-is. |
+| `.body` | `body` | Markdown pass-through. |
+| `.created_at` | `created_at` | ISO-8601 string, as-is. |
 
 ### Blocker extraction
 
-`FetchCandidateIssues` does not call the dependencies route. Every candidate is marked unresolved by default, and a shared resolution layer between the registry and the orchestrator reads `FetchIssueBlockers` per candidate once the cheaper dispatch checks pass, bounded by a per-poll budget shared across every candidate that needs a read. `FetchIssueByID` still reads the route directly and resolves the candidate's list immediately.
+Candidate polling does not call the dependencies route. Every candidate is marked unresolved by default, and each candidate's blockers are resolved once the cheaper dispatch checks pass, bounded by a per-poll budget shared across every candidate that needs a read. A single-issue read still reads the route directly and resolves the candidate's list immediately.
 
 Each candidate list response carries a per-issue dependency summary:
 
@@ -259,7 +259,7 @@ Each candidate list response carries a per-issue dependency summary:
 
 A candidate whose summary reports `total_blocked_by: 0` is resolved from that field alone, at no extra request. Every other shape, including a missing or null summary, needs the separate read. `blocked_by` in the summary counts only dependencies GitHub still considers open, which is not the question dispatch asks (a closed dependency can still sit in an active Sortie state), so the adapter reads `total_blocked_by` instead.
 
-`GET /repos/{owner}/{repo}/issues/{issue_number}/dependencies/blocked_by` returns a JSON array of full issue objects blocking the queried one. Each becomes a `BlockerRef` with `ID` and `Identifier` set to the blocker's issue number, `DisplayID` set to the qualified `owner/repo#N` form, and `State` derived from the blocker's own labels the same way the adapter derives any issue's state.
+`GET /repos/{owner}/{repo}/issues/{issue_number}/dependencies/blocked_by` returns a JSON array of full issue objects blocking the queried one. Each becomes a blocker entry with `.id` and `.identifier` set to the blocker's issue number, `.display_id` set to the qualified `owner/repo#N` form, and `.state` derived from the blocker's own labels the same way the adapter derives any issue's state.
 
 A 404, or any other non-2xx response, is a failure rather than an empty list: the route answers a genuinely empty blocker list with `200` and `[]`, so a 404 means the issue or the route itself is gone, which the adapter is not entitled to read as "no blockers." A candidate whose read fails this way is held out of dispatch and retried on a later poll. See [candidate eligibility](/reference/state-machine/#candidate-eligibility) for the dispatch-side effect and the [Prometheus metrics reference](/reference/prometheus-metrics/#counters) for the `sortie_candidate_holds_total` counter this produces.
 
@@ -325,7 +325,7 @@ Sortie does not throttle client-side. When a budget is exhausted the request fai
 
 The `github` kind also provides an SCM adapter and a CI status provider, so a GitHub-backed deployment drives the pull-request reactions: review-comment feedback, CI-failure escalation, auto-merge, branch cleanup, and post-merge issue closure. The reaction kinds and their lifecycle are provider-agnostic and documented in the [reactions reference](/reference/reactions/); `provider: github` on a reaction block activates this adapter, and [how to set up PR reactions](/guides/setup-pr-reactions/) covers the operator procedure. This section documents only the GitHub-specific behavior.
 
-Both surfaces read `endpoint` from a top-level `github:` block first, the same [adapter pass-through configuration](/reference/workflow-config/#adapter-pass-through-configuration) mechanism the [`user_agent` field](#configuration) uses, and fall back to `tracker.endpoint` when the block omits it and `tracker.kind` is also `github`. Either way the resolved value is validated exactly like `tracker.endpoint`: a value that is not an absolute http(s) URL with a hostname is rejected at construction, before either adapter builds a client. `sortie validate` only inspects `tracker.endpoint`, so a `github:` block override that would fail this check is not caught offline.
+Both surfaces read `endpoint` from a top-level `github:` block first, the same [adapter pass-through configuration](/reference/workflow-config/#adapter-pass-through-configuration) mechanism the [`user_agent` field](#configuration) uses, and fall back to `tracker.endpoint` when the block omits it and `tracker.kind` is also `github`. Either way the resolved value is validated exactly like `tracker.endpoint`: a value that is not an absolute http(s) URL with a hostname is rejected when the adapter is built, before either one makes a request. `sortie validate` only inspects `tracker.endpoint`, so a `github:` block override that would fail this check is not caught offline.
 
 ### Mergeability
 
@@ -347,7 +347,7 @@ The GraphQL endpoint is `/graphql` on the configured host, or `/api/graphql` whe
 
 ### CI status provider
 
-The package registers a CI status provider under kind `github`, the role that drives the [`ci_failure` reaction](/reference/reactions/#reactionsci_failure). `FetchCIStatus` reads the ref's check runs (`GET /repos/{owner}/{repo}/commits/{ref}/check-runs`, paginated) and reduces them through the same aggregate rule every forge provider shares; neither the route's own `total_count` nor a platform-computed verdict is trusted.
+The CI status provider drives the [`ci_failure` reaction](/reference/reactions/#reactionsci_failure). Reading a ref's CI status (`GET /repos/{owner}/{repo}/commits/{ref}/check-runs`, paginated) reduces the check runs through the same aggregate rule every forge provider shares; neither the route's own `total_count` nor a platform-computed verdict is trusted.
 
 Two of the conclusion mappings are Sortie's own policy rather than a pass-through of GitHub's check-run conclusion: a run reporting `action_required` maps to failing, because the agent cannot perform the manual UI action a check like this is waiting on, and a run reporting `stale` maps to pending, because the check run that superseded it carries the conclusion that actually matters. Every other recognized conclusion maps to its direct domain equivalent; an unrecognized value maps to pending.
 
@@ -355,46 +355,32 @@ On a failing verdict, the provider fetches a log excerpt only for a failing run 
 
 ### SCM write operations
 
-The write surface is `MergePR`, `DeleteBranch`, and `RemoveLabel`. The supported merge strategies are `merge`, `squash`, and `rebase`, the same set the auto-merge [`strategy` field](/reference/reactions/#reactionsauto_merge) accepts; the value is sent as-is as the merge method.
+The write surface covers merging a pull request, deleting a branch, and removing a label. The supported merge strategies are `merge`, `squash`, and `rebase`, the same set the auto-merge [`strategy` field](/reference/reactions/#reactionsauto_merge) accepts; the value is sent as-is as the merge method.
 
-`MergePR` sends `PUT /repos/{owner}/{repo}/pulls/{number}/merge` carrying the commit title, the commit message, the merge method, and the expected head SHA as a stale-merge precondition.
+Merging a pull request sends `PUT /repos/{owner}/{repo}/pulls/{number}/merge` carrying the commit title, the commit message, the merge method, and the expected head SHA as a stale-merge precondition.
 
 | Merge outcome | GitHub response | Mapping |
 |---|---|---|
 | Merged | HTTP 200, `merged: true` | Success, carrying the merge commit SHA. |
 | HTTP 200, `merged: false` | n/a | Conflict error directly, with no "already merged" marker. |
-| Already merged, or the expected head SHA is stale | HTTP 405 or 409 | Conflict error. The caller re-reads the pull request and attaches the "already merged" marker only when that re-read confirms it merged. |
+| Already merged, or the expected head SHA is stale | HTTP 405 or 409 | Conflict error. The adapter re-reads the pull request and attaches the "already merged" marker only when that re-read confirms it merged. |
 
 The already-merged marker is never read from GitHub's rejection text: the adapter re-reads the pull request after any 405 or 409 and attaches the marker only when the re-read shows the merge landed.
 
-`DeleteBranch` calls `DELETE /repos/{owner}/{repo}/git/refs/heads/{branch}`. An already-gone branch (HTTP 404) is returned as a not-found error, which the caller treats as a successful no-op.
+Deleting a branch calls `DELETE /repos/{owner}/{repo}/git/refs/heads/{branch}`. An already-gone branch (HTTP 404) is a no-op.
 
-`RemoveLabel` calls `DELETE /repos/{owner}/{repo}/issues/{number}/labels/{label}`. An already-absent label (HTTP 404) is a no-op; any other failure surfaces as an error.
+Removing a label calls `DELETE /repos/{owner}/{repo}/issues/{number}/labels/{label}`. An already-absent label (HTTP 404) is a no-op; any other failure surfaces as an error.
 
 ### Token scope for auto-merge
 
-`VerifyAutoMergeScopes` calls `GET /rate_limit` and reads the `X-OAuth-Scopes` response header. Classic personal access tokens populate that header; fine-grained tokens and GitHub App installation tokens do not, and an absent or empty header is the "unable to verify" result. The caller fails open and lets auto-merge proceed. When the header is present, the legacy `repo` scope satisfies every requirement by itself; otherwise the check looks for `pull_requests:write` (required for `MergePR`) and, when the workflow's auto-merge configuration also deletes the branch, `contents:write` (required for `DeleteBranch`).
-
----
-
-## Adapter registration
-
-The combined tracker-and-SCM package `internal/scm/github` registers three kinds under `"github"` via `init` functions: the tracker adapter, the SCM adapter, and the CI status provider. Tracker registration metadata declares:
-
-| Property | Value |
-|---|---|
-| `RequiresProject` | `true` |
-| `RequiresAPIKey` | `true` |
-| `ValidateTrackerConfig` | Offline config diagnostics for `sortie validate`. |
-
-The orchestrator's preflight validation uses `RequiresProject` and `RequiresAPIKey` to produce specific error messages before adapter construction, and resolves the adapter through the registry rather than by importing the package. The SCM adapter and CI status provider carry no equivalent metadata and no offline validate hook; a misconfiguration on either surfaces only when Sortie starts or on the first request.
+The auto-merge scope check calls `GET /rate_limit` and reads the `X-OAuth-Scopes` response header. Classic personal access tokens populate that header; fine-grained tokens and GitHub App installation tokens do not, and an absent or empty header is the "unable to verify" result. Sortie fails open and lets auto-merge proceed. When the header is present, the legacy `repo` scope satisfies every requirement by itself; otherwise the check looks for `pull_requests:write` (required to merge a pull request) and, when the workflow's auto-merge configuration also deletes the branch, `contents:write` (required to delete the branch).
 
 ---
 
 ## External references
 
 - [GitHub REST API documentation](https://docs.github.com/en/rest): entry point for all endpoints called by this adapter
-- [Issues REST API](https://docs.github.com/en/rest/issues/issues): fetch, list, and comment endpoints used by `FetchIssuesByStates`, `FetchCandidateIssues`, and `CommentIssue`
+- [Issues REST API](https://docs.github.com/en/rest/issues/issues): fetch, list, and comment endpoints used for candidate polling, state-based lookups, and posting comments
 - [Search issues and pull requests](https://docs.github.com/en/rest/search/search#search-issues-and-pull-requests): the search API used when `query_filter` is configured
 - [Using pagination in the REST API](https://docs.github.com/en/rest/using-the-rest-api/using-pagination-in-the-rest-api): Link header semantics this adapter follows for `rel="next"`
 - [REST API rate limits](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api): primary and search bucket limits referenced above

@@ -103,7 +103,7 @@ When [`--env-file`](/reference/cli/#--env-file) is provided, the CLI resolves th
 | Type | Rule | Error behavior |
 |---|---|---|
 | string | Used as-is | - |
-| int | Parsed via `strconv.Atoi`. Leading/trailing whitespace trimmed. | Startup error: `config: polling.interval_ms: invalid integer value: abc (from SORTIE_POLLING_INTERVAL_MS)` |
+| int | Parsed as an integer, with leading and trailing whitespace trimmed first. | Startup error: `config: polling.interval_ms: invalid integer value: abc (from SORTIE_POLLING_INTERVAL_MS)` |
 | bool | Accepts `true`, `false`, `1`, `0` (case-insensitive) | Startup error naming the env var and rejected value |
 | csv | Comma-separated. Items trimmed. Empty items discarded. Empty string produces an empty list. | - |
 
@@ -262,7 +262,7 @@ Agent adapters spawn subprocesses that inherit the **full** parent process envir
 
 **A missing `ANTHROPIC_API_KEY` is the most common `claude-code` deployment failure.** Sortie starts and polls the tracker normally, but every agent session fails at launch with an auth error. The Sortie logs show a worker exit with `exit_type=error`; the root cause is only visible in the agent's stderr output.
 
-**For `copilot-cli`, a missing GitHub token is the equivalent failure.** The adapter's preflight check validates that at least one of `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN` is set, or that `gh auth status` succeeds. If none are available, `StartSession` fails with `agent_not_found`. The Copilot CLI itself implements try-and-fallback across these three variables. Precedence matters only when multiple sources hold different valid tokens.
+**For `copilot-cli`, a missing GitHub token is the equivalent failure.** The adapter's preflight check validates that at least one of `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN` is set, or that `gh auth status` succeeds. If none are available, the session fails to start with `agent_not_found`. The Copilot CLI itself implements try-and-fallback across these three variables. Precedence matters only when multiple sources hold different valid tokens.
 
 {{< callout type="warning" >}}
 **Classic PATs do not work with Copilot CLI**
@@ -270,7 +270,7 @@ Agent adapters spawn subprocesses that inherit the **full** parent process envir
 Copilot CLI requires a **fine-grained personal access token** (prefix `github_pat_`) with the **Copilot Requests** permission enabled. Classic PATs (prefix `ghp_`) fail authentication silently: the CLI falls through all three token variables and reports no valid credential. OAuth tokens (`gho_` from `copilot auth login`) and GitHub App user-to-server tokens (`ghu_`) also work. If you see authentication failures despite having a token set, check the token prefix.
 {{< /callout >}}
 
-**For `codex`, a missing `CODEX_API_KEY` produces the same pattern as Claude Code.** Sortie starts normally, but every agent session fails with an authentication error during the app-server initialization handshake. If `CODEX_API_KEY` is unset, the adapter attempts to use cached credentials from `~/.codex/auth.json`; if those are also absent or expired, `StartSession` fails with `response_error`. In SSH mode, the adapter injects `CODEX_API_KEY` into the remote command line because OpenSSH drops local environment variables by default.
+**For `codex`, a missing `CODEX_API_KEY` produces the same pattern as Claude Code.** Sortie starts normally, but every agent session fails with an authentication error during the app-server initialization handshake. If `CODEX_API_KEY` is unset, the adapter attempts to use cached credentials from `~/.codex/auth.json`; if those are also absent or expired, the session fails to start with `response_error`. In SSH mode, the adapter injects `CODEX_API_KEY` into the remote command line because OpenSSH drops local environment variables by default.
 
 **For `opencode`, authentication is provider-specific and the adapter does not preflight it.** OpenCode resolves credentials from its own environment, auth store, project `.env`, or `opencode.json` provider config, while the Sortie adapter injects or overrides a small managed `OPENCODE_*` set on every `run` and `export` subprocess.
 
@@ -284,7 +284,7 @@ Copilot CLI requires a **fine-grained personal access token** (prefix `github_pa
 
 In local mode the adapter injects only the managed `OPENCODE_*` values above; every provider credential, and any OpenCode config-discovery variable such as `OPENCODE_CONFIG`, comes from the parent environment or from OpenCode's own auth and config state, unmanaged by Sortie. In SSH mode the adapter prefixes only those managed variables onto the remote command, so whichever provider credentials your model selection needs must already exist on the remote host.
 
-**For `kiro`, authentication is a single credential.** The adapter reads `KIRO_API_KEY` and validates it at `StartSession` before any turn runs, so a missing or invalid key surfaces as a startup error. In SSH mode the adapter injects `KIRO_API_KEY` inline into the remote command because OpenSSH drops local environment variables. See the [Kiro CLI adapter reference](/reference/adapter-kiro/) for the credential preflight and headless behavior.
+**For `kiro`, authentication is a single credential.** The adapter reads `KIRO_API_KEY` and validates it before the session starts, so a missing or invalid key surfaces as a startup error. In SSH mode the adapter injects `KIRO_API_KEY` inline into the remote command because OpenSSH drops local environment variables. See the [Kiro CLI adapter reference](/reference/adapter-kiro/) for the credential preflight and headless behavior.
 
 **For `agent-client-protocol`, Sortie manages no credential at all.** This kind names no default runtime, so there is no fixed variable to preflight or document here: whichever binary `agent.command` names reads its own credential from the inherited environment, exactly like every other agent adapter's subprocess. See the [Agent Client Protocol adapter reference](/reference/adapter-agent-client-protocol/) for the kind itself, and [Gemini CLI](/reference/agent-client-protocol-gemini/) or [Kiro CLI](/reference/agent-client-protocol-kiro/) on that route for what each of those two runtimes actually reads.
 
@@ -302,9 +302,9 @@ Three expansion modes exist. The mode depends on the field.
 
 **Reference only**: Expands only when the **entire** trimmed value is a variable reference (`$VAR` or `${VAR}`). Mixed content like `https://example.com/$VAR` is returned unchanged, preventing destructive rewriting of URIs and paths.
 
-**Anywhere in string**: Full `os.ExpandEnv` semantics. Expands `$VAR` and `${VAR}` references **anywhere** in the string, including within larger values.
+**Anywhere in string**: Expands `$VAR` and `${VAR}` references **anywhere** in the string, including within larger values.
 
-**Path**: Expands `~` or `~/` at the start of the value to the user's home directory, then applies full `os.ExpandEnv`.
+**Path**: Expands `~` or `~/` at the start of the value to the user's home directory, then expands `$VAR` and `${VAR}` references anywhere in the rest of the string.
 
 ### Fields with `$VAR` support
 
@@ -338,7 +338,7 @@ For the GitLab adapter, the conventions are `$SORTIE_GITLAB_TOKEN` for `tracker.
 | Scenario | Behavior |
 |---|---|
 | `$VAR` resolves to an empty string | The field is treated as missing. For required fields (e.g., `tracker.api_key` when the adapter declares it required), this is a startup error. |
-| The referenced variable does not exist in the environment | Same as empty: `os.ExpandEnv` returns `""` for undefined variables. |
+| The referenced variable does not exist in the environment | Same as empty: an undefined variable expands to an empty string. |
 | `tracker.handoff_state` resolves to empty | Startup error: `config: tracker.handoff_state: resolved to empty (check environment variable)`. |
 | `tracker.no_change_state` resolves to empty | Startup error: `config: tracker.no_change_state: resolved to empty (check environment variable)`. |
 | `db_path` resolves to empty | Startup error: `config: db_path: resolved to empty (check environment variable)`. |
@@ -351,8 +351,6 @@ For the GitLab adapter, the conventions are `$SORTIE_GITLAB_TOKEN` for `tracker.
 - Arithmetic expansion (`$((1+2))`)
 - Default values (`${VAR:-default}`)
 - Glob expansion (`*`, `?`)
-
-Only the Go standard library `os.ExpandEnv` function is used. See the [Go documentation](https://pkg.go.dev/os#ExpandEnv) for exact semantics.
 
 ---
 
@@ -449,7 +447,7 @@ When the same variable name exists in both the parent environment (via `SORTIE_*
 
 ## MCP server environment
 
-The MCP tool server (`sortie mcp-server`) runs as a child process of the agent runtime, not of the Sortie orchestrator. The agent runtime constructs the MCP server's environment from the names in the `env` field of `.sortie/mcp.json`: a variable not listed in that block does not reach the server. Where the adapter re-expresses the file rather than handing over its path, a listed name can be delivered as a name alone, its value resolved from the agent runtime's own process environment: see [translated delivery](#translated-delivery-and-the-env-block). The worker writes per-session context variables and all `SORTIE_*`-prefixed process environment variables into this block before launching the agent. It writes the file for every agent kind, but the chain runs end to end only where the adapter delivers those servers to its runtime, either directly as the file's path or re-expressed in the form that runtime parses. Where it delivers neither, nothing spawns the server and the `env` block reaches nobody; see [delivery by agent kind](/reference/agent-extensions/#delivery-by-agent-kind).
+The MCP tool server (`sortie mcp-server`) runs as a child process of the agent runtime, not of the Sortie orchestrator. The agent runtime builds the MCP server's environment from the names in the `env` field of `.sortie/mcp.json`: a variable not listed in that block does not reach the server. Where the adapter re-expresses the file rather than handing over its path, a listed name can be delivered as a name alone, its value resolved from the agent runtime's own process environment: see [translated delivery](#translated-delivery-and-the-env-block). The worker writes per-session context variables and all `SORTIE_*`-prefixed process environment variables into this block before launching the agent. It writes the file for every agent kind, but the chain runs end to end only where the adapter delivers those servers to its runtime, either directly as the file's path or re-expressed in the form that runtime parses. Where it delivers neither, nothing spawns the server and the `env` block reaches nobody; see [delivery by agent kind](/reference/agent-extensions/#delivery-by-agent-kind).
 
 ### Environment composition
 
@@ -477,7 +475,7 @@ Tier 2 tools (like `tracker_api`) need tracker API credentials. These reach the 
 
 When the operator uses [`--env-file`](/reference/cli/#--env-file), the CLI exports the resolved absolute path as `SORTIE_ENV_FILE` in the process environment. The prefix scan captures this variable, so the MCP server receives the `.env` file path and applies the overrides in it through the same loader.
 
-The `.sortie/mcp.json` file is written with `0o600` permissions (owner read/write only) and resides within the per-issue workspace directory. The credential is already available to the agent subprocess via `os.Environ()`: writing it to the config file does not expand the agent's access.
+The `.sortie/mcp.json` file is written with `0o600` permissions (owner read/write only) and resides within the per-issue workspace directory. The credential is already available to the agent subprocess, which inherits the full process environment: writing it to the config file does not expand the agent's access.
 
 ### Controlled environment
 

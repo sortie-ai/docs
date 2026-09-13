@@ -6,7 +6,7 @@ date: 2026-07-16
 weight: 150
 url: /reference/adapter-gitea/
 ---
-The Gitea adapter connects Sortie to a self-hosted Gitea instance over the Gitea REST API v1. It is registered under kind `"gitea"`, fetches issues from the repository issue-list route, derives Sortie states from repository labels, follows `Link` header pagination, and normalizes responses to the domain `Issue` and `Comment` types. Two facts shape the rest of this page. Gitea is self-hosted, so `tracker.endpoint` is required and there is no default host. Gitea exposes no GraphQL API, so the REST surface under `/api/v1` is the whole contract. The canonical API documentation is at [docs.gitea.com](https://docs.gitea.com), and each instance also serves its own OpenAPI description at `{endpoint}/api/swagger`.
+The Gitea adapter connects Sortie to a self-hosted Gitea instance over the Gitea REST API v1. It is registered under kind `"gitea"`, fetches issues from the repository issue-list route, derives Sortie states from repository labels, follows `Link` header pagination, and normalizes responses to the same [issue object](/reference/workflow-config/#issue) fields. Two facts shape the rest of this page. Gitea is self-hosted, so `tracker.endpoint` is required and there is no default host. Gitea exposes no GraphQL API, so the REST surface under `/api/v1` is the whole contract. The canonical API documentation is at [docs.gitea.com](https://docs.gitea.com), and each instance also serves its own OpenAPI description at `{endpoint}/api/swagger`.
 
 See also: [WORKFLOW.md configuration](/reference/workflow-config/) for the full tracker schema, [how to connect Sortie to Gitea](/guides/connect-to-gitea/) for setup instructions, [error reference](/reference/errors/) for all tracker error kinds, [environment variables](/reference/environment/) for `$VAR` expansion behavior.
 
@@ -29,7 +29,7 @@ The adapter reads its configuration from the `tracker` section of the [WORKFLOW.
 | `query_filter` | string | No | `""` | URL query fragment merged into the repository issue-list request. See [query filter](#query-filter). |
 | `user_agent` | string | No | `sortie/<version>` | `User-Agent` header sent on all requests. Sortie sets the tracker role's value to its own version string, so only the SCM and CI roles honor an override, set in a top-level `gitea:` block. |
 
-`in_progress_state` is a generic tracker field, not a Gitea-specific one. When set, the orchestrator transitions the issue into that label at dispatch through the same label swap `TransitionIssue` performs. Its collision rules (must appear in `active_states`, must not collide with `terminal_states` or `handoff_state`) are enforced by the generic config validation, so the Gitea validate hook carries no `in_progress_state` arm of its own.
+`in_progress_state` is a generic tracker field, not a Gitea-specific one. When set, the orchestrator transitions the issue into that label at dispatch through the same label swap a transition performs. Its collision rules (must appear in `active_states`, must not collide with `terminal_states` or `handoff_state`) are enforced by the generic config validation, so the Gitea validate hook carries no `in_progress_state` arm of its own.
 
 ```yaml
 tracker:
@@ -51,17 +51,19 @@ tracker:
 
 ### `endpoint`
 
-The instance base URL, for example `https://gitea.example.com`. Required: Gitea is self-hosted, so there is no default host, and an empty value is a construction error. Surrounding whitespace and trailing slashes are trimmed. The adapter appends `/api/v1`, and tolerates a value that already ends in `/api/v1` without appending it twice. Plain-`http` endpoints send the token in cleartext; `sortie validate` warns on an `http` endpoint and on a value already ending in `/api/v1`.
+The instance base URL, for example `https://gitea.example.com`. Required: Gitea is self-hosted, so there is no default host, and an empty value is rejected when the adapter is built. Surrounding whitespace and trailing slashes are trimmed. The adapter appends `/api/v1`, and tolerates a value that already ends in `/api/v1` without appending it twice. Plain-`http` endpoints send the token in cleartext; `sortie validate` warns on an `http` endpoint and on a value already ending in `/api/v1`.
 
-A non-empty value must also parse as an absolute `http` or `https` URL carrying a hostname, with neither a query nor a fragment; this is rejected at construction, before any client is built, rather than surfacing later as a network error. An IPv6 literal must be bracketed: `http://[fd00::1]:3000`, not `http://fd00::1:3000`. The unbracketed form is exactly how such an address appears in `ip addr` output on a self-hosted instance. The same rule applies wherever an endpoint reaches this adapter family: the tracker, the SCM adapter, and the CI status provider (see [SCM and CI surface](#scm-and-ci-surface) for where those two read theirs).
+A non-empty value must also parse as an absolute `http` or `https` URL carrying a hostname, with neither a query nor a fragment; this is rejected when the adapter is built, rather than surfacing later as a network error. An IPv6 literal must be bracketed: `http://[fd00::1]:3000`, not `http://fd00::1:3000`. The unbracketed form is exactly how such an address appears in `ip addr` output on a self-hosted instance. The same rule applies wherever an endpoint reaches this adapter family: the tracker, the SCM adapter, and the CI status provider (see [SCM and CI surface](#scm-and-ci-surface) for where those two read theirs).
 
 ### `project`
 
-Repository in `owner/repo` form, for example `sortie-ai/sortie`. The adapter splits the value on its single slash at construction and rejects anything that is not exactly one slash with a non-empty owner and repository.
+Repository in `owner/repo` form, for example `sortie-ai/sortie`. The adapter splits the value on its single slash when it is built and rejects anything that is not exactly one slash with a non-empty owner and repository.
 
 ### State defaults
 
 The adapter's default active states are `["backlog", "in-progress", "review"]`; its default terminal states are `["done", "wontfix"]`. When `active_states` or `terminal_states` is omitted, the adapter substitutes the corresponding default to derive an issue's state from its labels; an open issue with no state label derives to the first active state. These defaults feed state derivation only. The orchestrator gates dispatch on the workflow's configured `active_states`, not on the adapter's substituted defaults, so an omitted `active_states` dispatches nothing. Set both lists to the repository's actual labels rather than relying on the defaults.
+
+`sortie validate` checks these fields without making network calls, reusing the rules enforced when the adapter is built: an empty or padded state-list element, and an overlap between `active_states` and `terminal_states`, are both warnings here rather than errors, since a padded label only fails to match at dispatch time rather than blocking startup.
 
 ---
 
@@ -73,7 +75,7 @@ The adapter authenticates with a Gitea access token. The token is sent in the `A
 Authorization: token <api_key>
 ```
 
-Gitea also accepts the `Bearer` scheme, but the adapter sends `token`. The token is sent **verbatim**, so the configured value must be the bare token with no surrounding whitespace; a leading or trailing space becomes part of the credential and fails authentication. `sortie validate` warns when the resolved key carries surrounding whitespace.
+Gitea also accepts the `Bearer` scheme, but the adapter sends `token`. The token is sent **verbatim**, so the configured value must be the bare token with no surrounding whitespace; a leading or trailing space becomes part of the credential and fails authentication. `sortie validate` warns when the resolved key carries surrounding whitespace, and when `api_key` is empty, suggesting `api_key: $SORTIE_GITEA_TOKEN` if that variable is set.
 
 A Gitea token is a 40-character hex string with **no identifying prefix**, unlike a GitHub `ghp_` or a Linear `lin_api_` key. Secret scanners cannot recognize a leaked Gitea token by shape.
 
@@ -92,24 +94,24 @@ The minimal verified scope set is `write:issue`, `read:user`, and `read:reposito
 | `User-Agent` | `sortie/<version>` on tracker requests; the configured `user_agent` value on SCM and CI requests, defaulting to `sortie/dev`. |
 | `Content-Type` | `application/json`, on requests with a body. |
 
-The HTTP client has a 30-second per-request timeout. Context cancellation propagates; a cancelled context aborts the in-flight request.
+The HTTP client has a 30-second per-request timeout. Cancelling the operation in progress aborts the in-flight request immediately.
 
-### Construction-time preflight
+### Startup preflight
 
-The constructor runs two calls before the first poll, and a failure blocks construction:
+Two calls run before the first poll, and a failure blocks Sortie from starting:
 
 | Call | Purpose |
 |---|---|
 | `GET /user` | Validates the token and reads the automation identity. |
 | `GET /repos/{owner}/{repo}` | Confirms the configured repository. |
 
-An invalid token fails the first call (`tracker_auth_error`); a mistyped repository fails the second (`tracker_not_found`). Transient 5xx or transport failures are retried with a bounded backoff before construction fails.
+An invalid token fails the first call (`tracker_auth_error`); a mistyped repository fails the second (`tracker_not_found`). Transient 5xx or transport failures are retried with a bounded backoff before the adapter fails to build.
 
 ---
 
 ## State model
 
-Gitea issues natively carry only `open` and `closed`. There is no workflow engine, no transition graph, and no `state_reason` field. The adapter derives Sortie state from repository **labels**. `active_states`, `terminal_states`, and `handoff_state` name labels, lowercased at construction.
+Gitea issues natively carry only `open` and `closed`. There is no workflow engine, no transition graph, and no `state_reason` field. The adapter derives Sortie state from repository **labels**. `active_states`, `terminal_states`, and `handoff_state` name labels, lowercased when the adapter is built.
 
 ### Derivation
 
@@ -123,7 +125,7 @@ When more than one configured label is present, the adapter logs a WARN naming t
 
 ### Transitions
 
-`TransitionIssue` composes the move from label and state edits, because Gitea has no transition API. It removes the current state label by id, attaches the target state label by id, and reconciles the native state: a terminal-state target closes an open issue, and an active-state target reopens a closed one. A target that is not a configured active, terminal, or handoff state is rejected with `tracker_payload_error` before any write.
+A transition composes the move from label and state edits, because Gitea has no transition API. It removes the current state label by id, attaches the target state label by id, and reconciles the native state: a terminal-state target closes an open issue, and an active-state target reopens a closed one. A target that is not a configured active, terminal, or handoff state is rejected with `tracker_payload_error` before any write.
 
 ### Create-on-missing labels
 
@@ -135,9 +137,9 @@ A configured state label absent from the repository is created on demand with a 
 
 A Gitea issue carries two numbers. The `number` (the index) is repo-scoped, human-visible, and the value every per-issue route consumes (`/repos/{owner}/{repo}/issues/{index}`). The `id` is an instance-global integer that no issue route accepts as input.
 
-The adapter maps both `domain.Issue.ID` and `domain.Issue.Identifier` to the index as a string and never uses the global `id`. Because ID and Identifier are the same value, `FetchIssueStatesByIDs` and `FetchIssueStatesByIdentifiers` share one implementation.
+The adapter maps both `.issue.id` and `.issue.identifier` to the index as a string and never uses the global `id`. Because the two are the same value, looking up issue states by ID and by identifier share one implementation.
 
-`tracker.project` is `owner/repo`, split once at construction into the owner and repository parts. Every route the adapter builds derives from those parts.
+`tracker.project` is `owner/repo`, split once when the adapter is built into the owner and repository parts. Every route the adapter builds derives from those parts.
 
 ---
 
@@ -153,43 +155,43 @@ Gitea has no transition API, so a transition is composed from label and state ed
 
 ## Field mapping
 
-The adapter normalizes Gitea issue responses to [`domain.Issue`](/reference/workflow-config/) fields.
+The adapter normalizes Gitea issue responses to [issue object](/reference/workflow-config/#issue) fields.
 
-| Domain field | Gitea source | Normalization |
+| Template field | Gitea source | Normalization |
 |---|---|---|
-| `ID` | `number` | Index as a string. Same value as `Identifier`. |
-| `Identifier` | `number` | Index as a string (for example, `"42"`). |
-| `Title` | `title` | String, as-is. |
-| `Description` | `body` | Markdown pass-through. Empty string when null. |
-| `Priority` | _(not available)_ | Always `nil`. Gitea issues have no priority field. |
-| `State` | `labels` + native `state` | Derived via the [state model](#state-model). |
-| `BranchName` | `ref` | Opaque string, as-is. Empty maps to null. Never parsed. |
-| `URL` | `html_url` | String, as-is. |
-| `Labels` | `labels[].name` | Each label lowercased. Non-nil empty slice when no labels. |
-| `Assignee` | `assignees[0].login` | First assignee's login. Empty string when no assignees. |
-| `IssueType` | _(not available)_ | Always empty. Gitea has no native issue-type field. |
-| `Parent` | _(not available)_ | Always `nil`. Gitea has no parent or sub-issue concept. |
-| `Comments` | separate route | `nil` on candidate fetch. Populated by `FetchIssueByID` and `FetchIssueComments`. Markdown. |
-| `BlockedBy` | `.../issues/{index}/dependencies` | Each blocker to a `BlockerRef` with `ID` and `Identifier` set to its index and `State` label-derived. See [blocker extraction](#blocker-extraction). |
-| `CreatedAt` | `created_at` | RFC 3339 string, as-is. |
-| `UpdatedAt` | `updated_at` | String, as-is. |
+| `.issue.id` | `number` | Index as a string. Same value as `.issue.identifier`. |
+| `.issue.identifier` | `number` | Index as a string (for example, `"42"`). |
+| `.issue.title` | `title` | String, as-is. |
+| `.issue.description` | `body` | Markdown pass-through. Empty string when null. |
+| `.issue.priority` | _(not available)_ | Always `nil`. Gitea issues have no priority field. |
+| `.issue.state` | `labels` + native `state` | Derived via the [state model](#state-model). |
+| `.issue.branch_name` | `ref` | Opaque string, as-is. Empty maps to null. Never parsed. |
+| `.issue.url` | `html_url` | String, as-is. |
+| `.issue.labels` | `labels[].name` | Each label lowercased. Non-nil empty list when no labels. |
+| `.issue.assignee` | `assignees[0].login` | First assignee's login. Empty string when no assignees. |
+| `.issue.issue_type` | _(not available)_ | Always empty. Gitea has no native issue-type field. |
+| `.issue.parent` | _(not available)_ | Always `nil`. Gitea has no parent or sub-issue concept. |
+| `.issue.comments` | separate route | `nil` on candidate fetch. Populated when the issue is read individually or comments are fetched on demand. Markdown. |
+| `.issue.blocked_by` | `.../issues/{index}/dependencies` | Each blocker to a blocker entry with `.id` and `.identifier` set to its index and `.state` label-derived. See [blocker extraction](#blocker-extraction). |
+| `.issue.created_at` | `created_at` | RFC 3339 string, as-is. |
+| `.issue.updated_at` | `updated_at` | String, as-is. |
 
 ### Comment normalization
 
-| Domain field | Gitea source | Normalization |
+| Template field | Gitea source | Normalization |
 |---|---|---|
-| `ID` | `id` | Integer formatted as a string. |
-| `Author` | `user.login` | String, as-is. |
-| `Body` | `body` | Markdown pass-through. |
-| `CreatedAt` | `created_at` | RFC 3339 string, as-is. |
+| `.id` | `id` | Integer formatted as a string. |
+| `.author` | `user.login` | String, as-is. |
+| `.body` | `body` | Markdown pass-through. |
+| `.created_at` | `created_at` | RFC 3339 string, as-is. |
 
 Comments arrive oldest-first from Gitea and need no client-side re-sort.
 
 ### Blocker extraction
 
-`FetchCandidateIssues` does not call the dependencies route: `giteaIssue` carries no dependency field, so every candidate is marked unresolved unconditionally, with no cheap zero-dependency shortcut like the GitHub adapter's dependency summary. A shared resolution layer between the registry and the orchestrator reads `FetchIssueBlockers` per candidate once the cheaper dispatch checks pass, bounded by a per-poll budget shared across every candidate that needs a read. `FetchIssueByID` still reads the route directly and resolves the candidate's list immediately.
+Candidate polling does not call the dependencies route: the candidate response carries no dependency field, so every candidate is marked unresolved unconditionally, with no cheap zero-dependency shortcut like the GitHub adapter's dependency summary. Each candidate's blockers are resolved once the cheaper dispatch checks pass, bounded by a per-poll budget shared across every candidate that needs a read. Reading the issue individually still reads the route directly and resolves the candidate's list immediately.
 
-`GET /repos/{owner}/{repo}/issues/{index}/dependencies` returns a JSON array of full issue objects blocking the queried one. Each becomes a `BlockerRef` with `ID` and `Identifier` set to the blocker's index, `DisplayID` set to the qualified `owner/repo#N` form, and `State` derived from the blocker's own labels the same way the adapter derives any issue's state.
+`GET /repos/{owner}/{repo}/issues/{index}/dependencies` returns a JSON array of full issue objects blocking the queried one. Each becomes a blocker entry with `.id` and `.identifier` set to the blocker's index, `.display_id` set to the qualified `owner/repo#N` form, and `.state` derived from the blocker's own labels the same way the adapter derives any issue's state.
 
 A 404, or any other non-2xx response, is a failure rather than an empty list: the route is expected to answer a genuinely empty blocker list with `200` and `[]`, not `404`. A candidate whose read fails this way is held out of dispatch and retried on a later poll. See [candidate eligibility](/reference/state-machine/#candidate-eligibility) for the dispatch-side effect and the [Prometheus metrics reference](/reference/prometheus-metrics/#counters) for the `sortie_candidate_holds_total` counter this produces.
 
@@ -197,7 +199,7 @@ A 404, or any other non-2xx response, is a failure rather than an empty list: th
 
 ## Query filter
 
-`tracker.query_filter` is a URL query fragment, parsed with `url.ParseQuery` and merged into the repository issue-list request. A value that is not a valid URL query is rejected at construction with `tracker_payload_error`.
+`tracker.query_filter` is a URL query fragment merged into the repository issue-list request. A value that is not a valid URL query is rejected when the adapter is built, with `tracker_payload_error`.
 
 ```yaml
 # Issues assigned to the automation account
@@ -210,17 +212,17 @@ query_filter: "labels=agent-ready"
 query_filter: "assigned_by=hermes-bot&labels=agent-ready"
 ```
 
-The adapter owns four keys and rejects a fragment that names any of them at construction with `tracker_payload_error`. They are checked in this order: `state`, `type`, `page`, `limit`. Every other key passes through. Gitea silently ignores an unrecognized parameter and returns every open issue, so a key outside Gitea's known issue-list parameters (`labels`, `q`, `milestones`, `since`, `before`, `created_by`, `assigned_by`, `mentioned_by`) widens rather than narrows the result; the adapter warns at construction on such a key.
+The adapter owns four keys and rejects a fragment that names any of them when it is built, with `tracker_payload_error`. They are checked in this order: `state`, `type`, `page`, `limit`. Every other key passes through. Gitea silently ignores an unrecognized parameter and returns every open issue, so a key outside Gitea's known issue-list parameters (`labels`, `q`, `milestones`, `since`, `before`, `created_by`, `assigned_by`, `mentioned_by`) widens rather than narrows the result; the adapter warns when it is built on such a key.
 
-The `labels` parameter carries three edges. It is server-side AND across comma-separated names, so an issue must carry every name listed. It is case-sensitive. An unresolvable name silently drops the whole filter and returns every open issue. The adapter warns at construction when a `query_filter` label does not resolve against the repository's labels.
+The `labels` parameter carries three edges. It is server-side AND across comma-separated names, so an issue must carry every name listed. It is case-sensitive. An unresolvable name silently drops the whole filter and returns every open issue. The adapter warns, when it is built, that a `query_filter` label does not resolve against the repository's labels.
 
-The filter merges into `FetchCandidateIssues` and the open-state half of `FetchIssuesByStates`. It does not merge into the closed-state half of `FetchIssuesByStates`, nor into the per-id and per-identifier reconciliation lookups, which fetch each issue directly.
+The filter merges into candidate polling and the open-state half of state-based lookups. It does not merge into the closed-state half of state-based lookups, nor into the per-id and per-identifier reconciliation lookups, which fetch each issue directly.
 
 ---
 
 ## Pagination
 
-List routes take `page` (1-based) and `limit`. The page-size parameter is `limit`, not `per_page`. The adapter sends `limit=50` and follows the RFC 8288 `Link` header (`rel="next"`, `rel="last"`) through the shared paginator, up to a 200-page guard.
+List routes take `page` (1-based) and `limit`. The page-size parameter is `limit`, not `per_page`. The adapter sends `limit=50` and follows the RFC 8288 `Link` header (`rel="next"`, `rel="last"`) the same way on every list route, up to a 200-page guard.
 
 The server clamps `limit` to the instance's `MAX_RESPONSE_ITEMS` (default 50), so the adapter iterates by the `Link` header rather than assuming a page size; an operator who lowers the cap in `app.ini` does not break pagination. An absent `Link` header is the normal end-of-results signal.
 
@@ -244,7 +246,7 @@ Every Gitea API error carries one uniform JSON body:
 {"message": "<diagnostic>", "url": "https://<instance>/api/swagger"}
 ```
 
-The adapter maps the HTTP status to a `domain.TrackerErrorKind`.
+The adapter maps the HTTP status to a normalized error category.
 
 | HTTP status | Condition | Error kind |
 |---|---|---|
@@ -275,38 +277,38 @@ For the full error taxonomy and operator guidance, see the [error reference](/re
 
 The `gitea` kind also provides an SCM adapter and a CI status provider, so a Gitea-backed deployment drives the same pull-request reactions as a GitHub-backed one: review-comment feedback, CI-failure escalation, auto-merge, and branch cleanup. The reaction kinds and their lifecycle are provider-agnostic and documented in the [reactions reference](/reference/reactions/); `provider: gitea` on a reaction block activates this adapter, and [how to set up PR reactions](/guides/setup-pr-reactions/) covers the operator procedure. This section documents only the Gitea-specific behavior. Gitea exposes no GraphQL API and no aggregate review-decision or check-runs endpoint, so every read below is composed from REST routes under `/api/v1`.
 
-Both surfaces read `endpoint` from a top-level `gitea:` block first, the same [adapter pass-through configuration](/reference/workflow-config/#adapter-pass-through-configuration) mechanism the [`user_agent` field](#configuration) uses, and fall back to `tracker.endpoint` when the block omits it and `tracker.kind` is also `gitea`. Whichever value they resolve is validated exactly like `tracker.endpoint`: a value that is not an absolute http(s) URL with a hostname is rejected at construction, before either adapter builds a client. `sortie validate` only inspects `tracker.endpoint`, so a `gitea:` block endpoint that would fail this check is not caught offline. It surfaces the first time Sortie starts.
+Both surfaces read `endpoint` from a top-level `gitea:` block first, the same [adapter pass-through configuration](/reference/workflow-config/#adapter-pass-through-configuration) mechanism the [`user_agent` field](#configuration) uses, and fall back to `tracker.endpoint` when the block omits it and `tracker.kind` is also `gitea`. Whichever value they resolve is validated exactly like `tracker.endpoint`: a value that is not an absolute http(s) URL with a hostname is rejected when the adapter is built, before either one makes a request. `sortie validate` only inspects `tracker.endpoint`, so a `gitea:` block endpoint that would fail this check is not caught offline. It surfaces the first time Sortie starts.
 
 ### SCM read operations
 
-The adapter implements the six read methods of the `SCMAdapter` interface. Every route uses the PR index; pull requests share the issue index sequence, so the timeline route lives under `/issues/`.
+The adapter implements the SCM contract's six read operations. Every route uses the PR index; pull requests share the issue index sequence, so the timeline route lives under `/issues/`.
 
-| Method | Gitea route(s) |
+| Operation | Gitea route(s) |
 |---|---|
-| `GetReviewDecision` | `GET /repos/{owner}/{repo}/pulls/{index}/reviews`, `GET .../pulls/{index}` |
-| `GetMergeability` | `GET .../pulls/{index}` |
-| `GetCIStatus` | `GET .../pulls/{index}`, `GET .../commits/{sha}/status` |
-| `FetchPendingReviews` | `GET .../pulls/{index}/reviews`, `GET .../pulls/{index}/reviews/{id}/comments` |
-| `FetchBotReviewComments` | Same routes as `FetchPendingReviews`, filtered by the bot-username allowlist |
-| `ListLabelEvents` | `GET .../issues/{index}/timeline` |
+| Review decision | `GET /repos/{owner}/{repo}/pulls/{index}/reviews`, `GET .../pulls/{index}` |
+| Mergeability | `GET .../pulls/{index}` |
+| CI status | `GET .../pulls/{index}`, `GET .../commits/{sha}/status` |
+| Pending reviews | `GET .../pulls/{index}/reviews`, `GET .../pulls/{index}/reviews/{id}/comments` |
+| Bot review comments | Same routes as pending reviews, filtered by the bot-username allowlist |
+| Label events | `GET .../issues/{index}/timeline` |
 
 These routes paginate by page number, not by the `Link` header the tracker routes follow. The adapter accumulates fixed-size pages of 50 until a short page arrives, capped at 50 pages with a logged warning.
 
 Reviews carry a `state` enum of `APPROVED`, `PENDING`, `COMMENT`, `REQUEST_CHANGES`, and `REQUEST_REVIEW`. Gitea spells the changes-requested state `REQUEST_CHANGES`, not GitHub's `CHANGES_REQUESTED`; a state filter copied from the GitHub adapter matches nothing. Reviews an operator dismissed are skipped by every read.
 
-`GetReviewDecision` folds the review list in the adapter, since Gitea has no aggregate field to read. Reviews are ordered by `submitted_at` then `id`, and the latest `APPROVED` or `REQUEST_CHANGES` per reviewer supersedes that reviewer's earlier reviews; `COMMENT`, `PENDING`, and `REQUEST_REVIEW` are not decisions. The ordering is load-bearing, so a `submitted_at` that is not a valid RFC 3339 value fails the read rather than sorting the review to the epoch, where a superseded approval could outrank the changes-requested review that supersedes it. Only reviews that can change the verdict are parsed, so a dismissed or non-decision review cannot fail the read. Any standing `REQUEST_CHANGES` yields the changes-requested decision; otherwise any `APPROVED` yields approved; otherwise a non-empty `requested_reviewers` list on the PR yields review-required; otherwise not-required.
+The review-decision read folds the review list, since Gitea has no aggregate field to read. Reviews are ordered by `submitted_at` then `id`, and the latest `APPROVED` or `REQUEST_CHANGES` per reviewer supersedes that reviewer's earlier reviews; `COMMENT`, `PENDING`, and `REQUEST_REVIEW` are not decisions. The ordering is load-bearing, so a `submitted_at` that is not a valid RFC 3339 value fails the read rather than sorting the review to the epoch, where a superseded approval could outrank the changes-requested review that supersedes it. Only reviews that can change the verdict are parsed, so a dismissed or non-decision review cannot fail the read. Any standing `REQUEST_CHANGES` yields the changes-requested decision; otherwise any `APPROVED` yields approved; otherwise a non-empty `requested_reviewers` list on the PR yields review-required; otherwise not-required.
 
 Review comments are single-line: the comment object carries `position` but no end-line field. A comment whose anchor a later push removed reports `position: 0`; its line falls back to `original_position` and the comment is marked outdated. A retained review's own body is returned as a PR-level comment alongside its inline comments.
 
 ### Bot classification
 
-Gitea users carry no platform bot marker, so bot classification is the [`bot_usernames`](/reference/reactions/#reactionsbot_review) allowlist alone: `FetchBotReviewComments` retains a review or inline comment only when its author's login matches an allowlist entry case-insensitively, and it applies no review-state filter. A nil or empty allowlist selects nothing, so the `bot_review` reaction routes no comments on Gitea until `bot_usernames` names each bot account.
+Gitea users carry no platform bot marker, so bot classification is the [`bot_usernames`](/reference/reactions/#reactionsbot_review) allowlist alone: the bot-review-comment read retains a review or inline comment only when its author's login matches an allowlist entry case-insensitively, and it applies no review-state filter. An empty allowlist selects nothing, so the `bot_review` reaction routes no comments on Gitea until `bot_usernames` names each bot account.
 
-`FetchPendingReviews` passes no allowlist, so unlike the GitHub adapter it cannot exclude a bot-authored `REQUEST_CHANGES` review from the pending-review read.
+The pending-review read passes no allowlist, so unlike the GitHub adapter it cannot exclude a bot-authored `REQUEST_CHANGES` review.
 
 ### Mergeability
 
-The pull request object carries a plain `mergeable` bool: there is no `mergeable_state` string and no tri-state computing field. The mapping to the domain mergeability state is lossy. A draft maps to `blocked`, a mergeable non-draft to `clean`, and every other state to `unknown`. Gitea never yields `dirty` or `unstable`; a merge conflict and an in-progress recheck both collapse to `unknown`, which the auto-merge state machine re-enqueues rather than treating as a hard conflict. The same read supplies `head.sha` (the CI ref), `head.ref` (the head branch), and `base.ref` (the base branch).
+The pull request object carries a plain `mergeable` bool: there is no `mergeable_state` string and no tri-state computing field. The mapping to the [normalized mergeability state](/reference/reactions/#normalized-mergeability-states) is lossy. A draft maps to `blocked`, a mergeable non-draft to `clean`, and every other state to `unknown`. Gitea never yields `dirty` or `unstable`; a merge conflict and an in-progress recheck both collapse to `unknown`, which the auto-merge state machine re-enqueues rather than treating as a hard conflict. The same read supplies `head.sha` (the CI ref), `head.ref` (the head branch), and `base.ref` (the base branch).
 
 ### Combined commit status
 
@@ -320,11 +322,11 @@ The pull request object carries a plain `mergeable` bool: there is no `mergeable
 | `failure` | Failing |
 | `error` | Failing |
 
-`GetCIStatus` reports `failing` when any entry is failing, `pending` when no entry is failing but one is pending, and `success` otherwise. A head commit with no statuses reports the empty conclusion, meaning no checks exist. Values are compared case-insensitively.
+The CI status read reports `failing` when any entry is failing, `pending` when no entry is failing but one is pending, and `success` otherwise. A head commit with no statuses reports the empty conclusion, meaning no checks exist. Values are compared case-insensitively.
 
 ### CI status provider
 
-The package registers a CI status provider under kind `gitea`, the role the GitHub provider fills for GitHub-backed deployments; it drives the [`ci_failure` reaction](/reference/reactions/#reactionsci_failure). `FetchCIStatus` reads the combined commit status directly by ref (a branch name or SHA, percent-encoded into the route), with no PR fetch or SHA resolution, and normalizes it to the domain CI result.
+The CI status provider drives the [`ci_failure` reaction](/reference/reactions/#reactionsci_failure). Reading a ref's CI status reads the combined commit status directly by ref (a branch name or SHA, percent-encoded into the route), with no PR fetch or SHA resolution, and normalizes it to the CI result.
 
 Each per-status entry becomes a check run: `context` is the check name, `status` maps to the run status and conclusion, and `target_url` is the details URL. `success`, `failure`, `error`, and `warning` count as completed runs; any other value is in progress. The conclusion is `success` for `success`, `failure` for `failure` and `error`, `neutral` for `warning`, and `pending` otherwise. The aggregate is failing when any run concludes failure, passing when every run has completed and none failed, and pending otherwise; a ref with no statuses yields a pending result with an empty, non-nil check-run list.
 
@@ -332,44 +334,30 @@ The failing-run log excerpt is assembled from the first failing entry's `descrip
 
 ### SCM write operations
 
-The write surface is `MergePR`, `DeleteBranch`, and `RemoveLabel`. The supported merge strategies are `merge`, `squash`, and `rebase`, the same set the auto-merge [`strategy` field](/reference/reactions/#reactionsauto_merge) accepts; any other value is rejected before a request is issued.
+The write surface covers merging a pull request, deleting a branch, and removing a label. The supported merge strategies are `merge`, `squash`, and `rebase`, the same set the auto-merge [`strategy` field](/reference/reactions/#reactionsauto_merge) accepts; any other value is rejected before a request is issued.
 
-`MergePR` posts to `.../pulls/{index}/merge` with a body carrying `Do` (the strategy) and `head_commit_id` (the expected head SHA, sent as a stale-merge precondition).
+Merging a pull request posts to `.../pulls/{index}/merge` with a body carrying `Do` (the strategy) and `head_commit_id` (the expected head SHA, sent as a stale-merge precondition).
 
 | Merge outcome | Gitea response | Mapping |
 |---|---|---|
 | Merged | HTTP 200, empty body | Success. No merge-commit SHA is returned on this route. |
-| Already merged | HTTP 405 | Conflict error carrying the "already merged" marker; the caller dispatches it as a success. |
-| Stale `head_commit_id` | HTTP 409 | Conflict error; the caller re-reads the merge state and reattempts. |
+| Already merged | HTTP 405 | Conflict error carrying the "already merged" marker; Sortie dispatches it as a success. |
+| Stale `head_commit_id` | HTTP 409 | Conflict error; the adapter re-reads the merge state and reattempts. |
 | Missing scope | HTTP 403 naming a scope | Auth error rewritten to name `write:repository`. |
 
 The already-merged marker is gated on a PR re-read, not on Gitea's message text: after any 405 or 409 the adapter re-reads the PR and attaches the marker only when the PR is in fact merged, so a stale-head rejection never carries it.
 
-`DeleteBranch` calls `DELETE .../branches/{branch}`; success is HTTP 204. An already-gone branch returns HTTP 404, mapped to a not-found error the caller treats as a successful no-op. The branch name is percent-encoded, so `feature/x` reaches Gitea as `feature%2Fx`.
+Deleting a branch calls `DELETE .../branches/{branch}`; success is HTTP 204. An already-gone branch returns HTTP 404, which is a no-op. The branch name is percent-encoded, so `feature/x` reaches Gitea as `feature%2Fx`.
 
-`RemoveLabel` resolves the label name to its numeric id against the PR's own labels (`GET .../issues/{index}/labels`), then calls `DELETE .../issues/{index}/labels/{id}`; Gitea's label routes are id-based, and a name in the id position returns 404. A name that does not resolve is a no-op, and no request is issued. A delete that races an external removal (HTTP 404) is likewise treated as success.
+Removing a label resolves the label name to its numeric id against the PR's own labels (`GET .../issues/{index}/labels`), then calls `DELETE .../issues/{index}/labels/{id}`; Gitea's label routes are id-based, and a name in the id position returns 404. A name that does not resolve is a no-op, and no request is issued. A delete that races an external removal (HTTP 404) is likewise treated as success.
 
 ### Token scope for merge and branch operations
 
-One coarse `write:repository` scope covers both `MergePR` and `DeleteBranch`; Gitea has no separate pull-request and contents scope split. Gitea also exposes no scope-introspection surface: there is no `/rate_limit` endpoint, no `X-OAuth-Scopes` response header, and a token's own scopes appear only inside the body of a 403 rejection. `permissions.push` from `GET /repos/{owner}/{repo}` reflects the token owner's repository role, not the token's scope; a read-only token owned by a repository admin still reports `push: true`.
+One coarse `write:repository` scope covers both merging a pull request and deleting a branch; Gitea has no separate pull-request and contents scope split. Gitea also exposes no scope-introspection surface: there is no `/rate_limit` endpoint, no `X-OAuth-Scopes` response header, and a token's own scopes appear only inside the body of a 403 rejection. `permissions.push` from `GET /repos/{owner}/{repo}` reflects the token owner's repository role, not the token's scope; a read-only token owned by a repository admin still reports `push: true`.
 
 The startup auto-merge preflight therefore cannot verify the token's scope. It fails open, reporting the scope as unverifiable so auto-merge proceeds, and adds the one gate it can check: when `permissions.push` is `false`, the token's user lacks repository write access, and the failed preflight disables auto-merge for the process lifetime. A missing scope on a token whose user has write access surfaces only at runtime, as a 403 on the first merge or branch delete that the adapter rewrites to name `write:repository`.
 
 Grant the token's user write access to the repository, and grant the token the `write:repository` scope alongside the [tracker scopes](#scopes). [How to connect Sortie to Gitea](/guides/connect-to-gitea/#create-an-access-token) covers token creation.
-
----
-
-## Adapter registration
-
-The combined tracker-and-SCM package `internal/scm/gitea` registers three kinds under `"gitea"` via `init` functions: the tracker adapter, the SCM adapter, and the CI status provider. Tracker registration metadata declares:
-
-| Property | Value |
-|---|---|
-| `RequiresProject` | `true` |
-| `RequiresAPIKey` | `true` |
-| `ValidateTrackerConfig` | Offline config diagnostics for `sortie validate`. |
-
-The orchestrator's preflight validation uses `RequiresProject` and `RequiresAPIKey` to produce specific error messages before adapter construction. `ValidateTrackerConfig` runs the Gitea-specific offline checks without making network calls: endpoint presence and shape, the plain-`http` and redundant `/api/v1` advisories, `owner/repo` format, the `query_filter` grammar, the `$SORTIE_GITEA_TOKEN` hint, a key carrying surrounding whitespace, empty or padded state names, and active-terminal state overlap. State collisions involving `handoff_state` or `in_progress_state` are rejected by the generic configuration layer before adapter validation runs, for every `tracker.kind`.
 
 ---
 
