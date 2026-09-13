@@ -39,7 +39,7 @@ Label commands are configured in a single `reactions.label_commands` block in `W
 | `fix_label`        | string  | `sortie:fix`    | Label that triggers the fix command. An explicit empty string disables the fix command.                                                                         |
 | `poll_interval_ms` | integer | `60000`         | Interval between label-journal polls per PR. A value below `30000` is clamped up to `30000` with a logged warning, not rejected.                                 |
 
-**Activation.** The feature activates when `provider` is present and non-empty. With the block absent or `provider` empty, the feature is off and no journal read happens for either command. Activation considers `fix_label` exactly as it considers `review_label`: a fix-only configuration (empty `review_label`, non-empty `fix_label`) activates the block and constructs the SCM adapter the same way a review-only configuration does. The two commands share one activation gate and one adapter.
+**Activation.** The feature activates when `provider` is present and non-empty. With the block absent or `provider` empty, the feature is off and no journal read happens for either command. Activation considers `fix_label` exactly as it considers `review_label`: a fix-only configuration (empty `review_label`, non-empty `fix_label`) activates the block just as a review-only configuration does. The two commands share one activation gate and one adapter.
 
 **Per-command disable.** Each label is disabled individually by setting it to an explicit empty string. An absent key defaults to the namespaced name; an explicit empty string is a deliberate disable and is preserved.
 

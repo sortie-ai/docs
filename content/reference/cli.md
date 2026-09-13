@@ -22,7 +22,7 @@ sortie -h | --help
 sortie -V | --version
 ```
 
-Without a subcommand, Sortie runs as a long-lived process. It loads the [workflow file](/reference/workflow-config/), opens the SQLite database, validates configuration, and enters the poll-dispatch-reconcile event loop. The process blocks until terminated by a signal.
+Without a subcommand, Sortie runs as a long-lived process. It loads the [workflow file](/reference/workflow-config/), opens the SQLite database, validates configuration, and enters the poll-dispatch-reconcile loop. The process blocks until terminated by a signal.
 
 The `validate` subcommand checks the workflow file without starting the orchestrator. The `stats` subcommand summarizes past runs from the local database and exits, reading that database read-only rather than starting the orchestrator. The `mcp-server` subcommand starts an MCP stdio server for agent tool execution. See [Subcommands](#subcommands).
 
@@ -66,7 +66,7 @@ The `--dry-run` flag suppresses server startup regardless of port or host settin
 
 `--version` (or `-V`) and `-dumpversion` take precedence over `--dry-run` when both are provided.
 
-The startup sequence through preflight validation is identical to a normal run. The dry-run branch diverges after tracker adapter construction (see [startup sequence](#startup-sequence) step 8).
+The startup sequence through preflight validation is identical to a normal run. The dry-run branch diverges after the tracker adapter is built (see [startup sequence](#startup-sequence) step 8).
 
 #### Dry-run output
 
@@ -130,13 +130,13 @@ Applied before the workflow file is loaded, so all startup output, including wor
 
 Sets the log output format. Accepted values (case-insensitive): `text`, `json`. Default: `text`.
 
-When `text` is active (the default), Sortie emits structured `key=value` lines via `slog.TextHandler`:
+When `text` is active (the default), Sortie emits structured `key=value` lines:
 
 ```
 time=2026-04-07T14:30:00.000+00:00 level=INFO msg="sortie starting" version=<version> workflow_path=/opt/sortie/WORKFLOW.md
 ```
 
-When `json` is active, each log line is a single JSON object via `slog.JSONHandler`:
+When `json` is active, each log line is a single JSON object:
 
 ```json
 {"time":"2026-04-07T14:30:00.000Z","level":"INFO","msg":"sortie starting","version":"<version>","workflow_path":"/opt/sortie/WORKFLOW.md"}
@@ -166,7 +166,7 @@ Takes a file path argument. Only keys prefixed with `SORTIE_` are read from the 
 
 Real environment variables take precedence over `.env` values. When both `--env-file` and the `SORTIE_ENV_FILE` environment variable are set, the flag wins.
 
-When `--env-file` is provided, the CLI resolves the path to absolute and exports it as `SORTIE_ENV_FILE` in the process environment. This allows `CollectSortieEnv` to propagate the path to the MCP server via the [config env block](/reference/environment/#mcp-server-environment), so the MCP server can locate and load the `.env` file to resolve credential `$VAR` indirection. The absolute resolution is necessary because the MCP server's working directory (the per-issue workspace) differs from the orchestrator's.
+When `--env-file` is provided, the CLI resolves the path to absolute and exports it as `SORTIE_ENV_FILE` in the process environment. This makes the value available to the MCP server through the [config env block](/reference/environment/#mcp-server-environment), so the MCP server can locate and load the `.env` file to resolve credential `$VAR` indirection. The absolute resolution is necessary because the MCP server's working directory (the per-issue workspace) differs from the orchestrator's.
 
 The file is re-read on every WORKFLOW.md reload (file change detection). If the file does not exist at load time, a warning is logged and loading continues without it.
 
@@ -295,8 +295,8 @@ The pipeline checks:
 - `agent.kind` maps to a registered adapter. Defaults to `claude-code` when absent.
 - Fields required by the selected adapter: `tracker.api_key`, `tracker.project`, `agent.command`.
 - At least one of `tracker.active_states` or `tracker.terminal_states` is non-empty.
-- Adapter-specific config validation. When the registered tracker adapter declares a `ValidateTrackerConfig` callback, the pipeline invokes it with the extracted tracker config fields. Adapter validation runs after the generic preflight checks and can produce both errors (block validity) and warnings (advisory). The Jira, GitHub, GitLab, Gitea, and Linear adapters each declare one; the `file` adapter does not. Each adapter reference page lists that adapter's checks, for example [GitHub adapter validation](/reference/adapter-github/#validate-time-checks).
-- Settings block presence (`dispatch.agent.missing_block`), for every agent kind a `dispatch.default.agent` or a `dispatch.rules[i].agent` names, when that kind is registered and differs from the top-level `agent.kind`. The kind must carry its own top-level block in the front matter, or the workflow is refused, naming the selector that introduced the kind and the block it expects. An empty block (`codex: {}` or a bare `codex:` key) is enough. Skipped for a kind the agent registry does not recognize, since that is already reported separately as `agent_adapter`.
+- Adapter-specific config validation. When the registered tracker adapter declares its own config validation, the pipeline invokes it with the extracted tracker config fields. Adapter validation runs after the generic preflight checks and can produce both errors (block validity) and warnings (advisory). The Jira, GitHub, GitLab, Gitea, and Linear adapters each declare one; the `file` adapter does not. Each adapter reference page lists that adapter's checks, for example [GitHub adapter validation](/reference/adapter-github/#validate-time-checks).
+- Settings block presence (`dispatch.agent.missing_block`), for every agent kind a `dispatch.default.agent` or a `dispatch.rules[i].agent` names, when that kind is registered and differs from the top-level `agent.kind`. The kind must carry its own top-level block in the front matter, or the workflow is refused, naming the selector that introduced the kind and the block it expects. An empty block (`codex: {}` or a bare `codex:` key) is enough. Skipped for a kind Sortie does not recognize as a registered adapter, since that is already reported separately as `agent_adapter`.
 - Session-resume refusal (`agent.kind.session_resume`), for every agent kind the configuration can reach. An adapter declares which of its own pass-through keys stops it resuming a session across separate agent launches; when the configuration sets that key to the blocking value, the workflow is refused. Sortie re-dispatches an issue carrying its earlier session after a retry, a continuation, a stall, or a restart, so every resumed turn would fail. The check reads the adapter's declaration and that adapter's own pass-through block, and no core setting; it runs offline with no network access and no subprocess launch. `claude-code.session_persistence` set to `false` is the only key any built-in adapter declares.
 - Agent-adapter config validation, for every agent kind the configuration can reach: the default `agent.kind`, the kind a [dispatch default](/reference/workflow-config/#dispatch) names, and the kind each dispatch rule selects. A registered kind the configuration never names is skipped, because reporting a fault in a block no run reads would be noise. These checks cover the pass-through values that would let the agent stop and wait for a person, and they run offline with no network access and no subprocess launch. The Codex, Claude Code, Copilot CLI, OpenCode, and Kiro adapters each declare them: see [Codex](/reference/adapter-codex/#validate-time-checks), [Claude Code](/reference/adapter-claude-code/#validate-time-checks), [Copilot CLI](/reference/adapter-copilot/#validate-time-checks), [OpenCode](/reference/adapter-opencode/#validate-time-checks), and [Kiro](/reference/adapter-kiro/#validate-time-checks).
 - Workspace root directory exists (or can be created) and is writable.
@@ -444,7 +444,7 @@ The `check` field in JSON output and the prefix in text output use these values:
 | `workspace.root_writable` | Workspace root directory does not exist and cannot be created, or is not writable. |
 | `args` | Invalid command-line arguments (too many positional args). |
 
-Check values from preflight validation match the [startup and configuration errors](/reference/errors/#startup-and-configuration-errors) table. Adapter-specific error checks (e.g., `tracker.project.format`) are produced by the registered adapter's validation callback.
+Check values from preflight validation match the [startup and configuration errors](/reference/errors/#startup-and-configuration-errors) table. Adapter-specific error checks (e.g., `tracker.project.format`) are produced by the registered adapter's own validation.
 
 #### Advisory warning check values
 
@@ -465,7 +465,7 @@ Warning diagnostics use a separate set of check values. They appear only in the 
 
 #### Adapter-specific warning check values
 
-When the tracker adapter declares a config validation callback, it can produce additional warnings. These appear alongside the advisory warnings above and follow the same rules: they do not affect `valid` or the exit code.
+When the tracker adapter declares its own config validation, it can produce additional warnings. These appear alongside the advisory warnings above and follow the same rules: they do not affect `valid` or the exit code.
 
 The GitHub adapter (`tracker.kind: github`) produces these warning checks:
 
@@ -850,7 +850,7 @@ Starts an MCP stdio server that exposes registered agent tools over JSON-RPC on 
 sortie mcp-server --workflow <path>
 ```
 
-The subcommand loads the workflow file, constructs the tracker adapter from its configuration, builds the per-session tool registry, and serves MCP requests until stdin closes or the process receives a signal. No agents are spawned and no HTTP server starts. The database is opened read-only, and only when both `SORTIE_DB_PATH` and `SORTIE_ISSUE_ID` are present in the environment; no migration is applied and nothing is written.
+The subcommand loads the workflow file, builds the tracker adapter from its configuration, assembles the tools available to the session, and serves MCP requests until stdin closes or the process receives a signal. No agents are spawned and no HTTP server starts. The database is opened read-only, and only when both `SORTIE_DB_PATH` and `SORTIE_ISSUE_ID` are present in the environment; no migration is applied and nothing is written.
 
 #### Flags
 
@@ -864,13 +864,13 @@ No other flags beyond `--workflow` and `-h`/`--help`. All behavior derives from 
 #### Startup sequence
 
 1. Parse the `--workflow` flag. Exit `1` when it is missing or not an absolute path.
-2. Set up the `slog` logger to stderr, `text` format at `info` level. Neither `--log-level` nor `--log-format` exists on this subcommand.
+2. Log to stderr, `text` format at `info` level. Neither `--log-level` nor `--log-format` exists on this subcommand.
 3. Load and parse the workflow file.
-4. Construct `ServiceConfig` from the raw config.
-5. Resolve the tracker adapter from the registry (when `tracker.kind` is non-empty). Build the tracker config map, set `user_agent` to `sortie-mcp/<version>`, merge extensions, and construct the adapter.
-6. Build the per-session tool registry. Each tool registers only when its inputs are present: `tracker_api` when the tracker adapter was constructed and `tracker.project` is non-empty; `sortie_status` when `SORTIE_WORKSPACE` is set; `workspace_history` and `cost_budget` together when both `SORTIE_DB_PATH` and `SORTIE_ISSUE_ID` are set and the read-only database opens; `notify_operator` when the workflow configures at least one notification backend. A read-only open that fails logs a warning and skips the two database-backed tools; an unresolvable notification backend is fatal. With none of the inputs present the registry is empty.
-7. Construct the MCP server with the registry and stdin/stdout.
-8. Serve requests until stdin closes or the context is cancelled.
+4. Build the resolved configuration from the parsed workflow file.
+5. Resolve the tracker adapter for `tracker.kind` (when non-empty). Gather the tracker configuration, set `user_agent` to `sortie-mcp/<version>`, merge extensions, and build the adapter.
+6. Assemble the session's tools. Each tool is included only when its inputs are present: `tracker_api` when the tracker adapter was built and `tracker.project` is non-empty; `sortie_status` when `SORTIE_WORKSPACE` is set; `workspace_history` and `cost_budget` together when both `SORTIE_DB_PATH` and `SORTIE_ISSUE_ID` are set and the read-only database opens; `notify_operator` when the workflow configures at least one notification backend. A read-only open that fails logs a warning and skips the two database-backed tools; an unresolvable notification backend is fatal. With none of the inputs present, the session has no tools.
+7. Build the MCP server with the assembled tools, reading from stdin and writing to stdout.
+8. Serve requests until stdin closes or a shutdown signal arrives.
 
 Failures at steps 1–6 write to stderr and return exit code `1`.
 
@@ -890,7 +890,7 @@ Per-session variables written by the worker. The first six are written on every 
 | `SORTIE_SESSION_AGENT_KIND` | Dispatch-frozen agent kind for the session. May be empty. |
 | `SORTIE_ATTEMPT` | Attempt number as a decimal integer. Absent on the first dispatch. |
 
-Tracker credentials (e.g., `SORTIE_TRACKER_API_KEY`) reach the server through the same `env` block via the `SORTIE_*` prefix scan. The MCP server's config parser resolves `$VAR` indirection in the workflow file against these variables.
+Tracker credentials (e.g., `SORTIE_TRACKER_API_KEY`) reach the server through the same `env` block via the `SORTIE_*` prefix scan. The MCP server resolves `$VAR` indirection in the workflow file against these variables.
 
 The MCP server does not validate environment variable presence at startup. Validation failures surface at tool execution time when a tool requires a variable that is absent.
 
@@ -898,8 +898,8 @@ The MCP server does not validate environment variable presence at startup. Valid
 
 The MCP server exits cleanly when either:
 
-- **stdin closes**: the agent runtime terminates the stdio pipe. The JSON-RPC reader detects EOF and returns.
-- **Context cancellation**: the signal handler cancels the context.
+- **stdin closes**: the agent runtime terminates the stdio pipe, and the server detects EOF.
+- **A shutdown signal arrives**: `SIGINT` or `SIGTERM` stops the server.
 
 No explicit shutdown handshake. The server's lifetime is bound to the agent runtime's stdio pipe.
 
@@ -908,7 +908,7 @@ No explicit shutdown handshake. The server's lifetime is bound to the agent runt
 | Code | Meaning |
 |---|---|
 | `0` | Clean shutdown (stdin closed or signal received), or `-h`/`--help` requested. |
-| `1` | Startup failure: missing or relative `--workflow`, an unparseable flag, unreadable workflow file, invalid config, tracker adapter construction failure, a notification backend that cannot be resolved, or a server error during operation. |
+| `1` | Startup failure: missing or relative `--workflow`, an unparseable flag, unreadable workflow file, invalid config, failure to build the tracker adapter, a notification backend that cannot be resolved, or a server error during operation. |
 
 ---
 
@@ -923,17 +923,17 @@ When no version or help flag is present, Sortie executes these steps in order:
 5. **Preflight validation.** Verify `tracker.kind` is registered, `agent.kind` is registered, required API keys are present, active/terminal state lists are non-empty, adapter-specific config validation passes (when declared), and the workspace root is writable. Failure exits with code `1`. No database file is created on disk.
 6. **Resolve log level and format.** When `--log-level` was not set, check `logging.level` from the workflow config. When `--log-format` was not set, check `logging.format` from the workflow config. If either differs from the startup default, re-initialize the logger before emitting the startup message.
 7. **Resolve server port and host.** The `--port` and `--host` flags override `server.port` and `server.host` from config. An invalid value exits `1`. No socket is bound yet.
-8. **Construct tracker adapter.** Instantiate the tracker adapter from the registry using the configuration map, with `user_agent` set to `sortie/<version>`.
+8. **Build tracker adapter.** Resolve and build the tracker adapter for `tracker.kind`, gathering its configuration, with `user_agent` set to `sortie/<version>`.
 9. **Open SQLite database.** Path from [`db_path`](/reference/workflow-config/) config field, or `.sortie.db` adjacent to the workflow file. Relative paths resolve against the workflow file's directory, not the working directory.
 10. **Run schema migrations.** Applied automatically on every startup.
 11. **Restore persisted state.** Load pending retry entries and rebuild their timers from the stored `due_at`, load the cumulative token and runtime totals, and load the park records that hold issues out of dispatch. A failure to read the totals or the park records is logged as a warning and startup continues with none.
-12. **Construct agent adapters.** Instantiate the adapter for the default `agent.kind`, then eagerly construct every other registered kind so dispatch-rule routing resolves without per-issue construction. A non-default kind that fails to construct is logged at warn level and skipped.
+12. **Build agent adapters.** Build the adapter for the default `agent.kind`, then eagerly build every other registered kind so dispatch-rule routing resolves without building one per issue. A non-default kind that fails to build is logged at warn level and skipped.
 13. **Clean terminal workspaces.** Query tracker for states of existing workspace directories; remove those in terminal states. Only directories whose state comes back known and terminal are removed, and if the directory listing or the tracker read fails, Sortie logs a warning and cleans nothing on this pass. No age-based removal runs here: the [`workspace.retention_days`](/reference/workflow-config/#workspace) bound belongs to the periodic sweep, whose first pass falls 60 poll ticks after step 16.
 14. **Recover pending reactions.** Rebuild the pending reaction set from recent run history so a restart does not lose a watch that was in flight. A failure here is logged as a warning and startup continues.
 15. **Bind the HTTP listener.** Binds to the host and port resolved in step 7 when the server is enabled. A conflict on an implicitly defaulted port degrades to running without the server; a conflict on an explicitly requested port exits `1`.
-16. **Enter event loop.** First poll tick fires immediately. Blocks until signal.
+16. **Enter poll-dispatch-reconcile loop.** First poll tick fires immediately. Blocks until signal.
 
-When `--dry-run` is set, execution diverges after step 8. Steps 9–16 are skipped entirely. Instead, Sortie fetches candidate issues from the tracker, evaluates dispatch eligibility, logs the results, and exits. No database file is created, no agent adapter is constructed, and no HTTP server starts.
+When `--dry-run` is set, execution diverges after step 8. Steps 9–16 are skipped entirely. Instead, Sortie fetches candidate issues from the tracker, evaluates dispatch eligibility, logs the results, and exits. No database file is created, no agent adapter is built, and no HTTP server starts.
 
 Any step that fails prints a diagnostic to stderr and exits with code `1`.
 
@@ -961,7 +961,7 @@ Both signals trigger the same sequence:
 
 1. Stop accepting new dispatches.
 2. Cancel all running worker contexts.
-3. Wait for workers to exit. The ceiling derives from [`agent.stop_grace_ms`](/reference/workflow-config/#agent): 50 seconds at the default `5000`, and one second longer for each extra second of stop grace. Worker results are processed through the normal exit handler during drain: run history is persisted and retry entries are recorded. Refresh signals arriving during this window are discarded.
+3. Wait for workers to exit. The ceiling derives from [`agent.stop_grace_ms`](/reference/workflow-config/#agent): 50 seconds at the default `5000`, and one second longer for each extra second of stop grace. Worker results are processed the same way as a normal exit during drain: run history is persisted and retry entries are recorded. Refresh signals arriving during this window are discarded.
 4. Wait up to 35 seconds for the reaction triage runs still in flight. Cancellation has already terminated their process groups, so this wait returns promptly in practice.
 5. Wait up to 35 seconds for the detached tracker calls (comments, labels) still in flight.
 6. Cancel pending retry timers.

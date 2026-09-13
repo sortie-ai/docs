@@ -6,7 +6,7 @@ date: 2026-04-26
 weight: 50
 url: /reference/dashboard/
 ---
-Sortie ships a self-contained HTML dashboard at `/` on the same port as the [JSON API](/reference/http-api/) and [Prometheus metrics](/reference/prometheus-metrics/). No external tools, no JavaScript frameworks, no CDN dependencies: one HTML page rendered server-side by Go's `html/template` engine with vanilla JavaScript for interactive behavior.
+Sortie ships a self-contained HTML dashboard at `/` on the same port as the [JSON API](/reference/http-api/) and [Prometheus metrics](/reference/prometheus-metrics/). No external tools, no JavaScript frameworks, no CDN dependencies: one HTML page rendered server-side with vanilla JavaScript for interactive behavior.
 
 The dashboard is designed for local, at-a-glance monitoring. Open it in a browser while Sortie runs, and you see what is happening right now: which agents are working, how many tokens they have consumed, what is waiting for retry, and how past runs ended. Tables use an accordion pattern: each row shows primary identification and status fields, and clicking a row expands an inline detail panel with secondary fields. All rows are collapsed by default. The page auto-refreshes every 5 seconds via an HTML `<meta http-equiv="refresh">` tag.
 
@@ -99,7 +99,7 @@ A `:focus-visible` outline matches the link color. The `prefers-reduced-motion` 
 
 ### Table striping
 
-Row striping uses a CSS class (`row-even`) applied via a Go template function rather than `nth-child`, because the interleaved detail rows would break CSS child counting.
+Row striping uses a CSS class (`row-even`) rather than `nth-child`, because the interleaved detail rows would break CSS child counting.
 
 ## Running sessions table
 
@@ -227,4 +227,4 @@ For token rate configuration syntax, see the [`token_rates` extension reference]
 
 If the orchestrator's state snapshot fails (e.g., during shutdown), the dashboard returns HTTP 503 with a minimal HTML page that reads "Dashboard temporarily unavailable" and auto-refreshes in 5 seconds. No manual reload is needed.
 
-If the Go template execution fails (an internal error), the dashboard returns HTTP 500 with a similarly minimal auto-refreshing error page.
+If template rendering fails (an internal error), the dashboard returns HTTP 500 with a similarly minimal auto-refreshing error page.

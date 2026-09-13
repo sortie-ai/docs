@@ -20,7 +20,7 @@ Every issue known to the orchestrator is in exactly one of five states. The orch
 |---|---|
 | `Unclaimed` | The issue is not running and has no retry scheduled. Eligible for dispatch if it meets [candidate selection rules](#candidate-eligibility). An unclaimed issue can still be held out of dispatch by a park record or an exhausted effort budget; both are dispatch gates rather than claim states. |
 | `Claimed` | The orchestrator has reserved the issue to prevent duplicate dispatch. A claimed issue is always either `Running` or `RetryQueued`. |
-| `Running` | A worker goroutine exists for this issue. The issue is tracked in the `running` map with a live `RunningEntry`. |
+| `Running` | A worker is running for this issue, moving through the [run attempt phases](#run-attempt-phases) below. |
 | `RetryQueued` | No worker is running, but a retry timer exists. The issue remains claimed until the timer fires and either re-dispatches or releases. |
 | `Released` | The claim has been removed. The issue is no longer tracked. This happens when the issue reaches a terminal tracker state, leaves the active state set, is missing from the tracker, or exhausts its retry path. |
 
@@ -88,11 +88,11 @@ Two of these release only when the issue has no retry already queued: a successf
 
 ## Run attempt phases
 
-Each worker attempt progresses through a linear sequence of phases. Terminal phases end the attempt and produce a `WorkerResult` delivered to the orchestrator.
+Each worker attempt progresses through a linear sequence of phases. Terminal phases end the attempt and report the outcome to the orchestrator.
 
 | Phase | Description |
 |---|---|
-| `DispatchTransition` | Optional. When [`tracker.in_progress_state`](/reference/workflow-config/) is configured and the dispatch drives issue state, the worker calls `TransitionIssue` before workspace preparation. If the issue is already in the target state, the call is skipped (debug log only). Failure is non-fatal: the worker logs a warning and continues. A dispatch that does not drive issue state, such as a label-command session, skips the phase entirely. |
+| `DispatchTransition` | Optional. When [`tracker.in_progress_state`](/reference/workflow-config/) is configured and the dispatch drives issue state, the worker transitions the issue to that state before workspace preparation. If the issue is already in the target state, the call is skipped (debug log only). Failure is non-fatal: the worker logs a warning and continues. A dispatch that does not drive issue state, such as a label-command session, skips the phase entirely. |
 | `DispatchComment` | Optional. When [`tracker.comments.on_dispatch`](/reference/workflow-config/) is `true` and the dispatch drives issue state, the worker posts a tracker comment acknowledging that Sortie has claimed the issue. Fires after the dispatch transition and before workspace preparation. Failure is non-fatal: the worker logs a warning and continues. |
 | `PreparingWorkspace` | Workspace directory is created or reused. `after_create` and `before_run` hooks execute. |
 | `BuildingPrompt` | The `text/template` prompt body is rendered with issue data, attempt number, and turn context. |
@@ -105,7 +105,7 @@ Each worker attempt progresses through a linear sequence of phases. Terminal pha
 | `Failed` | Terminal. An error occurred during any earlier phase. |
 | `TimedOut` | Terminal. The turn exceeded `agent.turn_timeout_ms`. |
 | `Stalled` | Terminal. No agent event arrived within `agent.stall_timeout_ms`. Detected by reconciliation. |
-| `CanceledByReconciliation` | Terminal. The worker's context was cancelled because the issue's tracker state became terminal or left the active set. |
+| `CanceledByReconciliation` | Terminal. The worker was cancelled because the issue's tracker state became terminal or left the active set. |
 
 ```mermaid
 flowchart TD
@@ -204,14 +204,14 @@ A continuation turn dispatched by a reaction runs as an ordinary agent session a
 
 ## Transition triggers
 
-These events drive state transitions. Each is handled by the orchestrator's single-writer event loop, which serves exactly one at a time.
+These events drive state transitions. Each is processed in order, one at a time.
 
 | Trigger | What happens |
 |---|---|
 | **Poll tick** | In this order: run preflight validation, which forces a defensive workflow reload, and apply the resulting config to runtime state whether or not it passed; [reconcile](#reconciliation) running issues; run the periodic workspace sweep when it is due. Dispatch is the only step gated on preflight success: a failed preflight returns here. Then fetch candidates, sort them, rebuild the budget-exhausted and parked sets from the candidate list, and dispatch eligible issues until slots are exhausted. Dispatched workers perform the optional in-progress transition (via `tracker.in_progress_state`) and optional dispatch comment (via `tracker.comments.on_dispatch`) as their first steps. |
-| **Worker exit (normal)** | Remove `running` entry. Persist run history to SQLite (a withheld handoff is recorded as `failed`, naming the verdict, unless its own verification read routed the exit into path 4 below). Update token totals. Six outcome paths: (1) no soft-stop, issue active, dispatch drives issue state: schedule continuation retry or perform handoff transition (retry on handoff failure); (2) soft-stop `blocked`: release claim, no handoff, no retry, and park the issue with the escalation label where the dispatch drives issue state; (3) soft-stop `needs-human-review`, or a `no-change-needed` declaration that stood through self-review: perform handoff transition (if configured, issue active, and the dispatch drives issue state) to `tracker.handoff_state`, or to `tracker.no_change_state` for the declared case where that field is set, release claim (no retry on handoff failure); (4) issue already reported terminal: no handoff, release claim, no retry, no reactions enqueued; (5) handoff eligible but withheld by the [evidence policy](#handoff-evidence), with the read that outcome performs finding no terminal state: no handoff transition, exponential backoff retry, or the issue is parked once the consecutive-absence ceiling is reached; (6) none of the above, meaning the issue is no longer in an active state: cancel any pending retry and release the claim. Path 4 is tested ahead of paths 1, 3, and 5 and overrides them, and a withheld verdict whose own verification read reports a terminal state is routed into path 4 as well; path 5 is tested ahead of paths 1 and 3 and overrides them, except a `no-change-needed` declaration that stood, whose verdict is always work observed and so is never diverted into path 5; path 2 is tested first of all; path 6 is the fallthrough and is tested last. Post completion comment if [`tracker.comments.on_completion`](/reference/workflow-config/) is enabled (detached goroutine, non-blocking). |
-| **Worker exit (error)** | Remove `running` entry. Persist run history. Classify error. If retryable, schedule exponential backoff retry, or defer to the queued entry when one already holds the retry slot. If not retryable, release claim. Post failure comment if [`tracker.comments.on_failure`](/reference/workflow-config/) is enabled (detached goroutine, non-blocking). |
-| **Worker exit (cancelled)** | The worker's context was cancelled by reconciliation, by stall detection, by the `agent.max_tokens` in-flight check, or by shutdown. Remove `running` entry. Persist run history, under status `budget_stopped` for a token-ceiling cancel and `cancelled` for the rest. Release the claim only when no retry is already queued: a retry pre-scheduled by stall detection keeps the claim so nothing else can dispatch the issue. No handoff transition, no new retry. |
+| **Worker exit (normal)** | Remove the issue's running-session entry. Persist run history to SQLite (a withheld handoff is recorded as `failed`, naming the verdict, unless its own verification read routed the exit into path 4 below). Update token totals. Six outcome paths: (1) no soft-stop, issue active, dispatch drives issue state: schedule continuation retry or perform handoff transition (retry on handoff failure); (2) soft-stop `blocked`: release claim, no handoff, no retry, and park the issue with the escalation label where the dispatch drives issue state; (3) soft-stop `needs-human-review`, or a `no-change-needed` declaration that stood through self-review: perform handoff transition (if configured, issue active, and the dispatch drives issue state) to `tracker.handoff_state`, or to `tracker.no_change_state` for the declared case where that field is set, release claim (no retry on handoff failure); (4) issue already reported terminal: no handoff, release claim, no retry, no reactions enqueued; (5) handoff eligible but withheld by the [evidence policy](#handoff-evidence), with the read that outcome performs finding no terminal state: no handoff transition, exponential backoff retry, or the issue is parked once the consecutive-absence ceiling is reached; (6) none of the above, meaning the issue is no longer in an active state: cancel any pending retry and release the claim. Path 4 is tested ahead of paths 1, 3, and 5 and overrides them, and a withheld verdict whose own verification read reports a terminal state is routed into path 4 as well; path 5 is tested ahead of paths 1 and 3 and overrides them, except a `no-change-needed` declaration that stood, whose verdict is always work observed and so is never diverted into path 5; path 2 is tested first of all; path 6 is the fallthrough and is tested last. Post completion comment if [`tracker.comments.on_completion`](/reference/workflow-config/) is enabled (asynchronous; does not block). |
+| **Worker exit (error)** | Remove the issue's running-session entry. Persist run history. Classify error. If retryable, schedule exponential backoff retry, or defer to the queued entry when one already holds the retry slot. If not retryable, release claim. Post failure comment if [`tracker.comments.on_failure`](/reference/workflow-config/) is enabled (asynchronous; does not block). |
+| **Worker exit (cancelled)** | The worker was cancelled by reconciliation, by stall detection, by the `agent.max_tokens` in-flight check, or by shutdown. Remove the issue's running-session entry. Persist run history, under status `budget_stopped` for a token-ceiling cancel and `cancelled` for the rest. Release the claim only when no retry is already queued: a retry pre-scheduled by stall detection keeps the claim so nothing else can dispatch the issue. No handoff transition, no new retry. |
 | **Agent update event** | Update live session fields: token counters, session ID, thread ID, agent PID, rate limits, last activity timestamp. An event carrying token usage then evaluates the issue against `agent.max_tokens` and cancels the worker when the sum has reached it. |
 | **Retry timer fired** | Read that one issue from the tracker by ID. If it is still eligible and slots are available, dispatch. If no slots, or the read fails, reschedule at the next attempt number. If the tracker reports the issue missing, terminal, or no longer active, release the claim and delete the persisted entry, except for a reaction-kind entry, which is rescheduled instead of released. Enforce the `agent.max_sessions` and `agent.max_tokens` budgets here: an exhausted budget releases the claim rather than dispatching. |
 | **Reconciliation: tracker state refresh** | For each running issue: terminal state → cancel worker, clean workspace. Still active → update snapshot. Neither active nor terminal → cancel worker, no cleanup here; the [periodic sweep](#reconciliation) may still remove that workspace later on age. |
@@ -231,16 +231,16 @@ An issue is eligible for dispatch when all conditions are true:
 | Required fields present | `id`, `identifier`, `title`, and `state` must be non-empty. |
 | State is active | `state` is in `tracker.active_states` (case-insensitive). |
 | State is not terminal | `state` is not in `tracker.terminal_states`. |
-| Not running | `id` is not in the `running` map. |
-| Not claimed | `id` is not in the `claimed` set. |
-| Not budget-exhausted | `id` is not in the budget-exhausted set, which the poll tick rebuilds from run history for `agent.max_sessions` and `agent.max_tokens`. |
-| Not parked | `id` is not in the parked set. A park holds the issue until a later poll tick observes a release gesture. |
+| Not running | The issue is not already `Running`. |
+| Not claimed | The issue is not already `Claimed`. |
+| Not budget-exhausted | The issue is not already held by a per-issue `agent.max_sessions` or `agent.max_tokens` ceiling, rebuilt each poll tick from run history. |
+| Not parked | The issue is not already parked. A park holds the issue until a later poll tick observes a release gesture. |
 | Global slots available | `running_count < agent.max_concurrent_agents`. |
 | Per-state slots available | Running count for this state < `agent.max_concurrent_agents_by_state[state]` (if configured). |
 | No blocker is still active | Every entry in `blocked_by` has a non-empty state that is in `tracker.terminal_states`. An entry with an empty state, or a state outside `terminal_states`, holds the issue. |
 | Blocker list is authoritative | The issue's `blocked_by` must be resolved, not merely absent of active blockers. On a tracker whose candidate fetch cannot carry blockers (currently GitHub and Gitea), each candidate's list is read separately, bounded by a small budget shared across the whole poll (see [blocker resolution](#blocker-resolution) below). A candidate whose read hasn't happened yet this poll, or whose read failed, is held rather than dispatched on an unread list. |
 
-Issues are sorted for dispatch: priority ascending (nil last), `created_at` oldest first, `identifier` lexicographic tiebreaker.
+Issues are sorted for dispatch: priority ascending (issues with no priority sort last), `created_at` oldest first, `identifier` lexicographic tiebreaker.
 
 ### Blocker resolution
 
@@ -290,7 +290,7 @@ When a retry fires but no concurrency slot is available, the entry is reschedule
 
 Reconciliation runs at the start of every poll tick, before dispatch, as one fixed sequence.
 
-**Part A: Overdue retry re-arm.** A retry timer event can be dropped when the retry timer channel is full. An entry whose `due_at` lags the current tick by more than 60 seconds is re-armed with a zero delay, so an undeliverable entry cannot hold the retry slot for the life of the process.
+**Part A: Overdue retry re-arm.** A retry timer event can be dropped if too many arrive at once. An entry whose `due_at` lags the current tick by more than 60 seconds is re-armed with a zero delay, so an undeliverable entry cannot hold the retry slot for the life of the process.
 
 **Part B: Stall detection.** For each running issue, compute elapsed time since the last agent event (or `started_at` if no event has arrived). If elapsed exceeds [`agent.stall_timeout_ms`](/reference/workflow-config/), the worker is killed and an exponential backoff retry is scheduled. Disabled when `stall_timeout_ms` is zero or negative.
 

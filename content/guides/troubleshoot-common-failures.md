@@ -55,7 +55,7 @@ Workers start and immediately crash. The actual cause (a missing `ANTHROPIC_API_
 
 2. For AWS Bedrock or Google Vertex AI, verify all required variables are set. See [environment variables reference](/reference/environment/) for the full list.
 
-3. Run with `--log-level debug` to see the agent's stderr, which contains the actual auth error.
+3. Read the `agent stderr` warnings immediately above the error. When a session or a turn fails, Sortie re-emits what the agent wrote to its standard error at WARN, so the runtime's own auth message is already in the default log. `--log-level debug` adds every stderr line as it is read, including from turns that did not fail.
 
 ## Agent exits without producing output
 

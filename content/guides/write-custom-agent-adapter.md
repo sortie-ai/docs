@@ -53,7 +53,7 @@ The data flows like this. `StartSession` receives `StartSessionParams` (the work
 
 ### Choose your execution model
 
-Fork-per-turn is the default: one subprocess per turn, launched fresh, scanned to completion, then reaped. Claude Code, Copilot CLI, OpenCode, and Kiro all work this way. The shared skeleton in `internal/agent/agentcore` implements the lifecycle for you, and the rest of this guide uses it.
+Fork-per-turn is the default: one subprocess per turn, launched fresh, scanned while it runs, and reaped on its own exit. Claude Code, Copilot CLI, OpenCode, and Kiro all work this way. The shared skeleton in `internal/agent/agentcore` implements the lifecycle for you, and the rest of this guide uses it.
 
 The exception is the persistent-subprocess model. Codex keeps one long-lived `codex app-server` process and talks to it over a JSON-RPC handshake across turns, instead of forking. Choose it only when the CLI requires a persistent server with a protocol handshake. This guide does not cover that model; read `internal/agent/codex/` and the [Codex adapter reference](/reference/adapter-codex/) if your agent needs it.
 
@@ -368,6 +368,8 @@ Three fields carry the evidence.
 The rule reads those fields in order and stops at the first match: a terminal report wins outright, then a missing process exit, then a non-zero exit, then the work evidence. A positive report from the runtime is never second-guessed by counting output, and exit code zero is never a success signal on its own, so an adapter with nothing positive to report gets a failed turn. That holds for an adapter that declared no signal at all: it takes a row of its own, and a clean exit on that row is still a failed turn, because a kind with nothing to observe has produced no evidence either.
 
 For a structured agent, read `lastParsed` and set `Terminal` from the result line. For an unstructured agent, derive it from the exit status, stderr, and the observer. Kiro is the worked example, and its exit-0 case is ambiguous: the process exits 0 whether or not a turn actually ran. Its `RunTurn` opens each turn with `state.work = agentcore.NewWorkObserver(agentcore.WorkSignals{AssistantOutput: true})`, and the credits trailer on stderr is the runtime's own success report, ranking above whatever that observer saw.
+
+If you read `stderrLines` for evidence rather than only to hand it to the operator, test it for `procutil.AbandonedMarker` before you trust it. The slice carries that marker at the end when the drain could not finish inside its bound, which happens when a descendant of the agent inherited the standard-error handle and outlived it. Everything collected up to that point is real, but a transcript ending there proves nothing about what the runtime went on to write, so a marker you find should disqualify whatever positive signal you were looking for and leave the turn to the shared rule. Kiro applies exactly this test to its credits trailer. A signal that reports a failure survives the same cut, because a line you read is a line the runtime wrote.
 
 ```go
 OnFinalize: func(emit func(domain.AgentEvent), _ any, exitCode int, stderrLines []string) (domain.TurnResult, *domain.AgentError) {
