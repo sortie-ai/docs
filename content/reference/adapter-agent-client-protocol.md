@@ -107,6 +107,7 @@ Launches the subprocess, performs the `initialize` handshake, and creates or con
 | SSH binary not found (SSH mode) | `agent_not_found` |
 | Generated MCP configuration unreadable or malformed | `response_error` |
 | Subprocess failed to start, or a stdio pipe could not be created | `port_exit` |
+| The connection ends, including the subprocess exiting or the standard-output wait described under [process shutdown](#process-shutdown) giving up, before `initialize`, `session/new`, `session/load`, or `session/resume` receives a response | `port_exit` |
 | `initialize` timed out | `response_timeout` |
 | `initialize` returned a protocol-level error, or reported a version other than the one this adapter is generated against | `response_error` |
 | `session/new`, `session/load`, or `session/resume` returned a protocol-level error after continuation was not confirmed and the `session/new` fallback also failed | `response_error` |
@@ -145,6 +146,8 @@ Runs a fixed teardown order regardless of how far the session progressed, so a s
 On Unix, graceful termination is `SIGTERM` and force kill is `SIGKILL` to the process group. On Windows, graceful termination is `CTRL_BREAK_EVENT` to the process group, and the subprocess is assigned to a Job Object with `KILL_ON_JOB_CLOSE` so force termination kills the full descendant tree.
 
 A runtime that has already received its answer by the time the graceful signal reaches it can act on that answer and exit inside `stop_grace_ms` on its own, rather than still waiting on it once the force-terminate step runs. A runtime that never reads the answer still leaves teardown on schedule: the answer step completes within its own bound regardless, and the rest of the order runs as listed.
+
+The runtime process can exit while a descendant it spawned still holds its standard-output handle open. Reaping the process does not close that handle, so a handshake call or a turn already waiting on the runtime's output keeps waiting; Sortie gives it up to five seconds past the reap, then stops waiting and closes standard output and the connection itself. A turn ended this way reports `port_exit` with the message `the agent runtime exited before the session finished collecting its output`; a turn started after this has already happened is refused with the same message before it reaches the runtime. Sortie logs `agent stdout was not fully collected before the session ended` at WARN, with the five-second bound in its `drain_bound` attribute. On a remote launch, the process watched for exit is the local `ssh` relay rather than the runtime on the far end. Stopping the session afterward still runs the fixed order above in full.
 
 ---
 
@@ -185,7 +188,7 @@ The `session/prompt` response's `stopReason` decides how the turn ends, unless t
 
 Whether a runtime's own implementation actually produces every one of these five values, and what each one means for that runtime specifically, is that runtime's to document; see the runtime-specific pages linked at the top of this page. `refusal` and `max_tokens` are treated as non-retryable classification decisions rather than transport failures: a retry of the same input would meet the same refusal or the same limit. `max_turn_requests` is retryable with exponential backoff, since a fresh turn starts a new request budget on the runtime's side.
 
-Two conditions precede a `stopReason` read at all: a protocol-level error on the response reports `response_error`, and a lost connection reports `port_exit`. A lost connection covers the subprocess exiting, the stream ending, and a write to the runtime failing while a turn is active, when the connection's own end of stream does not follow within `read_timeout_ms` of that failure; a line exceeding the connection's bound reports `turn_outcome_unknown` instead, because it is a different failure from losing the process.
+Two conditions precede a `stopReason` read at all: a protocol-level error on the response reports `response_error`, and a lost connection reports `port_exit`. A lost connection covers the subprocess exiting, the stream ending, and a write to the runtime failing while a turn is active, when the connection's own end of stream does not follow within `read_timeout_ms` of that failure; a line exceeding the connection's bound reports `turn_outcome_unknown` instead, because it is a different failure from losing the process. A lost connection also covers a runtime that exits while a descendant still holds its standard output open: rather than run until `stall_timeout_ms` or `turn_timeout_ms` catches it, this ends within a five-second bound; see [process shutdown](#process-shutdown) for the mechanism and message.
 
 ---
 
