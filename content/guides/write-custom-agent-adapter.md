@@ -433,7 +433,7 @@ Write unit tests with the project's conventions: table-driven, `t.Parallel()` at
 
 - `command_test.go` asserts `buildArgs` output across config permutations (model set or not, trust modes, resume on or off).
 - `parse_test.go` asserts parsing and classification: JSONL decode against `testdata/` fixtures for a structured agent, ANSI stripping and stderr classification for an unstructured one.
-- `acme_test.go` covers session and turn behavior against a stub or a fake binary on `PATH`.
+- `acme_test.go` covers session and turn behavior against a fake `acme-cli`, built with `agenttest.FakeRuntime`.
 
 ```go {filename="command_test.go"}
 func TestBuildArgs(t *testing.T) {
@@ -459,6 +459,57 @@ func TestBuildArgs(t *testing.T) {
 	}
 }
 ```
+
+Give the package a `TestMain` that calls `agenttest.Main(m, scenarios)` with a map of named scenarios. `agenttest.FakeRuntime(t, dir, name, scenario, params)` then builds the fake executable: it links (or copies) a staged copy of the test binary itself to `dir/name` and writes the scenario name and its JSON-encoded params next to it. When something later runs that path, the process is the test binary starting up again; `TestMain` finds that sibling file and dispatches straight to the named scenario instead of running the package's tests.
+
+```go {filename="acme_test.go"}
+// turnCounterScenario answers its first invocation with a fixed stdout
+// payload and every later invocation with nothing, tracked by
+// CounterFile's existence, so a test can pin a per-turn signal that a
+// session's second turn must not inherit from its first.
+const turnCounterScenario = "acme.turn-counter"
+
+type turnCounterParams struct {
+	CounterFile string
+	Stdout      string
+}
+
+func runTurnCounter(_ []string, p turnCounterParams) int {
+	if _, err := os.Stat(p.CounterFile); err == nil {
+		return 0
+	}
+	if err := os.WriteFile(p.CounterFile, nil, 0o600); err != nil {
+		return 1
+	}
+	return agenttest.Output{Stdout: p.Stdout}.Run()
+}
+
+func TestMain(m *testing.M) {
+	agenttest.Main(m, map[string]agenttest.Scenario{
+		turnCounterScenario: agenttest.Typed(runTurnCounter),
+	})
+}
+```
+
+A test builds the fake and hands its path to the adapter the same way `internal/agent/kiro/kiro_test.go` does:
+
+```go
+dir := t.TempDir()
+bin := agenttest.FakeRuntime(t, dir, "acme-cli", turnCounterScenario, turnCounterParams{
+	CounterFile: filepath.Join(dir, "turn-count"),
+	Stdout:      "pong",
+})
+session, err := adapter.StartSession(context.Background(), domain.StartSessionParams{
+	WorkspacePath: t.TempDir(),
+	AgentConfig:   domain.AgentConfig{Command: bin},
+})
+```
+
+Reach for the built-in `agenttest.OutputScenario` instead, with no registration, when a fixed stdout, stderr, exit code, or an indefinite hang (`Output.Hang`) is all a turn needs. Register a scenario of your own, wrapped with `agenttest.Typed` as above, only when the reply must depend on the arguments or change across turns.
+
+This package's tests run on Windows in CI the same as every other package (`.github/workflows/ci.yml`), so a fixture built as a POSIX shell script breaks there; a fake runtime built with `agenttest.FakeRuntime` does not.
+
+Kiro's `chatScenario` in `internal/agent/kiro/kiro_test.go` is the fuller worked example: it answers a `whoami` credential canary one way and a `chat` turn another, from the same fake binary.
 
 The integration test runs against the real CLI and stays gated behind an environment variable. Put it in the external `acme_test` package, blank-import your adapter so `init()` registration runs, and guard it with `SORTIE_ACME_TEST=1` plus the credential. Name the test so it contains `Integration`, which is how the release pipeline selects it with `-run 'Integration'`. Use no build tag: the env guard alone makes it skip cleanly when the variable is absent, so a normal `make test` never runs or fails it.
 
