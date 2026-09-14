@@ -581,7 +581,7 @@ The failure shape is the same structured envelope every built-in tool uses.
 
 Read-only token accounting for the current issue. The agent calls this tool to check cumulative token spend across all of the issue's sessions and the remaining budget, then decide whether to skip an expensive step, return partial work, or hand off before the token ceiling cancels the session it is running in or blocks the next one. Where `sortie_status` reports token usage for the current session (read from `.sortie/state.json`), `cost_budget` reports cumulative spend across every session for the issue (read from SQLite) and compares it against the configured budget.
 
-`cost_budget` is a **Tier 1** tool: queries the local SQLite database in read-only mode, no external calls. Registered when both `SORTIE_DB_PATH` and `SORTIE_ISSUE_ID` are set and the database can be opened in read-only mode. That is the same condition as `workspace_history`, and the two share the same read-only connection. If the database open fails, the MCP server continues without both tools (non-fatal). When `SORTIE_SESSION_ID` is also set, the reading includes the running session's recorded spend; without it, only completed sessions count.
+`cost_budget` is a **Tier 1** tool: queries the local SQLite database in read-only mode, no external calls. Registered when both `SORTIE_DB_PATH` and `SORTIE_ISSUE_ID` are set and the database can be opened in read-only mode. That is the same condition as `workspace_history`, and the two share the same read-only connection. If the database open fails, the MCP server continues without both tools (non-fatal). When `SORTIE_DISPATCH_ID` is also set, the reading includes the running session's recorded spend; without it, only completed sessions count.
 
 ### Input schema
 
@@ -593,7 +593,9 @@ No parameters. The agent sends an empty JSON object:
 
 ### How it works
 
-The tool sums `total_tokens` across the issue's `run_history` rows (one per completed session) and adds the running session's recorded total from `session_metadata`. The orchestrator updates `session_metadata` incrementally during the session, throttled to at most one write per issue every two seconds and driven by token usage events, so the running number stays current. That total is added only when the stored session ID matches `SORTIE_SESSION_ID`, so a stale row from an earlier session is never counted. Nothing is counted twice: a running session reaches `run_history` only when it ends.
+The tool sums `total_tokens` across the issue's `run_history` rows (one per completed session) and adds the running session's recorded total from `session_metadata`. The orchestrator updates `session_metadata` incrementally during the session, throttled to at most one write per issue every two seconds and driven by token usage events, so the running number stays current. That total is added only when the stored dispatch ID matches `SORTIE_DISPATCH_ID`, so a stale row from an earlier dispatch is never counted.
+
+At session exit, Sortie clears the row's dispatch ID before recording the finished run in `run_history`, so a completed session's row is never mistaken for one still running.
 
 A session whose coding agent reported no token usage is recorded as unmeasured: its spend is unknown, not zero, so it adds nothing to `used_tokens` and `unmeasured_sessions` counts it.
 
@@ -611,7 +613,7 @@ The fields below are returned under `data` in the standard success envelope:
 | `used_sessions` | integer | Completed sessions for the issue. The running session is not counted. Unmeasured sessions still count here, because [`agent.max_sessions`](/reference/workflow-config/#agent) counts sessions rather than spend. |
 | `budget_sessions` | integer | The configured [`agent.max_sessions`](/reference/workflow-config/#agent). `0` means unlimited. |
 | `unmeasured_sessions` | integer | Completed sessions whose coding agent reported no token usage. `used_tokens` excludes them rather than counting them as zero spend. |
-| `used_tokens_complete` | boolean | `false` when `unmeasured_sessions` is above `0`, or when a running session ID was supplied and no matching session record was found for it. `true` otherwise. On `false`, treat `used_tokens` as a lower bound and `remaining_tokens` as an upper bound. |
+| `used_tokens_complete` | boolean | `false` when `unmeasured_sessions` is above `0`, when no dispatch ID was supplied, or when no session record matches the supplied dispatch ID. `true` otherwise. On `false`, treat `used_tokens` as a lower bound and `remaining_tokens` as an upper bound. |
 
 `used_tokens` includes the running session while `used_sessions` excludes it. The asymmetry is deliberate: a session is either finished or not, tokens accrue continuously, and a reading that ignored in-flight spend would be useless at exactly the moment the agent consults it.
 
@@ -713,7 +715,7 @@ No additional fields are accepted. Unknown fields, trailing content, out-of-enum
 
 ### How it works
 
-Each accepted call produces one notification with two layers. The agent supplies the message (`severity`, `title`, `body`, optional `category`). The tool fills the envelope from session context the agent cannot set or forge: a generated UUID `notification_id`, an RFC3339 UTC `timestamp`, a `source` identifying the Sortie instance (the hostname), the `issue_id` and `identifier`, the `session_id`, the `attempt` (`null` on the first run), and the dispatch-frozen `agent` kind from `SORTIE_SESSION_AGENT_KIND`.
+Each accepted call produces one notification with two layers. The agent supplies the message (`severity`, `title`, `body`, optional `category`). The tool fills the envelope from session context the agent cannot set or forge: a generated UUID `notification_id`, an RFC3339 UTC `timestamp`, a `source` identifying the Sortie instance (the hostname), the `issue_id` and `identifier`, a `session_id` that is always an empty string, the `attempt` (`null` on the first run), and the dispatch-frozen `agent` kind from `SORTIE_SESSION_AGENT_KIND`.
 
 Delivery goes to every configured backend in configuration order and stops at the first backend that fails, which yields a `send_failed` error. Partial delivery across backends is not reported in this version. Each backend call carries a 10-second timeout, so a slow endpoint cannot stall the turn indefinitely.
 
@@ -732,7 +734,7 @@ The `webhook` backend posts the notification as a single JSON object with generi
   "source": "build-host-01",
   "issue_id": "abc123",
   "identifier": "PROJ-42",
-  "session_id": "b4c0e7d2-5a19-4e8b-9f3c-6d2a8e1b7c4d",
+  "session_id": "",
   "attempt": 2,
   "agent": "claude-code",
   "severity": "critical",
