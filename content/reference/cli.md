@@ -878,7 +878,7 @@ Failures at steps 1–6 write to stderr and return exit code `1`.
 
 The MCP server receives its environment exclusively from the `env` field in `.sortie/mcp.json`. The worker writes all `SORTIE_*`-prefixed variables from the orchestrator's process environment into this block, plus the per-session variables below, which override any same-named process variable. See [MCP server environment](/reference/environment/#mcp-server-environment) for the full composition model.
 
-Per-session variables written by the worker. The first six are written on every dispatch; `SORTIE_ATTEMPT` is written only when the orchestrator has an attempt number:
+Per-session variables written by the worker. The first seven are written on every dispatch; `SORTIE_ATTEMPT` is written only when the orchestrator has an attempt number:
 
 | Variable | Purpose |
 |---|---|
@@ -886,7 +886,8 @@ Per-session variables written by the worker. The first six are written on every 
 | `SORTIE_ISSUE_IDENTIFIER` | Human-readable issue key. |
 | `SORTIE_WORKSPACE` | Workspace root path. |
 | `SORTIE_DB_PATH` | SQLite database path. Gates the `workspace_history` and `cost_budget` tools. |
-| `SORTIE_SESSION_ID` | Session identifier. |
+| `SORTIE_SESSION_ID` | Always an empty string. Copied into the `notify_operator` envelope's `session_id` field. |
+| `SORTIE_DISPATCH_ID` | Identifies the current dispatch to the `cost_budget` tool. |
 | `SORTIE_SESSION_AGENT_KIND` | Dispatch-frozen agent kind for the session. May be empty. |
 | `SORTIE_ATTEMPT` | Attempt number as a decimal integer. Absent on the first dispatch. |
 
