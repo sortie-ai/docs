@@ -450,6 +450,27 @@ Shell scripts that run at workspace lifecycle points. On POSIX systems, each hoo
 
 Timeouts count as failures and follow the same semantics.
 
+### Hook process lifetime
+
+When a hook's shell exits, whatever its exit status, Sortie terminates every process still in its process group (its Job Object on Windows), resending the termination on a fixed poll interval until the group or job reports no member left or a 2-second bound elapses. A background command inside the script ends with the hook: on Linux and macOS `&`, `nohup … &`, and `( … & )`; on Linux also `systemd-run --scope`; on Windows `start /b`, `pg_ctl start`, and `pm2 start`. A process meant to outlive the hook needs a supervisor outside that tree:
+
+| Platform | Route | Prerequisite |
+| --- | --- | --- |
+| Linux, container engine | `docker compose up -d` or `docker run -d` | The hook's user reaches the Docker daemon: group membership or `sudo` for a rootful daemon. For rootless Docker, the CLI's persisted current context set to the rootless one (`docker context use rootless`, saved under `~/.docker/config.json`, which `HOME`, already on the allowlist, is enough to reach); `DOCKER_HOST` itself is not on the allowlist and is never forwarded, even if it is set in Sortie's own environment. |
+| Linux, systemd user unit | `systemctl --user start`, `systemd-run --user` (without `--scope`), or `brew services start` as a non-root user | A running user manager (an active login session, or lingering enabled), and `XDG_RUNTIME_DIR` or `DBUS_SESSION_BUS_ADDRESS` present in Sortie's own environment: the hook inherits only variables Sortie itself already has. Sortie run as the systemd system service in [how to run Sortie as a systemd service](/guides/run-as-systemd-service/) has neither by default, so this route needs Sortie run as a systemd `--user` service or interactively instead, or the variable added to Sortie's own environment explicitly. |
+| Linux, systemd system unit | `systemctl start` | Sortie runs as `root`, or a polkit rule grants its user `org.freedesktop.systemd1.manage-units`. |
+| macOS, launchd | `brew services start` | The user Sortie runs as is logged in at the graphical console. |
+| macOS, Docker Desktop | `docker compose up -d` or `docker run -d` | Docker Desktop has started for the user Sortie runs as. |
+| Windows, Service Control Manager | `Start-Service` or `sc start` | The service is installed, and the account Sortie runs as holds the `SERVICE_START` right on it. |
+| Windows, Docker Desktop | `docker compose up -d` or `docker run -d` | Docker Desktop is running for the user Sortie runs as. |
+| Windows, Task Scheduler | `schtasks /run /tn <task>` or `Start-ScheduledTask` on a task the user registered | The task exists and runs in the user's own security context. |
+
+Prefer a supervisor that owns the service across runs, such as `docker compose up -d` on Linux and macOS, which recreates a service's containers only when its configuration or image changed, or a service manager. A hook whose next step uses the service should wait until the service accepts connections, since these start commands can return before it does.
+
+On Windows, a hook whose Job Object could not be created or assigned still runs, with the failure logged, and that teardown then reaches only the shell itself. When a hook that exits on its own leaves a process running that it did not start through one of the routes above, Sortie logs one INFO record, `leftover processes terminated after the command exited`, carrying `hook` and `workspace`; a termination that still cannot confirm the group or job empty once the 2-second bound elapses is logged as a warning instead.
+
+For the practical walkthrough, see [how to set up workspace hooks: start a service that outlives a hook](/guides/setup-workspace-hooks/#start-a-service-that-outlives-a-hook).
+
 ### Hook environment variables
 
 | Variable                  | Value                                         |
@@ -508,7 +529,7 @@ Coding agent adapter, concurrency, timeouts, and retry behavior. These fields co
 | `turn_timeout_ms`                | integer | `3600000` (1h)  | Total timeout for a single agent turn. Must be positive; a non-positive value is rejected when the configuration loads. Unlike `stall_timeout_ms` below, this bound cannot be disabled. |
 | `read_timeout_ms`                | integer | `5000` (5s)     | Timeout for startup and synchronous operations.                                       |
 | `stall_timeout_ms`               | integer | `300000` (5m)   | Inactivity timeout based on event stream gaps. `0` or negative disables stall detection. |
-| `stop_grace_ms`                  | integer | `5000` (5s)     | How long an adapter waits for the agent to exit on its own after a graceful termination signal, before it force-terminates the process group. Must be positive and no greater than `9223372036854` (about 292 years); any other value is rejected when the configuration loads. An adapter that launches no process, such as `mock`, has no such period. Stopping one session is allowed this value plus a fixed 15 seconds for the output collection and process reaping that follow it, 20 seconds at the default. Raising this value raises both that bound and the [shutdown worker-drain ceiling](/reference/cli/#signals) by the same amount. |
+| `stop_grace_ms`                  | integer | `5000` (5s)     | How long an adapter waits for the agent to exit on its own after a graceful termination signal, before it force-terminates the process group. Must be positive and no greater than `9223372036854` (about 292 years); any other value is rejected when the configuration loads. An adapter that launches no process, such as `mock`, has no such period. Stopping one session is allowed this value plus a fixed 15 seconds for the output collection and process reaping that follow it, 20 seconds at the default. The force-terminate step itself waits for the process group to report no member left, resending the termination for up to 2 more seconds when a member needs more than one resend to clear, so a session whose process group is slow to tear down can take up to 2 seconds longer than that total. Raising `stop_grace_ms` raises both that bound and the [shutdown worker-drain ceiling](/reference/cli/#signals) by the same amount. |
 | `max_retry_backoff_ms`           | integer | `300000` (5m)   | Maximum delay cap for exponential backoff on retries.                                 |
 
 `max_concurrent_agents`, `max_concurrent_agents_by_state`, `max_retry_backoff_ms`, `max_sessions`, `max_tokens`, and `max_consecutive_absences` reload dynamically without restart; a reloaded `max_tokens` reaches the sessions already running from the next poll tick onward, and applies at the next retry evaluation. All other fields apply to future dispatches only, except where the per-field Dynamic reload table at the end of this document states a finer-grained answer.
@@ -727,7 +748,7 @@ Self-review configuration. When enabled, Sortie runs an orchestrator-controlled 
 | `enabled`                  | boolean         | `false`    | Activates the self-review loop. When false or absent, no review phase runs.                                |
 | `max_iterations`           | integer         | `3`        | Hard cap on review iterations. Range: 1–10. Each iteration includes a review turn and (if verdict is “iterate”) a fix turn. |
 | `verification_commands`    | list of strings | _(none)_   | Shell commands to run during each review iteration. Required and non-empty when `enabled: true`.           |
-| `verification_timeout_ms`  | integer         | `120000`   | Per-command timeout in milliseconds. Timed-out commands are killed via process group signal.                |
+| `verification_timeout_ms`  | integer         | `120000`   | Per-command timeout in milliseconds.                |
 | `max_diff_bytes`           | integer         | `102400`   | Maximum bytes of diff included in the review prompt. Larger diffs are truncated with a note.                |
 | `reviewer`                 | string          | `"same"`   | Which agent runs the review turns. `"same"` (reuse existing session) is the only supported value.               |
 
@@ -739,6 +760,10 @@ Self-review configuration. When enabled, Sortie runs an orchestrator-controlled 
 ### Turn accounting
 
 Each iteration runs one review turn. Non-final iterations that produce an “iterate” verdict also run a fix turn. `max_iterations: N` means up to `2N − 1` additional agent turns in the worst case (N review turns + N−1 fix turns). For the default `max_iterations: 3`, this is up to **5 additional agent turns**. Factor this into token budget and wall-clock time expectations.
+
+### Verification command process lifetime
+
+Each verification command's process group (its Job Object on Windows) is torn down the same way a hook's is: see [hook process lifetime](#hook-process-lifetime) for the resend, the 2-second bound, and the Windows fallback when a Job Object could not be created or assigned. Two things differ here: the command's own exit status, not its timeout or its output, decides whether it passed, and the INFO and WARN records this produces carry `command` in place of `hook` and `workspace`.
 
 ### Dynamic reload
 

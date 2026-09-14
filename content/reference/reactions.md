@@ -131,7 +131,9 @@ reactions:
 
 ### Execution environment
 
-The command runs with the per-issue workspace directory as its working directory, through the same machinery as a [workspace hook](/guides/setup-workspace-hooks/): `sh -c` on POSIX and `cmd.exe /C` on Windows, the same restricted environment, the same process-group kill on timeout, and the same 8 KiB captured output tail. It receives the variables every hook receives and three of its own. See the [hook subprocess environment](/reference/environment/#hook-subprocess-environment) for the allowlist and the [triage command variables](/reference/environment/#reaction-triage-command-variables) for the three.
+The command runs with the per-issue workspace directory as its working directory, through the same machinery as a [workspace hook](/guides/setup-workspace-hooks/): `sh -c` on POSIX and `cmd.exe /C` on Windows, the same restricted environment, and the same 8 KiB captured output tail. It receives the variables every hook receives and three of its own. See the [hook subprocess environment](/reference/environment/#hook-subprocess-environment) for the allowlist and the [triage command variables](/reference/environment/#reaction-triage-command-variables) for the three.
+
+Sortie terminates every process still in the command's process group whenever the command ends: on a timeout, on a superseding fingerprint, when the episode ends, when Sortie shuts down, or when the command exits on its own with any status. A command that exits on its own and leaves such a process behind logs one INFO record, `leftover processes terminated after the command exited`, carrying `reaction_kind`. See [hook process lifetime](/reference/workflow-config/#hook-process-lifetime) for the routes a process meant to outlive the command can use instead.
 
 Sortie never creates the workspace directory for a triage run. A directory that is absent, or a path that is not a directory, ends the run before any subprocess starts, and the reaction dispatches exactly as it would with no block.
 

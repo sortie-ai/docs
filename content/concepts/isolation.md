@@ -80,6 +80,18 @@ The cost of this flexibility is real. A production git workflow is not two lines
 
 The alternative, built-in VCS support, would reduce hook complexity for git users while adding maintenance burden to Sortie's core and excluding non-git users. Given the agent-agnostic, tracker-agnostic, VCS-agnostic positioning, the hook model is the consistent choice. The complexity is in the right place: with the operator who understands their repository topology, not in the orchestrator core that doesn't.
 
+## Why hooks do not keep processes alive
+
+A hook, the reaction triage command, and a self-review verification command each run once, answer a question, and exit: clone a repository, decide whether an incident needs escalating, run a test suite. Sortie terminates whatever one leaves running in its process group (its Job Object on Windows) the moment it exits, whatever its exit status; the alternative, leaving those processes running until the end of the run, was on the table and was rejected. Two things fall outside that reach: a process that already left the group itself, by starting its own session, on POSIX, and a Windows launch whose Job Object could not be created or assigned in the first place, a rare, logged fallback.
+
+The scripts run again, on a schedule the script itself does not control. `before_run` fires on every agent attempt, including retries. The triage command re-runs for the same subject when a fresh commit changes its fingerprint, when the run is cancelled, or when Sortie restarts. A self-review verification command re-runs on every review iteration, up to `max_iterations` times within one worker run. A server a previous invocation backgrounded and forgot would still be holding its port when the next invocation tries to start its own copy: the bind fails, and a script that expected a clean start gets an unexplained startup error instead of a running service.
+
+An orphaned process also has no owner. Once the script that started it exits, nothing in Sortie holds a reference to it, so nothing notices when it should stop either. It runs until something else on the host finds it: an operator, a reaper cron, a reboot.
+
+The fix is not to keep hooks alive longer. `app &` inside a setup script starts a process with no restart policy and no health check, and ties its lifetime to a script that was never built to hold one. A service meant to outlive a single hook invocation belongs to something built to run services: a container engine or a service manager, started from the hook and left to manage its own lifecycle from there. That is what the [hook process lifetime](/reference/workflow-config/#hook-process-lifetime) routes are for.
+
+This is not process sandboxing in the sense the section above describes: it does not restrict what a running agent, or a service a hook starts, is allowed to do once it is up. It bounds how long a script's own process tree survives past the script itself, nothing more.
+
 ## Making the model scale
 
 The current model has real costs at concurrency. Ten concurrent agents mean ten full git clones, which cost disk space, network bandwidth, and wall-clock time for the initial setup. For large repositories, this adds up. Acknowledging the cost is the first step toward addressing it.

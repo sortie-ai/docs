@@ -163,7 +163,7 @@ fi
 
 Two properties make this safe, and both are worth copying into any script that writes:
 
-**It survives being killed at any instruction.** Sortie kills the command and everything it started when `timeout_ms` elapses, when a new commit changes the subject underneath it, when the episode ends, and at shutdown. The `git rebase --abort` on entry means a run killed mid-rebase leaves nothing for the next one to trip over.
+**It survives being killed at any instruction.** Sortie kills the command and everything it started when `timeout_ms` elapses, when a new commit changes the subject underneath it, when the episode ends, and at shutdown. The `git rebase --abort` on entry means a run killed mid-rebase leaves nothing for the next one to trip over. A command that exits on its own is cleaned up the same way: Sortie terminates anything it leaves running in its process group, because the same command runs again for the next subject, and a process an earlier run backgrounded and forgot would still be there to collide with it. See [why hooks do not keep processes alive](/concepts/isolation/#why-hooks-do-not-keep-processes-alive); the triage command follows the same rule.
 
 **It can be run twice for the same work.** A killed run, a run whose subject moved, and any run that was in flight when the process restarted are each followed by a fresh run. Triage state is never written to the database, so a restart re-triages the subject from scratch. A rebase that finds nothing to rebase is a no-op, which is what makes repetition harmless here.
 
@@ -183,6 +183,8 @@ Two properties make this safe, and both are worth copying into any script that w
 **The command never runs at all.** Check that the block is under one of the four kinds that accept it, and that Sortie was restarted after the edit. [`sortie validate`](/reference/cli/#validate) rejects a `triage` block under any other reaction kind before dispatch.
 
 **The reaction escalated on a spent budget without running the script.** `review_comments` and `bot_review` check their continuation-turn cap before triage, so a subject that arrives with the budget already gone escalates without invoking the command. `ci_failure` and `merge_conflicts` run the command first.
+
+**A helper the script started with `&` is gone by the next run.** Sortie terminates everything left in the command's process group as soon as the command exits, so a backgrounded helper does not outlive it. Start anything that needs to keep running through a supervisor instead of backgrounding it in the script; see [set up workspace hooks: start a service that outlives a hook](/guides/setup-workspace-hooks/#start-a-service-that-outlives-a-hook), which applies the same way here.
 
 ## Related guides
 
