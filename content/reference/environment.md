@@ -399,8 +399,10 @@ Beyond the injected variables above, hooks inherit two categories from the paren
 
 **Platform allowlist**: A fixed set of standard infrastructure variables, varying by OS:
 
-- *POSIX (Linux, macOS):* `PATH`, `HOME`, `SHELL`, `TMPDIR`, `USER`, `LOGNAME`, `TERM`, `LANG`, `LC_ALL`, `SSH_AUTH_SOCK`
+- *POSIX (Linux, macOS):* `PATH`, `HOME`, `SHELL`, `TMPDIR`, `USER`, `LOGNAME`, `TERM`, `LANG`, `LC_ALL`, `SSH_AUTH_SOCK`, `XDG_RUNTIME_DIR`, `DBUS_SESSION_BUS_ADDRESS`
 - *Windows:* `PATH`, `SYSTEMROOT`, `COMSPEC`, `PATHEXT`, `USERPROFILE`, `TEMP`, `TMP`, `APPDATA`, `LOCALAPPDATA`, `HOMEDRIVE`, `HOMEPATH`, `USERNAME`
+
+`XDG_RUNTIME_DIR` and `DBUS_SESSION_BUS_ADDRESS` locate the invoking user's systemd user manager and D-Bus session bus. Both carry no secret; a hook or reaction [triage command](#reaction-triage-command-variables) that starts a systemd user service needs them to reach it. See [start a service that outlives a hook](/guides/setup-workspace-hooks/#start-a-service-that-outlives-a-hook).
 
 **`SORTIE_*` prefix**: All parent environment variables whose names start with `SORTIE_` are inherited. This includes any `SORTIE_*` variables set via [configuration overrides](#configuration-overrides). This is the intended mechanism for passing additional values (API tokens, repository URLs, custom flags) into hooks without exposing the full process environment.
 

@@ -178,7 +178,7 @@ The handoff write is subject to one further condition beyond the four in the tab
 | `strict` | Handoff proceeds | Withheld | Withheld |
 | `off` | No verdict is computed; the four conditions above stand | n/a | n/a |
 
-The default withholds only on a positively observed absence and abstains everywhere it cannot measure the workspace, the case a workspace that is not a Git work tree produces. A deployment whose workspaces are never version-controlled trees sees no behavioral change under the default and configures nothing. `strict` has no partial form: in such a deployment it withholds every transition and stops the pipeline, which is the operator's own choice to make.
+The default withholds only on a positively observed absence and abstains everywhere it cannot measure the workspace: a workspace that is not a Git work tree, and a workspace inspection that itself fails, which includes one still waiting on output a descendant process kept open past a bounded wait. A deployment whose workspaces are never version-controlled trees sees no behavioral change under the default and configures nothing. `strict` has no partial form: in such a deployment it withholds every transition and stops the pipeline, which is the operator's own choice to make.
 
 One legitimate configuration is misread by the default. A primary dispatch whose entire product is a write to the tracker presents a measurable workspace and no movement in it, so it reads as an absence. A write made through the [`tracker_api` tool](/reference/agent-extensions/#tracker_api) goes straight to the tracker, not to the workspace, so it is invisible to the inspection above and cannot rescue the case. That is the case `off` exists for.
 

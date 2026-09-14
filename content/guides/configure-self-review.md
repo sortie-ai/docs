@@ -54,6 +54,8 @@ If a command binary is not found on PATH, Sortie records an execution error and 
 
 Commands follow the same trust model as workspace hooks: they come from WORKFLOW.md (version-controlled, operator-controlled config) and are not overridable via environment variables.
 
+Each command's process group is torn down when it exits, whatever its exit status, so nothing it leaves running survives into the next iteration. This matters here because a command re-runs on every review iteration, up to `max_iterations` times within one worker run: a server a test suite backgrounds and forgets would otherwise still be listening when the next iteration starts it again. See [why hooks do not keep processes alive](/concepts/isolation/#why-hooks-do-not-keep-processes-alive) for the reasoning; verification commands follow the same rule.
+
 ## Configure iteration limits
 
 ```yaml
@@ -86,7 +88,7 @@ self_review:
 | Field | Default | Description |
 |---|---|---|
 | `max_diff_bytes` | `102400` (100 KB) | Max bytes of diff included in the review prompt. Larger diffs are truncated with a note in the prompt. Tune relative to your agent's context window. |
-| `verification_timeout_ms` | `120000` (2 min) | Per-command timeout. Timed-out commands are killed (entire process group). The agent sees "TIMED OUT" in the review prompt. |
+| `verification_timeout_ms` | `120000` (2 min) | Per-command timeout. A command that times out is killed (entire process group); the agent sees "TIMED OUT" in the review prompt. A command that exits on its own has its process group torn down too; see [verification command process lifetime](/reference/workflow-config/#verification-command-process-lifetime). |
 
 A verification command timing out is not the same as the review or fix turn itself running long. Both are bounded by the workflow-wide `agent.turn_timeout_ms`, the same field that bounds coding turns rather than a setting of its own for self-review. Unlike every other way this loop can end, a review or fix turn that exceeds it fails the attempt outright, and the attempt is retried rather than the loop degrading and continuing.
 
