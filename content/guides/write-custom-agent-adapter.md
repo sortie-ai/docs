@@ -53,7 +53,7 @@ The data flows like this. `StartSession` receives `StartSessionParams` (the work
 
 ### Choose your execution model
 
-Fork-per-turn is the default: one subprocess per turn, launched fresh, scanned to completion, then reaped. Claude Code, Copilot CLI, OpenCode, and Kiro all work this way. The shared skeleton in `internal/agent/agentcore` implements the lifecycle for you, and the rest of this guide uses it.
+Fork-per-turn is the default: one subprocess per turn, launched fresh, scanned while it runs, and reaped on its own exit. Claude Code, Copilot CLI, OpenCode, and Kiro all work this way. The shared skeleton in `internal/agent/agentcore` implements the lifecycle for you, and the rest of this guide uses it.
 
 The exception is the persistent-subprocess model. Codex keeps one long-lived `codex app-server` process and talks to it over a JSON-RPC handshake across turns, instead of forking. Choose it only when the CLI requires a persistent server with a protocol handshake. This guide does not cover that model; read `internal/agent/codex/` and the [Codex adapter reference](/reference/adapter-codex/) if your agent needs it.
 
@@ -139,6 +139,8 @@ Declare the truth about what your adapter does today, not what the CLI could the
 | `UsageArrivalIncremental` | `UsageAttributionPerModel` or `UsageAttributionSessionTotal` | Emits one `token_usage` event per model API request, while the turn's work is still in flight. |
 | `UsageArrivalTurnEnd` | `UsageAttributionPerModel` or `UsageAttributionSessionTotal` | Emits at most one `token_usage` event per turn, and only after the turn's work is over. |
 | `UsageArrivalNone` | `UsageAttributionNone` | Never emits one. Every turn is unmeasured, token budgets are inert, and `agent.turn_timeout_ms` is the budget that remains. |
+
+`UsageArrivalNone` is enforced, not merely documented: the orchestrator discards a figure your runtime sends under this declaration rather than trusting it, exactly as the [usage reporting reference](/reference/workflow-config/#usage-reporting-by-agent-kind) describes for every kind. Nothing about that failure reaches your adapter's own return values or errors, so catch it yourself: drive a real turn through your fake runtime and check it with `agenttest.AssertUsageReporting` (see [Test the adapter](#test-the-adapter)), the same way the built-in `kiro` and `copilot-cli` packages do. A Warn log Sortie emits once per run, naming your kind (see [monitor with logs](/guides/monitor-with-logs/#agent-session)), is what's left to catch a runtime shape none of your own tests drove.
 
 A kind declaring `UsageArrivalTurnEnd` reports through `agentcore.TurnEndUsage` instead of emitting the event or calling `agentcore.FinalizeTurn` yourself. Construct it with `agentcore.NewTurnEndUsage()` exactly once, directly in `StartSession`'s own method body outside every function literal, and store the pointer on your session state; return its `Snapshot()` from `GetUsage`. In `OnFinalize`, build an `*agentcore.RecoveredUsage{Run, Model}` when this turn settled a figure, or leave it `nil` when it settled nothing, and call `state.usage.Finalize(emit, logger, ev, sessionID, apiDurationMS, recovered)` in place of `agentcore.FinalizeTurn`: it emits the one `token_usage` event when `recovered` is non-nil, latches the run's measured verdict, and then calls `FinalizeTurn` itself for the turn's terminal event. `TestUsageDeclarationContractInvariant` in `agentcore` enforces this shape: it fails a `turn_end` package that calls `agentcore.FinalizeTurn` directly, references `domain.EventTokenUsage` directly, or constructs `agentcore.NewTurnEndUsage()` anywhere but that one place. Copilot CLI and OpenCode are the worked examples: both recover their figure from a read that only completes after the subprocess exits, and hand it to `Finalize` as `recovered`.
 
@@ -369,6 +371,8 @@ The rule reads those fields in order and stops at the first match: a terminal re
 
 For a structured agent, read `lastParsed` and set `Terminal` from the result line. For an unstructured agent, derive it from the exit status, stderr, and the observer. Kiro is the worked example, and its exit-0 case is ambiguous: the process exits 0 whether or not a turn actually ran. Its `RunTurn` opens each turn with `state.work = agentcore.NewWorkObserver(agentcore.WorkSignals{AssistantOutput: true})`, and the credits trailer on stderr is the runtime's own success report, ranking above whatever that observer saw.
 
+If you read `stderrLines` for evidence rather than only to hand it to the operator, test it for `procutil.AbandonedMarker` before you trust it. The slice carries that marker at the end when the drain could not finish inside its bound, which happens when a descendant of the agent inherited the standard-error handle and outlived it. Everything collected up to that point is real, but a transcript ending there proves nothing about what the runtime went on to write, so a marker you find should disqualify whatever positive signal you were looking for and leave the turn to the shared rule. Kiro applies exactly this test to its credits trailer. A signal that reports a failure survives the same cut, because a line you read is a line the runtime wrote.
+
 ```go
 OnFinalize: func(emit func(domain.AgentEvent), _ any, exitCode int, stderrLines []string) (domain.TurnResult, *domain.AgentError) {
 	creditsSeen, authFailed := classifyStderr(stderrLines)
@@ -431,7 +435,7 @@ Write unit tests with the project's conventions: table-driven, `t.Parallel()` at
 
 - `command_test.go` asserts `buildArgs` output across config permutations (model set or not, trust modes, resume on or off).
 - `parse_test.go` asserts parsing and classification: JSONL decode against `testdata/` fixtures for a structured agent, ANSI stripping and stderr classification for an unstructured one.
-- `acme_test.go` covers session and turn behavior against a stub or a fake binary on `PATH`.
+- `acme_test.go` covers session and turn behavior against a fake `acme-cli`, built with `agenttest.FakeRuntime`, and proves your registered usage-reporting declaration with `agenttest.AssertUsageReporting` against the events and result a real turn produced. For an arrival of `UsageArrivalNone`, that call fails unless the turn emitted no `token_usage` event, no event carrying a non-zero usage figure, and a result with `UsageMeasured` false.
 
 ```go {filename="command_test.go"}
 func TestBuildArgs(t *testing.T) {
@@ -457,6 +461,57 @@ func TestBuildArgs(t *testing.T) {
 	}
 }
 ```
+
+Give the package a `TestMain` that calls `agenttest.Main(m, scenarios)` with a map of named scenarios. `agenttest.FakeRuntime(t, dir, name, scenario, params)` then builds the fake executable: it links (or copies) a staged copy of the test binary itself to `dir/name` and writes the scenario name and its JSON-encoded params next to it. When something later runs that path, the process is the test binary starting up again; `TestMain` finds that sibling file and dispatches straight to the named scenario instead of running the package's tests.
+
+```go {filename="acme_test.go"}
+// turnCounterScenario answers its first invocation with a fixed stdout
+// payload and every later invocation with nothing, tracked by
+// CounterFile's existence, so a test can pin a per-turn signal that a
+// session's second turn must not inherit from its first.
+const turnCounterScenario = "acme.turn-counter"
+
+type turnCounterParams struct {
+	CounterFile string
+	Stdout      string
+}
+
+func runTurnCounter(_ []string, p turnCounterParams) int {
+	if _, err := os.Stat(p.CounterFile); err == nil {
+		return 0
+	}
+	if err := os.WriteFile(p.CounterFile, nil, 0o600); err != nil {
+		return 1
+	}
+	return agenttest.Output{Stdout: p.Stdout}.Run()
+}
+
+func TestMain(m *testing.M) {
+	agenttest.Main(m, map[string]agenttest.Scenario{
+		turnCounterScenario: agenttest.Typed(runTurnCounter),
+	})
+}
+```
+
+A test builds the fake and hands its path to the adapter the same way `internal/agent/kiro/kiro_test.go` does:
+
+```go
+dir := t.TempDir()
+bin := agenttest.FakeRuntime(t, dir, "acme-cli", turnCounterScenario, turnCounterParams{
+	CounterFile: filepath.Join(dir, "turn-count"),
+	Stdout:      "pong",
+})
+session, err := adapter.StartSession(context.Background(), domain.StartSessionParams{
+	WorkspacePath: t.TempDir(),
+	AgentConfig:   domain.AgentConfig{Command: bin},
+})
+```
+
+Reach for the built-in `agenttest.OutputScenario` instead, with no registration, when a fixed stdout, stderr, exit code, or an indefinite hang (`Output.Hang`) is all a turn needs. Register a scenario of your own, wrapped with `agenttest.Typed` as above, only when the reply must depend on the arguments or change across turns.
+
+This package's tests run on Windows in CI the same as every other package (`.github/workflows/ci.yml`), so a fixture built as a POSIX shell script breaks there; a fake runtime built with `agenttest.FakeRuntime` does not.
+
+Kiro's `chatScenario` in `internal/agent/kiro/kiro_test.go` is the fuller worked example: it answers a `whoami` credential canary one way and a `chat` turn another, from the same fake binary.
 
 The integration test runs against the real CLI and stays gated behind an environment variable. Put it in the external `acme_test` package, blank-import your adapter so `init()` registration runs, and guard it with `SORTIE_ACME_TEST=1` plus the credential. Name the test so it contains `Integration`, which is how the release pipeline selects it with `-run 'Integration'`. Use no build tag: the env guard alone makes it skip cleanly when the variable is absent, so a normal `make test` never runs or fails it.
 

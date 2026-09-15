@@ -6,9 +6,9 @@ date: 2026-04-26
 weight: 110
 url: /reference/adapter-copilot/
 ---
-The Copilot CLI adapter connects Sortie to the [GitHub Copilot CLI](https://docs.github.com/en/copilot/using-github-copilot/using-github-copilot-in-the-command-line) via subprocess management. It launches the `copilot` binary with `--output-format json`, reads newline-delimited JSON from stdout, and normalizes events into domain types. Registered under kind `"copilot-cli"`.
+The Copilot CLI adapter connects Sortie to the [GitHub Copilot CLI](https://docs.github.com/en/copilot/using-github-copilot/using-github-copilot-in-the-command-line) via subprocess management. It launches the `copilot` binary with `--output-format json`, reads newline-delimited JSON from stdout, and normalizes events into Sortie's own event vocabulary. Registered under kind `"copilot-cli"`.
 
-Each `RunTurn` call spawns an independent subprocess. The adapter is safe for concurrent use: one adapter instance serves all sessions, with per-session state held in an opaque internal handle. `StartSession` runs a canary check and a credential preflight before it returns a session; both are local-mode only.
+Each turn spawns an independent subprocess. Session start runs a canary check and a credential preflight before a session is created; both are local-mode only.
 
 See also: [WORKFLOW.md configuration](/reference/workflow-config/) for the full `agent` schema, [environment variables](/reference/environment/) for GitHub token variables, [error reference](/reference/errors/#agent-errors) for all agent error kinds, [how to write a prompt template](/guides/write-prompt-template/) for template authoring.
 
@@ -25,11 +25,11 @@ These fields control the orchestrator's scheduling behavior. They are not passed
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `kind` | string | - | Must be `"copilot-cli"` to select this adapter. |
-| `command` | string | `copilot` | Path or name of the Copilot CLI binary. Resolved via `exec.LookPath` at session start. |
-| `max_turns` | integer | `20` | Maximum Sortie turns per worker session. The orchestrator calls `RunTurn` up to this many times, re-checking tracker state after each turn. |
+| `command` | string | `copilot` | Path or name of the Copilot CLI binary, resolved from `PATH` at session start. |
+| `max_turns` | integer | `20` | Maximum Sortie turns per worker session. The orchestrator runs up to this many turns, re-checking tracker state after each one. |
 | `max_sessions` | integer | `0` (unlimited) | Maximum completed worker sessions per issue before the orchestrator stops retrying. `0` disables the budget. |
 | `max_concurrent_agents` | integer | `10` | Global concurrency limit across all issues. |
-| `turn_timeout_ms` | integer | `3600000` (1 hour) | Total timeout for a single `RunTurn` call. The orchestrator cancels the turn context when exceeded. |
+| `turn_timeout_ms` | integer | `3600000` (1 hour) | Total timeout for a single turn. The orchestrator cancels the turn when exceeded. |
 | `read_timeout_ms` | integer | `5000` (5 seconds) | Timeout for startup and synchronous operations. |
 | `stall_timeout_ms` | integer | `300000` (5 minutes) | Maximum time between consecutive events before the orchestrator treats the session as stalled. `0` or negative disables stall detection. |
 | `stop_grace_ms` | integer | `5000` (5 seconds) | How long the adapter waits for the subprocess to exit on its own after a graceful termination signal, before it force-terminates the process group. Must be positive. |
@@ -52,7 +52,7 @@ These fields are adapter-specific, and each maps to a Copilot CLI flag. The orch
 | Field | CLI flag | Type | Default | Description |
 |---|---|---|---|---|
 | `model` | `--model` | string | _(CLI default)_ | LLM model identifier, forwarded unchanged. See `copilot --help` on your installed version for the accepted values. |
-| `max_autopilot_continues` | `--max-autopilot-continues` | integer | `50` | Maximum autopilot continuation steps within a single `RunTurn` invocation. |
+| `max_autopilot_continues` | `--max-autopilot-continues` | integer | `50` | Maximum autopilot continuation steps within a single turn. |
 | `agent` | `--agent` | string | _(none)_ | Agent persona to use. |
 | `allowed_tools` | `--allow-tool` | string | _(none)_ | Tool to allow explicitly. |
 | `denied_tools` | `--deny-tool` | string | _(none)_ | Tool to deny explicitly. |
@@ -78,8 +78,8 @@ These two fields control different systems at different levels.
 
 | Field | Controls | Scope |
 |---|---|---|
-| `agent.max_turns` | Sortie's orchestrator turn loop | How many times the orchestrator invokes `RunTurn` per worker session. |
-| `copilot-cli.max_autopilot_continues` | Copilot CLI's internal autopilot loop | How many autopilot continuation steps Copilot takes within a single `RunTurn` invocation. |
+| `agent.max_turns` | Sortie's orchestrator turn loop | How many times the orchestrator runs a turn per worker session. |
+| `copilot-cli.max_autopilot_continues` | Copilot CLI's internal autopilot loop | How many autopilot continuation steps Copilot takes within a single turn. |
 
 With `agent.max_turns: 5` and `max_autopilot_continues: 50`, the orchestrator runs up to 5 turns. Within each turn, Copilot takes up to 50 autopilot steps. The total step budget per session is at most 250.
 
@@ -95,11 +95,11 @@ Every invocation also includes `--autopilot` and `--no-ask-user`, which are alwa
 
 ### Sortie's own tools and the `mcp_config` field
 
-Sortie generates one MCP server configuration per session, declaring a `sortie-tools` stdio server that exposes Sortie's own tools to the agent. When that generated file exists, the adapter passes it to `--additional-mcp-config` as `@<path>`, regardless of whether `copilot-cli.mcp_config` is also set.
+Sortie generates one MCP server configuration per session, declaring a `sortie-tools` stdio server that exposes Sortie's own tools to the agent. When that generated file exists, the adapter passes it to `--additional-mcp-config` as `@<path>`, regardless of whether `copilot-cli.mcp_config` is also set, on a local launch and over SSH alike.
 
 When `copilot-cli.mcp_config` names an operator-supplied file, Sortie reads it, inserts the `sortie-tools` entry into its `mcpServers` object, and writes the merged result. This is the same merge the Claude Code adapter performs, since both read from the orchestrator-generated config. A relative path resolves against the directory containing `WORKFLOW.md`. A server already named `sortie-tools` in the operator's file fails generation with a name-collision error rather than being silently overwritten.
 
-Only when no such merge has taken place (`MCPConfigPath` is empty) does the adapter fall back to forwarding `copilot-cli.mcp_config` directly to `--additional-mcp-config`. In that fallback path the adapter also decides how to present the value to the flag: a value starting with `{` is passed through as inline JSON, a value already starting with `@` is passed through unchanged, and any other value is treated as a file path and prefixed with `@`, matching the flag's own file-vs-inline convention.
+Only when no generated configuration was merged does the adapter fall back to forwarding `copilot-cli.mcp_config` directly to `--additional-mcp-config`. In that fallback path the adapter also decides how to present the value to the flag: a value starting with `{` is passed through as inline JSON, a value already starting with `@` is passed through unchanged, and any other value is treated as a file path and prefixed with `@`, matching the flag's own file-vs-inline convention.
 
 ### Runtime-denied permission requests
 
@@ -109,7 +109,7 @@ The CLI answers a permission request under its own non-interactive policy rather
 
 ## Validate-time checks
 
-When `agent.kind` is `copilot-cli`, the [`sortie validate`](/reference/cli/#validate) pipeline runs a Copilot CLI-specific config check in addition to the generic preflight validation. It constructs no adapter instance and launches no subprocess, and the same check runs at startup and on every workflow reload, so the verdict is identical in all three places.
+When `agent.kind` is `copilot-cli`, the [`sortie validate`](/reference/cli/#validate) pipeline runs a Copilot CLI-specific config check in addition to the generic preflight validation. It builds no adapter and launches no subprocess, and the same check runs at startup and on every workflow reload, so the verdict is identical in all three places.
 
 ### Warnings
 
@@ -123,16 +123,16 @@ This is a warning rather than an error. Warnings leave `valid` true and the exit
 
 ## Session lifecycle
 
-### `StartSession`
+### Session start
 
 Validates the workspace path, resolves the agent binary, runs a canary check, and verifies authentication. No subprocess is spawned.
 
-1. Validates that `WorkspacePath` is a non-empty absolute path pointing to an existing directory.
-2. Resolves the `command` via `exec.LookPath`. In SSH mode, resolves the local `ssh` binary instead; the agent command resolves on the remote host.
+1. Validates that the workspace path is a non-empty absolute path pointing to an existing directory.
+2. Resolves the `command` from `PATH`. In SSH mode, resolves the local `ssh` binary instead; the agent command resolves on the remote host.
 3. **Canary check (local mode only):** runs `copilot --version` with a 5-second timeout. Any non-zero exit or timeout fails the session with `agent_not_found`; the adapter does not read the version it printed.
 4. **Credential preflight (local mode only):** accepts a non-empty `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN`. With none of them set, it falls back to `gh auth status` (2-second timeout), and only when `gh` itself is on `PATH`. The adapter tests only that a source exists; it never inspects the token's value.
-5. Adopts `ResumeSessionID` for continuation sessions. The session ID may remain empty until the first `result` event populates it.
-6. Returns an opaque `Session` handle containing workspace path, resolved binary, session ID, and SSH configuration.
+5. Adopts the session ID saved from a previous run, for continuation sessions. The session ID may remain empty until the first `result` event populates it.
+6. The session then records the workspace path, resolved binary, session ID, and SSH configuration for later turns to use.
 
 **Errors:**
 
@@ -145,26 +145,23 @@ Validates the workspace path, resolves the agent binary, runs a canary check, an
 | No GitHub authentication source found | `agent_not_found` |
 | SSH binary not found (SSH mode) | `agent_not_found` |
 
-### `RunTurn`
+### Turn
 
-Spawns a Copilot CLI subprocess, reads JSONL events from stdout, and delivers normalized events via the `OnEvent` callback.
-
-The subprocess lifecycle belongs to the shared fork-per-turn skeleton in `internal/agent/agentcore`, which the Claude Code and Kiro adapters use as well; the Copilot CLI adapter supplies the argument list, the line parser, and the end-of-turn classifier.
+Spawns a Copilot CLI subprocess, reads JSONL events from stdout, and delivers them to the orchestrator as they arrive.
 
 1. Builds the CLI argument list from session state and pass-through configuration.
 2. Always includes: `-p <prompt>`, `--output-format json`, `-s`, `--autopilot`, `--no-ask-user`, and `--max-autopilot-continues <n>` (`50` when `copilot-cli.max_autopilot_continues` is unset or not positive).
 3. Applies session management flags (see [session resume mechanism](#session-resume-mechanism)).
-4. Spawns the subprocess with `exec.CommandContext`, overriding its default cancel behavior (see [process shutdown](#process-shutdown) for how).
-5. Sets `cmd.Dir` to the workspace path and `cmd.Env` to the full parent process environment.
-6. Emits `session_started` event before the scan loop begins.
-7. Reads stdout line by line via a buffered scanner (64 KB initial buffer, 10 MB max line).
-8. Drains stderr in a separate goroutine (debug-level logging).
-9. Parses each line as JSON and dispatches to the appropriate event handler.
-10. After stdout closes, calls `cmd.Wait` to collect exit status.
-11. Captures session ID from the `result` event for subsequent turns.
-12. Returns a `TurnResult` with session ID, exit reason, and cumulative token usage.
+4. Spawns the subprocess in the workspace path, with the full parent process environment, and with the shutdown behavior described under [process shutdown](#process-shutdown).
+5. Emits `session_started` event before it starts reading output.
+6. Reads stdout one line at a time (64 KB initial buffer, 10 MB maximum line length).
+7. Drains stderr separately (debug-level logging).
+8. Parses each line as JSON.
+9. Collects the exit status as soon as the subprocess exits, independent of output reading, then gives stdout and stderr reading a fixed five seconds each to finish before classifying the turn.
+10. Captures session ID from the `result` event for subsequent turns.
+11. Ends the turn, recording the session ID, exit reason, and cumulative token usage.
 
-### `StopSession`
+### Session stop
 
 Terminates a running subprocess. Safe to call when no subprocess is active.
 
@@ -176,11 +173,11 @@ Terminates a running subprocess. Safe to call when no subprocess is active.
 
 ## Process shutdown
 
-`exec.CommandContext` sends an immediate kill signal on context cancellation by default. The agent process would have no chance to flush output buffers, close network connections, or emit final token-usage events. The adapter overrides that default: `cmd.Cancel` is set to send a graceful shutdown signal instead of a kill (POSIX: `SIGTERM`; Windows: `CTRL_BREAK_EVENT` via the process group), and `cmd.WaitDelay` bounds how long `Wait` gives the process to exit after that signal (`stop_grace_ms`) before force-killing it (POSIX: `SIGKILL`; Windows: `TerminateJobObject`). This covers both orchestrator-initiated cancellation (reconciliation kill, stall detection) and shutdown signals, since all of them reach the subprocess through the same context.
+By default, stopping a running subprocess sends an immediate kill signal, giving the agent process no chance to flush output buffers, close network connections, or emit final token-usage events. Sortie overrides that default: it sends a graceful shutdown signal instead (POSIX: `SIGTERM`; Windows: `CTRL_BREAK_EVENT` via the process group) and waits up to `stop_grace_ms` before force-killing the process (POSIX: `SIGKILL`; Windows: `TerminateJobObject`). This applies whenever Sortie stops the subprocess, whether the orchestrator initiated it (a reconciliation kill, stall detection, or a turn timeout) or Sortie itself received a shutdown signal.
 
-On all platforms, the subprocess is placed in its own process group at launch. On Windows, the subprocess is additionally assigned to a Job Object with `KILL_ON_JOB_CLOSE`, so the entire process tree (including MCP servers and other children) is terminated on shutdown or if Sortie crashes.
+On all platforms, the subprocess runs in its own process group. On Windows, it is additionally assigned to a Job Object with `KILL_ON_JOB_CLOSE`, so the entire process tree (including MCP servers and other children) is terminated on shutdown or if Sortie crashes. The subprocess starts suspended and is resumed only after that assignment succeeds, so nothing it spawns can run before the job takes effect. This covers every subprocess the adapter launches on Windows, not only turns: the `copilot --version` canary and the `gh auth status` preflight below start suspended too. A failed assignment logs WARN `process group assignment failed`; a failed resume logs WARN `process resume failed` and fails whichever launch it was, reporting `agent_not_found` for the canary and for the `gh auth status` preflight alike, and `port_exit` for a turn.
 
-`StopSession` follows the same shape independently of context cancellation: it sends the graceful signal, waits up to `stop_grace_ms`, and force-kills the process group if the wait elapses. A `StopSession` context that is cancelled first also force-kills the process group, and the adapter returns the context's error.
+Session stop follows the same shape: it sends the graceful signal, waits up to `stop_grace_ms`, and force-kills the process group if the wait elapses. If the stop request is itself interrupted before the grace period elapses, the process group is still force-killed and the interruption is reported as the error.
 
 ---
 
@@ -210,7 +207,7 @@ The runtime writes one journal per session at `<COPILOT_HOME>/session-state/<ses
 2. The read is skipped in SSH mode, and when the session ID is unknown or fails a path-segment check. It is abandoned mid-read, rather than skipped, when the journal exceeds 64 MB or a line in it exceeds 10 MB. Baseline resolution runs once, at the run's first successful read: if that read is also the run's very first attempt, the shutdown record just before the current one becomes the baseline, whether or not this run created the session. If an earlier attempt already ran and failed before that first success, a session this run created still resolves to a zero baseline and keeps recovering; a session this run only resumed does not, because the boundary record needed to separate this run's own spend from what came before is already gone, and recovery is abandoned for the rest of the run.
 3. A turn whose read is skipped, fails, or finds no `session.shutdown` record yet reports no figure. A run in which no turn ever recovers one is recorded as unmeasured; the run-cumulative total a turn recovers only rises, so it stands even when a later turn's read produces nothing further.
 
-The kind's [declared usage reporting](#adapter-registration) is built on the journal read, which is the source that always runs on a local launch. Over SSH it does not run, and the declaration for a remote session is that nothing is reported: the dashboard shows an em dash for that session's Model, API Requests, Tokens, and Est. Cost, and [`sortie validate`](/reference/cli/#validate) warns when such a workflow also sets `agent.max_tokens` or prices this kind in `token_rates`.
+The kind's [declared usage reporting](/reference/workflow-config/#usage-reporting-by-agent-kind) is built on the journal read, which is the source that always runs on a local launch. Over SSH it does not run, and the declaration for a remote session is that nothing is reported: the dashboard shows an em dash for that session's Model, API Requests, Tokens, and Est. Cost, and [`sortie validate`](/reference/cli/#validate) warns when such a workflow also sets `agent.max_tokens` or prices this kind in `token_rates`.
 
 ### Model tracking
 
@@ -230,9 +227,9 @@ The adapter observes tool execution by correlating `tool.execution_start` and `t
 
 ### Correlation
 
-1. A `tool.execution_start` event records the tool name and a monotonic timestamp in an in-flight map, keyed by `toolCallId`.
-2. A `tool.execution_complete` event looks up the matching `toolCallId` in the in-flight map.
-3. The adapter emits a `tool_result` event with `ToolName`, `ToolDurationMS`, and `ToolError` (inverted from the `success` field: `ToolError = !success`). On a match, `ToolName` and the elapsed duration come from the in-flight entry. With no match (the completion arrived without a recorded start), the event still fires, carrying the tool name from the completion event and a duration of `0`.
+1. A `tool.execution_start` event records the tool name and a start time, keyed by `toolCallId`.
+2. A `tool.execution_complete` event looks up the matching `toolCallId`.
+3. On a match, the adapter emits a `tool_result` event carrying the tool name, how long the call took since that start time, and whether it errored, inverted from the `success` field. With no match (the completion arrived without a recorded start), the event still fires, carrying the tool name from the completion event and a duration of `0`.
 
 ### Tool error detail
 
@@ -264,13 +261,13 @@ A `result` event with `exitCode: 0` is not decisive by itself: the adapter also 
 
 `--no-ask-user` is on every invocation, so this adapter has no path to `turn_input_required`: the runtime cannot put a question to a person, and a denied tool call continues the session instead of ending the turn.
 
-### Stdout scanner failure
+### Stdout read failure
 
-If the stdout scanner encounters an error (buffer overflow, broken pipe), the adapter:
+If output reading from stdout fails (buffer overflow, broken pipe), the adapter:
 
 1. Sends a graceful-kill signal to the subprocess.
 2. Waits for exit.
-3. Returns a `turn_failed` result with error kind `port_exit`.
+3. Ends the turn as `turn_failed` with error kind `port_exit`.
 
 ---
 
@@ -297,8 +294,8 @@ When the worker configuration includes `ssh_hosts`, the adapter launches Copilot
 
 ### How it works
 
-1. `StartSession` resolves the local `ssh` binary via `exec.LookPath`. The agent command is stored for remote execution rather than resolved locally. The canary check and authentication preflight are skipped in SSH mode.
-2. `RunTurn` builds an SSH command that wraps the remote Copilot CLI invocation.
+1. Session start resolves the local `ssh` binary from `PATH`. The agent command is stored for remote execution rather than resolved locally. The canary check and authentication preflight are skipped in SSH mode.
+2. Each turn builds an SSH command that wraps the remote Copilot CLI invocation.
 3. The remote command is: `cd -- '<workspace_path>' && <agent_command> <args...>`, with the workspace path and each argument individually single-quoted; `<agent_command>` is inserted as configured, unquoted.
 
 ### SSH options
@@ -325,16 +322,16 @@ SSH exit code `255` indicates a connection failure (refused, timeout, unreachabl
 
 ## Authentication
 
-Sortie does not manage Copilot CLI credentials. The adapter spawns the subprocess with the full parent process environment (`cmd.Env = os.Environ()`), and the Copilot CLI reads its authentication variables directly.
+Sortie does not manage Copilot CLI credentials. The adapter spawns the subprocess with the full parent process environment, and the Copilot CLI reads its authentication variables directly.
 
-Authentication check order at `StartSession` (local mode only):
+Authentication check order at session start (local mode only):
 
 1. `COPILOT_GITHUB_TOKEN` environment variable.
 2. `GH_TOKEN` environment variable.
 3. `GITHUB_TOKEN` environment variable.
 4. `gh auth status` (2-second timeout), attempted only when `gh` resolves on `PATH`. If it exits cleanly, the adapter logs a warning and proceeds.
 
-If none are found, `StartSession` returns `agent_not_found` with a descriptive message listing the expected variables.
+If none are found, session start fails with `agent_not_found` and a descriptive message listing the expected variables.
 
 At runtime, the Copilot CLI handles its own authentication using whichever token is available in the process environment.
 
@@ -343,31 +340,6 @@ At runtime, the Copilot CLI handles its own authentication using whichever token
 
 Sortie's preflight only checks that one of the token variables is set, or that `gh auth status` succeeds. It does not inspect the token's type or scopes. Whether a given token authenticates with Copilot CLI, and what type and permission it needs, is GitHub's to document; see [managing your personal access tokens](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens) in the external references. A token that satisfies Sortie's preflight can still be rejected by the CLI itself at runtime.
 {{< /callout >}}
-
----
-
-## Concurrency safety
-
-The adapter is safe for concurrent use. One `CopilotAdapter` instance serves all sessions. Per-session state (workspace path, session ID, process handle) is isolated in the opaque `Session.Internal` field. A mutex guards the subprocess handle for concurrent access between `RunTurn` and `StopSession`.
-
-No adapter-level serialization is needed for `RunTurn` calls: each spawns an independent subprocess with its own stdout pipe and scanner.
-
----
-
-## Adapter registration
-
-The adapter registers itself under kind `"copilot-cli"` via an `init` function in `internal/agent/copilot`. Registration metadata declares:
-
-| Property | Value |
-|---|---|
-| `RequiresCommand` | `true` |
-| `ValidateAgentConfig` | the check described in [Validate-time checks](#validate-time-checks) |
-| `MCPInjection` | `supported`: the adapter hands the generated configuration file's path to the agent process, on a local launch and over SSH alike. See [Sortie's own tools and the `mcp_config` field](#sorties-own-tools-and-the-mcp_config-field). |
-| `UsageArrival` | `turn_end`: the authoritative figure is the session-state journal read after the subprocess exits, at most once per turn. The stdout stream itself carries no token counts to fall back on. See [Token accounting](#token-accounting). |
-| `UsageAttribution` | `per_model`: the journal's `session.shutdown` record names the model whose usage grew the most since the previous record. See [Model tracking](#model-tracking). |
-| `UsageSessionRules` | One rule: a session launched over SSH declares `none` for both, because the journal read is skipped in SSH mode and nothing else settles an authoritative figure. See [SSH remote execution](#ssh-remote-execution). |
-
-The orchestrator's preflight validation uses `RequiresCommand` to produce a specific error message if the binary cannot be found before attempting session creation.
 
 ---
 

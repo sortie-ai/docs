@@ -55,7 +55,7 @@ When Sortie detects a recognized value in `.sortie/status`, all three signals co
 4. Releases the issue claim.
 5. Does **not** schedule a continuation retry.
 
-If the handoff transition in step 3 fails (network error, permission denied, nil adapter), the orchestrator logs a warning and releases the claim without retry. The agent finished its work. Retrying would be wrong.
+If the handoff transition in step 3 fails (network error or permission denied), the orchestrator logs a warning and releases the claim without retry. The agent finished its work. Retrying would be wrong.
 
 **`no-change-needed`:**
 
@@ -76,11 +76,11 @@ The full interaction between `.sortie/status` and `tracker.handoff_state` is doc
 | File absent | Normal behavior: continue and retry as configured. |
 | Unrecognized value | Ignored. Warning logged. Normal behavior continues. |
 | Read error | Treated as absent. Warning logged. Never fails the worker run. |
-| Symlink on `.sortie/` or `status` | Rejected via `Lstat` check. Treated as absent. Warning logged. |
+| Symlink on `.sortie/` or `status` | Rejected as a symlink. Treated as absent. Warning logged. |
 
 ### Auto-injection
 
-Sortie appends protocol instructions to the first-turn prompt automatically (`RuntimeStatusSuffix`). The agent receives this text without any workflow author configuration:
+Sortie appends protocol instructions to the first-turn prompt automatically. The agent receives this text without any workflow author configuration:
 
 ```
 If you determine that you cannot make further progress on this task without human
@@ -106,7 +106,7 @@ During the self-review phase, a second injected instruction supersedes this one 
 
 Sortie deletes `.sortie/status` before each new dispatch, so a stale signal from a previous run cannot affect the new one.
 
-Sortie deletes it again at each point in a run where it acts on a recognized value: when a completion signal admits the run to the [self-review phase](/guides/configure-self-review/), and after every review turn and every fix turn inside that phase. Which value was read makes no difference at those points; `blocked`, `needs-human-review`, and `no-change-needed` are all removed. The read after a coding turn deletes nothing, so a recognized value written there stays on disk through teardown on a run that never enters the phase. Every deletion is best-effort and applies the same `Lstat` symlink rejection as the read; a deletion that fails is logged and changes nothing else about the run.
+Sortie deletes it again at each point in a run where it acts on a recognized value: when a completion signal admits the run to the [self-review phase](/guides/configure-self-review/), and after every review turn and every fix turn inside that phase. Which value was read makes no difference at those points; `blocked`, `needs-human-review`, and `no-change-needed` are all removed. The read after a coding turn deletes nothing, so a recognized value written there stays on disk through teardown on a run that never enters the phase. Every deletion is best-effort and rejects a symlink the same way the read does; a deletion that fails is logged and changes nothing else about the run.
 
 An absent or empty file therefore carries two meanings: the agent has written nothing, or Sortie has already acted on what it wrote. What an `after_run` hook or a later `cat` finds is a value Sortie has not acted on.
 
@@ -386,7 +386,7 @@ No parameters. The agent sends an empty JSON object:
 
 ### How it works
 
-The tool reads `.sortie/state.json`, a file the worker goroutine writes at session start, at the start of each turn, and again whenever a measurement arrives: on a token usage event, on any event carrying a non-zero usage payload, or on a turn's result carrying a measurement. The tool validates the file before reading: symlinks are rejected via `Lstat`, and files larger than 4 KiB are refused.
+The tool reads `.sortie/state.json`, a file the worker writes at session start, at the start of each turn, and again whenever a measurement arrives: on a token usage event, on any event carrying a non-zero usage payload, or on a turn's result carrying a measurement. The tool validates the file before reading: symlinks are rejected, and files larger than 4 KiB are refused.
 
 ### Response fields
 
@@ -400,7 +400,7 @@ The fields below are returned under `data` in the standard success envelope:
 | `attempt` | integer or null | Retry/continuation attempt number. `null` on first run. |
 | `session_duration_seconds` | float | Wall-clock time since session started (millisecond precision). |
 | `tokens` | object | Token usage counters for the current session. Its four members are integer or null, and they are null together, exactly when `tokens_measured` is `false`. |
-| `tokens_measured` | boolean | Whether the session's token figures are a measurement. `true` before the first turn begins and once a figure has reached the worker; `false` from the start of turn 1 until one does. |
+| `tokens_measured` | boolean | Whether the session's token figures are a measurement. `true` before the first turn begins and once a figure has reached the worker; `false` from the start of turn 1 until one does. Stays `false` for the life of a session whose agent kind reports no token usage, whatever its runtime sends. |
 
 Token usage fields:
 
@@ -581,7 +581,7 @@ The failure shape is the same structured envelope every built-in tool uses.
 
 Read-only token accounting for the current issue. The agent calls this tool to check cumulative token spend across all of the issue's sessions and the remaining budget, then decide whether to skip an expensive step, return partial work, or hand off before the token ceiling cancels the session it is running in or blocks the next one. Where `sortie_status` reports token usage for the current session (read from `.sortie/state.json`), `cost_budget` reports cumulative spend across every session for the issue (read from SQLite) and compares it against the configured budget.
 
-`cost_budget` is a **Tier 1** tool: queries the local SQLite database in read-only mode, no external calls. Registered when both `SORTIE_DB_PATH` and `SORTIE_ISSUE_ID` are set and the database can be opened in read-only mode. That is the same condition as `workspace_history`, and the two share the same read-only connection. If the database open fails, the MCP server continues without both tools (non-fatal). When `SORTIE_SESSION_ID` is also set, the reading includes the running session's recorded spend; without it, only completed sessions count.
+`cost_budget` is a **Tier 1** tool: queries the local SQLite database in read-only mode, no external calls. Registered when both `SORTIE_DB_PATH` and `SORTIE_ISSUE_ID` are set and the database can be opened in read-only mode. That is the same condition as `workspace_history`, and the two share the same read-only connection. If the database open fails, the MCP server continues without both tools (non-fatal). When `SORTIE_DISPATCH_ID` is also set, the reading includes the running session's recorded spend; without it, only completed sessions count.
 
 ### Input schema
 
@@ -593,7 +593,9 @@ No parameters. The agent sends an empty JSON object:
 
 ### How it works
 
-The tool sums `total_tokens` across the issue's `run_history` rows (one per completed session) and adds the running session's recorded total from `session_metadata`. The orchestrator updates `session_metadata` incrementally during the session, throttled to at most one write per issue every two seconds and driven by token usage events, so the running number stays current. That total is added only when the stored session ID matches `SORTIE_SESSION_ID`, so a stale row from an earlier session is never counted. Nothing is counted twice: a running session reaches `run_history` only when it ends.
+The tool sums `total_tokens` across the issue's `run_history` rows (one per completed session) and adds the running session's recorded total from `session_metadata`. The orchestrator updates `session_metadata` incrementally during the session, throttled to at most one write per issue every two seconds and driven by token usage events, so the running number stays current. That total is added only when the stored dispatch ID matches `SORTIE_DISPATCH_ID`, so a stale row from an earlier dispatch is never counted.
+
+At session exit, Sortie clears the row's dispatch ID before recording the finished run in `run_history`, so a completed session's row is never mistaken for one still running.
 
 A session whose coding agent reported no token usage is recorded as unmeasured: its spend is unknown, not zero, so it adds nothing to `used_tokens` and `unmeasured_sessions` counts it.
 
@@ -611,7 +613,7 @@ The fields below are returned under `data` in the standard success envelope:
 | `used_sessions` | integer | Completed sessions for the issue. The running session is not counted. Unmeasured sessions still count here, because [`agent.max_sessions`](/reference/workflow-config/#agent) counts sessions rather than spend. |
 | `budget_sessions` | integer | The configured [`agent.max_sessions`](/reference/workflow-config/#agent). `0` means unlimited. |
 | `unmeasured_sessions` | integer | Completed sessions whose coding agent reported no token usage. `used_tokens` excludes them rather than counting them as zero spend. |
-| `used_tokens_complete` | boolean | `false` when `unmeasured_sessions` is above `0`, or when a running session ID was supplied and no matching session record was found for it. `true` otherwise. On `false`, treat `used_tokens` as a lower bound and `remaining_tokens` as an upper bound. |
+| `used_tokens_complete` | boolean | `false` when `unmeasured_sessions` is above `0`, when no dispatch ID was supplied, or when no session record matches the supplied dispatch ID. `true` otherwise. On `false`, treat `used_tokens` as a lower bound and `remaining_tokens` as an upper bound. |
 
 `used_tokens` includes the running session while `used_sessions` excludes it. The asymmetry is deliberate: a session is either finished or not, tokens accrue continuously, and a reading that ignored in-flight spend would be useless at exactly the moment the agent consults it.
 
@@ -713,7 +715,7 @@ No additional fields are accepted. Unknown fields, trailing content, out-of-enum
 
 ### How it works
 
-Each accepted call produces one notification with two layers. The agent supplies the message (`severity`, `title`, `body`, optional `category`). The tool fills the envelope from session context the agent cannot set or forge: a generated UUID `notification_id`, an RFC3339 UTC `timestamp`, a `source` identifying the Sortie instance (the hostname), the `issue_id` and `identifier`, the `session_id`, the `attempt` (`null` on the first run), and the dispatch-frozen `agent` kind from `SORTIE_SESSION_AGENT_KIND`.
+Each accepted call produces one notification with two layers. The agent supplies the message (`severity`, `title`, `body`, optional `category`). The tool fills the envelope from session context the agent cannot set or forge: a generated UUID `notification_id`, an RFC3339 UTC `timestamp`, a `source` identifying the Sortie instance (the hostname), the `issue_id` and `identifier`, a `session_id` that is always an empty string, the `attempt` (`null` on the first run), and the dispatch-frozen `agent` kind from `SORTIE_SESSION_AGENT_KIND`.
 
 Delivery goes to every configured backend in configuration order and stops at the first backend that fails, which yields a `send_failed` error. Partial delivery across backends is not reported in this version. Each backend call carries a 10-second timeout, so a slow endpoint cannot stall the turn indefinitely.
 
@@ -732,7 +734,7 @@ The `webhook` backend posts the notification as a single JSON object with generi
   "source": "build-host-01",
   "issue_id": "abc123",
   "identifier": "PROJ-42",
-  "session_id": "b4c0e7d2-5a19-4e8b-9f3c-6d2a8e1b7c4d",
+  "session_id": "",
   "attempt": 2,
   "agent": "claude-code",
   "severity": "critical",
@@ -835,7 +837,7 @@ For detailed patterns and worked examples, see [how to use agent tools in prompt
 - [Agent tools concept](/concepts/agent-tools/): the tier model: what each tier guarantees and when each tool registers
 - [Security model](/concepts/security/): trust boundaries for outbound notifications and agent-generated content
 - [How to use agent tools in prompts](/guides/use-agent-tools-in-prompts/): task-specific tool guidance for workflow authors
-- [How to write a custom agent tool](/guides/write-custom-agent-tool/): implementing the `Tool` interface
+- [How to write a custom agent tool](/guides/write-custom-agent-tool/): implementing a custom tool
 - [Environment variables reference](/reference/environment/#mcp-server-environment): MCP server env vars
 - [WORKFLOW.md configuration reference](/reference/workflow-config/): `agent` section, `agent.max_turns`
 - [Error reference](/reference/errors/): tracker error kinds with retry behavior

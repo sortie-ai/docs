@@ -11,7 +11,7 @@ The Jira adapter connects Sortie to Jira via the REST API. It supports two deplo
 - **Cloud (default):** REST API v3, cursor-based search pagination, ADF body flattening, Basic auth with `email:token`.
 - **Server / Data Center:** REST API v2, offset-based search pagination, raw wiki-markup bodies, Basic auth (`user:password`) or Bearer auth (Personal Access Token).
 
-The adapter is registered under kind `"jira"`. Both modes implement the same `TrackerAdapter` interface and normalize responses to the same domain types.
+The adapter is registered under kind `"jira"`. Both modes implement the same tracker contract and normalize responses to the same [issue object](/reference/workflow-config/#issue) fields.
 
 See also: [WORKFLOW.md configuration](/reference/workflow-config/) for the full tracker schema, [how to connect Sortie to Jira Cloud](/guides/connect-to-jira/) for setup instructions, [error reference](/reference/errors/) for all tracker error kinds, [environment variables](/reference/environment/) for `$VAR` expansion behavior.
 
@@ -53,7 +53,7 @@ endpoint: $SORTIE_JIRA_ENDPOINT
 
 The adapter rejects values that contain `/rest/api/` with a `tracker_payload_error`.
 
-**Construction-time host/version guard:** A `.atlassian.net` endpoint combined with `api_version: "2"` is rejected at startup (`tracker_payload_error`), and [`sortie validate`](#offline-validation) reports the same rejection offline. A non-`.atlassian.net` endpoint combined with `api_version: "3"` emits a warning and proceeds (the combination will produce 404s on a real Server or Data Center instance because v3 does not exist there).
+**Startup host/version guard:** A `.atlassian.net` endpoint combined with `api_version: "2"` is rejected at startup (`tracker_payload_error`), and [`sortie validate`](#offline-validation) reports the same rejection offline. A non-`.atlassian.net` endpoint combined with `api_version: "3"` emits a warning and proceeds (the combination will produce 404s on a real Server or Data Center instance because v3 does not exist there).
 
 ### `api_version`
 
@@ -80,7 +80,7 @@ Accepts [`$VAR` indirection](/reference/environment/#var-indirection-in-workflow
 
 Authentication credential. The format depends on the API version.
 
-**Cloud (v3):** `email:token` format. The adapter splits on the first colon to extract the email and API token, then constructs a Base64-encoded Basic Auth header. Both sides of the colon must be non-empty; a missing colon or an empty side produces a `tracker_auth_error` at construction time.
+**Cloud (v3):** `email:token` format. The adapter splits on the first colon to extract the email and API token, then constructs a Base64-encoded Basic Auth header. Both sides of the colon must be non-empty; a missing colon or an empty side produces a `tracker_auth_error` when the adapter is built.
 
 Generate a token at [Atlassian account settings: Security: API tokens](https://id.atlassian.com/manage-profile/security/api-tokens).
 
@@ -133,7 +133,7 @@ A raw JQL expression appended to the base candidate query inside `AND (...)`. Th
 query_filter: "labels = 'agent-ready' AND component = 'Backend'"
 ```
 
-Applies to candidate fetches (`FetchCandidateIssues`) and state-based fetches (`FetchIssuesByStates`). Does **not** apply to ID-based or key-based lookups (`FetchIssueStatesByIDs`, `FetchIssueStatesByIdentifiers`) because those issues already passed filtering at dispatch time.
+Applies to the [candidate query](#candidate-query) and the [state fetch query](#state-fetch-query). Does **not** apply to the [key-based](#key-based-query) or [ID-based](#id-based-query) query, because those issues already passed filtering at dispatch time.
 
 ### `handoff_state`
 
@@ -148,7 +148,7 @@ Handoff transitions require write permissions on the credential.
 
 ### `in_progress_state`
 
-Target Jira status for dispatch-time transitions. When configured, the worker calls `TransitionIssue` as its first step before workspace preparation. The adapter uses the same transition mechanism as `handoff_state`: it fetches available transitions and matches by target status name (case-insensitive).
+Target Jira status for dispatch-time transitions. When configured, the transition to this status runs as the first step before workspace preparation. The adapter uses the same transition mechanism as `handoff_state`: it fetches available transitions and matches by target status name (case-insensitive).
 
 Transition failure is non-fatal: the worker logs a warning and continues to workspace preparation.
 
@@ -164,7 +164,7 @@ Requires the same write permissions as `handoff_state`.
 
 ## Offline validation
 
-`sortie validate` runs the Jira-specific checks below without constructing an adapter or making network calls. Each reuses the rule the constructor enforces, so the offline verdict does not drift from the startup verdict.
+`sortie validate` runs the Jira-specific checks below without making network calls. Each reuses the rule enforced when the adapter is built, so the offline verdict does not drift from the startup verdict.
 
 ### Errors
 
@@ -179,7 +179,7 @@ Requires the same write permissions as `handoff_state`.
 | `tracker.api_key.jira_cloud_format` | `api_key` has no colon and `endpoint` is an `.atlassian.net` host, which requires an `email:token` key. |
 | `tracker.api_key.jira_v3_format` | `api_key` has no colon, `endpoint` is a classifiable non-Cloud host, and `api_version` resolves to `"3"`, the default when the field is unset. A Server or Data Center personal access token needs either an `email:token` key or `api_version: "2"`. |
 
-The three endpoint checks are evaluated in that order and report the first fault that applies. An invalid `api_version` suppresses the Cloud-conflict check, because the constructor never reaches the host/version guard for a version it rejects. On a Cloud host, `tracker.api_key.jira_cloud_format` reports instead of `tracker.api_key.jira_v3_format`.
+The three endpoint checks are evaluated in that order and report the first fault that applies. An invalid `api_version` suppresses the Cloud-conflict check, because an already-rejected version never reaches the host/version guard. On a Cloud host, `tracker.api_key.jira_cloud_format` reports instead of `tracker.api_key.jira_v3_format`.
 
 An empty `api_key` draws no adapter diagnostic: the generic preflight already reports it as a missing required field.
 
@@ -197,7 +197,7 @@ State collisions involving `handoff_state` or `in_progress_state` are not adapte
 
 ## Authentication
 
-The adapter selects an authentication mode from the `(api_version, api_key)` combination at construction time.
+The adapter selects an authentication mode from the `(api_version, api_key)` combination when it is built.
 
 ### Cloud (v3): Basic auth
 
@@ -207,7 +207,7 @@ Every request includes an `Authorization` header:
 Authorization: Basic <base64(email:token)>
 ```
 
-A value without a colon, or with an empty side, is rejected at construction time with `tracker_auth_error`.
+A value without a colon, or with an empty side, is rejected when the adapter is built, with `tracker_auth_error`.
 
 ### Server / Data Center (v2): Basic or Bearer
 
@@ -218,7 +218,7 @@ The adapter inspects the `api_key` value:
 | Contains a colon (`user:password`) | `Authorization: Basic <base64(user:password)>` |
 | No colon (colon-free PAT string) | `Authorization: Bearer <token>` |
 
-A colon with an empty user (`":password"`) or empty secret (`"user:"`) is rejected at construction time with `tracker_auth_error`.
+A colon with an empty user (`":password"`) or empty secret (`"user:"`) is rejected when the adapter is built, with `tracker_auth_error`.
 
 ### Common headers
 
@@ -268,41 +268,41 @@ Writes need a token that can update issues, add comments, and label issues; see 
 
 ## Field mapping
 
-The adapter normalizes Jira API responses to [`domain.Issue`](/reference/workflow-config/) fields. This table shows the exact mapping.
+The adapter normalizes Jira API responses to the [issue object](/reference/workflow-config/#issue) fields. This table shows the exact mapping.
 
-| Domain field | Jira source | Normalization |
+| Template field | Jira source | Normalization |
 |---|---|---|
-| `ID` | `id` | String, as-is. Jira's internal numeric ID. |
-| `Identifier` | `key` | String, as-is (e.g., `PROJ-123`). |
-| `Title` | `fields.summary` | String, as-is. |
-| `Description` | `fields.description` | v3: ADF JSON flattened to text. v2: raw string in wiki markup, preserved verbatim. |
-| `Priority` | `fields.priority.id` | Parsed as integer. `nil` when absent, empty, or non-numeric. |
-| `State` | `fields.status.name` | String with original casing preserved. |
-| `BranchName` | _(not available)_ | Empty string. Not exposed via the REST API. |
-| `URL` | _(constructed)_ | `{endpoint}/browse/{key}` |
-| `Labels` | `fields.labels` | Each label lowercased. Empty non-nil slice when no labels exist. |
-| `Assignee` | `fields.assignee.displayName` | Empty string when assignee is absent. |
-| `IssueType` | `fields.issuetype.name` | String, as-is (e.g., `Bug`, `Story`, `Task`). |
-| `Parent` | `fields.parent` | `{id, key}` -> `{ID, Identifier}`. `nil` when absent. |
-| `Comments` | Separate comment endpoint | v3: ADF bodies flattened to text. v2: raw wiki-markup bodies preserved verbatim. `nil` on search results; populated on `FetchIssueByID`. |
-| `BlockedBy` | `fields.issuelinks[]` | Filtered for `type.name == "Blocks"` with non-nil `inwardIssue`. See [blocker extraction](#blocker-extraction). |
-| `CreatedAt` | `fields.created` | ISO-8601 timestamp string, as-is. |
-| `UpdatedAt` | `fields.updated` | ISO-8601 timestamp string, as-is. |
+| `.issue.id` | `id` | String, as-is. Jira's internal numeric ID. |
+| `.issue.identifier` | `key` | String, as-is (e.g., `PROJ-123`). |
+| `.issue.title` | `fields.summary` | String, as-is. |
+| `.issue.description` | `fields.description` | v3: ADF JSON flattened to text. v2: raw string in wiki markup, preserved verbatim. |
+| `.issue.priority` | `fields.priority.id` | Parsed as integer. `nil` when absent, empty, or non-numeric. |
+| `.issue.state` | `fields.status.name` | String with original casing preserved. |
+| `.issue.branch_name` | _(not available)_ | Empty string. Not exposed via the REST API. |
+| `.issue.url` | _(constructed)_ | `{endpoint}/browse/{key}` |
+| `.issue.labels` | `fields.labels` | Each label lowercased. Empty non-nil list when no labels exist. |
+| `.issue.assignee` | `fields.assignee.displayName` | Empty string when assignee is absent. |
+| `.issue.issue_type` | `fields.issuetype.name` | String, as-is (e.g., `Bug`, `Story`, `Task`). |
+| `.issue.parent` | `fields.parent` | `{id, key}` -> `{.id, .identifier}`. `nil` when absent. |
+| `.issue.comments` | Separate comment endpoint | v3: ADF bodies flattened to text. v2: raw wiki-markup bodies preserved verbatim. `nil` on search results; populated when the issue is read individually. |
+| `.issue.blocked_by` | `fields.issuelinks[]` | Filtered for `type.name == "Blocks"` with non-nil `inwardIssue`. See [blocker extraction](#blocker-extraction). |
+| `.issue.created_at` | `fields.created` | ISO-8601 timestamp string, as-is. |
+| `.issue.updated_at` | `fields.updated` | ISO-8601 timestamp string, as-is. |
 
 ### Comment normalization
 
-Each comment maps to a `domain.Comment`:
+Each comment maps to the object fields documented under [`.issue.comments`](/reference/workflow-config/#issue):
 
-| Domain field | Jira source | Normalization |
+| Template field | Jira source | Normalization |
 |---|---|---|
-| `ID` | `id` | String, as-is. |
-| `Author` | `author.displayName` | Empty string when author is absent. |
-| `Body` | `body` | v3: ADF JSON flattened to text. v2: raw string in wiki markup, preserved verbatim. |
-| `CreatedAt` | `created` | ISO-8601 timestamp string, as-is. |
+| `.id` | `id` | String, as-is. |
+| `.author` | `author.displayName` | Empty string when author is absent. |
+| `.body` | `body` | v3: ADF JSON flattened to text. v2: raw string in wiki markup, preserved verbatim. |
+| `.created_at` | `created` | ISO-8601 timestamp string, as-is. |
 
 ### v2 wiki-markup bodies
 
-When `api_version: "2"`, `Description` and comment `Body` fields carry Jira wiki markup exactly as Jira returns it. The adapter reads these as raw JSON strings; it does not strip, translate, or flatten markup tokens. As a result, prompt templates and dispatched agents receive wiki markup (for example `h2. Heading`, `*bold text*`, `{code:java}...{code}`) rather than clean prose. This is expected behavior for v2 deployments. The adapter does not request `expand=renderedBody` and does not parse rendered HTML.
+When `api_version: "2"`, `.issue.description` and comment `.body` carry Jira wiki markup exactly as Jira returns it. The adapter reads these as raw JSON strings; it does not strip, translate, or flatten markup tokens. As a result, prompt templates and dispatched agents receive wiki markup (for example `h2. Heading`, `*bold text*`, `{code:java}...{code}`) rather than clean prose. This is expected behavior for v2 deployments. The adapter does not request `expand=renderedBody` and does not parse rendered HTML.
 
 ---
 
@@ -344,19 +344,19 @@ When `api_version: "2"`, ADF flattening does not run. The raw string body is dec
 
 ## Blocker extraction
 
-Blocker relationships are derived from Jira issue links with `type.name == "Blocks"`. The adapter inspects the `inwardIssue` side of each link, the issue that blocks the current one.
+Blocker relationships are derived from Jira issue links with `type.name == "Blocks"`. The adapter inspects the `inwardIssue` side of each link, the issue that blocks the current one. This data arrives on the same response as a candidate fetch, so resolving blockers costs no separate request, unlike the GitHub and Gitea adapters.
 
-For each qualifying link, a `BlockerRef` is produced:
+For each qualifying link, a [blocker entry](/reference/workflow-config/#issue) is produced:
 
 | Field | Source |
 |---|---|
-| `ID` | `inwardIssue.id` |
-| `Identifier` | `inwardIssue.key` |
-| `State` | `inwardIssue.fields.status.name` (empty when the linked issue's status is not included) |
+| `.id` | `inwardIssue.id` |
+| `.identifier` | `inwardIssue.key` |
+| `.state` | `inwardIssue.fields.status.name` (empty when the linked issue's status is not included) |
 
 When the blocker's state is empty, the orchestrator treats it as non-terminal (conservative assumption: the blocker may still be active).
 
-The link type name `"Blocks"` is a constant in the adapter. Jira administrators can rename link types; if your instance uses a different name, the adapter does not detect blockers.
+The link type name `"Blocks"` is fixed by the adapter. Jira administrators can rename link types; if your instance uses a different name, the adapter does not detect blockers.
 
 ---
 
@@ -378,7 +378,7 @@ The `AND (<query_filter>)` clause is omitted when `query_filter` is empty.
 project = "<project>" AND status IN ("<state1>", ...) AND (<query_filter>) ORDER BY created ASC
 ```
 
-Used by `FetchIssuesByStates` for startup terminal cleanup.
+Used for startup terminal cleanup.
 
 ### Key-based query
 
@@ -386,7 +386,7 @@ Used by `FetchIssuesByStates` for startup terminal cleanup.
 key IN ("<key1>", "<key2>", ...) ORDER BY key ASC
 ```
 
-Used by `FetchIssueStatesByIdentifiers`. The `query_filter` is not applied.
+Used to look up issue states by key. The `query_filter` is not applied.
 
 ### ID-based query
 
@@ -394,7 +394,7 @@ Used by `FetchIssueStatesByIdentifiers`. The `query_filter` is not applied.
 id IN (<id1>, <id2>, ...) ORDER BY key ASC
 ```
 
-Used by `FetchIssueStatesByIDs`. Non-numeric IDs are excluded. Returns an empty string when no valid IDs remain, causing the caller to skip the API call. The `query_filter` is not applied.
+Used to look up issue states by ID. Non-numeric IDs are excluded. If no valid IDs remain, no request is sent. The `query_filter` is not applied.
 
 ---
 
@@ -411,7 +411,7 @@ The `GET /rest/api/3/search/jql` endpoint uses cursor-based pagination.
 | `maxResults` | `50` (fixed page size) |
 | `nextPageToken` | Omitted on first request; set to the value from the previous response on subsequent requests. |
 
-Pagination stops when the response contains no `nextPageToken`. All pages are accumulated into a single result slice before returning.
+Pagination stops when the response contains no `nextPageToken`. All pages are accumulated into a single result list.
 
 ### v2 search: offset-based
 
@@ -440,7 +440,7 @@ Pagination stops when `startAt + len(comments) >= total` or the response returns
 
 ## Error mapping
 
-The adapter maps Jira HTTP responses and network conditions to normalized `TrackerError` categories. The orchestrator uses these categories to decide retry, skip, or fail behavior. The mapping applies to both v3 and v2.
+The adapter maps Jira HTTP responses and network conditions to normalized error categories. The orchestrator uses these categories to decide retry, skip, or fail behavior. The mapping applies to both v3 and v2.
 
 | HTTP status | Condition | Error kind | Retryable |
 |---|---|---|---|
@@ -463,7 +463,7 @@ For the full error taxonomy and operator guidance, see the [error reference](/re
 
 ### Error message format
 
-All errors are wrapped in `TrackerError` with the format:
+Every tracker error message follows this format:
 
 ```
 tracker: <kind>: <method> <path>: <detail>
@@ -497,9 +497,9 @@ Sortie does not throttle client-side. A throttled request fails as `tracker_api_
 |---|---|
 | HTTP client timeout | 30 seconds |
 | Error body read limit | 512 bytes |
-| Transport | `net/http` default transport (`http.DefaultTransport.Clone()`), connection pooling |
+| Transport | Default HTTP transport, with connection pooling |
 
-Context cancellation propagates through all HTTP calls. When the orchestrator cancels a poll cycle or worker, in-flight Jira requests are aborted.
+Stopping a poll cycle or worker aborts any in-flight Jira request immediately.
 
 ---
 
@@ -513,31 +513,6 @@ When the HTTP server is [enabled](/reference/workflow-config/), the adapter incr
 | `result` | `success`, `error` |
 
 When the HTTP server is disabled, metrics calls are no-ops. See [Prometheus metrics reference](/reference/prometheus-metrics/) for query examples.
-
----
-
-## Concurrency safety
-
-The adapter is safe for concurrent use. The orchestrator's poll loop and reconciliation goroutine may call adapter methods simultaneously. The underlying `net/http.Client` handles connection pooling and concurrent requests.
-
-No adapter-level locking is required: each method operates on immutable configuration and produces independent HTTP requests.
-
----
-
-## Adapter registration
-
-The adapter registers itself under kind `"jira"` via an `init` function in `internal/tracker/jira`. Registration metadata declares:
-
-| Property | Value |
-|---|---|
-| `RequiresProject` | `true` |
-| `RequiresAPIKey` | `true` |
-| `ValidateTrackerConfig` | Offline config diagnostics for `sortie validate`. |
-| `DefaultActiveStates` | `["Backlog", "Selected for Development", "In Progress"]`, applied when `active_states` is absent; see [`active_states`](#active_states). |
-| `DefaultTerminalStates` | Not declared; an absent `terminal_states` resolves to an empty list. |
-| `BlockerSource` | `candidates`: a candidate fetch already carries every blocker Jira reports; see [blocker extraction](#blocker-extraction). |
-
-The orchestrator's preflight validation uses `RequiresProject` and `RequiresAPIKey` to produce specific error messages (`tracker.project is required for tracker kind "jira"`) before attempting adapter construction. `ValidateTrackerConfig` runs the [offline validation](#offline-validation) checks without making network calls.
 
 ---
 

@@ -6,7 +6,7 @@ date: 2026-04-26
 weight: 50
 url: /reference/dashboard/
 ---
-Sortie ships a self-contained HTML dashboard at `/` on the same port as the [JSON API](/reference/http-api/) and [Prometheus metrics](/reference/prometheus-metrics/). No external tools, no JavaScript frameworks, no CDN dependencies: one HTML page rendered server-side by Go's `html/template` engine with vanilla JavaScript for interactive behavior.
+Sortie ships a self-contained HTML dashboard at `/` on the same port as the [JSON API](/reference/http-api/) and [Prometheus metrics](/reference/prometheus-metrics/). No external tools, no JavaScript frameworks, no CDN dependencies: one HTML page rendered server-side with vanilla JavaScript for interactive behavior.
 
 The dashboard is designed for local, at-a-glance monitoring. Open it in a browser while Sortie runs, and you see what is happening right now: which agents are working, how many tokens they have consumed, what is waiting for retry, and how past runs ended. Tables use an accordion pattern: each row shows primary identification and status fields, and clicking a row expands an inline detail panel with secondary fields. All rows are collapsed by default. The page auto-refreshes every 5 seconds via an HTML `<meta http-equiv="refresh">` tag.
 
@@ -99,7 +99,7 @@ A `:focus-visible` outline matches the link color. The `prefers-reduced-motion` 
 
 ### Table striping
 
-Row striping uses a CSS class (`row-even`) applied via a Go template function rather than `nth-child`, because the interleaved detail rows would break CSS child counting.
+Row striping uses a CSS class (`row-even`) rather than `nth-child`, because the interleaved detail rows would break CSS child counting.
 
 ## Running sessions table
 
@@ -111,7 +111,7 @@ Lists every agent session that is actively executing. Sorted by start time (olde
 |---|---|
 | **Identifier** | Issue identifier (e.g., `MT-649`). Clicking the link opens `GET /api/v1/{identifier}` in the browser. Prefixed with an expand indicator (▶). |
 | **State** | Current orchestrator state for this issue (e.g., `agent_running`). |
-| **Turns** | Number of agent turns completed in this session. A turn is one prompt–response cycle. |
+| **Turns** | Counts every turn this session has begun, self-review turns included. The number moves as soon as a turn opens, not once it finishes, and self-review can push it past [`agent.max_turns`](/reference/workflow-config/#agent). See [`turn_count`](/reference/http-api/#get-apiv1state-system-state) for the full definition. |
 | **Duration** | Wall-clock time since the session started, formatted as `Xh Xm Xs` or `Xm Xs`. |
 | **Last Event** | Most recent agent event type received (e.g., `result`, `tool_use`). |
 
@@ -190,7 +190,7 @@ Lists recently completed session attempts, both successful and failed. Shows the
 
 ## Footer
 
-The footer displays aggregate statistics across all sessions since startup:
+The footer combines two kinds of figures. Agent runtime, Input, Cache, and Output are cumulative across every session since Sortie's database was created, not since the current process started: a restart continues from the last persisted values instead of resetting to zero. Est. Cost, when shown, is computed only from the sessions currently running and is never persisted; see [Cost estimation](#cost-estimation) below. Auto-refresh is a page-behavior note, not a statistic.
 
 | Element | Description |
 |---|---|
@@ -203,7 +203,16 @@ The footer displays aggregate statistics across all sessions since startup:
 
 When `token_rates` is configured, a disclaimer line appears below the aggregate stats: "Cost estimates are based on configured token rates and may differ from actual provider billing."
 
-When at least one running session has reported no token usage yet, a further line names the count: "N running sessions have not reported token usage; the totals above exclude them." The count covers only sessions whose agent kind does report usage and has not produced a figure so far. A session on a kind that reports none at all is never counted, because there is nothing pending for it to report.
+Below that, up to four further lines disclose, by reason, how many sessions the totals above leave out. Each line appears only while its count is above zero:
+
+| Condition | One session | Multiple sessions |
+|---|---|---|
+| A running session's agent kind reports usage, but none has arrived yet | "1 running session has not reported token usage yet; the totals above exclude it." | "N running sessions have not reported token usage yet; the totals above exclude them." |
+| A running session's agent kind reports no token usage at all | "1 running session runs an agent that reports no token usage; the totals above exclude it." | "N running sessions run agents that report no token usage; the totals above exclude them." |
+| An already-ended session never reported token usage | "1 session that already ended never reported token usage; the totals above exclude it too." | "N sessions that already ended never reported token usage; the totals above exclude them too." |
+| A running, measured session has no `token_rates` price for its agent kind | "1 running session is excluded from Est. Cost because token_rates has no price for its agent." | "N running sessions are excluded from Est. Cost because token_rates has no price for their agents." |
+
+The last line appears only alongside the Est. Cost card, so only when `token_rates` is configured. See the [state endpoint reference](/reference/http-api/#get-apiv1state-system-state) for how each count is scoped in `agent_totals`.
 
 ## Cost estimation
 
@@ -227,4 +236,4 @@ For token rate configuration syntax, see the [`token_rates` extension reference]
 
 If the orchestrator's state snapshot fails (e.g., during shutdown), the dashboard returns HTTP 503 with a minimal HTML page that reads "Dashboard temporarily unavailable" and auto-refreshes in 5 seconds. No manual reload is needed.
 
-If the Go template execution fails (an internal error), the dashboard returns HTTP 500 with a similarly minimal auto-refreshing error page.
+If template rendering fails (an internal error), the dashboard returns HTTP 500 with a similarly minimal auto-refreshing error page.

@@ -255,10 +255,14 @@ curl http://localhost:7678/api/v1/state
     "output_tokens": 18200,
     "total_tokens": 63200,
     "cache_read_tokens": 31500,
-    "seconds_running": 2847.3
+    "seconds_running": 2847.3,
+    "unmeasured_sessions": 3,
+    "running_unreported": 1,
+    "running_non_reporting": 0
   },
   "rate_limits": {},
-  "active_estimated_cost_usd": 1.47
+  "active_estimated_cost_usd": 1.47,
+  "cost_unpriced_running": 0
 }
 ```
 
@@ -269,10 +273,11 @@ curl http://localhost:7678/api/v1/state
 | Field | Description |
 |---|---|
 | `display_identifier` | Human-facing identifier when the tracker distinguishes it from `issue_identifier`. Omitted when empty. |
+| `turn_count` | Number of turns this session has run: the coding turns plus any review and fix turns from self-review. Advances by one the instant a turn starts, the same way for every agent kind, and resets to `0` at the start of each attempt. [`agent.max_turns`](/reference/workflow-config/#agent) caps only the coding turns, so this figure can run higher once self-review is active. |
 | `tokens` | Nested object with `input_tokens`, `output_tokens`, `total_tokens`, and `cache_read_tokens` for this session. `total_tokens` is `input_tokens + output_tokens`; `cache_read_tokens` is a subset of `input_tokens`, never an addition to it. Each member is an integer or `null`, and the four are `null` together, exactly when `tokens_measured` is `false`. |
-| `tokens_measured` | `false` until the coding agent reports token usage for this session, including before the first turn begins; that is what makes the members of `tokens` `null` rather than `0`. `true` once any usage figure has been reported. |
+| `tokens_measured` | `false` until the coding agent reports token usage for this session, including before the first turn begins; that is what makes the members of `tokens` `null` rather than `0`. `true` once any usage figure has been reported. Stays `false` for the life of a session whose `usage_arrival` is `"none"`, whatever its runtime sends. |
 | `workspace_path` | Absolute filesystem path to the issue's workspace directory. |
-| `model_name` | LLM model in use. Omitted when unknown. |
+| `model_name` | LLM model in use. Omitted when unknown, and when `usage_arrival` is `"none"`. |
 | `api_request_count` | Count of LLM API requests, one per `token_usage` event received during this session. Integer or `null`, and `null` exactly when `api_requests_measured` is `false`. |
 | `requests_by_model` | Breakdown of API requests per model. Omitted when `api_requests_measured` is `false`, when `usage_attribution` is anything other than `"per_model"`, or when the breakdown is empty. |
 | `tool_time_percent` | Percentage of elapsed wall-clock time spent in tool execution. `null` when not yet computed. |
@@ -310,9 +315,17 @@ The same row on a session that has measured nothing, showing only the fields tha
 | `unmeasured_sessions` | Count of the issue's sessions whose agent reported no token usage. `null` exactly when `used_tokens` is `null`. |
 | `exhausted_at` | When the hold began. |
 
-**`agent_totals`:** Cumulative across all sessions since Sortie's database was created, carried over when Sortie restarts; a session whose coding agent has reported no token usage, running or completed, adds nothing to its four token counts. `seconds_running` includes elapsed time from currently active sessions, not only completed ones.
+**`agent_totals`:** Cumulative across all sessions since Sortie's database was created, carried over when Sortie restarts; a session whose coding agent has reported no token usage, running or completed, adds nothing to its four token counts. `seconds_running` includes elapsed time from currently active sessions, not only completed ones. Three further fields disclose, by reason, how many sessions those four counts leave out:
+
+| Field | Description |
+|---|---|
+| `unmeasured_sessions` | Ended sessions whose token usage was never recorded. Persisted, so it survives a restart. An upgrade backfills it from existing run history, but only as far back as Sortie has distinguished a measured run from an unmeasured one; an older run reads as measured and is not counted, even one that actually reported nothing. |
+| `running_unreported` | Currently running sessions whose agent kind reports usage but has not reported a figure yet. |
+| `running_non_reporting` | Currently running sessions whose `usage_arrival` is `"none"`. |
 
 **`active_estimated_cost_usd`:** Estimated total cost across currently running sessions, computed from configured [token rates](/reference/workflow-config/#token_rates) and each running session's agent adapter kind. Sessions whose `tokens_measured` is `false` are excluded. Omitted when token rates are not configured or no running session both matches a configured rate and has reported token usage. This is a presentation-layer estimate, not provider billing data.
+
+**`cost_unpriced_running`:** Count of running, measured sessions that `active_estimated_cost_usd` leaves out because their agent kind has no price in `token_rates`. Present, zero included, exactly when at least one agent kind resolves to a usable rate; omitted otherwise, which includes `token_rates` being absent, empty, or every entry failing validation. Its presence alone tells a consumer whether cost pricing is configured at all, independent of whether any session currently prices.
 
 **`rate_limits`:** Reserved for future use. Currently an empty object.
 

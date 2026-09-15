@@ -10,7 +10,7 @@ The Agent Client Protocol adapter connects Sortie to any runtime that speaks the
 
 Unlike every other agent kind, this one names no default runtime. `claude-code` always launches `claude` and `kiro` always launches `kiro-cli`; this kind launches whatever `agent.command` names, together with the flag or subcommand that puts that binary into protocol mode. One operator build of this adapter can therefore drive several different vendor runtimes, and this page describes only what the protocol and the adapter guarantee across all of them. What one specific runtime does with a capability the protocol leaves optional, and the launch switches that runtime needs, are covered on that runtime's own page: see [Gemini CLI on the Agent Client Protocol](/reference/agent-client-protocol-gemini/) and [Kiro CLI on the Agent Client Protocol](/reference/agent-client-protocol-kiro/).
 
-`StartSession` launches the subprocess once and keeps it alive for the whole session; each `RunTurn` sends one `session/prompt` request on that same session rather than spawning a new process. The adapter is safe for concurrent use: one adapter instance serves every session, with per-session state isolated behind a single goroutine that owns the connection.
+Session start launches the subprocess once and keeps it alive for the whole session; each turn sends one `session/prompt` request on that same session rather than spawning a new process.
 
 See also: [WORKFLOW.md configuration](/reference/workflow-config/) for the full `agent` schema, [environment variables](/reference/environment/#agent-runtime-variables) for how a runtime's credential reaches its subprocess, [error reference](/reference/errors/#agent-errors) for all agent error kinds, [Kiro CLI adapter reference](/reference/adapter-kiro/) for the other route to a runtime that also ships a hand-written kind.
 
@@ -27,15 +27,15 @@ These fields control the orchestrator's scheduling behavior. None of them is a p
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `kind` | string | - | Must be `"agent-client-protocol"` to select this adapter. |
-| `command` | string | _(none)_ | The runtime binary together with whatever flag or subcommand puts it into protocol mode, for example `gemini --acp` or `kiro-cli acp -a`. Required: this kind has no default binary. Resolved via `exec.LookPath` at session start; in SSH mode the local `ssh` binary is resolved instead and this value travels to the remote host as the command to run there. |
-| `max_turns` | integer | `20` | Maximum Sortie turns per worker session. The orchestrator calls `RunTurn` up to this many times, re-checking tracker state after each turn. |
+| `command` | string | _(none)_ | The runtime binary together with whatever flag or subcommand puts it into protocol mode, for example `gemini --acp` or `kiro-cli acp -a`. Required: this kind has no default binary. Resolved from `PATH` at session start; in SSH mode the local `ssh` binary is resolved instead and this value travels to the remote host as the command to run there. |
+| `max_turns` | integer | `20` | Maximum Sortie turns per worker session. The orchestrator runs a turn up to this many times, re-checking tracker state after each turn. |
 | `max_sessions` | integer | `0` (unlimited) | Maximum completed worker sessions per issue before the orchestrator stops retrying. `0` disables the budget. |
 | `max_concurrent_agents` | integer | `10` | Global concurrency limit across all issues. |
-| `max_concurrent_agents_by_state` | map | `{}` | Per-state concurrency limits. Keys are state names, lowercased for matching. Non-positive or non-numeric entries are silently ignored. |
-| `turn_timeout_ms` | integer | `3600000` (1 hour) | Total timeout for a single `RunTurn` call. The orchestrator cancels the turn context when exceeded. |
-| `read_timeout_ms` | integer | `5000` (5 seconds) | Bounds every synchronous wait on the runtime: the `initialize`, `session/new`, `session/load`, and `session/resume` responses, the negative-control probe that precedes a continuation attempt, the bounded wait for a replayed chunk after a `session/load` response, and the wait for a `session/prompt` response after the adapter has sent `session/cancel`. Falls back to 30 seconds when set to a non-positive value. |
+| `max_concurrent_agents_by_state` | map | `{}` | Per-state concurrency limits. Keys are state names, lowercased for matching. See [`agent.max_concurrent_agents_by_state`](/reference/workflow-config/#agent) for how an invalid entry is handled. |
+| `turn_timeout_ms` | integer | `3600000` (1 hour) | Total timeout for a single turn. The orchestrator cancels the turn when exceeded. |
+| `read_timeout_ms` | integer | `5000` (5 seconds) | Bounds every synchronous wait on the runtime: the `initialize`, `session/new`, `session/load`, and `session/resume` responses, the negative-control probe that precedes a continuation attempt, the bounded wait for a replayed chunk after a `session/load` response, the wait for a `session/prompt` response after the adapter has sent `session/cancel`, and, once any write to the runtime fails while a turn is active, the wait to see whether the connection's own end of stream arrives before the turn is finalized as a failed send instead. Falls back to 30 seconds when set to a non-positive value. |
 | `stall_timeout_ms` | integer | `300000` (5 minutes) | Maximum time between consecutive emitted events before the orchestrator treats the turn as stalled. `0` or negative disables stall detection. |
-| `stop_grace_ms` | integer | `5000` (5 seconds) | How long teardown waits for the subprocess to exit on its own after a graceful termination signal, before it force-terminates the process group. Also bounds, at half its value, the `session/close` call teardown sends when the handshake advertised that capability. Must be positive. |
+| `stop_grace_ms` | integer | `5000` (5 seconds) | How long teardown waits for the subprocess to exit on its own after a graceful termination signal, before it force-terminates the process group. Also bounds, at half its value, the `session/close` call teardown sends when the handshake advertised that capability, and the wait for the session to finish answering every request it had open before teardown continues. Must be positive. |
 | `max_retry_backoff_ms` | integer | `300000` (5 minutes) | Maximum delay cap for exponential backoff between retry attempts. |
 
 ```yaml
@@ -61,13 +61,13 @@ agent-client-protocol:
   mcp_config: ./mcp-servers.json
 ```
 
-The block itself is never forwarded to the runtime; the constructor reads `mcp_config` only to reject the wrong YAML type before any session starts. What actually reaches a session is `StartSessionParams.MCPConfigPath`, resolved by the worker the same way it is for every other kind.
+The block itself is never forwarded to the runtime; only `mcp_config` is checked, to reject the wrong YAML type before any session starts. What actually reaches a session is the resolved MCP configuration path, prepared by the worker the same way it is for every other kind.
 
 ---
 
 ## Validate-time checks
 
-When `agent.kind` is `agent-client-protocol`, the [`sortie validate`](/reference/cli/#validate) pipeline runs this kind's own config check in addition to the generic preflight validation. It constructs no adapter instance and launches no subprocess, and the same check runs at startup and on every workflow reload, so the verdict is identical in all three places.
+When `agent.kind` is `agent-client-protocol`, the [`sortie validate`](/reference/cli/#validate) pipeline runs this kind's own config check in addition to the generic preflight validation. It builds no adapter and launches no subprocess, and the same check runs at startup and on every workflow reload, so the verdict is identical in all three places.
 
 ### Errors
 
@@ -75,7 +75,7 @@ When `agent.kind` is `agent-client-protocol`, the [`sortie validate`](/reference
 |---|---|---|
 | `agent-client-protocol.mcp_config.wrong_type` | `agent-client-protocol.mcp_config` is present with a YAML type other than a string | Names the key and the type found. |
 
-The adapter constructor reports the same fault with the same message, so the two paths can never disagree.
+Building the adapter reports the same fault with the same message, so the two paths can never disagree.
 
 This kind declares no check that would leave the runtime waiting for a person: unlike `codex.approval_policy` or `claude-code.permission_mode`, there is no pass-through field here whose value could put the runtime into an interactive posture, because whatever posture the runtime takes is spelled inside `agent.command` itself. See [permission handling](#permission-handling) for what happens when a runtime asks anyway.
 
@@ -83,19 +83,18 @@ This kind declares no check that would leave the runtime waiting for a person: u
 
 ## Session lifecycle
 
-### `StartSession`
+### Session start
 
 Launches the subprocess, performs the `initialize` handshake, and creates or continues a session with `session/new`, `session/load`, or `session/resume`.
 
-1. Resolves the launch target: validates that `WorkspacePath` is a non-empty absolute path pointing to an existing directory, and resolves `command` via `exec.LookPath` with no default to fall back to. In SSH mode, resolves the local `ssh` binary instead.
-2. Parses the generated MCP configuration from `MCPConfigPath` on a local launch only; a remote launch holds no servers regardless of the path, because the protocol's stdio server declaration names an executable the remote host would have to resolve, and the configuration's environment block can carry tracker credentials that must not cross to a remote host. A server whose `enabled` field is present and `false` is dropped here.
+1. Resolves the launch target: validates that the workspace path is a non-empty absolute path pointing to an existing directory, and resolves `command` from `PATH` with no default to fall back to. In SSH mode, resolves the local `ssh` binary instead.
+2. Parses the generated MCP configuration from the resolved configuration path on a local launch only; a remote launch holds no servers regardless of the path, because the protocol's stdio server declaration names an executable the remote host would have to resolve, and the configuration's environment block can carry tracker credentials that must not cross to a remote host. A server whose `enabled` field is present and `false` is dropped here.
 3. Starts the subprocess with the full parent process environment, places it in its own process group, and wires stdin, stdout, and stderr.
-4. Starts the session's single owning goroutine (the pump) before the handshake, so it is the sole mutator of session state from this point on.
-5. Sends `initialize` with the pinned protocol version and no filesystem or terminal client capability. A response reporting any other protocol version ends the session, because the protocol defines no renegotiation and leaves the decision to disconnect to the client.
-6. Renders the parsed MCP servers into the wire format `session/new` (or a continuation call) will carry, omitting any HTTP server when the handshake's `mcpCapabilities.http` is not `true`. A stdio server is never withheld this way; the protocol allows omitting a server type, not the whole channel.
-7. Resolves the session: `session/new` alone when `ResumeSessionID` is empty or the handshake advertises no continuation method; otherwise the advertised route, confirmed and falling back to `session/new` within this same call when not confirmed. See [session resume mechanism](#session-resume-mechanism).
-8. Records the identifier to close through the protocol later, only when the handshake advertised `sessionCapabilities.close`.
-9. Returns a `Session` with `ID` set to the session identifier the runtime actually created and `AgentPID` set to the subprocess PID.
+4. Sends `initialize` with the pinned protocol version and no filesystem or terminal client capability. A response reporting any other protocol version ends the session, because the protocol defines no renegotiation and leaves the decision to disconnect to the client.
+5. Renders the parsed MCP servers into the wire format `session/new` (or a continuation call) will carry, omitting any HTTP server when the handshake's `mcpCapabilities.http` is not `true`. A stdio server is never withheld this way; the protocol allows omitting a server type, not the whole channel.
+6. Resolves the session: `session/new` alone when no session ID from a previous run is supplied, or the handshake advertises no continuation method; otherwise the advertised route, confirmed and falling back to `session/new` within this same call when not confirmed. See [session resume mechanism](#session-resume-mechanism).
+7. Records the identifier to close through the protocol later, only when the handshake advertised `sessionCapabilities.close`.
+8. The session records the identifier the runtime actually created as its session ID, and the subprocess PID as the agent's process ID.
 
 **Errors:**
 
@@ -108,24 +107,25 @@ Launches the subprocess, performs the `initialize` handshake, and creates or con
 | SSH binary not found (SSH mode) | `agent_not_found` |
 | Generated MCP configuration unreadable or malformed | `response_error` |
 | Subprocess failed to start, or a stdio pipe could not be created | `port_exit` |
+| The connection ends, including the subprocess exiting or the standard-output wait described under [process shutdown](#process-shutdown) giving up, before `initialize`, `session/new`, `session/load`, or `session/resume` receives a response | `port_exit` |
 | `initialize` timed out | `response_timeout` |
 | `initialize` returned a protocol-level error, or reported a version other than the one this adapter is generated against | `response_error` |
 | `session/new`, `session/load`, or `session/resume` returned a protocol-level error after continuation was not confirmed and the `session/new` fallback also failed | `response_error` |
 
-### `RunTurn`
+### Turn
 
 Sends one `session/prompt` request on the existing session and relays `session/update` notifications until the response arrives.
 
-1. Publishes the prompt to the session's owning goroutine, bounded by `read_timeout_ms` for both the publish itself and the accept-or-reject verdict.
+1. Submits the prompt to the session, then waits, bounded by `read_timeout_ms`, for it to accept or reject the request.
 2. Sends `session/prompt` with the rendered text. Streams every recognized `session/update` notification as a normalized event for as long as the request is outstanding. See [event stream](#event-stream).
-3. On context cancellation, sends `session/cancel` once and keeps waiting, bounded by `read_timeout_ms`, for the runtime's own response to the prompt it already sent.
+3. When the turn is cancelled, sends `session/cancel` once and keeps waiting, bounded by `read_timeout_ms`, for the runtime's own response to the prompt it already sent.
 4. Ends the turn from the `session/prompt` response's `stopReason`, from a protocol-level error on that response, from the runtime's own cancellation acknowledgment, or from the bounded wait above elapsing. See [turn disposition](#turn-disposition).
 
-Only one turn may be in flight per session. A `RunTurn` call made while another is still active is refused with `response_error` before anything reaches the runtime.
+Only one turn may be in flight per session. A second turn started while one is still active is refused with `response_error` before anything reaches the runtime.
 
-### `StopSession`
+### Session stop
 
-Runs a fixed teardown order regardless of how far the session progressed, so a session that never finished starting is torn down the same way as one that ran turns: answer any request the session is still holding open, send `session/close` when the handshake advertised it, signal the process group to exit gracefully, close standard input, wait for the process to exit, force-terminate the process group unconditionally as a backstop, then close the remaining pipes and stop the session's own goroutine. See [process shutdown](#process-shutdown).
+Runs a fixed teardown order regardless of how far the session progressed, so a session that never finished starting is torn down the same way as one that ran turns: answer any request the session is still holding open, send `session/close` when the handshake advertised it, signal the process group to exit gracefully, close standard input, wait for the process to exit, force-terminate the process group unconditionally as a backstop, close standard output and the connection, collect stderr and reap, and release the pipes last. See [process shutdown](#process-shutdown).
 
 ---
 
@@ -133,19 +133,21 @@ Runs a fixed teardown order regardless of how far the session progressed, so a s
 
 | Step | What it does |
 |---|---|
-| Answer any open request | Answers, best-effort, any protocol request the session received but had not yet replied to. |
+| Answer any open request | Answers any protocol request the session received but had not yet replied to, then waits, bounded the same way `session/close` is, both for that answer to finish being written and for it to actually reach the runtime. |
 | Close the session | Sends `session/close` for the recorded session identifier, bounded by half of whatever remains of the graceful window, only when the handshake advertised `sessionCapabilities.close`. Does nothing otherwise. |
 | Signal graceful termination | Sends a catchable termination signal to the launched process group. On a remote launch this reaches the local `ssh` relay's group, not the runtime itself. |
-| Close standard input | Hands the runtime end-of-input immediately behind the signal, and releases a pump write parked on that pipe. |
-| Wait for exit | Waits for the process to exit and be reaped, bounded by `stop_grace_ms` and by the caller's own deadline, whichever is nearer. |
+| Close standard input | Hands the runtime end-of-input immediately behind the signal, without waiting for that close to finish, so a close stuck at the OS level cannot delay the wait for exit or the force-terminate step that follows. |
+| Wait for exit | Waits for the process to exit and be reaped, bounded by `stop_grace_ms` and by the orchestrator's own deadline, whichever is nearer. |
 | Force-terminate the process group | Runs unconditionally after the wait, whatever it observed. This is the backstop for a descendant that escaped the direct child or a runtime that ignored every signal. |
-| Close remaining pipes and the connection | Releases the connection's own parked read and write. |
-| Stop the session's goroutine | Waits for it to exit, which the pipe closes above guarantee. |
+| Close standard output and the connection | Releases the connection's own parked read and write. The standard-error read end stays open, because the drain below still needs it. |
 | Drain stderr and reap | Collects diagnostics and reaps the process, bounded so this step never holds teardown open indefinitely. |
+| Release the pipes | Closes both read ends the session owns. It runs last because the session owns them for its whole lifetime: closing either one earlier would cut off the stderr drain above while it is still reading buffered output, and a session that failed during startup reports its collected stderr after teardown finishes. |
 
-On Unix, graceful termination is `SIGTERM` and force kill is `SIGKILL` to the process group. On Windows, graceful termination is `CTRL_BREAK_EVENT` to the process group, and the subprocess is assigned to a Job Object with `KILL_ON_JOB_CLOSE` so force termination kills the full descendant tree.
+On Unix, graceful termination is `SIGTERM` and force kill is `SIGKILL` to the process group. On Windows, graceful termination is `CTRL_BREAK_EVENT` to the process group, and the subprocess is assigned to a Job Object with `KILL_ON_JOB_CLOSE` so force termination kills the full descendant tree. The subprocess starts suspended and is resumed only after that assignment succeeds, so nothing it spawns can run before the job takes effect. A failed assignment logs WARN `process group assignment failed` and the runtime subprocess runs without a job; a failed resume logs WARN `process resume failed` and fails session start with error kind `port_exit`, the same row the errors table above gives for any subprocess that fails to start. Since this adapter launches the runtime once and keeps it alive for the whole session, a resume failure here means no turn for that session ever reaches the runtime.
 
-One residual gap: a runtime parked on a permission request the session has not yet answered may not reach its own exit path, because standard input is closed before that answer is written. Closing that window needs a synchronization point this order does not add; the unconditional process-group kill later in the order is what actually ends such a session.
+A runtime that has already received its answer by the time the graceful signal reaches it can act on that answer and exit inside `stop_grace_ms` on its own, rather than still waiting on it once the force-terminate step runs. A runtime that never reads the answer still leaves teardown on schedule: the answer step completes within its own bound regardless, and the rest of the order runs as listed.
+
+The runtime process can exit while a descendant it spawned still holds its standard-output handle open. Reaping the process does not close that handle, so a handshake call or a turn already waiting on the runtime's output keeps waiting; Sortie gives it up to five seconds past the reap, then stops waiting and closes standard output and the connection itself. A turn ended this way reports `port_exit` with the message `the agent runtime exited before the session finished collecting its output`; a turn started after this has already happened is refused with the same message before it reaches the runtime. Sortie logs `agent stdout was not fully collected before the session ended` at WARN, with the five-second bound in its `drain_bound` attribute. On a remote launch, the process watched for exit is the local `ssh` relay rather than the runtime on the far end. Stopping the session afterward still runs the fixed order above in full.
 
 ---
 
@@ -186,7 +188,7 @@ The `session/prompt` response's `stopReason` decides how the turn ends, unless t
 
 Whether a runtime's own implementation actually produces every one of these five values, and what each one means for that runtime specifically, is that runtime's to document; see the runtime-specific pages linked at the top of this page. `refusal` and `max_tokens` are treated as non-retryable classification decisions rather than transport failures: a retry of the same input would meet the same refusal or the same limit. `max_turn_requests` is retryable with exponential backoff, since a fresh turn starts a new request budget on the runtime's side.
 
-Two conditions precede a `stopReason` read at all: a protocol-level error on the response reports `response_error`, and a lost connection (the subprocess exiting, a line exceeding the connection's bound, or the stream ending) reports `port_exit`, except a line-too-long condition, which reports `turn_outcome_unknown` instead because it is a different failure from losing the process.
+Two conditions precede a `stopReason` read at all: a protocol-level error on the response reports `response_error`, and a lost connection reports `port_exit`. A lost connection covers the subprocess exiting, the stream ending, and a write to the runtime failing while a turn is active, when the connection's own end of stream does not follow within `read_timeout_ms` of that failure; a line exceeding the connection's bound reports `turn_outcome_unknown` instead, because it is a different failure from losing the process. A lost connection also covers a runtime that exits while a descendant still holds its standard output open: rather than run until `stall_timeout_ms` or `turn_timeout_ms` catches it, this ends within a five-second bound; see [process shutdown](#process-shutdown) for the mechanism and message.
 
 ---
 
@@ -233,7 +235,7 @@ Delivery and discovery are not the same as callability. The session-creation req
 
 ## MCP
 
-The worker writes `.sortie/mcp.json` for every agent kind. On a local launch, `StartSession` parses it and renders its servers into the wire shape `session/new` carries; on a remote launch, no servers are parsed at all, so a session over SSH reaches none of Sortie's tools and its first-turn prompt names none, for the same reason the [Codex](/reference/adapter-codex/#mcp_config) and [OpenCode](/reference/adapter-opencode/#mcp) adapters withhold theirs on SSH: the configuration's credential values would otherwise sit on the local `ssh` process's own argument list, readable by any other user of the orchestrator host.
+The worker writes `.sortie/mcp.json` for every agent kind. On a local launch, session start parses it and renders its servers into the wire shape `session/new` carries; on a remote launch, no servers are parsed at all, so a session over SSH reaches none of Sortie's tools and its first-turn prompt names none, for the same reason the [Codex](/reference/adapter-codex/#mcp_config) and [OpenCode](/reference/adapter-opencode/#mcp) adapters withhold theirs on SSH: the configuration's credential values would otherwise sit on the local `ssh` process's own argument list, readable by any other user of the orchestrator host.
 
 An HTTP server is delivered only when the handshake's `mcpCapabilities.http` reports `true`; when it does not, the server is silently omitted and the toolServers capability entry is lowered for the rest of the session (see [capability tracking](#capability-tracking)). A stdio server is always attempted; the protocol's `mcpCapabilities` distinguishes HTTP and SSE support, not stdio support. A server whose `enabled` field is explicitly `false` in the generated configuration is dropped before rendering, because the protocol carries no disabled state of its own.
 
@@ -262,13 +264,13 @@ The first time a turn starts, the adapter emits one `notification` naming every 
 
 ## Session resume mechanism
 
-A non-empty `ResumeSessionID` on `StartSession` attempts continuation; the route depends on what the handshake advertised, in this fixed order: `session/load` when the handshake advertises `loadSession: true`, otherwise `session/resume` when the handshake advertises `sessionCapabilities.resume`, otherwise no continuation is attempted and a fresh session is created with `session/new`.
+Supplying a session ID saved from a previous run at session start attempts continuation; the route depends on what the handshake advertised, in this fixed order: `session/load` when the handshake advertises `loadSession: true`, otherwise `session/resume` when the handshake advertises `sessionCapabilities.resume`, otherwise no continuation is attempted and a fresh session is created with `session/new`.
 
 Before either continuation call, the adapter sends one request naming a vendor-namespace method no protocol release can claim, and records the error code the runtime answers it with, if any. This negative control lets the adapter tell an unimplemented continuation method apart from a genuinely broken one by comparing that code against the one the continuation call returns, though both outcomes still lower the capability and fall back the same way.
 
-`session/resume`'s own response is enough to confirm it: a successful response means the identifier resumed. `session/load` needs more: a successful response alone is not treated as confirmation, because a runtime can answer success while replaying nothing. The adapter also requires at least one replayed message chunk for the loaded identifier, observed either before the response returns or within `read_timeout_ms` after it; without one, the load is treated as unconfirmed.
+`session/resume`'s own response is enough to confirm it: a successful response means the identifier resumed. `session/load` needs more: a successful response alone is not treated as confirmation, because a runtime can answer success while replaying nothing. The adapter also requires at least one replayed message chunk for the loaded identifier, observed either before the response arrives or within `read_timeout_ms` after it; without one, the load is treated as unconfirmed.
 
-Whichever continuation route is attempted, an error response, a timeout on that call or on the negative control before it, or (for `session/load`) no observed replay lowers the session continuation capability entry and falls back to `session/new` within the same `StartSession` call; none of these outcomes fails the session on their own account.
+Whichever continuation route is attempted, an error response, a timeout on that call or on the negative control before it, or (for `session/load`) no observed replay lowers the session continuation capability entry and falls back to `session/new` within the same session-start call; none of these outcomes fails the session on their own account.
 
 A `session/load` call for a session this adapter's own process created is held until the wall clock leaves the UTC minute in which that creation happened, bounded at one minute. This spacing exists to protect against a class of runtime defect where a load issued too soon after a session's own creation destroys that session's resumability outright, including every later attempt to load it; a runtime with this defect is documented on its own page. The wait is measured in process memory, so it does not cover a session created by a previous process, and on an SSH launch it is measured on the orchestrator host's clock rather than the runtime host's.
 
@@ -276,7 +278,7 @@ A `session/load` call for a session this adapter's own process created is held u
 
 ## Session close
 
-`session/close` is sent during teardown only when the handshake's `initialize` response advertised a non-nil `sessionCapabilities.close`. A handshake advertising no `sessionCapabilities` object at all, or one that omits `close`, means this adapter never selects it: the session then ends only through process termination, described in [process shutdown](#process-shutdown). The call is bounded at half of whatever remains of the graceful teardown window, so it can never itself consume the whole window at the expense of the signal that follows it.
+`session/close` is sent during teardown only when the handshake's `initialize` response advertises `sessionCapabilities.close`. A handshake advertising no `sessionCapabilities` object at all, or one that omits `close`, means this adapter never selects it: the session then ends only through process termination, described in [process shutdown](#process-shutdown). The call is bounded at half of whatever remains of the graceful teardown window, so it can never itself consume the whole window at the expense of the signal that follows it.
 
 ---
 
@@ -314,28 +316,6 @@ See [Gemini CLI on the Agent Client Protocol](/reference/agent-client-protocol-g
 
 ---
 
-## Concurrency safety
-
-The adapter is safe for concurrent use. One adapter instance serves all sessions. Per-session state is owned by that session's own single goroutine, reached only through `domain.Session.Internal`; nothing outside that goroutine mutates protocol state once the session starts. Only one turn may be active per session at a time; the orchestrator serializes turns within a session, and a `RunTurn` call arriving while another is still active is refused rather than queued.
-
----
-
-## Adapter registration
-
-The adapter registers itself under kind `"agent-client-protocol"` via an `init` function in `internal/agent/clientprotocol`. Registration metadata declares:
-
-| Property | Value |
-|---|---|
-| `RequiresCommand` | `true` |
-| `ValidateAgentConfig` | the check described in [Validate-time checks](#validate-time-checks) |
-| `MCPInjection` | `translated`: the adapter re-expresses the generated configuration's servers in the wire form `session/new` carries, and delivers that on a local launch only. See [MCP](#mcp). |
-| `UsageArrival` | `none`: no usage figure is ever produced, on a local launch or over SSH. See [Token accounting](#token-accounting). |
-| `UsageAttribution` | `none`: there is no figure to attribute. |
-
-The orchestrator's preflight validation uses `RequiresCommand` to require a non-empty `agent.command` field for `agent.kind: agent-client-protocol`; this is the one built-in kind for which that requirement carries no fallback binary name at all.
-
----
-
 ## Key differences from other adapters
 
 | Aspect | Claude Code | Copilot CLI | Codex | OpenCode | Kiro | Agent Client Protocol |
@@ -344,7 +324,7 @@ The orchestrator's preflight validation uses `RequiresCommand` to require a non-
 | Default command | `claude` | `copilot` | `codex app-server` | `opencode` | `kiro-cli` | None; `agent.command` names both the runtime and its protocol-mode switch |
 | Subprocess model | New process per turn | New process per turn | Persistent process across turns | New process per turn, plus an `export` subprocess | New process per turn | Persistent process across turns |
 | Protocol | CLI flags + JSONL stdout | CLI flags + JSONL stdout | JSON-RPC 2.0 over stdin/stdout | CLI flags + newline-delimited stdout envelopes | CLI flags + plain-text stdout transcript | Agent Client Protocol: newline-delimited JSON-RPC 2.0 over stdio |
-| Session ID source | UUID generated by adapter | Discovered from `result` event | Thread ID from `thread/start` response | Discovered from the first JSON envelope | None; carries `ResumeSessionID` only | `session/new` response, or the resumed identifier when continuation is confirmed |
+| Session ID source | UUID generated by adapter | Discovered from `result` event | Thread ID from `thread/start` response | Discovered from the first JSON envelope | None; carries only the session ID saved from a previous run | `session/new` response, or the resumed identifier when continuation is confirmed |
 | Resume mechanism | `--resume <UUID>` | `--resume <sessionId>` or `--continue` fallback | `thread/resume` or automatic within session | `--session <sessionID>` | `--resume` (cwd-scoped), after first success | `session/load` or `session/resume`, whichever the handshake advertises, confirmed by a negative control and, for load, by observed replay |
 | Token accounting | Result event `modelUsage`, with top-level `usage` fallback | Session-state journal on disk | `thread/tokenUsage/updated` notification | Separate `export` subprocess | None (credits only); every run unmeasured | None; no per-turn token count reaches the adapter, so every run is unmeasured |
 | Model reporting | From `assistant` events | From `assistant.message`/`model.message` records | From the thread-open response, updated on reroute | Recovered from export `providerID/modelID` | Not available | Not available |

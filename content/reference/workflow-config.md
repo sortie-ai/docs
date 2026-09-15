@@ -241,7 +241,7 @@ The `comments` sub-object controls whether Sortie posts plain-text comments on t
 | `on_completion` | Worker exits normally | Session ID, duration, turns completed. Includes "(re-queuing)" suffix when a continuation retry is scheduled. |
 | `on_failure` | Worker exits with an error | Session ID, duration, truncated error message (200 char limit), retry status and next attempt number. |
 
-Comment failures are non-fatal. A failed comment logs WARN and never blocks dispatch, completion, retry, or handoff. Completion and failure comments are posted from a detached goroutine: the event loop is never blocked by the tracker API.
+Comment failures are non-fatal. A failed comment logs WARN and never blocks dispatch, completion, retry, or handoff.
 
 No comment is posted on worker cancellation (stall timeout, reconciliation, shutdown).
 
@@ -329,7 +329,7 @@ tracker:
 
 `endpoint` is required for Gitea: the instance is self-hosted, so there is no default host. The adapter trims a trailing slash and appends `/api/v1`, and tolerates a value already ending in `/api/v1`. `api_key` is a Gitea access token, sent verbatim as `Authorization: token <key>` (the canonical Gitea scheme, not a `Bearer` prefix), so surrounding whitespace fails authentication. `project` is the repository in `owner/repo` form.
 
-Gitea state names are repository label names, compared case-insensitively and stored lowercased. A configured label absent from the repository is created on demand the first time an issue transitions into it, so labels need not exist beforehand. When `active_states` or `terminal_states` is omitted, the adapter carries internal fallback labels (active `["backlog", "in-progress", "review"]`, terminal `["done", "wontfix"]`) that derive an issue's state from its labels; they do not drive dispatch, which the orchestrator gates on the workflow's `active_states` and `terminal_states`. `handoff_state` and `in_progress_state` name repository labels too, and a transition swaps the current state label for the target, closing the issue on a terminal target and reopening it on an active one. Unlike Jira's appended JQL, the Gitea `query_filter` is a URL query fragment merged into the repository issue-list query: the adapter reserves the `state`, `type`, `page`, and `limit` keys (a fragment naming any of them fails at construction), warns on an unrecognized key, and warns when a `labels` value does not resolve to a repository label, because Gitea's server-side `labels` filter is AND-across-names, case-sensitive, and drops entirely on an unresolvable name. See the [Gitea adapter reference](/reference/adapter-gitea/) for the state model, field mapping, and the full `query_filter` surface.
+Gitea state names are repository label names, compared case-insensitively and stored lowercased. A configured label absent from the repository is created on demand the first time an issue transitions into it, so labels need not exist beforehand. When `active_states` or `terminal_states` is omitted, the adapter carries internal fallback labels (active `["backlog", "in-progress", "review"]`, terminal `["done", "wontfix"]`) that derive an issue's state from its labels; they do not drive dispatch, which the orchestrator gates on the workflow's `active_states` and `terminal_states`. `handoff_state` and `in_progress_state` name repository labels too, and a transition swaps the current state label for the target, closing the issue on a terminal target and reopening it on an active one. Unlike Jira's appended JQL, the Gitea `query_filter` is a URL query fragment merged into the repository issue-list query: the adapter reserves the `state`, `type`, `page`, and `limit` keys (a fragment naming any of them fails when the adapter is built), warns on an unrecognized key, and warns when a `labels` value does not resolve to a repository label, because Gitea's server-side `labels` filter is AND-across-names, case-sensitive, and drops entirely on an unresolvable name. See the [Gitea adapter reference](/reference/adapter-gitea/) for the state model, field mapping, and the full `query_filter` surface.
 
 **Example: GitLab**
 
@@ -349,7 +349,7 @@ tracker:
 
 GitLab state names are project labels, compared case-insensitively and stored lowercased; a group label the project inherits counts as a project label. A configured label absent from the project is created by GitLab itself on the write that names it, so labels need not exist beforehand. Because GitLab label names are case-sensitive, that same behavior would turn a configured `review` into a second label next to an existing `Review`; to prevent the duplicate, the adapter reads the project label catalog at startup and rewrites every configured state label to the casing the project already stores. When `active_states` or `terminal_states` is omitted, the adapter carries internal fallback labels (active `["backlog", "in-progress", "review"]`, terminal `["done", "wontfix"]`) that derive an issue's state from its labels; they do not drive dispatch, which the orchestrator gates on the workflow's `active_states` and `terminal_states`. `handoff_state` names a project label too, and `in_progress_state` is an orchestrator-level field the GitLab adapter itself does not read; both reach GitLab through the same transition, a single request that swaps the current state label for the target and reconciles the native state, closing the issue on a terminal target and reopening it on an active one. A handoff-only target does neither.
 
-Unlike Jira's appended JQL and Linear's `IssueFilter` JSON object, the GitLab `query_filter` is a URL query fragment merged into the project issue-list query, validated against a closed allowlist at construction. The adapter rejects the eight keys it owns (`state`, `issue_type`, `order_by`, `sort`, `page`, `per_page`, `pagination`, `with_labels_details`) and rejects any key outside the eighteen the issue-list route honors. That is stricter than the Gitea adapter, which warns and forwards an unrecognized key: GitLab silently ignores a parameter it does not recognize and returns an unfiltered result set with HTTP 200, so a typo such as `assignee=` for `assignee_username=` would widen the candidate set with no visible signal. Negation uses GitLab's `not[...]` hash, accepted for the subset GitLab honors there. The adapter warns, without blocking construction, when a `labels` value names a label the project does not hold, because GitLab's server-side `labels` filter is AND-across-names and case-sensitive and returns an empty result on an unmatched name. `sortie validate` reports the same verdict offline. See the [GitLab adapter reference](/reference/adapter-gitlab/) for the state model, field mapping, and the full `query_filter` allowlist.
+Unlike Jira's appended JQL and Linear's `IssueFilter` JSON object, the GitLab `query_filter` is a URL query fragment merged into the project issue-list query, validated against a closed allowlist when the adapter is built. The adapter rejects the eight keys it owns (`state`, `issue_type`, `order_by`, `sort`, `page`, `per_page`, `pagination`, `with_labels_details`) and rejects any key outside the eighteen the issue-list route honors. That is stricter than the Gitea adapter, which warns and forwards an unrecognized key: GitLab silently ignores a parameter it does not recognize and returns an unfiltered result set with HTTP 200, so a typo such as `assignee=` for `assignee_username=` would widen the candidate set with no visible signal. Negation uses GitLab's `not[...]` hash, accepted for the subset GitLab honors there. The adapter warns, without refusing to build, when a `labels` value names a label the project does not hold, because GitLab's server-side `labels` filter is AND-across-names and case-sensitive and returns an empty result on an unmatched name. `sortie validate` reports the same verdict offline. See the [GitLab adapter reference](/reference/adapter-gitlab/) for the state model, field mapping, and the full `query_filter` allowlist.
 
 ---
 
@@ -379,7 +379,7 @@ Base directory for per-issue workspaces, and the optional age bound on how long 
 | `root`           | path    | `<system-temp>/sortie_workspaces` | Base directory. Per-issue subdirectories are created under this path. |
 | `retention_days` | integer | `0`                               | Maximum age in days of a workspace's latest recorded activity before the periodic sweep removes it. `0` disables the bound. |
 
-`~` expands to the home directory via `os.UserHomeDir()`. All `$VAR` and `${VAR}` references are expanded via `os.ExpandEnv` at any position. Issue identifiers are sanitized to `[A-Za-z0-9._-]` for subdirectory names; other characters become `_`.
+`~` expands to the user's home directory. All `$VAR` and `${VAR}` references are expanded at any position. Issue identifiers are sanitized to `[A-Za-z0-9._-]` for subdirectory names; other characters become `_`.
 
 ### Age-based retention
 
@@ -437,7 +437,7 @@ Shell scripts that run at workspace lifecycle points. On POSIX systems, each hoo
 | `before_run`    | shell script | _(none)_ | Runs before each agent attempt.                        |
 | `after_run`     | shell script | _(none)_ | Runs after each agent attempt.                         |
 | `before_remove` | shell script | _(none)_ | Runs before workspace deletion.                        |
-| `timeout_ms`    | integer      | `60000`  | Timeout in milliseconds for all hooks. Non-positive values fall back to the default. |
+| `timeout_ms`    | integer      | `60000`  | Timeout in milliseconds for all hooks. Non-positive values fall back to the default; a value outside the range an integer setting accepts is rejected when the configuration loads instead, whatever its sign. |
 
 ### Failure behavior
 
@@ -449,6 +449,27 @@ Shell scripts that run at workspace lifecycle points. On POSIX systems, each hoo
 | `before_remove` | Logged and ignored. Cleanup proceeds.      |
 
 Timeouts count as failures and follow the same semantics.
+
+### Hook process lifetime
+
+When a hook's shell exits, whatever its exit status, Sortie terminates every process still in its process group (its Job Object on Windows), resending the termination on a fixed poll interval until the group or job reports no member left or a 2-second bound elapses. A background command inside the script ends with the hook: on Linux and macOS `&`, `nohup … &`, and `( … & )`; on Linux also `systemd-run --scope`; on Windows `start /b`, `pg_ctl start`, and `pm2 start`. A process meant to outlive the hook needs a supervisor outside that tree:
+
+| Platform | Route | Prerequisite |
+| --- | --- | --- |
+| Linux, container engine | `docker compose up -d` or `docker run -d` | The hook's user reaches the Docker daemon: group membership or `sudo` for a rootful daemon. For rootless Docker, the CLI's persisted current context set to the rootless one (`docker context use rootless`, saved under `~/.docker/config.json`, which `HOME`, already on the allowlist, is enough to reach); `DOCKER_HOST` itself is not on the allowlist and is never forwarded, even if it is set in Sortie's own environment. |
+| Linux, systemd user unit | `systemctl --user start`, `systemd-run --user` (without `--scope`), or `brew services start` as a non-root user | A running user manager (an active login session, or lingering enabled), and `XDG_RUNTIME_DIR` or `DBUS_SESSION_BUS_ADDRESS` present in Sortie's own environment: the hook inherits only variables Sortie itself already has. Sortie run as the systemd system service in [how to run Sortie as a systemd service](/guides/run-as-systemd-service/) has neither by default, so this route needs Sortie run as a systemd `--user` service or interactively instead, or the variable added to Sortie's own environment explicitly. |
+| Linux, systemd system unit | `systemctl start` | Sortie runs as `root`, or a polkit rule grants its user `org.freedesktop.systemd1.manage-units`. |
+| macOS, launchd | `brew services start` | The user Sortie runs as is logged in at the graphical console. |
+| macOS, Docker Desktop | `docker compose up -d` or `docker run -d` | Docker Desktop has started for the user Sortie runs as. |
+| Windows, Service Control Manager | `Start-Service` or `sc start` | The service is installed, and the account Sortie runs as holds the `SERVICE_START` right on it. |
+| Windows, Docker Desktop | `docker compose up -d` or `docker run -d` | Docker Desktop is running for the user Sortie runs as. |
+| Windows, Task Scheduler | `schtasks /run /tn <task>` or `Start-ScheduledTask` on a task the user registered | The task exists and runs in the user's own security context. |
+
+Prefer a supervisor that owns the service across runs, such as `docker compose up -d` on Linux and macOS, which recreates a service's containers only when its configuration or image changed, or a service manager. A hook whose next step uses the service should wait until the service accepts connections, since these start commands can return before it does.
+
+On Windows, a hook whose Job Object could not be created or assigned still runs, with the failure logged, and that teardown then reaches only the shell itself. When a hook that exits on its own leaves a process running that it did not start through one of the routes above, Sortie logs one INFO record, `leftover processes terminated after the command exited`, carrying `hook` and `workspace`; a termination that still cannot confirm the group or job empty once the 2-second bound elapses is logged as a warning instead.
+
+For the practical walkthrough, see [how to set up workspace hooks: start a service that outlives a hook](/guides/setup-workspace-hooks/#start-a-service-that-outlives-a-hook).
 
 ### Hook environment variables
 
@@ -501,14 +522,14 @@ Coding agent adapter, concurrency, timeouts, and retry behavior. These fields co
 | `command`                        | string  | adapter-defined | Command to launch the agent for adapters that run as a local subprocess (`claude-code`, `copilot-cli`, `codex`, `opencode`, `kiro`, `agent-client-protocol`). Adapters that do not start a local process ignore this field. For `agent-client-protocol` this field has no default and also carries the flag or subcommand that puts the named binary into protocol mode. |
 | `max_turns`                      | integer | `20`            | Maximum turns per worker session. The worker re-checks tracker state after each turn. |
 | `max_sessions`                   | integer | `0` (unlimited) | Maximum completed sessions per issue before the orchestrator stops retrying. Must be non-negative. The separate `max_consecutive_absences` governs the consecutive-absence ceiling below. It is no longer derived from this field. Reaching this ceiling also posts one comment on the issue naming the session budget and `agent.max_sessions` as the setting that raises it. |
-| `max_tokens`                     | integer | `0` (unlimited) | Cumulative per-issue token ceiling. Sortie sums the `total_tokens` recorded for every completed session of the issue from run history, adds the running session's own reported spend, and stops once the sum reaches a non-zero budget. Three lanes evaluate it: the retry timer and the poll tick's rebuild each block the next dispatch, and the event loop stops the session already running as soon as a usage figure carries the sum to the ceiling. A session stopped that way is recorded with status `budget_stopped` and increments `sortie_runs_stopped_by_budget_total`. Independent of `max_sessions`; the first ceiling reached wins. A run whose agent reported no token usage contributes nothing to the sum; that case and a failed token-sum query both allow the dispatch with a warning instead of blocking it. On the in-flight lane a failed read leaves the run going, unless the running session's own spend has reached the ceiling by itself, which needs no read to establish. Must be non-negative. Reaching this ceiling also posts one comment on the issue naming the token budget and `agent.max_tokens` as the setting that raises it, and counting the sessions stopped in flight when there were any. |
+| `max_tokens`                     | integer | `0` (unlimited) | Cumulative per-issue token ceiling. Sortie sums the `total_tokens` recorded for every completed session of the issue from run history, adds the running session's own reported spend, and stops once the sum reaches a non-zero budget. Three lanes evaluate it: the retry timer and the poll tick's rebuild each block the next dispatch, and Sortie stops the session already running as soon as a usage figure carries the sum to the ceiling. A session stopped that way is recorded with status `budget_stopped` and increments `sortie_runs_stopped_by_budget_total`. Independent of `max_sessions`; the first ceiling reached wins. A run whose agent reported no token usage contributes nothing to the sum; that case and a failed token-sum query both allow the dispatch with a warning instead of blocking it. On the in-flight lane a failed read leaves the run going, unless the running session's own spend has reached the ceiling by itself, which needs no read to establish. Must be non-negative. Reaching this ceiling also posts one comment on the issue naming the token budget and `agent.max_tokens` as the setting that raises it, and counting the sessions stopped in flight when there were any. |
 | `max_consecutive_absences`       | integer | `3`             | Bounds how many runs in a row may be observed to have produced no evidence of work before the issue is parked. Any run that produces evidence of work resets the count to zero. The separate `max_sessions` governs the total per-issue session budget; the two ceilings are independent. Unlike `max_sessions` and `max_tokens`, `0` does not mean unlimited here: `0` and negative values are rejected as a configuration error. |
 | `max_concurrent_agents`          | integer | `10`            | Global concurrency limit across all issues.                                           |
-| `max_concurrent_agents_by_state` | map     | `{}`            | Per-state concurrency limits. Keys are state names, lowercased for matching. Non-positive or non-numeric entries are silently ignored. |
+| `max_concurrent_agents_by_state` | map     | `{}`            | Per-state concurrency limits. Keys are state names, lowercased for matching. Non-positive or non-numeric entries are silently ignored; an entry outside the range an integer setting accepts is rejected when the configuration loads instead. |
 | `turn_timeout_ms`                | integer | `3600000` (1h)  | Total timeout for a single agent turn. Must be positive; a non-positive value is rejected when the configuration loads. Unlike `stall_timeout_ms` below, this bound cannot be disabled. |
 | `read_timeout_ms`                | integer | `5000` (5s)     | Timeout for startup and synchronous operations.                                       |
 | `stall_timeout_ms`               | integer | `300000` (5m)   | Inactivity timeout based on event stream gaps. `0` or negative disables stall detection. |
-| `stop_grace_ms`                  | integer | `5000` (5s)     | How long an adapter waits for the agent to exit on its own after a graceful termination signal, before it force-terminates the process group. Must be positive and no greater than `9223372036854` (about 292 years); any other value is rejected when the configuration loads. An adapter that launches no process, such as `mock`, has no such period. Stopping one session is allowed this value plus a fixed 15 seconds for the stderr collection and process reaping that follow it, 20 seconds at the default. Raising this value raises both that bound and the [shutdown worker-drain ceiling](/reference/cli/#signals) by the same amount. |
+| `stop_grace_ms`                  | integer | `5000` (5s)     | How long an adapter waits for the agent to exit on its own after a graceful termination signal, before it force-terminates the process group. Must be positive and no greater than `9223372036854` (about 292 years); any other value is rejected when the configuration loads. An adapter that launches no process, such as `mock`, has no such period. Stopping one session is allowed this value plus a fixed 15 seconds for the output collection and process reaping that follow it, 20 seconds at the default. The force-terminate step itself waits for the process group to report no member left, resending the termination for up to 2 more seconds when a member needs more than one resend to clear, so a session whose process group is slow to tear down can take up to 2 seconds longer than that total. Raising `stop_grace_ms` raises both that bound and the [shutdown worker-drain ceiling](/reference/cli/#signals) by the same amount. |
 | `max_retry_backoff_ms`           | integer | `300000` (5m)   | Maximum delay cap for exponential backoff on retries.                                 |
 
 `max_concurrent_agents`, `max_concurrent_agents_by_state`, `max_retry_backoff_ms`, `max_sessions`, `max_tokens`, and `max_consecutive_absences` reload dynamically without restart; a reloaded `max_tokens` reaches the sessions already running from the next poll tick onward, and applies at the next retry evaluation. All other fields apply to future dispatches only, except where the per-field Dynamic reload table at the end of this document states a finer-grained answer.
@@ -527,13 +548,15 @@ Every agent kind Sortie ships declares when a session's token figures reach the 
 | `agent-client-protocol` | `this session reports no token usage` | The protocol's own usage notification reports context occupancy rather than a per-turn count, and the adapter takes no figure from it. See [Agent Client Protocol adapter reference](/reference/adapter-agent-client-protocol/#token-accounting). |
 | `mock` | `figures arrive during each turn, as a session total`, with `, per model` instead when `mock.model_name` is set to a non-empty value, and `this session reports no token usage` when `mock.report_token_usage` is `false` whatever else the block sets | Canned figures from a simulated session. The kind launches no process, and its own block decides what a session reports. |
 
-Three behaviors follow from when a figure arrives.
+Four behaviors follow from a session's declared arrival.
 
 `agent.max_tokens` bounds the session in progress for a kind whose figures arrive at all, and bounds nothing for a kind that reports none: Sortie records `token ceiling cannot bound this run` at the dispatch that starts such a session, and `agent.turn_timeout_ms` is the bound that remains for it. See [how to control agent costs](/guides/control-costs/#cap-tokens-per-issue) for what the ceiling does when a session reaches it.
 
 A session's API request count is a count of requests only where figures arrive during each turn, the one arrival that emits a figure per model API request. The dashboard's **API Requests** field and the API's `api_request_count` carry a number for such a session while no turn has begun or once a figure has arrived. They carry no count for one whose first turn has begun with nothing counted, or for any other session.
 
 [`token_rates`](#token_rates) prices a session from the figures it reports, so a kind reporting none has nothing to price and its estimated cost stays blank. [`sortie validate`](/reference/cli/#validate) reports an inert ceiling as an `agent.kind.no_usage_reporting` warning and an unpriceable kind as an `agent.kind.no_cost_estimate` warning, each naming the kind, so neither has to be discovered from a budget that never fires or a blank column.
+
+A `none` declaration is enforced rather than trusted. If a session's runtime sends a usage figure anyway, Sortie discards it: the figure never reaches the dashboard, the JSON API, `agent.max_tokens`, or [`sortie stats`](/reference/cli/#stats), and Sortie logs one warning per run, naming the agent kind, the first time it happens.
 
 ```yaml
 agent:
@@ -687,14 +710,14 @@ Repository coordinates (owner, repo name, API token, endpoint) are not part of t
 
 | Escalation          | Behavior                                                                                                                                                |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `label` (default)   | Adds `escalation_label` (default `needs-human`) to the issue via the tracker adapter's `AddLabel` API. The label is created on demand if the tracker does not already have it.  |
+| `label` (default)   | Adds `escalation_label` (default `needs-human`) to the issue through the tracker adapter. The label is created on demand if the tracker does not already have it.  |
 | `comment`           | Posts a plain-text comment on the issue listing the number of CI-fix attempts, which checks failed, their conclusions, and details URLs.                 |
 
 Both escalation actions release the claim on the issue and cancel any pending retry. The issue will not be re-dispatched until its tracker state changes.
 
 ### Dynamic reload
 
-`max_retries`, `escalation`, and `escalation_label` reload dynamically. Changes take effect on the next reconcile tick. `kind` and `max_log_lines` are read at startup and do not change at runtime because the CI provider is constructed once. Changing `kind` or `max_log_lines` requires a restart.
+`max_retries`, `escalation`, and `escalation_label` reload dynamically. Changes take effect on the next reconcile tick. `kind` and `max_log_lines` are read at startup and do not change at runtime because the CI provider is built once. Changing `kind` or `max_log_lines` requires a restart.
 
 **Minimal:**
 
@@ -727,11 +750,11 @@ Self-review configuration. When enabled, Sortie runs an orchestrator-controlled 
 | `enabled`                  | boolean         | `false`    | Activates the self-review loop. When false or absent, no review phase runs.                                |
 | `max_iterations`           | integer         | `3`        | Hard cap on review iterations. Range: 1–10. Each iteration includes a review turn and (if verdict is “iterate”) a fix turn. |
 | `verification_commands`    | list of strings | _(none)_   | Shell commands to run during each review iteration. Required and non-empty when `enabled: true`.           |
-| `verification_timeout_ms`  | integer         | `120000`   | Per-command timeout in milliseconds. Timed-out commands are killed via process group signal.                |
+| `verification_timeout_ms`  | integer         | `120000`   | Per-command timeout in milliseconds.                |
 | `max_diff_bytes`           | integer         | `102400`   | Maximum bytes of diff included in the review prompt. Larger diffs are truncated with a note.                |
 | `reviewer`                 | string          | `"same"`   | Which agent runs the review turns. `"same"` (reuse existing session) is the only supported value.               |
 
-`enabled: true` with empty or absent `verification_commands` produces a `ConfigError`. `max_iterations` outside [1, 10] produces a `ConfigError`. `reviewer` values other than `"same"` produce a `ConfigError`. All integer fields accept quoted string integers (e.g., `"3"`) following the same coercion rules as other integer config fields.
+`enabled: true` with empty or absent `verification_commands` produces a configuration error. `max_iterations` outside [1, 10] produces a configuration error. `reviewer` values other than `"same"` produce a configuration error. All integer fields accept quoted string integers (e.g., `"3"`) following the same coercion rules as other integer config fields.
 
 > [!NOTE]
 > Environment variable overrides for `self_review` fields are not supported. Verification commands are security-sensitive privileged configuration that must come from the version-controlled WORKFLOW.md. All `self_review` values must be set in WORKFLOW.md.
@@ -739,6 +762,10 @@ Self-review configuration. When enabled, Sortie runs an orchestrator-controlled 
 ### Turn accounting
 
 Each iteration runs one review turn. Non-final iterations that produce an “iterate” verdict also run a fix turn. `max_iterations: N` means up to `2N − 1` additional agent turns in the worst case (N review turns + N−1 fix turns). For the default `max_iterations: 3`, this is up to **5 additional agent turns**. Factor this into token budget and wall-clock time expectations.
+
+### Verification command process lifetime
+
+Each verification command's process group (its Job Object on Windows) is torn down the same way a hook's is: see [hook process lifetime](#hook-process-lifetime) for the resend, the 2-second bound, and the Windows fallback when a Job Object could not be created or assigned. Two things differ here: the command's own exit status, not its timeout or its output, decides whether it passed, and the INFO and WARN records this produces carry `command` in place of `hook` and `workspace`.
 
 ### Dynamic reload
 
@@ -842,7 +869,7 @@ Observes the merge state of Sortie-managed PRs and transitions the linked tracke
 
 Two `tracker` fields are required whenever `provider` is set, each reported as its own configuration error when absent: `tracker.handoff_state` must be non-empty, and `tracker.terminal_states` must be written out in front matter rather than left to the adapter's default list. `target_state` is required, and compared case-insensitively it must not equal `tracker.handoff_state`, must not be a member of `tracker.active_states` (falling back to the adapter's default active list only when that list is empty), and must be a member of `tracker.terminal_states` as written. `poll_interval_ms` below `30000` is rejected, not clamped. `sortie validate` reports all of these offline, before a run.
 
-Every field here, `target_state` included, is captured once at orchestrator construction, as the other reaction kinds are; changing any of them, or either tracker prerequisite, requires a restart. Review feedback's `.sortie/scm.json` requirements apply with one exception: this kind reads `pr_number`, `owner`, and `repo`, and needs no `branch`, because it performs no checkout.
+Every field here, `target_state` included, is captured once when the orchestrator starts, as the other reaction kinds are; changing any of them, or either tracker prerequisite, requires a restart. Review feedback's `.sortie/scm.json` requirements apply with one exception: this kind reads `pr_number`, `owner`, and `repo`, and needs no `branch`, because it performs no checkout.
 
 **Minimal:**
 
@@ -969,7 +996,7 @@ The second exception is a value that stops the agent kind resuming a session acr
 
 A session that a [`dispatch` rule](#dispatch) routed to an agent kind other than the workflow default reads that kind's own block, on every attempt of that session. The block named by `agent.kind` applies only to sessions no rule routed elsewhere.
 
-A kind that `dispatch.default.agent` or a `dispatch.rules[i].agent` names, and that differs from the top-level `agent.kind`, must carry its own top-level block in the front matter. An empty one is enough, written as `codex: {}` or as a bare `codex:` key with nothing after it. A block present as a scalar or a list does not count. Its absence is a `dispatch.agent.missing_block` error at startup, on every workflow reload, and from `sortie validate`, naming the selector that introduced the kind and the block it expects; the workflow does not start until the block is added. The check is skipped for a kind the agent registry does not recognize, since that is already reported separately as an unknown adapter kind. `agent.command` stays workflow-wide regardless: a routed kind's own block cannot override it, so adding the block satisfies this check without changing which binary the route launches.
+A kind that `dispatch.default.agent` or a `dispatch.rules[i].agent` names, and that differs from the top-level `agent.kind`, must carry its own top-level block in the front matter. An empty one is enough, written as `codex: {}` or as a bare `codex:` key with nothing after it. A block present as a scalar or a list does not count. Its absence is a `dispatch.agent.missing_block` error at startup, on every workflow reload, and from `sortie validate`, naming the selector that introduced the kind and the block it expects; the workflow does not start until the block is added. The check is skipped for a kind Sortie does not recognize as a registered adapter, since that is already reported separately as an unknown adapter kind. `agent.command` stays workflow-wide regardless: a routed kind's own block cannot override it, so adding the block satisfies this check without changing which binary the route launches.
 
 ### `claude-code`
 
@@ -1023,7 +1050,7 @@ claude-code:
 No value in this block is refused before the run; `allowed_tools` draws a warning only. A key whose YAML value has the wrong type is ignored and the default applies.
 
 > [!WARNING]
-> `agent.max_turns` (orchestrator turn-loop limit) and `copilot-cli.max_autopilot_continues` (CLI autonomy budget) are distinct values with different semantics. The orchestrator limit controls how many turns the worker runs before exiting. The adapter limit controls how many autonomous continuation steps Copilot CLI takes within a single `RunTurn` invocation.
+> `agent.max_turns` (orchestrator turn-loop limit) and `copilot-cli.max_autopilot_continues` (CLI autonomy budget) are distinct values with different semantics. The orchestrator limit controls how many turns the worker runs before exiting. The adapter limit controls how many autonomous continuation steps Copilot CLI takes within a single turn.
 
 The adapter passes `--allow-all` for unattended operation unless `allowed_tools` is set, in which case `--allow-all` is omitted because the grant would otherwise subsume the allow-list. `denied_tools`, `available_tools`, and `excluded_tools` are forwarded alongside `--allow-all` rather than replacing it: a `denied_tools` rule still denies a matching call, and the other two still limit what the model sees. Setting `allowed_tools` draws the `copilot-cli.allowed_tools.auto_deny` warning rather than an error: every call outside the list is denied without a prompt and the session keeps going, so the narrower configuration limits what the agent may do without leaving it waiting for a person. See [validate-time checks](/reference/adapter-copilot/#validate-time-checks).
 
@@ -1046,7 +1073,7 @@ copilot-cli:
 | `turn_sandbox_policy` | map | _(none)_ | Per-turn sandbox policy override. Keys such as `networkAccess`, `writableRoots`. |
 | `mcp_config` | string | _(none)_ | Path to an MCP server configuration file, resolved relative to the WORKFLOW.md directory when not absolute. Its servers are merged into the copy Sortie generates for its own tool sidecar; the original is never modified, and a file already declaring `sortie-tools` fails the attempt. |
 
-The Codex adapter uses a persistent subprocess model: the `codex app-server` is launched once in `StartSession` and kept alive across turns. This differs from Claude Code, Copilot CLI, and OpenCode, which spawn a new subprocess per turn. The runtime accepts no MCP configuration path, so instead of handing over the generated file the adapter re-expresses its servers as configuration overrides on the app-server command line. That happens on a local launch only; an SSH session receives none, and reaches no Sortie tool. See the [Codex adapter reference](/reference/adapter-codex/) for the full lifecycle and [MCP](/reference/adapter-codex/#mcp) for the delivery detail.
+The Codex adapter uses a persistent subprocess model: the `codex app-server` is launched once, when the session starts, and kept alive across turns. This differs from Claude Code, Copilot CLI, and OpenCode, which spawn a new subprocess per turn. The runtime accepts no MCP configuration path, so instead of handing over the generated file the adapter re-expresses its servers as configuration overrides on the app-server command line. That happens on a local launch only; an SSH session receives none, and reaches no Sortie tool. See the [Codex adapter reference](/reference/adapter-codex/) for the full lifecycle and [MCP](/reference/adapter-codex/#mcp) for the delivery detail.
 
 > [!WARNING]
 > `approval_policy: never` allows arbitrary command execution within the sandbox boundary. Use only in sandboxed environments. The default `thread_sandbox: workspaceWrite` restricts writes to the workspace path with no network access.
@@ -1077,7 +1104,7 @@ codex:
 | `dangerously_skip_permissions` | boolean | `true` | Adds `--dangerously-skip-permissions` when true. Omitted when false, which makes the runtime auto-reject every permissioned tool call; that draws the `opencode.dangerously_skip_permissions.auto_reject` warning. See [validate-time checks](/reference/adapter-opencode/#validate-time-checks). |
 | `disable_autocompact` | boolean | `true` | Sets the managed `OPENCODE_DISABLE_AUTOCOMPACT` environment variable for both `run` and `export` subprocesses. |
 | `allowed_tools` | list of strings | `[]` | Builds the managed `OPENCODE_PERMISSION` allowlist. Listed keys become `allow`; every known key not listed becomes `deny`. Unknown keys are forwarded unchanged. |
-| `denied_tools` | list of strings | `[]` | Adds deny rules to `OPENCODE_PERMISSION`. Overlap with `allowed_tools` is rejected during adapter construction. |
+| `denied_tools` | list of strings | `[]` | Adds deny rules to `OPENCODE_PERMISSION`. Overlap with `allowed_tools` is rejected when the adapter is built. |
 | `mcp_config` | string | _(none)_ | Path to an MCP server configuration file, resolved relative to the WORKFLOW.md directory when not absolute. Its servers are merged into the copy Sortie generates for its own tool sidecar; the original is never modified, and a file already declaring `sortie-tools` fails the attempt. |
 
 The OpenCode runtime accepts no MCP configuration path either, so the adapter re-expresses the generated servers as the runtime's own configuration document and sets it in the turn's environment. That happens on a local launch only; an SSH session receives none, and reaches no Sortie tool. See [MCP](/reference/adapter-opencode/#mcp).
@@ -1180,7 +1207,7 @@ Process-wide log verbosity and output format. Controls the minimum severity leve
 | `logging.level` | string | `info` | No | **No** (requires restart) | Log verbosity: `debug`, `info`, `warn`, `error` (case-insensitive). |
 | `logging.format` | string | `text` | No | **No** (requires restart) | Log output format: `text` or `json` (case-insensitive). `text` emits structured `key=value` lines. `json` emits newline-delimited JSON objects. |
 
-The CLI [`--log-level`](/reference/cli/#--log-level) flag takes precedence over `logging.level`, and [`--log-format`](/reference/cli/#--log-format) takes precedence over `logging.format`. Changing either field in the workflow file takes effect only after a restart; dynamic reload does not re-initialize the log handler.
+The CLI [`--log-level`](/reference/cli/#--log-level) flag takes precedence over `logging.level`, and [`--log-format`](/reference/cli/#--log-format) takes precedence over `logging.format`. Changing either field in the workflow file takes effect only after a restart; dynamic reload does not change the active log level or format.
 
 Unknown values for either field cause startup failure with exit code `1`.
 
@@ -1459,7 +1486,7 @@ Sortie watches `WORKFLOW.md` for filesystem changes and re-applies configuration
 | `reactions.ci_failure.watch_window_ms` | Next reconcile tick.                   |
 | `reactions.ci_failure.triage.*`        | Requires restart. The triage configuration is frozen when the orchestrator is built. |
 | `self_review.*`                        | Next dispatch. Running workers use the snapshot captured at review-phase entry. |
-| `reactions.*`, every kind except `ci_failure` | Requires restart. The whole block is captured once at construction, including whether each kind is active, so adding or removing a kind's block changes nothing until the process restarts. |
+| `reactions.*`, every kind except `ci_failure` | Requires restart. The whole block is captured once when the orchestrator starts, including whether each kind is active, so adding or removing a kind's block changes nothing until the process restarts. |
 | `notifications`                        | Next agent session. Each session's MCP sidecar reads the workflow file at startup; in-flight sessions are unaffected. |
 | `db_path`                              | Requires restart.                      |
 | `server.port`                          | Requires restart.                      |

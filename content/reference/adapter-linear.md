@@ -6,7 +6,7 @@ date: 2026-06-15
 weight: 140
 url: /reference/adapter-linear/
 ---
-The Linear adapter connects Sortie to Linear over a single GraphQL endpoint, `POST https://api.linear.app/graphql`. It is registered under kind `"linear"`, fetches issues with Relay cursor pagination, and normalizes responses to the domain `Issue` and `Comment` types. Linear is a GraphQL API and reports application errors inside HTTP 200 bodies, so the adapter classifies a response by its top-level `errors` array before the HTTP status, unlike the REST trackers. The canonical API documentation is [Linear Developers: GraphQL](https://linear.app/developers/graphql).
+The Linear adapter connects Sortie to Linear over a single GraphQL endpoint, `POST https://api.linear.app/graphql`. It is registered under kind `"linear"`, fetches issues with Relay cursor pagination, and normalizes responses to the same [issue object](/reference/workflow-config/#issue) fields. Linear is a GraphQL API and reports application errors inside HTTP 200 bodies, so the adapter classifies a response by its top-level `errors` array before the HTTP status, unlike the REST trackers. The canonical API documentation is [Linear Developers: GraphQL](https://linear.app/developers/graphql).
 
 See also: [WORKFLOW.md configuration](/reference/workflow-config/) for the full tracker schema, [how to connect Sortie to Linear](/guides/connect-to-linear/) for setup instructions, [error reference](/reference/errors/) for all tracker error kinds, [environment variables](/reference/environment/) for `$VAR` expansion behavior.
 
@@ -21,7 +21,7 @@ The adapter reads its configuration from the `tracker` section of the [WORKFLOW.
 | `kind` | string | Yes | - | Must be `"linear"`. |
 | `api_key` | string | Yes | - | Linear personal API key. Sent verbatim in the `Authorization` header, no `Bearer` prefix. See [authentication](#authentication). |
 | `project` | string | Yes | - | Linear **team key** (e.g., `ENG`), the prefix on issue identifiers. Not a Linear project. See [identifiers and team scoping](#identifiers-and-team-scoping). |
-| `endpoint` | string | No | `https://api.linear.app/graphql` | GraphQL endpoint URL. There is no self-hosted Linear; overriding serves tests and mocks. A present value must be an absolute http(s) URL with a hostname or construction fails. |
+| `endpoint` | string | No | `https://api.linear.app/graphql` | GraphQL endpoint URL. There is no self-hosted Linear; overriding serves tests and mocks. A present value must be an absolute http(s) URL with a hostname, or the adapter is rejected when it is built. |
 | `active_states` | list of strings | No | `["Backlog", "Todo", "In Progress"]` | Workflow-state names eligible for dispatch. |
 | `terminal_states` | list of strings | No | `["Done", "Canceled", "Duplicate"]` | Workflow-state names that trigger workspace cleanup. |
 | `handoff_state` | string | No | _(absent)_ | Workflow-state name set after a successful agent run. Must appear in neither `active_states` nor `terminal_states`. Absent disables handoff. |
@@ -29,9 +29,11 @@ The adapter reads its configuration from the `tracker` section of the [WORKFLOW.
 
 `user_agent` is not a Linear adapter config key an operator can set. Sortie sets the tracker role's value to its own version string, and `linear` fills no SCM or CI role, so a value supplied in a top-level `linear:` block is ignored.
 
-`tracker.in_progress_state` is validated and executed by the orchestrator the same way for every tracker kind: it drives a dispatch-time transition through the adapter's `TransitionIssue` method, gated on dispatch posture rather than on tracker kind, so it works under `kind: linear` the same way it does under Jira or GitHub. The one real difference is construction-time coverage. The Linear adapter reads `active_states`, `terminal_states`, and `handoff_state` at construction and checks each against the team's workflow states (see [canonical-casing preflight](#canonical-casing-preflight)), but it never reads `in_progress_state` itself. A misconfigured `in_progress_state` therefore surfaces only at dispatch time, as a `tracker_payload_error` from the transition call, rather than as a construction failure.
+`tracker.in_progress_state` is validated and executed by the orchestrator the same way for every tracker kind: it drives a dispatch-time transition by transitioning the issue, gated on dispatch posture rather than on tracker kind, so it works under `kind: linear` the same way it does under Jira or GitHub. The one real difference is when each check runs. The Linear adapter reads `active_states`, `terminal_states`, and `handoff_state` when it is built and checks each against the team's workflow states (see [canonical-casing preflight](#canonical-casing-preflight)), but it never reads `in_progress_state` itself. A misconfigured `in_progress_state` therefore surfaces only at dispatch time, as a `tracker_payload_error` from the transition, rather than as a failure when the adapter is built.
 
 State names are compared case-insensitively at startup and resolved to the team's canonical casing. `active_states` and `terminal_states` must not overlap, and `handoff_state` must appear in neither list. See [state model](#state-model).
+
+`sortie validate` checks `endpoint`, `project`, and the state lists for this same shape without making network calls, reusing the rules enforced when the adapter is built. A malformed `endpoint` is reported as `tracker.endpoint.invalid`; an empty value is not, since the adapter substitutes the default host for it. Unlike the sibling forge adapters, there is no plain-`http` warning here, because Linear has no self-hosted deployment mode to make the distinction meaningful. A `project` value containing whitespace is an error, and one containing a slash draws a warning that it looks like a GitHub-style `owner/repo` value rather than a Linear team key. An empty or padded state name is an error here, not a warning as on the sibling forge adapters, because the adapter matches a configured name against the team's workflow states exactly; an overlap between `active_states` and `terminal_states` is also an error. State collisions involving `handoff_state` or `in_progress_state` are rejected before Sortie starts, the same way for every tracker kind; see [startup and configuration errors](/reference/errors/#startup-and-configuration-errors).
 
 ```yaml
 tracker:
@@ -62,7 +64,7 @@ The adapter authenticates with a Linear personal API key. The key is sent **verb
 Authorization: <api_key>
 ```
 
-The adapter sends the key exactly as configured, so the value must be the bare key with no scheme and no surrounding whitespace; a `Bearer` prefix or stray whitespace becomes part of the credential and fails authentication. Personal keys carry the `lin_api_` prefix; the offline validator warns when a configured key lacks it or carries surrounding whitespace (see [adapter registration](#adapter-registration)).
+The adapter sends the key exactly as configured, so the value must be the bare key with no scheme and no surrounding whitespace; a `Bearer` prefix or stray whitespace becomes part of the credential and fails authentication. Personal keys carry the `lin_api_` prefix; `sortie validate` warns when a configured key lacks it or carries surrounding whitespace, and suggests `api_key: $SORTIE_LINEAR_API_KEY` when the field is empty but that variable is set.
 
 Fixed headers on every request:
 
@@ -74,9 +76,9 @@ Fixed headers on every request:
 
 The HTTP client has a 30-second per-request timeout. Context cancellation propagates; a cancelled context aborts the in-flight request.
 
-### Construction-time validation
+### Startup preflight
 
-The constructor runs the `viewer` query to classify the key before the first poll cycle. A valid key returns the acting user on HTTP 200. An invalid, missing, or revoked key fails the `viewer` query, which the adapter routes through the same [error model](#error-model) that classifies every other call, mapping it to `tracker_auth_error` and blocking construction.
+The adapter runs the `viewer` query to classify the key before the first poll cycle. A valid key returns the acting user on HTTP 200. An invalid, missing, or revoked key fails the `viewer` query, which the adapter routes through the same [error model](#error-model) that classifies every other call, mapping it to `tracker_auth_error` and blocking Sortie from starting.
 
 ### OAuth
 
@@ -90,11 +92,11 @@ Every Linear workflow state carries a `type` category defined by Linear; see [ex
 
 ### Name-based mapping
 
-The adapter maps issues by configured state **name**, not by `type`. `domain.Issue.State` is `issue.state.name` with original casing preserved. The `type` category does not drive selection; it serves a startup tripwire that treats three categories, `completed`, `canceled`, and `duplicate`, as terminal. The tripwire emits a WARN when a configured `active_states` entry resolves to one of those three categories, or a `terminal_states` entry resolves to a category outside them.
+The adapter maps issues by configured state **name**, not by `type`. `.issue.state` is `issue.state.name` with original casing preserved. The `type` category does not drive selection; it serves a startup tripwire that treats three categories, `completed`, `canceled`, and `duplicate`, as terminal. The tripwire emits a WARN when a configured `active_states` entry resolves to one of those three categories, or a `terminal_states` entry resolves to a category outside them.
 
 ### Canonical-casing preflight
 
-Linear's `state.name.in` filter is case-sensitive. At construction the adapter fetches the team's states once, matches each configured name case-insensitively, and caches the team's exact casing. Fetch queries send the canonical names. A configured name that no state on the team matches fails construction with `tracker_payload_error` (`state "<name>" not found in team "<key>"`); an unknown team key fails the same way (`unknown team key "<key>"`).
+Linear's `state.name.in` filter is case-sensitive. When the adapter is built, it fetches the team's states once, matches each configured name case-insensitively, and caches the team's exact casing. Fetch queries send the canonical names. A configured name that no state on the team matches is rejected when the adapter is built, with `tracker_payload_error` (`state "<name>" not found in team "<key>"`); an unknown team key is rejected the same way (`unknown team key "<key>"`).
 
 ### Default mapping
 
@@ -119,7 +121,7 @@ Linear exposes three identifier-like values per issue.
 | `issue.identifier` | `ENG-123` | Human-readable. Team key plus issue number. |
 | `issue.number` | `123` | Numeric part. Unique only within a team. |
 
-The domain `ID` maps to `issue.id`; the domain `Identifier` maps to `issue.identifier`. The `issue(id:)` query accepts either the UUID or the human identifier. The adapter passes the form it holds and never constructs one form from the other.
+`.issue.id` maps to `issue.id`; `.issue.identifier` maps to `issue.identifier`. The `issue(id:)` query accepts either the UUID or the human identifier. The adapter passes the form it holds and never constructs one form from the other.
 
 `tracker.project` selects the Linear **team key**, not a Linear project. Workflow states are team-scoped, so the state model is well-defined only relative to one team. The team key is also the identifier prefix, which mirrors the Jira adapter where `project` is the issue-key prefix. Linear projects are cross-team containers that do not own states or identifiers. The team filter is `team: { key: { eq: "<key>" } }`; no team UUID resolution is needed for reads.
 
@@ -127,52 +129,53 @@ The domain `ID` maps to `issue.id`; the domain `Identifier` maps to `issue.ident
 
 ## Field mapping
 
-The adapter normalizes Linear GraphQL responses to [`domain.Issue`](/reference/workflow-config/) fields.
+The adapter normalizes Linear GraphQL responses to [issue object](/reference/workflow-config/#issue) fields.
 
-| Domain field | Linear source | Normalization |
+| Template field | Linear source | Normalization |
 |---|---|---|
-| `ID` | `issue.id` | UUID string, as-is. |
-| `Identifier` | `issue.identifier` | String, as-is (e.g., `ENG-123`). |
-| `Title` | `issue.title` | String, as-is. |
-| `Description` | `issue.description` | Markdown. Null maps to empty string. |
-| `Priority` | `issue.priority` | `0` (No priority) maps to `nil`. `1` (Urgent), `2` (High), `3` (Medium), `4` (Low) map to a non-nil `*int`. |
-| `State` | `issue.state.name` | String with original casing preserved. |
-| `BranchName` | `issue.branchName` | Opaque string, as-is. The prefix is workspace-configurable; it is never parsed. |
-| `URL` | `issue.url` | String, as-is. Provided directly, not constructed. |
-| `Labels` | `issue.labels.nodes[].name` | Each label lowercased. Non-nil empty slice when no labels. |
-| `Assignee` | `assignee.displayName` | Fallback to `name`, then `email`. Null assignee maps to empty string. |
-| `IssueType` | _(not available)_ | Always empty. Linear has no native issue-type field. |
-| `Parent` | `issue.parent` | `{id, identifier}` to `{ID, Identifier}`. `nil` when absent. |
-| `Comments` | Separate connection | `nil` on candidate fetch. Populated by `FetchIssueByID`. |
-| `BlockedBy` | `issue.inverseRelations.nodes` | Nodes where `type == "blocks"`. See [blocker extraction](#blocker-extraction). |
-| `BlockersUnresolved` | `issue.inverseRelations.pageInfo.hasNextPage` | `true` when the nested connection was truncated at its first-page cap, meaning `BlockedBy` may be incomplete. |
-| `CreatedAt` | `issue.createdAt` | ISO-8601 timestamp string, as-is. |
-| `UpdatedAt` | `issue.updatedAt` | ISO-8601 timestamp string, as-is. |
+| `.issue.id` | `issue.id` | UUID string, as-is. |
+| `.issue.identifier` | `issue.identifier` | String, as-is (e.g., `ENG-123`). |
+| `.issue.title` | `issue.title` | String, as-is. |
+| `.issue.description` | `issue.description` | Markdown. Null maps to empty string. |
+| `.issue.priority` | `issue.priority` | `0` (No priority) maps to `nil`. `1` (Urgent), `2` (High), `3` (Medium), `4` (Low) map to a non-nil integer. |
+| `.issue.state` | `issue.state.name` | String with original casing preserved. |
+| `.issue.branch_name` | `issue.branchName` | Opaque string, as-is. The prefix is workspace-configurable; it is never parsed. |
+| `.issue.url` | `issue.url` | String, as-is. Provided directly, not constructed. |
+| `.issue.labels` | `issue.labels.nodes[].name` | Each label lowercased. Non-nil empty list when no labels. |
+| `.issue.assignee` | `assignee.displayName` | Fallback to `name`, then `email`. Null assignee maps to empty string. |
+| `.issue.issue_type` | _(not available)_ | Always empty. Linear has no native issue-type field. |
+| `.issue.parent` | `issue.parent` | `{id, identifier}` to `{.id, .identifier}`. `nil` when absent. |
+| `.issue.comments` | Separate connection | `nil` on candidate fetch. Populated when the issue is read individually. |
+| `.issue.blocked_by` | `issue.inverseRelations.nodes` | Nodes where `type == "blocks"`. See [blocker extraction](#blocker-extraction). |
+| `.issue.created_at` | `issue.createdAt` | ISO-8601 timestamp string, as-is. |
+| `.issue.updated_at` | `issue.updatedAt` | ISO-8601 timestamp string, as-is. |
 
 Candidates are sorted client-side by normalized priority ascending, then by creation time ascending. Issues with no priority sort last. The server sort hint is not trusted.
 
-The nested `labels` and `inverseRelations` connections are capped at the first 25 nodes and are not paginated. An issue that exceeds the cap emits a WARN (`nested connection truncated`) and sets `BlockersUnresolved` on the returned issue; the dropped nodes remain observable rather than silent.
+The nested `labels` and `inverseRelations` connections are capped at the first 25 nodes and are not paginated. An issue that exceeds the cap emits a WARN (`nested connection truncated`) and is held out of dispatch: its blockers are marked unresolved, so `.issue.blocked_by` renders as `nil` rather than a possibly incomplete list. See [candidate eligibility](/reference/state-machine/#candidate-eligibility) for the dispatch-side effect.
 
 ### Comment normalization
 
-| Domain field | Linear source | Normalization |
+| Template field | Linear source | Normalization |
 |---|---|---|
-| `ID` | `comment.id` | String, as-is. |
-| `Author` | `comment.user.displayName` | Fallback to `user.name`, then `botActor.name`, else empty string. |
-| `Body` | `comment.body` | Markdown pass-through. |
-| `CreatedAt` | `comment.createdAt` | ISO-8601 timestamp string, as-is. |
+| `.id` | `comment.id` | String, as-is. |
+| `.author` | `comment.user.displayName` | Fallback to `user.name`, then `botActor.name`, else empty string. |
+| `.body` | `comment.body` | Markdown pass-through. |
+| `.created_at` | `comment.createdAt` | ISO-8601 timestamp string, as-is. |
 
 Linear returns comments newest-first. The adapter re-sorts them ascending by creation time before returning.
 
 ### Blocker extraction
 
-`BlockedBy` is derived from the issue's `inverseRelations`. When issue A blocks issue B, the relation appears in B's `inverseRelations` as `{ type: "blocks", issue: A }`. For each node whose `type` equals `"blocks"` (compared case-insensitively after trimming), a `BlockerRef` is produced:
+`.issue.blocked_by` is derived from the issue's `inverseRelations`. When issue A blocks issue B, the relation appears in B's `inverseRelations` as `{ type: "blocks", issue: A }`. For each node whose `type` equals `"blocks"` (compared case-insensitively after trimming), a blocker entry is produced:
 
 | Field | Source |
 |---|---|
-| `ID` | `node.issue.id` |
-| `Identifier` | `node.issue.identifier` |
-| `State` | `node.issue.state.name` |
+| `.id` | `node.issue.id` |
+| `.identifier` | `node.issue.identifier` |
+| `.state` | `node.issue.state.name` |
+
+This data arrives on the same response as a candidate fetch, so resolving blockers costs no separate request, unlike the GitHub and Gitea adapters.
 
 ---
 
@@ -188,9 +191,9 @@ query_filter: '{"labels": {"some": {"name": {"eq": "agent-ready"}}}}'
 query_filter: '{"assignee": {"isMe": {"eq": true}}}'
 ```
 
-`team` and `state` are reserved keys. The adapter sets them from `tracker.project` and the configured state lists. A fragment containing either top-level key is rejected at construction with `tracker_payload_error` (`tracker.query_filter must not contain a reserved key "team"`; `team` is checked before `state`). A fragment that is not valid JSON, or is not a JSON object, is rejected the same way. The adapter does not validate field names; an unknown `IssueFilter` field surfaces on the first poll as a Linear argument-validation error.
+`team` and `state` are reserved keys. The adapter sets them from `tracker.project` and the configured state lists. A fragment containing either top-level key is rejected when the adapter is built, with `tracker_payload_error` (`tracker.query_filter must not contain a reserved key "team"`; `team` is checked before `state`). A fragment that is not valid JSON, or is not a JSON object, is rejected the same way. The adapter does not validate field names; an unknown `IssueFilter` field surfaces on the first poll as a Linear argument-validation error.
 
-The filter applies to `FetchCandidateIssues` and `FetchIssuesByStates`. It does not apply to the ID-based and identifier-based state lookups (`FetchIssueStatesByIDs`, `FetchIssueStatesByIdentifiers`), which use `id` and `number` connection filters; those issues already passed filtering at dispatch time.
+The filter applies to candidate polling and state-based lookups. It does not apply to looking up issue states by ID or by identifier, which use `id` and `number` connection filters; those issues already passed filtering at dispatch time.
 
 ---
 
@@ -260,23 +263,6 @@ Applied when a non-2xx response carries no `errors` array.
 A transport failure (DNS, TCP, TLS, timeout, or body-read failure) maps to `tracker_transport_error`. The error message carries the first error's `userPresentableMessage`, falling back to its `message`, so operators see Linear's own wording.
 
 For the full error taxonomy and operator guidance, see the [error reference](/reference/errors/#tracker-errors).
-
----
-
-## Adapter registration
-
-The adapter registers itself under kind `"linear"` via an `init` function in `internal/tracker/linear`. Registration metadata declares:
-
-| Property | Value |
-|---|---|
-| `RequiresProject` | `true` |
-| `RequiresAPIKey` | `true` |
-| `ValidateTrackerConfig` | Offline config diagnostics for `sortie validate`. |
-| `DefaultActiveStates` | `["Backlog", "Todo", "In Progress"]`, applied when `active_states` is absent; see [default mapping](#default-mapping). |
-| `DefaultTerminalStates` | `["Done", "Canceled", "Duplicate"]`, applied when `terminal_states` is absent; see [default mapping](#default-mapping). |
-| `BlockerSource` | `candidates`: a candidate fetch already carries every blocker Linear reports; see [blocker extraction](#blocker-extraction). |
-
-The orchestrator's preflight validation uses `RequiresProject` and `RequiresAPIKey` to produce specific error messages before adapter construction. `ValidateTrackerConfig` runs the Linear-specific offline checks without making network calls: endpoint shape, team-key format, the `SORTIE_LINEAR_API_KEY` hint, a key carrying surrounding whitespace or lacking the `lin_api_` prefix, empty or padded state names, and active-terminal state overlap. A present `endpoint` that does not parse as an absolute http(s) URL with a hostname is reported as `tracker.endpoint.invalid`; an empty value is not, since the adapter substitutes the default host for it. Unlike the sibling forge adapters, there is no plain-`http` warning here, because Linear has no self-hosted deployment mode to make the distinction meaningful. An empty or padded state name is an error here, not a warning as on the sibling forge adapters, because the adapter matches a configured name against the team's workflow states exactly. State collisions involving `handoff_state` or `in_progress_state` are rejected by the generic configuration layer before adapter validation runs, for every `tracker.kind`.
 
 ---
 

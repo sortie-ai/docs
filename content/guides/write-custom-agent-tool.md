@@ -303,7 +303,8 @@ Key variables:
 | `SORTIE_WORKSPACE` | Absolute path to the session workspace directory |
 | `SORTIE_ISSUE_ID` | Tracker issue ID for the current session |
 | `SORTIE_ISSUE_IDENTIFIER` | Human-readable ticket key (e.g., `PROJ-123`) |
-| `SORTIE_SESSION_ID` | Unique session identifier |
+| `SORTIE_SESSION_ID` | The agent's session identifier; Sortie writes it as an empty string in this environment |
+| `SORTIE_DISPATCH_ID` | Identifies the current dispatch; used by `cost_budget` to match the running session |
 | `SORTIE_ATTEMPT` | Current retry attempt number (1-based). Absent on first dispatch. |
 | `SORTIE_DB_PATH` | Path to the SQLite database (read-only access) |
 

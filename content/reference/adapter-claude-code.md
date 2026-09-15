@@ -6,9 +6,9 @@ date: 2026-04-26
 weight: 100
 url: /reference/adapter-claude-code/
 ---
-The Claude Code adapter connects Sortie to the [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) via subprocess management. It launches Claude Code in headless mode with `--output-format stream-json`, reads newline-delimited JSON (JSONL) from stdout, and normalizes events into domain types. Registered under kind `"claude-code"`.
+The Claude Code adapter connects Sortie to the [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) via subprocess management. It launches Claude Code in headless mode with `--output-format stream-json`, reads newline-delimited JSON (JSONL) from stdout, and normalizes events into Sortie's own event vocabulary. Registered under kind `"claude-code"`.
 
-Each `RunTurn` call spawns an independent subprocess. The adapter is safe for concurrent use: one adapter instance serves all sessions, with per-session state held in an opaque internal handle.
+Each turn spawns an independent subprocess.
 
 See also: [WORKFLOW.md configuration](/reference/workflow-config/) for the full `agent` schema, [environment variables](/reference/environment/#agent-runtime-variables) for `ANTHROPIC_API_KEY` and provider routing, [error reference](/reference/errors/#agent-errors) for all agent error kinds, [how to write a prompt template](/guides/write-prompt-template/) for template authoring.
 
@@ -25,11 +25,11 @@ These fields control the orchestrator's scheduling behavior. They are not passed
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `kind` | string | `claude-code` | Must be `"claude-code"` to select this adapter. |
-| `command` | string | `claude` | Path or name of the Claude Code binary. Resolved via `exec.LookPath` at session start. |
-| `max_turns` | integer | `20` | Maximum Sortie turns per worker session. The orchestrator calls `RunTurn` up to this many times, re-checking tracker state after each turn. |
+| `command` | string | `claude` | Path or name of the Claude Code binary, resolved from `PATH` at session start. |
+| `max_turns` | integer | `20` | Maximum Sortie turns per worker session. The orchestrator runs up to this many turns, re-checking tracker state after each one. |
 | `max_sessions` | integer | `0` (unlimited) | Maximum completed worker sessions per issue before the orchestrator stops retrying. `0` disables the budget. |
 | `max_concurrent_agents` | integer | `10` | Global concurrency limit across all issues. |
-| `turn_timeout_ms` | integer | `3600000` (1 hour) | Total timeout for a single `RunTurn` call. The orchestrator cancels the turn context when exceeded. |
+| `turn_timeout_ms` | integer | `3600000` (1 hour) | Total timeout for a single turn. The orchestrator cancels the turn when exceeded. |
 | `read_timeout_ms` | integer | `5000` (5 seconds) | Timeout for startup and synchronous operations. |
 | `stall_timeout_ms` | integer | `300000` (5 minutes) | Maximum time between consecutive events before the orchestrator treats the session as stalled. `0` or negative disables stall detection. |
 | `stop_grace_ms` | integer | `5000` (5 seconds) | How long the adapter waits for the subprocess to exit on its own after a graceful termination signal, before it force-terminates the process group. Must be positive. |
@@ -81,8 +81,8 @@ These two fields have the same name but control different systems.
 
 | Field | Controls | Scope |
 |---|---|---|
-| `agent.max_turns` | Sortie's orchestrator turn loop | How many times the orchestrator invokes `RunTurn` per worker session. |
-| `claude-code.max_turns` | Claude Code's internal agentic loop | How many agentic steps Claude Code takes within a single `RunTurn` invocation. |
+| `agent.max_turns` | Sortie's orchestrator turn loop | How many times the orchestrator runs a turn per worker session. |
+| `claude-code.max_turns` | Claude Code's internal agentic loop | How many agentic steps Claude Code takes within a single turn. |
 
 With `agent.max_turns: 5` and `claude-code.max_turns: 50`, the orchestrator runs up to 5 turns. Within each turn, Claude Code takes up to 50 agentic steps. The total agentic step budget per session is at most 250.
 
@@ -96,7 +96,7 @@ Whatever the CLI decides applies only within the current invocation. The adapter
 
 ### Sortie's own tools and the `mcp_config` field
 
-Sortie generates one MCP server configuration per session, declaring a `sortie-tools` stdio server that exposes Sortie's own tools to the agent. That generated file, not the raw `claude-code.mcp_config` value, is what the adapter passes to `--mcp-config`.
+Sortie generates one MCP server configuration per session, declaring a `sortie-tools` stdio server that exposes Sortie's own tools to the agent. That generated file, not the raw `claude-code.mcp_config` value, is what the adapter passes to `--mcp-config`, on a local launch and over SSH alike.
 
 When `claude-code.mcp_config` names an operator-supplied file, Sortie reads it, parses its `mcpServers` object, and inserts the `sortie-tools` entry into it before writing the merged result. A relative path resolves against the directory containing `WORKFLOW.md`. If the operator's file already defines a server named `sortie-tools`, generation fails with a name-collision error rather than silently overwriting it. If the file is missing, unreadable, or not valid JSON, generation fails with the underlying error.
 
@@ -120,7 +120,7 @@ With the field absent the adapter passes `--dangerously-skip-permissions` instea
 
 ### Runtime-denied tool calls
 
-Under the launch flags Sortie passes, Claude Code exposes no channel for answering a permission request: the runtime denies the call itself and carries on. The adapter recognizes that denial, reports it as a `notification` event, and takes one of two paths.
+Under the launch flags Sortie passes, Claude Code exposes no route for answering a permission request: the runtime denies the call itself and carries on. The adapter recognizes that denial, reports it as a `notification` event, and takes one of two paths.
 
 | Denied tool | Consequence |
 |---|---|
@@ -131,7 +131,7 @@ Under the launch flags Sortie passes, Claude Code exposes no channel for answeri
 
 ## Validate-time checks
 
-When `agent.kind` is `claude-code`, the [`sortie validate`](/reference/cli/#validate) pipeline runs two checks over the `claude-code` block in addition to the generic preflight validation. Neither constructs an adapter instance nor launches a subprocess, and both run at startup and on every workflow reload, so the verdict is identical in all three places. The first is declared by the adapter itself; the second is a generic preflight rule that reads the blocking key this adapter declares.
+When `agent.kind` is `claude-code`, the [`sortie validate`](/reference/cli/#validate) pipeline runs two checks over the `claude-code` block in addition to the generic preflight validation. Neither builds an adapter nor launches a subprocess, and both run at startup and on every workflow reload, so the verdict is identical in all three places. The first is declared by the adapter itself; the second is a generic preflight rule that reads the blocking key this adapter declares.
 
 ### Errors
 
@@ -148,14 +148,14 @@ An absent `session_persistence`, and the value `true`, draw nothing. So does a v
 
 ## Session lifecycle
 
-### `StartSession`
+### Session start
 
 Validates the workspace path and resolves the agent binary. No subprocess is spawned.
 
-1. Validates that `WorkspacePath` is a non-empty absolute path pointing to an existing directory.
-2. Resolves the `command` via `exec.LookPath`. In SSH mode, resolves the local `ssh` binary instead; the agent command resolves on the remote host.
-3. Generates a v4 UUID session ID (or adopts the `ResumeSessionID` for continuation sessions).
-4. Returns an opaque `Session` handle containing workspace path, resolved binary, session ID, and SSH configuration.
+1. Validates that the workspace path is a non-empty absolute path pointing to an existing directory.
+2. Resolves the `command` from `PATH`. In SSH mode, resolves the local `ssh` binary instead; the agent command resolves on the remote host.
+3. Generates a v4 UUID session ID (or adopts the session ID saved from a previous run, for continuation sessions).
+4. The session records the workspace path, resolved binary, session ID, and SSH configuration for later turns to use.
 
 **Errors:**
 
@@ -166,19 +166,16 @@ Validates the workspace path and resolves the agent binary. No subprocess is spa
 | Agent binary not found in `PATH` | `agent_not_found` |
 | SSH binary not found (SSH mode) | `agent_not_found` |
 
-### `RunTurn`
+### Turn
 
-Spawns a Claude Code subprocess, reads JSONL events from stdout, and delivers normalized events via the `OnEvent` callback.
-
-The subprocess lifecycle itself belongs to the shared fork-per-turn skeleton in `internal/agent/agentcore`, which the Copilot CLI and Kiro adapters use as well; the Claude Code adapter supplies the argument list, the line parser, and the end-of-turn classifier.
+Spawns a Claude Code subprocess, reads JSONL events from stdout, and delivers them to the orchestrator as they arrive.
 
 1. Builds the CLI argument list from session state and pass-through configuration.
-2. Spawns the subprocess with `exec.CommandContext`, overriding its default cancel behavior (see [process shutdown](#process-shutdown) for how).
-3. Sets `cmd.Dir` to the workspace path and `cmd.Env` to the full parent process environment.
-4. Reads stdout line by line via a buffered scanner (64 KB initial buffer, 10 MB max line), while a separate goroutine drains stderr.
-5. Parses each line as JSON and dispatches to the appropriate event handler. A line that fails to parse becomes a `malformed` event and the scan continues.
-6. After stdout closes, collects the drained stderr lines and calls `cmd.Wait` to collect the exit status. Stderr is re-emitted at WARN level on any failing turn.
-7. Classifies the outcome and returns a `TurnResult` with the session ID, exit reason, and cumulative token usage.
+2. Spawns the subprocess in the workspace path, with the full parent process environment, and with the shutdown behavior described under [process shutdown](#process-shutdown).
+3. Reads stdout one line at a time (64 KB initial buffer, 10 MB maximum line length); stderr is drained separately.
+4. Parses each line as JSON. A line that fails to parse becomes a `malformed` event, and reading continues.
+5. Reaps the subprocess as soon as it exits and terminates its process group. This does not cut short output collection, since the adapter still holds both pipe ends open. After the reap, stdout and then stderr each get a fixed five seconds to finish, so a descendant process that inherited an output handle and outlived the agent cannot hold the turn open. Stderr is re-emitted at WARN level on any failing turn.
+6. Classifies the outcome, ending the turn with a recorded session ID, exit reason, and cumulative token usage.
 
 **Session management flags:**
 
@@ -189,7 +186,7 @@ The subprocess lifecycle itself belongs to the shared fork-per-turn skeleton in 
 
 Every invocation includes `--output-format stream-json` and `--verbose`.
 
-### `StopSession`
+### Session stop
 
 Terminates a running subprocess. Safe to call when no subprocess is active.
 
@@ -201,11 +198,11 @@ Terminates a running subprocess. Safe to call when no subprocess is active.
 
 ## Process shutdown
 
-`exec.CommandContext` sends an immediate kill signal on context cancellation by default. The agent process would have no chance to flush output buffers, close network connections, or emit final token-usage events. The adapter overrides that default: `cmd.Cancel` is set to send a graceful shutdown signal instead of a kill (POSIX: `SIGTERM`; Windows: `CTRL_BREAK_EVENT` via the process group), and `cmd.WaitDelay` is set to `stop_grace_ms`, bounding how long `Wait` gives the process to exit after that signal before force-killing it (POSIX: `SIGKILL`; Windows: `TerminateJobObject`). This covers both orchestrator-initiated cancellation (reconciliation kill, stall detection) and shutdown signals, since all of them reach the subprocess through the same context.
+By default, stopping a running subprocess sends an immediate kill signal, giving the agent process no chance to flush output buffers, close network connections, or emit final token-usage events. Sortie overrides that default: it sends a graceful shutdown signal instead (POSIX: `SIGTERM`; Windows: `CTRL_BREAK_EVENT` via the process group) and waits up to `stop_grace_ms` before force-killing the process (POSIX: `SIGKILL`; Windows: `TerminateJobObject`). This applies whenever Sortie stops the subprocess, whether the orchestrator initiated it (a reconciliation kill, stall detection, or a turn timeout) or Sortie itself received a shutdown signal.
 
-On all platforms, the subprocess is placed in its own process group at launch. On Windows, the subprocess is additionally assigned to a Job Object with `KILL_ON_JOB_CLOSE`, so the entire process tree (including MCP servers and other children) is terminated on shutdown or if Sortie crashes.
+On all platforms, the subprocess runs in its own process group. On Windows, it is additionally assigned to a Job Object with `KILL_ON_JOB_CLOSE`, so the entire process tree (including MCP servers and other children) is terminated on shutdown or if Sortie crashes. The subprocess starts suspended and is resumed only after that assignment succeeds, so nothing it spawns can run before the job takes effect. A failed assignment logs WARN `process group assignment failed` and the turn's subprocess runs without a job; a failed resume logs WARN `process resume failed` and ends that turn as `turn_failed` with error kind `port_exit`. Because Claude Code launches a fresh subprocess every turn, a resume that keeps failing fails each subsequent turn the same way rather than only the first.
 
-`StopSession` follows the same shape independently of context cancellation: it sends the graceful signal, waits up to `stop_grace_ms`, and force-kills the process group if the wait elapses. A `StopSession` context that is cancelled first also force-kills the process group, and the adapter returns the context's error.
+Session stop follows the same shape: it sends the graceful signal, waits up to `stop_grace_ms`, and force-kills the process group if the wait elapses. If the stop request is itself interrupted before the grace period elapses, the process group is still force-killed and the interruption is reported as the error.
 
 ---
 
@@ -238,7 +235,7 @@ The adapter measures wall-clock time between events to estimate per-request API 
 
 - A monotonic timer starts after `system/init` (first API call) and after each `user` event (subsequent API calls).
 - The timer stops when the next `assistant` event with usage data arrives.
-- The measured duration is emitted in `APIDurationMS` on the `token_usage` event.
+- The `token_usage` event reports this measured duration as how long the API request took.
 - If per-request timing is available, the turn-level `duration_api_ms` from the `result` event is not re-emitted to avoid double-counting.
 
 ---
@@ -249,9 +246,9 @@ The adapter observes tool execution by correlating `tool_use` and `tool_result` 
 
 ### Correlation
 
-1. An `assistant` message containing a `tool_use` block records the tool name and a monotonic timestamp in an in-flight map, keyed by the block's `id`.
-2. A `user` message containing a `tool_result` block looks up the matching `tool_use_id` in the in-flight map.
-3. When a match is found, the adapter emits a `tool_result` event with `ToolName`, `ToolDurationMS` (elapsed since the `tool_use` timestamp), and `ToolError` (from the `is_error` field on the content block).
+1. An `assistant` message containing a `tool_use` block records the tool name and a start time, keyed by the block's `id`.
+2. A `user` message containing a `tool_result` block looks up the matching `tool_use_id`.
+3. On a match, the adapter emits a `tool_result` event carrying the tool name, how long the call took since that start time, and whether it errored (from the `is_error` field on the content block).
 
 ### Tool error formatting
 
@@ -282,13 +279,13 @@ The outcome is not decided by the exit code alone. The shared decision table eva
 
 The human-input, cancellation, and exit-`127` rows are decided before the adapter's own classifier runs. The work test reads this turn's own stream rather than the run-cumulative token figure. A message from the agent is a `text` content block carrying text on an `assistant` message; a tool call is a `tool_use` or `tool_result` block. Stderr from a failing turn is re-emitted at WARN level.
 
-### Stdout scanner failure
+### Stdout read failure
 
-If the stdout scanner encounters an error (buffer overflow, broken pipe), the adapter:
+If output reading from stdout fails (buffer overflow, broken pipe), the adapter:
 
 1. Sends a graceful shutdown signal to the process group.
 2. Waits for exit.
-3. Returns a `turn_failed` result with error kind `port_exit`.
+3. Ends the turn as `turn_failed` with error kind `port_exit`.
 
 ---
 
@@ -298,8 +295,8 @@ When the worker configuration includes `ssh_hosts`, the adapter launches Claude 
 
 ### How it works
 
-1. `StartSession` resolves the local `ssh` binary via `exec.LookPath`. The agent command is stored for remote execution rather than resolved locally.
-2. `RunTurn` builds an SSH command that wraps the remote Claude Code invocation.
+1. Session start resolves the local `ssh` binary from `PATH`. The agent command is stored for remote execution rather than resolved locally.
+2. Each turn builds an SSH command that wraps the remote Claude Code invocation.
 3. The remote command is: `cd -- '<workspace_path>' && <agent_command> <args...>`, with the workspace path and each argument individually single-quoted; `<agent_command>` is inserted as configured, unquoted, so a multi-token or env-prefixed command (e.g. `FOO=bar claude`) still runs as intended.
 
 ### SSH options
@@ -326,36 +323,11 @@ SSH exit code `255` indicates a connection failure (refused, timeout, unreachabl
 
 ## Authentication
 
-Sortie does not manage Claude Code's API credentials. The adapter spawns the subprocess with the full parent process environment (`cmd.Env = os.Environ()`), and Claude Code reads its authentication variables directly.
+Sortie does not manage Claude Code's API credentials. The adapter spawns the subprocess with the full parent process environment, and Claude Code reads its authentication variables directly.
 
-The adapter runs no credential preflight and names no credential variable of its own: it neither reads nor sets one, and `StartSession` succeeds whether or not the environment can authenticate the CLI. Which variables authenticate a given backend (Anthropic's API, a cloud vendor's hosted models, or a gateway in front of either) is Claude Code's to document; see the [external references](#external-references) and the [environment variables reference](/reference/environment/#agent-runtime-variables).
+The adapter runs no credential preflight and names no credential variable of its own: it neither reads nor sets one, and starting a session succeeds whether or not the environment can authenticate the CLI. Which variables authenticate a given backend (Anthropic's API, a cloud vendor's hosted models, or a gateway in front of either) is Claude Code's to document; see the [external references](#external-references) and the [environment variables reference](/reference/environment/#agent-runtime-variables).
 
 A credential the CLI rejects therefore surfaces as a failing turn rather than as a session that refuses to start.
-
----
-
-## Concurrency safety
-
-The adapter is safe for concurrent use. One `ClaudeCodeAdapter` instance serves all sessions. Per-session state (workspace path, session ID, process handle) is isolated in the opaque `Session.Internal` field. A mutex guards the subprocess handle for concurrent access between `RunTurn` and `StopSession`.
-
-No adapter-level serialization is needed for `RunTurn` calls: each spawns an independent subprocess with its own stdout pipe and scanner.
-
----
-
-## Adapter registration
-
-The adapter registers itself under kind `"claude-code"` via an `init` function in `internal/agent/claude`. Registration metadata declares:
-
-| Property | Value |
-|---|---|
-| `RequiresCommand` | `true` |
-| `ValidateAgentConfig` | the check described in [Validate-time checks](#validate-time-checks) |
-| `MCPInjection` | `supported`: the adapter hands the generated configuration file's path to the agent process, on a local launch and over SSH alike. See [Sortie's own tools and the `mcp_config` field](#sorties-own-tools-and-the-mcp_config-field). |
-| `SessionResumeBlockedBy` | `session_persistence` when the `claude-code` block sets that key to the boolean `false`, and nothing otherwise. This is the declaration the generic `agent.kind.session_resume` refusal reads. See [Session persistence and resume](#session-persistence-and-resume). |
-| `UsageArrival` | `incremental`: one usage figure per model API request, emitted while the turn's work is still in flight. See [Token accounting](#token-accounting). |
-| `UsageAttribution` | `per_model`: a usage figure names the model that produced it. See [Model tracking](#model-tracking). |
-
-The orchestrator's preflight validation uses `RequiresCommand` to produce a specific error message if the binary cannot be found before attempting session creation.
 
 ---
 

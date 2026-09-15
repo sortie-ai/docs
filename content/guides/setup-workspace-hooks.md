@@ -141,10 +141,65 @@ Every hook receives these variables from the orchestrator:
 
 Hooks run in a restricted environment. Only a small set of system variables and variables prefixed with `SORTIE_` are available. Secrets like `JIRA_API_TOKEN` are stripped. The allowed system variables differ by platform:
 
-- **POSIX (Linux, macOS):** `PATH`, `HOME`, `SHELL`, `TMPDIR`, `USER`, `LOGNAME`, `TERM`, `LANG`, `LC_ALL`, `SSH_AUTH_SOCK`
+- **POSIX (Linux, macOS):** `PATH`, `HOME`, `SHELL`, `TMPDIR`, `USER`, `LOGNAME`, `TERM`, `LANG`, `LC_ALL`, `SSH_AUTH_SOCK`, `XDG_RUNTIME_DIR`, `DBUS_SESSION_BUS_ADDRESS`
 - **Windows:** `PATH`, `SYSTEMROOT`, `COMSPEC`, `PATHEXT`, `USERPROFILE`, `TEMP`, `TMP`, `APPDATA`, `LOCALAPPDATA`, `HOMEDRIVE`, `HOMEPATH`, `USERNAME`
 
 On POSIX systems, hooks execute via `sh -c`. On Windows, hooks execute via `cmd.exe /C`. If a hook needs additional credentials, expose them under a `SORTIE_` prefix in the Sortie process environment (for example, `SORTIE_DEPLOY_KEY`) or load them from a file inside the script.
+
+## Start a service that outlives a hook
+
+Sortie terminates every process a hook's shell leaves running in its process group when the hook exits, whatever its exit status, so a command backgrounded with `&` inside the script dies with the hook. This is deliberate: a process a previous `before_run` backgrounded and left running would collide with the one the next attempt starts. See [why hooks do not keep processes alive](/concepts/isolation/#why-hooks-do-not-keep-processes-alive) for the full reasoning.
+
+If your `before_run` or `after_create` hook needs to start something that keeps running after the hook returns, such as a local database or a test double, start it through a supervisor outside the hook's process tree instead of backgrounding it.
+
+The example below runs unchanged whether Sortie runs interactively on a Linux host or under the systemd service from [how to run Sortie as a systemd service](/guides/run-as-systemd-service/), with no edit to that unit's `[Service]` section. It does not apply inside any image built in [how to use Sortie in Docker](/guides/use-sortie-in-docker/): none of those images installs a `docker` CLI or mounts a daemon socket, so a hook running there has no route to Docker at all. For macOS, for Windows, or for the systemd-user and Windows-service routes, see the full [hook process lifetime](/reference/workflow-config/#hook-process-lifetime) table.
+
+Reaching the daemon needs the account Sortie runs as to be a member of the `docker` group; [that group grants root-level privileges on the host](https://docs.docker.com/engine/install/linux-postinstall/), so add it deliberately:
+
+```sh
+sudo usermod -aG docker sortie   # or your own login, when running interactively
+```
+
+Group membership is read once, at process start: an interactive shell needs a fresh login and the systemd service needs a restart (`sudo systemctl restart sortie`) before either picks up the change. No edit to the unit file itself: `Group=sortie` in that unit sets only the process's primary group, and systemd still initializes its supplementary groups, `docker` included, from the account's own membership in `/etc/group`.
+
+The example starts one PostgreSQL container shared by every workspace running concurrently on the host, the way a local integration-test database usually works; it is deliberately not workspace-scoped, so its name and port are fixed rather than unique per issue. Put the compose file at a fixed path outside every workspace and outside `/home`, since `ProtectHome=yes` hides `/home` from the systemd service entirely: `/etc/sortie/`, the directory that guide already uses for `WORKFLOW.md`, stays readable under `ProtectSystem=strict`, which makes the filesystem read-only rather than inaccessible.
+
+```yaml
+# /etc/sortie/docker-compose.test-postgres.yml
+name: sortie-test-postgres
+services:
+  test-postgres:
+    image: postgres:16
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_PASSWORD: test
+```
+
+Create the directory if it does not already exist, and start the container once, before Sortie needs it. Compose finds a project's containers by the label it attached to them, through the daemon both accounts share, not by which account ran the command, so this does not need to run as any particular user, only one that reaches the daemon:
+
+```sh
+sudo mkdir -p /etc/sortie
+docker compose -f /etc/sortie/docker-compose.test-postgres.yml up -d
+```
+
+The top-level `name:` gives the project a fixed, predictable name instead of one Compose would otherwise derive from the directory holding the file. Run `up -d` once, by hand, not from a hook: `before_run` fires from every concurrently running workspace, and concurrent `docker compose up` invocations racing to create the same project can fail on a container-name conflict. The hook itself only starts the already-created container and waits for it:
+
+```yaml
+hooks:
+  before_run: |
+    set -e
+    docker compose -f /etc/sortie/docker-compose.test-postgres.yml start
+    until docker compose -f /etc/sortie/docker-compose.test-postgres.yml exec -T test-postgres pg_isready -U postgres >/dev/null 2>&1; do
+      sleep 1
+    done
+```
+
+`docker compose start` only starts a container that already exists; it never creates one, so concurrent hooks calling it at once are safe, and it recovers a container a host reboot left stopped. `set -e` fails the hook on a genuine error instead of letting the `pg_isready` loop spin to `hooks.timeout_ms`.
+
+Because the container is shared, no single workspace's `before_remove` hook should stop it: doing so would pull the database out from under every other workspace still using it. Stop it independently of any hook, with `docker compose -f /etc/sortie/docker-compose.test-postgres.yml down`, when you decommission it.
+
+For every supported platform and route (systemd user or system units, launchd via `brew services`, Windows services and Task Scheduler, and a container engine on any platform), with the prerequisite each one needs, see [hook process lifetime](/reference/workflow-config/#hook-process-lifetime) in the workflow configuration reference.
 
 ## Set a timeout
 
@@ -223,5 +278,8 @@ hooks:
 
 **Timeout on large repositories.**
 Increase `hooks.timeout_ms`. Use `git clone --depth 1` or `git clone --filter=blob:none` for faster clones.
+
+**A service or helper started from a hook is gone after the hook finishes.**
+A command backgrounded with `&` (or `nohup ... &`) inside a hook script does not outlive the hook: Sortie terminates it, along with everything else left in the hook's process group, the moment the hook exits. Sortie logs `leftover processes terminated after the command exited` at INFO when this happens. Start anything that must outlive the hook through a supervisor instead; see [start a service that outlives a hook](#start-a-service-that-outlives-a-hook) above.
 
 For the full hooks schema, see the [WORKFLOW.md reference](/reference/workflow-config/). For hooks in SSH-distributed setups, see [scaling agents with SSH](/guides/scale-agents-with-ssh/).
