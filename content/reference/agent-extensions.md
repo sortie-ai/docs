@@ -400,7 +400,7 @@ The fields below are returned under `data` in the standard success envelope:
 | `attempt` | integer or null | Retry/continuation attempt number. `null` on first run. |
 | `session_duration_seconds` | float | Wall-clock time since session started (millisecond precision). |
 | `tokens` | object | Token usage counters for the current session. Its four members are integer or null, and they are null together, exactly when `tokens_measured` is `false`. |
-| `tokens_measured` | boolean | Whether the session's token figures are a measurement. `true` before the first turn begins and once a figure has reached the worker; `false` from the start of turn 1 until one does. |
+| `tokens_measured` | boolean | Whether the session's token figures are a measurement. `true` before the first turn begins and once a figure has reached the worker; `false` from the start of turn 1 until one does. Stays `false` for the life of a session whose agent kind reports no token usage, whatever its runtime sends. |
 
 Token usage fields:
 
