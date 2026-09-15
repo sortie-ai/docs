@@ -281,7 +281,9 @@ The pipeline checks:
 
 - Workflow file existence, readability, and YAML syntax.
 - Front matter is a YAML map (not a scalar, list, or null).
-- Integer-typed fields accept a whole-number float or a numeric string in addition to a literal integer (type coercion). Every integer field in the front matter goes through the same conversion, and a value that is not a whole number is rejected as a configuration error rather than replaced by a default.
+- Integer-typed fields validated under the `config.<field>` check accept a whole-number float or a numeric string in addition to a literal integer (type coercion). A value outside the range an integer setting accepts (`-9223372036854775808` to `9223372036854775807`) is rejected as a configuration error under that check. Other coercion failures are too, except for [`hooks.timeout_ms`](/reference/workflow-config/#hooks) and [`agent.max_concurrent_agents_by_state`](/reference/workflow-config/#agent). A field inside a block the workflow leaves disabled or unconfigured is not checked this way at all.
+- A reaction's own `poll_interval_ms`, `debounce_ms`, `watch_window_ms`, or `max_continuation_turns` is checked for that same range too, under the `reactions.<kind>` check instead, with a differently worded message; see the [errors reference](/reference/errors/#startup-and-configuration-errors) for both message forms.
+- `server.port` is never checked by `validate`.
 - `tracker.handoff_state` is a string, is non-empty when present, and does not collide with `active_states` or `terminal_states`.
 - `tracker.no_change_state`, when present, requires `tracker.handoff_state` to be set, and must equal `handoff_state` or name a member of `terminal_states` as written.
 - `tracker.handoff_evidence` is one of `observed`, `strict`, or `off`. The check is a closed-set comparison and runs offline with no network access.
@@ -454,7 +456,7 @@ Warning diagnostics use a separate set of check values. They appear only in the 
 |---|---|
 | `unknown_key` | Unrecognized top-level YAML key. Likely a typo (e.g., `trackers` instead of `tracker`). |
 | `unknown_sub_key` | Unrecognized key inside a known section (e.g., `tracker.typo_endpoint`). Adapter pass-through sub-objects matching the configured `kind` are exempt. |
-| `type_mismatch` | Value type does not match the expected type for the field (e.g., string where integer is expected). Also covers semantic issues: non-positive `hooks.timeout_ms`, non-numeric or non-positive values in `agent.max_concurrent_agents_by_state`. |
+| `type_mismatch` | Value type does not match the expected type for the field (e.g., string where integer is expected). Also covers semantic issues: non-positive `hooks.timeout_ms`, non-numeric or non-positive values in `agent.max_concurrent_agents_by_state`. An out-of-range integer never produces this warning; see [Validation scope](#validation-scope) for what checks it instead. |
 | `dot_context` | Reference to a top-level data key (`.issue`, `.attempt`, `.run`) inside a `{{ range }}` or `{{ with }}` block where dot is the current element, not root data. Use `$` prefix to fix. |
 | `unknown_var` | Top-level template variable not in the data contract. Valid variables: `.issue`, `.attempt`, `.run`. |
 | `unknown_field` | Sub-field of a known top-level variable that does not exist in the domain schema (e.g., `.issue.nonexistent`, `.run.foo`). |
