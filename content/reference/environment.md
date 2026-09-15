@@ -107,6 +107,8 @@ When [`--env-file`](/reference/cli/#--env-file) is provided, the CLI resolves th
 | bool | Accepts `true`, `false`, `1`, `0` (case-insensitive) | Startup error naming the env var and rejected value |
 | csv | Comma-separated. Items trimmed. Empty items discarded. Empty string produces an empty list. | - |
 
+A numeral outside the range an integer setting accepts is itself a parse failure, reported the same way as the `int` row above: `config: agent.max_turns: value is outside the range an integer setting accepts, -9223372036854775808 to 9223372036854775807 (from SORTIE_AGENT_MAX_TURNS)`. See the [errors reference](/reference/errors/#startup-and-configuration-errors) for the general form.
+
 A value that parses successfully can still be rejected by configuration validation; the table above covers parse failures only. `SORTIE_AGENT_TURN_TIMEOUT_MS` is one such field, with the constraint documented in the [configuration reference](/reference/workflow-config/#agent).
 
 ### Fields not overridable via env
