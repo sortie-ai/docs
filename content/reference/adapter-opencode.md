@@ -206,6 +206,8 @@ Spawns one OpenCode subprocess, reads its stdout, and delivers normalized events
 10. Once the subprocess has been reaped, gives stderr collection up to five seconds to finish, then gives whatever stdout is still in flight another five seconds to arrive, before running `opencode export --sanitize <sessionID>` to recover final token usage, and, on a masked failure, `opencode models` to reconstruct the diagnostic; see [masked failures](#masked-failures).
 11. The turn ends based on the terminal error envelope, cancellation state, startup timeout, or process exit status.
 
+A turn that instead ends by cancellation, a read timeout, or a stdout read error still attempts this export before reporting its outcome; see [Accumulation logic](#accumulation-logic) for the one ending that does not.
+
 ### Session stop
 
 Marks the session closed and terminates the currently running turn subprocess, if any.
@@ -242,19 +244,20 @@ Two behaviours are the adapter's own. Every stdout line that fails to parse beco
 
 ## Token accounting
 
-The adapter does not trust `step_finish.part.tokens` as the final turn total. It recovers authoritative usage from a second subprocess after the main turn exits. Reported counts are cumulative over the whole session the orchestrator opened, across every turn of it, and never decrease. For this kind's declaration beside every other kind's, see the [usage reporting table](/reference/workflow-config/#usage-reporting-by-agent-kind).
+The adapter does not trust `step_finish.part.tokens` as the final turn total. It recovers authoritative usage from a second subprocess once the turn's subprocess is gone, not only when the turn ran to completion; see [Accumulation logic](#accumulation-logic) for which endings recover a figure. Reported counts are cumulative over the whole session the orchestrator opened, across every turn of it, and never decrease. For this kind's declaration beside every other kind's, see the [usage reporting table](/reference/workflow-config/#usage-reporting-by-agent-kind).
 
 ### Accumulation logic
 
-1. After the main `opencode run` subprocess exits, the adapter launches a second subprocess with `opencode export --sanitize <sessionID>` in the same workspace, when a session ID is known.
-2. The export subprocess runs with the same managed environment as the turn subprocess: `OPENCODE_AUTO_SHARE=false`, `OPENCODE_DISABLE_AUTOCOMPACT=<bool>`, `OPENCODE_DISABLE_AUTOUPDATE=true`, `OPENCODE_DISABLE_LSP_DOWNLOAD=true`, and optional `OPENCODE_PERMISSION=<json>`.
-3. The export subprocess timeout is `min(2 * read_timeout_ms, 30s)`, where an unset or non-positive `read_timeout_ms` counts as 30 seconds. With the workflow default `read_timeout_ms: 5000`, the export timeout is 10 seconds.
-4. The adapter reads the export JSON and sums **every** `assistant` message whose `info.sessionID` matches the current session, not just the most recent one. When the run resumed an existing session, messages created before the run started are excluded, so a resumed session's earlier spend never lands in this run's total.
-5. From each message it reads `info.tokens.input`, `info.tokens.output`, and the optional `info.tokens.reasoning`, `info.tokens.cache.read`, and `info.tokens.cache.write`. A message with no `tokens` object, or without both `input` and `output`, is skipped.
-6. `input_tokens` is `input + cache.read + cache.write`; `output_tokens` is `output + reasoning`; `cache_read_tokens` carries `cache.read` separately as a subset of input; `total_tokens` is computed as `input_tokens + output_tokens` rather than read from `tokens.total`, which counts cache and reasoning tokens on a different basis.
-7. If export setup fails, the subprocess exits non-zero, the JSON is malformed, or no matching assistant message with tokens exists, the adapter logs a warning, emits no `token_usage` event, and leaves the previously reported snapshot in place rather than lowering it to zero.
+1. Once the main `opencode run` subprocess has exited or been killed and waited for, the adapter launches a second subprocess with `opencode export --sanitize <sessionID>` in the same workspace, when a session ID is known. This runs on every turn ending: normal completion, a non-zero exit, a stdout `error` envelope, cancellation, a read timeout, and a stdout read error. A session ID mismatch is the one ending that does not run it, because the work ran in a session other than the one the export would read.
+2. A session ID, once learned, persists for the rest of the session: either from a resumed session's saved ID, or from the first JSON envelope, in this turn or an earlier one, that carries one. A read timeout recovers a figure only on a resumed session or a later turn, because it fires only before that turn's own first JSON envelope arrives, so it never recovers one on the first turn of a new session. Cancellation and a stdout read error on that same first turn recover a figure only if an envelope carrying the session ID had already arrived before the turn ended.
+3. The export subprocess runs with the same managed environment as the turn subprocess: `OPENCODE_AUTO_SHARE=false`, `OPENCODE_DISABLE_AUTOCOMPACT=<bool>`, `OPENCODE_DISABLE_AUTOUPDATE=true`, `OPENCODE_DISABLE_LSP_DOWNLOAD=true`, and optional `OPENCODE_PERMISSION=<json>`.
+4. The export subprocess timeout is `min(2 * read_timeout_ms, 30s)`, where an unset or non-positive `read_timeout_ms` counts as 30 seconds. With the workflow default `read_timeout_ms: 5000`, the export timeout is 10 seconds.
+5. The adapter reads the export JSON and sums **every** `assistant` message whose `info.sessionID` matches the current session and whose `info.finish` field is present and non-empty, not just the most recent message. A message with an empty or absent `info.finish` is excluded regardless of its token counts. When the run resumed an existing session, messages created before the run started are excluded, so a resumed session's earlier spend never lands in this run's total.
+6. From each remaining message it reads `info.tokens.input`, `info.tokens.output`, and the optional `info.tokens.reasoning`, `info.tokens.cache.read`, and `info.tokens.cache.write`. A message with no `tokens` object, or without both `input` and `output`, is skipped.
+7. `input_tokens` is `input + cache.read + cache.write`; `output_tokens` is `output + reasoning`; `cache_read_tokens` carries `cache.read` separately as a subset of input; `total_tokens` is computed as `input_tokens + output_tokens` rather than read from `tokens.total`, which counts cache and reasoning tokens on a different basis.
+8. If export setup fails, the subprocess exits non-zero, the JSON is malformed, or no message satisfies the session, creation-time, and `finish` conditions above, the adapter logs the warning `no assistant token usage found in opencode export`, emits no `token_usage` event, and leaves the previously reported snapshot in place rather than lowering it to zero.
 
-The adapter emits at most one `token_usage` event per turn, after the export subprocess succeeds. It emits no token event when every recovered counter is zero, and a session for which no export ever produced a figure is recorded as unmeasured rather than as having spent zero.
+The adapter emits at most one `token_usage` event per turn, when the export recovers a figure. A genuine zero still counts as recovered, so that session is recorded as measured rather than unmeasured; only a session for which no export ever recovered a figure, for any of the reasons above, is recorded as unmeasured.
 
 ### Model tracking
 
@@ -315,12 +318,12 @@ When the only failure detail on the stream is OpenCode's generic server-error pl
 
 If reading stdout encounters an error while the turn is still active, the adapter:
 
-1. Emits `turn_failed` with message `stdout read error`.
-2. Stops reading and kills the process group.
+1. Stops reading and kills the process group.
+2. Recovers token usage from the session export, the same as any other turn ending; see [Accumulation logic](#accumulation-logic).
 3. Re-emits collected stderr lines at WARN level.
-4. Reports an error of kind `response_error`.
+4. Emits `turn_failed` with message `stdout read error` and reports an error of kind `response_error`.
 
-If reading fails while the turn is already being cancelled or stopped, the turn ends as `turn_cancelled` instead.
+If reading fails while the turn is already being cancelled or stopped, the turn ends as `turn_cancelled` instead: stderr is not re-emitted, but the process is still killed and usage is still recovered the same way.
 
 ### Stall detection
 
