@@ -133,6 +133,14 @@ time=2026-03-26T14:30:03.500+00:00 level=INFO msg="turn started" issue_id=abc123
 
 This is the line to look for when an agent never mentions Sortie's tools. `remote=true` means the session was dispatched to an SSH host, which is the whole reason on a `codex` or `opencode` session; on `kiro` the line appears with `remote=false` too. Nothing is failing: the agent was deliberately not told about tools it could not call. See [delivery by agent kind](/reference/agent-extensions/#delivery-by-agent-kind).
 
+A session's agent kind can declare that it reports no token usage at all and then have its runtime send a usage figure anyway, contradicting its own declaration. Sortie discards the figure and logs it once per run, on the first occurrence:
+
+```
+time=2026-03-26T14:32:10.100+00:00 level=WARN msg="token usage discarded: agent kind declares this session reports none" issue_id=abc123 issue_identifier=MT-649 session_id=session-abc-003 agent_kind=acme
+```
+
+None of Sortie's built-in agent kinds can produce this line today: each one's own code never sends a usage figure once its declared arrival is `none`. Seeing it means a [custom adapter](/guides/write-custom-agent-adapter/#surface-capabilities-and-budgeting) is running whose code doesn't yet honor its own declaration that this session reports no usage. What happens to the figure is covered under [usage reporting by agent kind](/reference/workflow-config/#usage-reporting-by-agent-kind): nothing changes for this session's numbers, because they already read as a kind that reports nothing. The action is on the adapter, not on your workflow configuration: fix it to stop sending a figure it declared it never would, or drop the `none` declaration if it genuinely can report usage.
+
 ### Tool calls
 
 ```

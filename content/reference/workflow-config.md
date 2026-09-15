@@ -548,13 +548,15 @@ Every agent kind Sortie ships declares when a session's token figures reach the 
 | `agent-client-protocol` | `this session reports no token usage` | The protocol's own usage notification reports context occupancy rather than a per-turn count, and the adapter takes no figure from it. See [Agent Client Protocol adapter reference](/reference/adapter-agent-client-protocol/#token-accounting). |
 | `mock` | `figures arrive during each turn, as a session total`, with `, per model` instead when `mock.model_name` is set to a non-empty value, and `this session reports no token usage` when `mock.report_token_usage` is `false` whatever else the block sets | Canned figures from a simulated session. The kind launches no process, and its own block decides what a session reports. |
 
-Three behaviors follow from when a figure arrives.
+Four behaviors follow from a session's declared arrival.
 
 `agent.max_tokens` bounds the session in progress for a kind whose figures arrive at all, and bounds nothing for a kind that reports none: Sortie records `token ceiling cannot bound this run` at the dispatch that starts such a session, and `agent.turn_timeout_ms` is the bound that remains for it. See [how to control agent costs](/guides/control-costs/#cap-tokens-per-issue) for what the ceiling does when a session reaches it.
 
 A session's API request count is a count of requests only where figures arrive during each turn, the one arrival that emits a figure per model API request. The dashboard's **API Requests** field and the API's `api_request_count` carry a number for such a session while no turn has begun or once a figure has arrived. They carry no count for one whose first turn has begun with nothing counted, or for any other session.
 
 [`token_rates`](#token_rates) prices a session from the figures it reports, so a kind reporting none has nothing to price and its estimated cost stays blank. [`sortie validate`](/reference/cli/#validate) reports an inert ceiling as an `agent.kind.no_usage_reporting` warning and an unpriceable kind as an `agent.kind.no_cost_estimate` warning, each naming the kind, so neither has to be discovered from a budget that never fires or a blank column.
+
+A `none` declaration is enforced rather than trusted. If a session's runtime sends a usage figure anyway, Sortie discards it: the figure never reaches the dashboard, the JSON API, `agent.max_tokens`, or [`sortie stats`](/reference/cli/#stats), and Sortie logs one warning per run, naming the agent kind, the first time it happens.
 
 ```yaml
 agent:
