@@ -273,6 +273,7 @@ curl http://localhost:7678/api/v1/state
 | Field | Description |
 |---|---|
 | `display_identifier` | Human-facing identifier when the tracker distinguishes it from `issue_identifier`. Omitted when empty. |
+| `turn_count` | Number of turns this session has run: the coding turns plus any review and fix turns from self-review. Advances by one the instant a turn starts, the same way for every agent kind, and resets to `0` at the start of each attempt. [`agent.max_turns`](/reference/workflow-config/#agent) caps only the coding turns, so this figure can run higher once self-review is active. |
 | `tokens` | Nested object with `input_tokens`, `output_tokens`, `total_tokens`, and `cache_read_tokens` for this session. `total_tokens` is `input_tokens + output_tokens`; `cache_read_tokens` is a subset of `input_tokens`, never an addition to it. Each member is an integer or `null`, and the four are `null` together, exactly when `tokens_measured` is `false`. |
 | `tokens_measured` | `false` until the coding agent reports token usage for this session, including before the first turn begins; that is what makes the members of `tokens` `null` rather than `0`. `true` once any usage figure has been reported. Stays `false` for the life of a session whose `usage_arrival` is `"none"`, whatever its runtime sends. |
 | `workspace_path` | Absolute filesystem path to the issue's workspace directory. |

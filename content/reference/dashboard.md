@@ -111,7 +111,7 @@ Lists every agent session that is actively executing. Sorted by start time (olde
 |---|---|
 | **Identifier** | Issue identifier (e.g., `MT-649`). Clicking the link opens `GET /api/v1/{identifier}` in the browser. Prefixed with an expand indicator (▶). |
 | **State** | Current orchestrator state for this issue (e.g., `agent_running`). |
-| **Turns** | Number of agent turns completed in this session. A turn is one prompt–response cycle. |
+| **Turns** | Counts every turn this session has begun, self-review turns included. The number moves as soon as a turn opens, not once it finishes, and self-review can push it past [`agent.max_turns`](/reference/workflow-config/#agent). See [`turn_count`](/reference/http-api/#get-apiv1state-system-state) for the full definition. |
 | **Duration** | Wall-clock time since the session started, formatted as `Xh Xm Xs` or `Xm Xs`. |
 | **Last Event** | Most recent agent event type received (e.g., `result`, `tool_use`). |
 
