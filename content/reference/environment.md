@@ -244,6 +244,8 @@ Path fields (`workspace.root`, `db_path`) still receive `~` expansion even when 
 
 Agent adapters spawn subprocesses that inherit the **full** parent process environment. Sortie validates none of these variables: they pass straight through, and if one is missing, the agent subprocess fails, not Sortie. `COPILOT_HOME` is the one Sortie reads for itself, to locate a file the runtime writes.
 
+That inheritance belongs to a local launch. An agent Sortie starts on a remote host through [`worker.ssh_hosts`](/reference/workflow-config/#worker) gets the remote host's environment, plus the bounded set described under [variables carried to a remote agent](#variables-carried-to-a-remote-agent).
+
 | Variable | Required by | Description |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | `claude-code` adapter (Anthropic direct) | API key for the Anthropic API. The Claude Code CLI reads this on startup. Missing or invalid values cause an authentication error in the agent subprocess. |
@@ -259,7 +261,7 @@ Agent adapters spawn subprocesses that inherit the **full** parent process envir
 | `GH_TOKEN` | `copilot-cli` adapter | GitHub token shared with the `gh` CLI. Second priority for Copilot CLI authentication. Also used by many GitHub tooling integrations. |
 | `GITHUB_TOKEN` | `copilot-cli` adapter | GitHub token common in CI environments. Third priority for Copilot CLI authentication. |
 | `COPILOT_HOME` | `copilot-cli` adapter (optional) | Root directory the Copilot CLI writes its per-session state under. Default: `~/.copilot`. Sortie reads it too: the adapter resolves `<COPILOT_HOME>/session-state/<session id>/events.jsonl`, the [session-state journal](/reference/adapter-copilot/#session-state-journal) that supplies the run's token counts. An empty or unset value resolves to the default. |
-| `CODEX_API_KEY` | `codex` adapter | OpenAI API key for the Codex CLI. The `codex app-server` subprocess reads this on startup. If the variable is unset, the adapter falls back to cached credentials in `~/.codex/auth.json` on the target host. |
+| `CODEX_API_KEY` | `codex` adapter | OpenAI API key. Sortie reads it from its own environment and signs the app-server in with it over the adapter's protocol channel, on a local launch and a remote one alike, when the runtime reports no account of its own. A local subprocess also inherits the variable; a remote one never receives it. With the variable unset, the adapter falls back to whatever credentials the runtime already holds where it runs, such as `~/.codex/auth.json`. |
 | `KIRO_API_KEY` | `kiro` adapter | API key the Kiro CLI reads on the headless path. The adapter preflights it at session start (presence plus a usability check), so a missing or invalid credential surfaces as a startup error rather than a hang or a silent empty turn. |
 
 **A missing `ANTHROPIC_API_KEY` is the most common `claude-code` deployment failure.** Sortie starts and polls the tracker normally, but every agent session fails at launch with an auth error. The Sortie logs show a worker exit with `exit_type=error`; the root cause is only visible in the agent's stderr output.
@@ -272,7 +274,7 @@ Agent adapters spawn subprocesses that inherit the **full** parent process envir
 Copilot CLI requires a **fine-grained personal access token** (prefix `github_pat_`) with the **Copilot Requests** permission enabled. Classic PATs (prefix `ghp_`) fail authentication silently: the CLI falls through all three token variables and reports no valid credential. OAuth tokens (`gho_` from `copilot auth login`) and GitHub App user-to-server tokens (`ghu_`) also work. If you see authentication failures despite having a token set, check the token prefix.
 {{< /callout >}}
 
-**For `codex`, a missing `CODEX_API_KEY` produces the same pattern as Claude Code.** Sortie starts normally, but every agent session fails with an authentication error during the app-server initialization handshake. If `CODEX_API_KEY` is unset, the adapter attempts to use cached credentials from `~/.codex/auth.json`; if those are also absent or expired, the session fails to start with `response_error`. In SSH mode, the adapter injects `CODEX_API_KEY` into the remote command line because OpenSSH drops local environment variables by default.
+**For `codex`, a missing `CODEX_API_KEY` produces the same pattern as Claude Code.** Sortie starts normally, but every agent session fails with an authentication error during the app-server initialization handshake. If `CODEX_API_KEY` is unset, the adapter attempts to use cached credentials from `~/.codex/auth.json`; if those are also absent or expired, the session fails to start with `response_error`. A remote session works the same way: the login travels as a protocol message over the SSH connection, so the key never enters the remote agent's environment and never needs to be present on the host.
 
 **For `opencode`, authentication is provider-specific and the adapter does not preflight it.** OpenCode resolves credentials from its own environment, auth store, project `.env`, or `opencode.json` provider config, while the Sortie adapter injects or overrides a small managed `OPENCODE_*` set on every `run` and `export` subprocess.
 
@@ -284,11 +286,28 @@ Copilot CLI requires a **fine-grained personal access token** (prefix `github_pa
 | `OPENCODE_DISABLE_AUTOUPDATE` | Self-update | Sortie-managed runs force this to `true`. |
 | `OPENCODE_DISABLE_LSP_DOWNLOAD` | LSP download | Sortie-managed runs force this to `true`. |
 
-In local mode the adapter injects only the managed `OPENCODE_*` values above; every provider credential, and any OpenCode config-discovery variable such as `OPENCODE_CONFIG`, comes from the parent environment or from OpenCode's own auth and config state, unmanaged by Sortie. In SSH mode the adapter prefixes only those managed variables onto the remote command, so whichever provider credentials your model selection needs must already exist on the remote host.
+In local mode the adapter injects only the managed `OPENCODE_*` values above; every provider credential, and any OpenCode config-discovery variable such as `OPENCODE_CONFIG`, comes from the parent environment or from OpenCode's own auth and config state, unmanaged by Sortie. A remote session receives those same managed values and nothing else of Sortie's own, so the provider credentials your model selection needs must already exist on the remote host, or be named under [`worker.ssh_pass_env`](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent).
 
-**For `kiro`, authentication is a single credential.** The adapter reads `KIRO_API_KEY` and validates it before the session starts, so a missing or invalid key surfaces as a startup error. In SSH mode the adapter injects `KIRO_API_KEY` inline into the remote command because OpenSSH drops local environment variables. See the [Kiro CLI adapter reference](/reference/adapter-kiro/) for the credential preflight and headless behavior.
+**For `kiro`, authentication is a single credential.** The adapter reads `KIRO_API_KEY` and validates it before the session starts, so a missing or invalid key surfaces as a startup error. That validation runs on a local launch only. A remote session carries `KIRO_API_KEY` from Sortie's environment into the agent's environment on the host, unvalidated, so a bad key there shows up as a failing turn instead. See the [Kiro CLI adapter reference](/reference/adapter-kiro/) for the credential preflight and headless behavior.
 
 **For `agent-client-protocol`, Sortie manages no credential at all.** This kind names no default runtime, so there is no fixed variable to preflight or document here: whichever binary `agent.command` names reads its own credential from the inherited environment, exactly like every other agent adapter's subprocess. See the [Agent Client Protocol adapter reference](/reference/adapter-agent-client-protocol/) for the kind itself, and [Gemini CLI](/reference/agent-client-protocol-gemini/) or [Kiro CLI](/reference/agent-client-protocol-kiro/) on that route for what each of those two runtimes actually reads.
+
+### Variables carried to a remote agent
+
+Every agent kind declares the environment variables its runtime reads as the credential for its default provider. A launch sent to a remote host through [`worker.ssh_hosts`](/reference/workflow-config/#worker) carries that kind's declared names from Sortie's own environment, whenever they are set there, without your listing them anywhere. Here is what each built-in kind declares.
+
+| Agent kind | Carried automatically on a remote launch |
+|---|---|
+| `claude-code` | `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN` |
+| `copilot-cli` | `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN` |
+| `kiro` | `KIRO_API_KEY` |
+| `codex` | None. The login travels as a protocol message instead, so `CODEX_API_KEY` never reaches the remote agent's environment. |
+| `opencode` | None. Provider credentials are OpenCode's own to resolve. Sortie's managed `OPENCODE_*` settings do reach a remote session, on the same delivery path but under neither worker field's control. |
+| `agent-client-protocol` | None. The kind names no default runtime, so it has no fixed credential to declare. |
+
+A variable carried this way overrides the value or login the remote host already holds. If Sortie's own environment sets one of these names for an unrelated purpose, `GITHUB_TOKEN` for the tracker while your `copilot-cli` hosts sign in on their own, name it under [`worker.ssh_disallow_pass_env`](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent) to keep the host's login in effect.
+
+Anything else a remote agent needs from Sortie's environment, a provider key for OpenCode, a registry token a hook cannot supply, goes in [`worker.ssh_pass_env`](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent) by name. Both fields take names and never values, and neither affects a local launch. For the precedence rules, the skipped-value warnings, and the remote host's `dd` requirement, see that section.
 
 ---
 

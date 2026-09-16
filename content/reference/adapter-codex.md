@@ -321,9 +321,10 @@ When the worker configuration includes `ssh_hosts`, the adapter launches the app
 ### How it works
 
 1. Session start resolves the local `ssh` binary from `PATH`. The agent command is stored for remote execution.
-2. Prefixes `CODEX_API_KEY` inline in the remote command if set, since OpenSSH does not forward local environment variables.
-3. Builds the SSH connection arguments listed under [SSH options](#ssh-options).
-4. All JSON-RPC communication flows over the SSH tunnel's stdin/stdout.
+2. Builds the SSH connection arguments listed under [SSH options](#ssh-options).
+3. All JSON-RPC communication flows over the SSH tunnel's stdin/stdout, including the API-key login described under [authentication](#authentication).
+
+This kind declares no credential variable, so a remote launch carries none on its own account. It carries what [`worker.ssh_pass_env`](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent) names and nothing else.
 
 ### SSH options
 
@@ -339,7 +340,7 @@ The adapter uses these SSH options via the shared `sshutil` package:
 
 ### Shell quoting
 
-The workspace path and each per-turn argument are single-quoted with embedded single-quote escaping (`'\''`) before being placed in the remote command string. The `CODEX_API_KEY` value, when prefixed onto the remote command, is quoted using the same mechanism. The configured agent command itself is not quoted this way.
+The workspace path and each per-turn argument are single-quoted with embedded single-quote escaping (`'\''`) before being placed in the remote command string. The configured agent command itself is not quoted this way. No credential is placed in that string; see [authentication](#authentication).
 
 ### Exit codes
 
@@ -359,7 +360,7 @@ Authentication sequence at session start: sends `account/read`. If `result.accou
 | Credentials the runtime already holds | `account/read` returns a non-null account | The adapter performs no login and starts the thread. How those credentials were established is Codex's to document. |
 
 {{< callout type="warning" >}}
-**The adapter never prompts for credentials, and a missing `CODEX_API_KEY` is not by itself an error.** With no key set and no account reported, session start proceeds to `thread/start` and the failure surfaces there or on the first turn. In SSH mode, `CODEX_API_KEY` is shell-quoted and injected inline in the remote command, because OpenSSH does not forward the orchestrator's local environment.
+**The adapter never prompts for credentials, and a missing `CODEX_API_KEY` is not by itself an error.** With no key set and no account reported, session start proceeds to `thread/start` and the failure surfaces there or on the first turn. A remote session logs in the same way: Sortie reads `CODEX_API_KEY` from its own environment and sends it as an `account/login/start` parameter over the SSH connection, so the key never enters the remote agent's environment and never has to exist on the build host.
 {{< /callout >}}
 
 ---

@@ -296,7 +296,8 @@ When the worker configuration includes `ssh_hosts`, the adapter launches Copilot
 
 1. Session start resolves the local `ssh` binary from `PATH`. The agent command is stored for remote execution rather than resolved locally. The canary check and authentication preflight are skipped in SSH mode.
 2. Each turn builds an SSH command that wraps the remote Copilot CLI invocation.
-3. The remote command is: `cd -- '<workspace_path>' && <agent_command> <args...>`, with the workspace path and each argument individually single-quoted; `<agent_command>` is inserted as configured, unquoted.
+3. The remote shell enters the workspace, exports the [environment variables the launch carries](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent), and only then runs the configured command with that turn's arguments, each step chained on the success of the one before it. The workspace path and each argument are individually single-quoted; the agent command is inserted as configured, unquoted.
+4. The carried set includes this kind's own credential variables, `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, and `GITHUB_TOKEN`. See [authentication](#authentication) for what that overrides on the host.
 
 ### SSH options
 
@@ -334,6 +335,8 @@ Authentication check order at session start (local mode only):
 If none are found, session start fails with `agent_not_found` and a descriptive message listing the expected variables.
 
 At runtime, the Copilot CLI handles its own authentication using whichever token is available in the process environment.
+
+A remote session skips that check and receives the tokens instead. This kind declares `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, and `GITHUB_TOKEN` as its credential variables, so a remote launch carries whichever of them Sortie's own environment sets into the agent's environment on the build host. A carried token overrides a `copilot auth login` stored there, which matters when Sortie holds one of those names for something else: `tracker.api_key: $GITHUB_TOKEN` is enough to re-authenticate every remote session as the tracker's identity. Name the variable under [`worker.ssh_disallow_pass_env`](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent) to leave the host's own login in effect.
 
 {{< callout type="warning" >}}
 **A present token does not guarantee a working one**

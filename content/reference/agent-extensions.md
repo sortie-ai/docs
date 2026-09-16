@@ -145,7 +145,7 @@ The worker writes `.sortie/mcp.json` for every agent kind. Getting its servers t
 | `kiro` | Never | The backend profile gate disables MCP under API-key authentication, so there is nothing to deliver to. See [Kiro adapter reference](/reference/adapter-kiro/#mcp). |
 | `agent-client-protocol` | Local launch only, and only for a server the runtime's own handshake supports | The runtime accepts no config path, so the generated servers are re-expressed on `session/new`. An HTTP server is withheld when the handshake does not advertise HTTP MCP support. See [Agent Client Protocol adapter reference](/reference/adapter-agent-client-protocol/#mcp). |
 
-The three `local launch only` kinds withhold delivery on an SSH launch deliberately: every route to a remote agent passes through the local `ssh` command line, so delivering there would put the configuration's credential values on an argument list any other user of the orchestrator host can read. A remote `codex`, `opencode`, or `agent-client-protocol` session therefore reaches no tool, and its first-turn prompt names none.
+The three `local launch only` kinds withhold delivery on an SSH launch deliberately. For `codex` the route left is the local `ssh` command line, which would put the configuration's credential values on an argument list any other user of the orchestrator host can read. Each of the three carries the generated servers on a local launch and on no other. A remote `codex`, `opencode`, or `agent-client-protocol` session reaches no tool, and its first-turn prompt names none.
 
 A session that reaches no tools receives no advertisement either, whichever row it falls in. That is what keeps the prompt and the channel consistent: Sortie does not name a tool it cannot deliver.
 
