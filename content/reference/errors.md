@@ -104,7 +104,7 @@ Failure text is uniform across coding agents. A turn that exits `0` having produ
 
 ## Workspace errors
 
-Errors during workspace preparation and hook execution. Two distinct error types.
+Errors during workspace preparation, hook execution, and the control-file writes that follow.
 
 ### Path errors
 
@@ -135,6 +135,19 @@ Occur when lifecycle hook scripts (`after_create`, `before_run`, `after_run`, `b
 | `timeout` | Script exceeded [`hooks.timeout_ms`](/reference/workflow-config/), or the run it belongs to was cancelled while the script was executing. | Increase `hooks.timeout_ms`, or make the hook script faster. |
 
 Hook errors in `after_create` prevent the worker from starting. The error is retryable. Hook errors in `before_remove` are logged but ignored; workspace cleanup still proceeds.
+
+### Control-file errors
+
+Format: `mcp config generation: <details>`
+
+Occur while the worker writes the MCP tool-server configuration (`.sortie/mcp.json` and `.sortie/.gitignore`), after the workspace is ready but before the agent session starts.
+
+| Detail | Meaning | Operator action |
+|---|---|---|
+| `.sortie is a symbolic link, refusing to write` | `.sortie` in the workspace is a symbolic link rather than an ordinary directory. Sortie refuses to write through it. | Find and remove whatever replaced `.sortie` with a symlink (a hook script, a prior agent action), then retry. |
+| `.sortie is not a directory` | `.sortie` exists as a regular file, not a directory. | Remove the file so Sortie can create `.sortie` as a directory. |
+
+This error is retryable with exponential backoff. A run blocked this way never reaches the agent session, and keeps retrying until whatever replaced `.sortie` is fixed.
 
 ---
 
