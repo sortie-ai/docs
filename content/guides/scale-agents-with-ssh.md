@@ -14,6 +14,7 @@ Distribute agent sessions across a pool of remote build machines so your orchest
 - A working Sortie setup (the [quick start](/getting-started/quick-start/) covers this)
 - SSH key-based access from the orchestrator host to each build machine (no password prompts)
 - The agent binary (e.g., `claude`, `copilot`, or `codex`) installed and on `PATH` on every remote host
+- The standard `dd` utility on every remote host, which Sortie uses to deliver environment variables (see [give the remote agent its credentials](#give-the-remote-agent-its-credentials))
 - `~/.ssh/config` entries or DNS for your build hosts (recommended but not required)
 
 > [!NOTE]
@@ -22,13 +23,14 @@ Distribute agent sessions across a pool of remote build machines so your orchest
 Verify connectivity before touching any Sortie config:
 
 ```bash
-ssh build01.internal "which claude && echo ok"
+ssh build01.internal "which claude && command -v dd && echo ok"
 ```
 
 Expected output:
 
 ```
 /usr/local/bin/claude
+/usr/bin/dd
 ok
 ```
 
@@ -53,9 +55,69 @@ This tells Sortie to run agents on `build01` and `build02` instead of locally. E
 If you also have `agent.max_concurrent_agents` set, total concurrency is the lower of the two limits. With `max_concurrent_agents: 3` and two hosts at 2 each, you get 3 concurrent agents. The global cap wins.
 
 > [!WARNING]
-> **On `codex` and `opencode`, moving to SSH removes Sortie's agent tools.** Both runtimes accept no MCP configuration path, so Sortie normally hands them the servers by writing them into the launch itself. Over SSH the only route left is the remote command string. That is the local `ssh` process's argument list, readable by every other user of the orchestrator host, and the configuration carries your tracker credential. Sortie declines to publish it. A remote session on either kind reaches no tool, and Sortie withholds the first-turn tool advertisement rather than name one the agent cannot call. Nothing fails; the agent works without `tracker_api`, `sortie_status`, `workspace_history`, `cost_budget`, and `notify_operator` if you configured it.
+> **On `codex` and `opencode`, moving to SSH removes Sortie's agent tools.** Both runtimes accept no MCP configuration path, so Sortie normally hands them the servers by writing them into the launch itself, and it does that on a local launch only. For `codex` the remaining route is the remote command string, which is the local `ssh` process's argument list, readable by every other user of the orchestrator host, and the configuration carries your tracker credential; Sortie declines to publish it. A remote session on either kind reaches no tool, and Sortie withholds the first-turn tool advertisement rather than name one the agent cannot call. Nothing fails; the agent works without `tracker_api`, `sortie_status`, `workspace_history`, `cost_budget`, and `notify_operator` if you configured it.
 >
 > If your prompts depend on those tools, keep the host pool on `claude-code` or `copilot-cli`, which hand over the generated file itself and are unaffected. See [delivery by agent kind](/reference/agent-extensions/#delivery-by-agent-kind).
+
+## Give the remote agent its credentials
+
+`ssh` does not hand your shell's environment to the remote host, so an agent there starts with whatever that host holds. For the credential its own runtime reads, you need no configuration: every agent kind declares its credential variable names, and Sortie sends those from its own environment on each remote launch. A `claude-code` pool picks up the orchestrator's `ANTHROPIC_API_KEY`, a `copilot-cli` pool its `GH_TOKEN`, a `kiro` pool its `KIRO_API_KEY`. The [environment reference](/reference/environment/#variables-carried-to-a-remote-agent) has the full per-kind list.
+
+Anything else is opt-in. Name it under `ssh_pass_env`:
+
+```yaml
+# WORKFLOW.md (front matter excerpt)
+extensions:
+  worker:
+    ssh_hosts:
+      - "build01.internal"
+      - "build02.internal"
+    max_concurrent_agents_per_host: 2
+    ssh_pass_env:
+      - SENTRY_AUTH_TOKEN
+      - NPM_TOKEN
+```
+
+Two things to know before you write that list. It takes variable *names*, never values. Write `- $NPM_TOKEN` and the reference resolves while the workflow file is being read, so the entry reaches Sortie holding a token where a name should be; Sortie drops such an entry and warns with its position, never its contents. And a name whose value is unset, empty, or only whitespace is skipped, which Sortie says out loud at startup:
+
+```
+level=WARN msg="ssh_pass_env variable is not set or empty in the orchestrator environment" variable=NPM_TOKEN
+```
+
+Values reach the host on the SSH connection's standard input, never on a command line, so nothing you carry shows up in `ps` on the orchestrator or on the build host.
+
+### Keep a host's own login
+
+A carried variable overrides whatever the remote host already holds for that name. That is what you want for a credential you manage centrally, and the opposite of what you want when the hosts sign themselves in.
+
+The case that catches people runs like this. You set `tracker.api_key: $GITHUB_TOKEN`, which puts `GITHUB_TOKEN` in Sortie's environment for the tracker. `copilot-cli` declares `GITHUB_TOKEN` as one of its credential names. Now every remote Copilot session authenticates as your tracker token instead of the `copilot auth login` sitting on the build host. Name it under `ssh_disallow_pass_env`:
+
+```yaml
+# WORKFLOW.md (front matter excerpt)
+extensions:
+  worker:
+    ssh_hosts:
+      - "build01.internal"
+      - "build02.internal"
+    ssh_disallow_pass_env:
+      - GITHUB_TOKEN
+```
+
+Sortie now sends nothing of its own for that name and the host's login stands. `ssh_disallow_pass_env` outranks `ssh_pass_env`, so a name in both lists is not sent either.
+
+This covers what Sortie sends, not what your SSH client sends. A variable listed under `SendEnv` in your `ssh_config` that the server accepts under `AcceptEnv` is forwarded by `ssh` straight out of Sortie's environment, and no Sortie setting suppresses it. Drop the `SendEnv` entry when a variable must not reach the host.
+
+### Verify
+
+Restart Sortie and read the startup block. A name you listed that Sortie cannot supply is reported there, before any dispatch. Then dispatch one issue and watch the session reach its first turn: an agent that authenticates is an agent whose credential arrived. A credential that did not arrive shows up as an auth failure from the runtime itself, re-emitted in Sortie's log under `agent stderr`.
+
+If the launch fails before the agent runs at all, with this line, the host is missing `dd`:
+
+```
+level=WARN msg="agent stderr" line="sortie: dd is required on the remote host to receive environment variables"
+```
+
+Sortie needs `dd` on the host for any launch that carries a variable, which includes every remote `opencode` launch whatever your configuration says. It ships with coreutils and busybox, so most images have it; distroless and scratch-based images often do not. Install it and the retry succeeds.
 
 ## Update hooks for remote execution
 
@@ -215,6 +277,7 @@ The key pieces:
 - **`extensions.worker.ssh_hosts`**: the pool of remote machines
 - **`extensions.worker.max_concurrent_agents_per_host`**: per-host concurrency cap
 - **`extensions.worker.ssh_strict_host_key_checking`**: SSH host key verification policy (`accept-new`, `yes`, or `no`)
+- **`extensions.worker.ssh_pass_env`** and **`extensions.worker.ssh_disallow_pass_env`**: which of Sortie's own environment variables reach the remote agent, on top of the credential names its agent kind carries by default
 - **`SORTIE_SSH_HOST`** in hooks: the bridge between local orchestration and remote preparation
 - **Least-loaded dispatch**: Sortie balances work across hosts automatically
 - **Retry affinity**: failed sessions prefer the same host on retry, avoiding redundant workspace setup

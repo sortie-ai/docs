@@ -138,7 +138,7 @@ The adapter also manages these environment variables on every subprocess:
 | `OPENCODE_DISABLE_LSP_DOWNLOAD` | `true` |
 | `OPENCODE_PERMISSION` | JSON-encoded policy, only when tool scoping is configured |
 
-The adapter also sets `OPENCODE_CONFIG_CONTENT` on a local turn subprocess when the session carries a translated MCP configuration; see [MCP](#mcp). It is not part of the managed set above and is never prefixed onto an SSH remote command.
+The adapter also sets `OPENCODE_CONFIG_CONTENT` on a local turn subprocess when the session carries a translated MCP configuration; see [MCP](#mcp). It is not part of the managed set above and never travels to a remote launch.
 
 Before adding its managed values, the adapter strips all five of those variables, and `OPENCODE_CONFIG_CONTENT`, out of the inherited environment, so an operator-side value never reaches the subprocess. It does not remove permission rules from `opencode.json`, so OpenCode still deep-merges the adapter policy with on-disk configuration.
 
@@ -355,9 +355,10 @@ When the worker configuration includes `ssh_hosts`, the adapter launches the loc
 ### How it works
 
 1. Session start resolves the local `ssh` binary. It does not validate the remote `opencode` binary at this stage.
-2. Each turn prefixes managed `OPENCODE_*` variables onto the remote command string. The translated MCP configuration document is not among them and is never rendered onto a remote command; see [MCP](#mcp).
-3. The turn command is wrapped as `cd -- '<workspace>' && <remoteCommand> 'run' '--format' 'json' ...`.
-4. The export recovery step uses the same SSH path with `export --sanitize <sessionID>`.
+2. Each turn sends the managed `OPENCODE_*` variables to the remote shell on the SSH session's standard input, together with any variable [`worker.ssh_pass_env`](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent) names. The translated MCP configuration document is not among them; see [MCP](#mcp).
+3. The remote shell enters the workspace, exports what the launch sent it, and only then runs the configured command with the turn's arguments, each step chained on the success of the one before it.
+4. Because every remote launch on this kind sends the managed variables, every remote host needs the standard `dd` utility. A host without it fails the launch with `sortie: dd is required on the remote host to receive environment variables` on standard error.
+5. The export recovery step uses the same SSH path with `export --sanitize <sessionID>`.
 
 ### SSH options
 
@@ -373,7 +374,7 @@ The adapter uses the shared `sshutil` transport defaults:
 
 ### Shell quoting
 
-The workspace path, adapter-generated OpenCode arguments, and managed environment-variable values are single-quoted with standard POSIX escaping before they are embedded in the remote shell command. The configured remote base command itself is treated as a pre-formed shell fragment. Quoting inside `agent.command` is the operator's responsibility.
+The workspace path and the adapter-generated OpenCode arguments are single-quoted with standard POSIX escaping before they are embedded in the remote shell command. The configured remote base command itself is treated as a pre-formed shell fragment. Quoting inside `agent.command` is the operator's responsibility. Environment-variable values are not part of that command string.
 
 ### Exit codes
 
@@ -386,7 +387,7 @@ SSH exit codes `255` and `127` are not special-cased. They fall through the adap
 Sortie does not manage OpenCode credentials and runs no authentication preflight for this adapter. The subprocess inherits the Sortie process environment, so whichever provider credentials OpenCode expects must already be present there. Which providers OpenCode supports, and which variable each one reads, is OpenCode's to document; see [external references](#external-references).
 
 {{< callout type="warning" >}}
-**SSH mode forwards no provider credentials.** The adapter prefixes only the managed `OPENCODE_*` variables onto the remote command, so the remote host must already be authenticated for the model you select. A run that works locally can fail on a remote host for this reason alone.
+**A remote session carries no provider credential by default.** This kind declares none, so a remote launch sends only the managed `OPENCODE_*` variables unless you name others. The remote host must already be authenticated for the model you select, or the variables that authenticate it must be listed under [`worker.ssh_pass_env`](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent). A run that works locally can fail on a remote host for this reason alone.
 {{< /callout >}}
 
 ---
@@ -399,7 +400,7 @@ The turn sets that document on the turn subprocess through the runtime's inline-
 
 ### SSH mode delivers nothing
 
-A remote session receives no document. This adapter renders its managed environment as `KEY=<value>` onto the remote command string, and doing the same with the generated configuration would publish its credential values on the local `ssh` process's own argument list, where any other user of the orchestrator host can read them. The adapter delivers nothing rather than pay that price, so an OpenCode session on an SSH host reaches none of Sortie's tools and its first-turn prompt carries no tool advertisement.
+A remote session receives no document. The adapter renders the generated servers into OpenCode's configuration document on a local launch only, so an OpenCode session on an SSH host reaches none of Sortie's tools and its first-turn prompt carries no tool advertisement. What a remote session lacks is that document, not an environment: the managed `OPENCODE_*` settings reach it, and so does anything [`worker.ssh_pass_env`](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent) names.
 
 ### Startup failures
 
@@ -430,7 +431,7 @@ Two more conditions fail the session with `response_error` when the merged confi
 | Permission control | `--permission-mode` or `--dangerously-skip-permissions` | `--autopilot` + `--no-ask-user` + explicit tool scoping | `approvalPolicy` and sandbox policy in JSON-RPC | `--dangerously-skip-permissions` plus synthesized `OPENCODE_PERMISSION` JSON |
 | Sandbox enforcement | None at adapter level | None at adapter level | OS-level sandbox plus configurable policy | No adapter-level sandbox; permission policy only |
 | Sortie's tools | Generated config path on `--mcp-config` | Generated config path on `--additional-mcp-config` | Generated servers re-expressed as command-line overrides, local launch only | Generated servers re-expressed as an inline configuration document in the turn environment, local launch only (see [MCP](#mcp)) |
-| Authentication | `ANTHROPIC_API_KEY` and provider routing flags | GitHub token variables or `gh auth` | `CODEX_API_KEY` or cached Codex auth | OpenCode-managed provider auth from env, auth store, `.env`, or `opencode.json`; SSH mode does not forward provider env vars |
+| Authentication | `ANTHROPIC_API_KEY` and provider routing flags | GitHub token variables or `gh auth` | `CODEX_API_KEY` or cached Codex auth | OpenCode-managed provider auth from env, auth store, `.env`, or `opencode.json`; a remote session uses the host's own, or whatever `worker.ssh_pass_env` names |
 | Provider multiplexing | Anthropic direct, Bedrock, Vertex | GitHub only | OpenAI or cached Codex auth | Multi-provider through OpenCode model/provider config |
 | Inner turn limit | `claude-code.max_turns` | `copilot-cli.max_autopilot_continues` | None | None exposed by the adapter |
 | Exit-code reliability | Structured result event plus process exit | Structured `result.exitCode` plus process exit | JSON-RPC turn status | Process exit alone is unreliable. Terminal stdout `error` can still exit `0`. |

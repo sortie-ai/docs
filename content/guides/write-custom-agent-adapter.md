@@ -104,6 +104,7 @@ func init() {
 		MCPInjection:     registry.MCPInjectionUnsupported,
 		UsageArrival:     registry.UsageArrivalIncremental,
 		UsageAttribution: registry.UsageAttributionPerModel,
+		CredentialEnv:    registry.DeclareCredentialEnv("ACME_API_KEY"),
 	})
 }
 
@@ -121,6 +122,8 @@ func NewACMEAdapter(config map[string]any) (domain.AgentAdapter, error) {
 ```
 
 The kind string `"acme"` is the exact value an operator writes in `agent.kind` in WORKFLOW.md. Registry lookup is exact-match and case-sensitive, so `acme` and `Acme` are different agents. `RequiresCommand: true` tells the orchestrator preflight to reject a workflow that selects this agent without an `agent.command`. The `var _ domain.AgentAdapter = (*ACMEAdapter)(nil)` line is a compile-time assertion: if your type stops satisfying the interface, the build fails here with a clear message. The constructor signature is fixed: `func(config map[string]any) (domain.AgentAdapter, error)`, where `config` is the raw map from your WORKFLOW.md extension block.
+
+`CredentialEnv` names the environment variables your runtime reads as the credential for its default provider, in the order a remote launch should carry them. Sortie carries those names from its own environment into a session it starts over SSH, so an operator does not have to place the credential on every build host. Declare it even when the answer is none: `registry.DeclareCredentialEnv()` with no arguments says the kind reads no credential variable, which is a different statement from leaving the field unset. Leaving it unset fails a completeness test that walks every registered kind, so CI does not go green. Each name must be a valid environment variable name, must not repeat, and must not be one the SSH carrier reserves for itself.
 
 `MCPInjection` declares what your adapter does with the MCP configuration the worker generates for Sortie's own tools. Three values name a delivery, and the zero value names an adapter that has declared nothing:
 
@@ -165,7 +168,7 @@ SessionResumeBlockedBy: func(passthrough map[string]any) string {
 
 Declare it if the key exists, because Sortie re-dispatches an issue carrying its earlier session after a retry, a continuation, a stall, or a restart, and without the declaration a workflow that sets such a key validates cleanly and then fails on every resumed turn. With it declared, [`sortie validate`](/reference/cli/#validate) and startup preflight refuse the workflow with an `agent.kind.session_resume` error naming your key. The check is generic: the message text and severity belong to Sortie, and your declaration supplies only the key. Read the value with the same helper and default your own constructor uses, so the verdict cannot disagree with the launch your adapter would actually build, and do not modify the map you are handed.
 
-`MCPInjectionTranslated` is `local only` for a reason worth knowing before you pick it, and the reason is not the one people expect. Per-turn arguments do cross an SSH launch: `sshutil.BuildSSHArgs` shell-quotes each one onto the remote command string, and the remote agent receives them. That string is itself an argument of the local `ssh` process, so anything you put in it, per-turn arguments included, lands on an argument list every other user of the orchestrator host can read. `LaunchTarget.Args`, the initial-argument slot a translating adapter would otherwise use, is empty in SSH mode for the same reason it has nothing to hold: the local command is `ssh`, not your agent. There is no route to the remote agent that keeps the configuration's credential values off the local argument list, so an adapter that translates must deliver nothing on a remote launch.
+`MCPInjectionTranslated` is `local only` for a reason worth knowing before you pick it, and the reason is not the one people expect. Per-turn arguments do cross an SSH launch: `sshutil.BuildSSHLaunch` shell-quotes each one onto the remote command string, and the remote agent receives them. That string is itself an argument of the local `ssh` process, so anything you put in it, per-turn arguments included, lands on an argument list every other user of the orchestrator host can read. `LaunchTarget.Args`, the initial-argument slot a translating adapter would otherwise use, is empty in SSH mode for the same reason it has nothing to hold: the local command is `ssh`, not your agent. An adapter that translates onto the command line therefore delivers nothing on a remote launch. `SSHOptions` does give you a second route, the launch's standard input, which carries environment variables without exposing them; whether your runtime can read the translated form from there is a question about that runtime, and none of the built-in translating kinds delivers it that way today.
 
 **Verify:** a one-line test confirms the kind resolves.
 
@@ -225,8 +228,6 @@ func (a *ACMEAdapter) StartSession(ctx context.Context, params domain.StartSessi
 		if authErr := checkCredential(ctx, target.Command); authErr != nil {
 			return domain.Session{}, authErr
 		}
-	} else {
-		target.RemoteCommand = buildSSHRemoteCmd(target.RemoteCommand, os.Getenv("ACME_API_KEY"))
 	}
 
 	state := &sessionState{target: target, agentConfig: params.AgentConfig, sessionID: params.ResumeSessionID}
@@ -239,7 +240,7 @@ func (a *ACMEAdapter) StartSession(ctx context.Context, params domain.StartSessi
 
 `agentcore.ResolveLaunchTarget(params, "acme-cli")` returns a validated `LaunchTarget`. It checks the workspace path (this containment check is a security boundary, not a convenience), resolves the binary from the `agent.command` or your default, splits a multi-token command into `Command` plus `Args` (so `codex app-server` becomes `Args: ["app-server"]`), and picks local or SSH mode based on `params.SSHHost`. Store the returned target in your session state and pass a pointer to it into `NewForkPerTurnSession`, so per-turn mutations (such as a resume flag) are observed on later turns.
 
-Run a credential preflight only when a missing or invalid credential would hang or silently fail the agent. Kiro is the worked example: its headless `chat` blocks on interactive login when `KIRO_API_KEY` is absent, and exits 0 with empty output when the key is invalid, so the adapter runs a `whoami` canary in `StartSession` and returns a `domain.AgentError` before any turn. Do this preflight after `ResolveLaunchTarget` succeeds, because the binary must be resolved first. In SSH mode the local environment does not reach the remote shell, so inject the credential inline into the remote command instead of relying on a canary.
+Run a credential preflight only when a missing or invalid credential would hang or silently fail the agent. Kiro is the worked example: its headless `chat` blocks on interactive login when `KIRO_API_KEY` is absent, and exits 0 with empty output when the key is invalid, so the adapter runs a `whoami` canary in `StartSession` and returns a `domain.AgentError` before any turn. Do this preflight after `ResolveLaunchTarget` succeeds, because the binary must be resolved first, and skip it on a remote launch: the canary would run on the orchestrator host, not on the machine the agent starts on. The credential itself needs no code from you. Your `CredentialEnv` declaration is what carries it, and `LaunchTarget.SSHOptions` resolves each declared name from the orchestrator's environment when the launch is built.
 
 **Verify:** `StartSession` returns a `Session` with no error for a valid `t.TempDir()` workspace, and a `domain.AgentError` for a missing credential.
 
@@ -263,13 +264,6 @@ func buildArgs(state *sessionState, turn int, prompt string, pt passthroughConfi
 	}
 	return append(args, "--", prompt)
 }
-
-func buildSSHRemoteCmd(remoteCommand, apiKey string) string {
-	if apiKey == "" {
-		return remoteCommand
-	}
-	return "ACME_API_KEY=" + sshutil.ShellQuote(apiKey) + " " + remoteCommand
-}
 ```
 
 The hook in `StartSession` wraps this helper:
@@ -280,7 +274,7 @@ BuildArgs: func(turn int, prompt string) []string {
 },
 ```
 
-Put the subcommand and flags, model selection, tool-permission flags, and the continuation flag here. For SSH mode, the credential is injected inline and shell-quoted with `sshutil.ShellQuote`, because a key containing shell metacharacters would otherwise be misparsed by the remote shell.
+Put the subcommand and flags, model selection, tool-permission flags, and the continuation flag here. Nothing in this hook is SSH-specific: `sshutil.BuildSSHLaunch` shell-quotes each argument onto the remote command string for you, and the credential travels on the launch's standard input rather than in any argument.
 
 **Verify:** `command_test.go` asserts the argument slice across config permutations (see the testing step).
 

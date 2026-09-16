@@ -57,6 +57,53 @@ Workers start and immediately crash. The actual cause (a missing `ANTHROPIC_API_
 
 3. Read the `agent stderr` warnings immediately above the error. When a session or a turn fails, Sortie re-emits what the agent wrote to its standard error at WARN, so the runtime's own auth message is already in the default log. `--log-level debug` adds every stderr line as it is read, including from turns that did not fail.
 
+4. For SSH workers, check what the launch carried. A remote agent gets the build host's environment, plus its agent kind's credential variables and whatever [`worker.ssh_pass_env`](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent) names, read from Sortie's own environment. A name Sortie cannot supply is reported at startup:
+
+    ```
+    level=WARN msg="ssh_pass_env variable is not set or empty in the orchestrator environment" variable=ANTHROPIC_API_KEY
+    ```
+
+## A remote agent authenticates as the wrong account
+
+The session starts and turns run, but the work lands under an identity nobody expected: a pull request opened by the tracker's service account, or a Copilot session billed to the wrong seat.
+
+A variable Sortie carries overrides the value or login the remote host holds under that name. The usual cause is one variable serving two purposes. `tracker.api_key: $GITHUB_TOKEN` puts `GITHUB_TOKEN` in Sortie's environment for the tracker; `copilot-cli` declares `GITHUB_TOKEN` as one of its credential variables; every remote session then signs in with the tracker's token instead of the host's own `copilot auth login`.
+
+1. Check which names your agent kind carries by default in the [environment reference](/reference/environment/#variables-carried-to-a-remote-agent).
+
+2. Stop Sortie sending the one that collides:
+
+    ```yaml
+    extensions:
+      worker:
+        ssh_hosts:
+          - "build01.internal"
+        ssh_disallow_pass_env:
+          - GITHUB_TOKEN
+    ```
+
+3. Save the file. The worker block reloads without a restart, and the next dispatch runs under whatever identity the host itself holds.
+
+A variable your own `ssh_config` lists under `SendEnv` is forwarded by the SSH client itself, out of Sortie's environment, and `ssh_disallow_pass_env` does not stop it. Remove the `SendEnv` entry if that is the path it took.
+
+## A remote launch fails before the agent runs
+
+```
+level=WARN msg="agent stderr" line="sortie: dd is required on the remote host to receive environment variables"
+```
+
+Sortie delivers environment variables to a remote agent on the SSH session's standard input, and the remote shell reads them with `dd`. A host without `dd` on `PATH` fails the launch, and Sortie retries it, so the same line repeats until the utility is there.
+
+Every remote `opencode` launch carries variables whatever your configuration says, because the adapter sends settings of its own. Other kinds carry them whenever their credential variables are set in Sortie's environment or `worker.ssh_pass_env` names something.
+
+1. Check each host:
+
+    ```bash
+    ssh build01.internal "command -v dd && echo ok"
+    ```
+
+2. Install it where it is missing. It ships with coreutils and with busybox, so most base images have it; distroless and scratch-based images often do not.
+
 ## Agent exits without producing output
 
 ```

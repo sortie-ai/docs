@@ -297,7 +297,8 @@ When the worker configuration includes `ssh_hosts`, the adapter launches Claude 
 
 1. Session start resolves the local `ssh` binary from `PATH`. The agent command is stored for remote execution rather than resolved locally.
 2. Each turn builds an SSH command that wraps the remote Claude Code invocation.
-3. The remote command is: `cd -- '<workspace_path>' && <agent_command> <args...>`, with the workspace path and each argument individually single-quoted; `<agent_command>` is inserted as configured, unquoted, so a multi-token or env-prefixed command (e.g. `FOO=bar claude`) still runs as intended.
+3. The remote shell enters the workspace, exports the [environment variables the launch carries](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent), and only then runs the configured command with that turn's arguments. Each step is chained on the success of the one before it, so the agent never starts in the wrong directory or without the variables it was to receive. The workspace path and each argument are individually single-quoted; the agent command is inserted as configured, unquoted, so a multi-token or env-prefixed command (e.g. `FOO=bar claude`) still runs as intended.
+4. This kind declares `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY`, and `CLAUDE_CODE_OAUTH_TOKEN` as its credential variables, so a remote launch carries whichever of them Sortie's own environment sets. A carried value overrides whatever the host holds under the same name.
 
 ### SSH options
 
@@ -325,7 +326,9 @@ SSH exit code `255` indicates a connection failure (refused, timeout, unreachabl
 
 Sortie does not manage Claude Code's API credentials. The adapter spawns the subprocess with the full parent process environment, and Claude Code reads its authentication variables directly.
 
-The adapter runs no credential preflight and names no credential variable of its own: it neither reads nor sets one, and starting a session succeeds whether or not the environment can authenticate the CLI. Which variables authenticate a given backend (Anthropic's API, a cloud vendor's hosted models, or a gateway in front of either) is Claude Code's to document; see the [external references](#external-references) and the [environment variables reference](/reference/environment/#agent-runtime-variables).
+The adapter runs no credential preflight and reads no credential variable for itself: starting a session succeeds whether or not the environment can authenticate the CLI. Which variables authenticate a given backend (Anthropic's API, a cloud vendor's hosted models, or a gateway in front of either) is Claude Code's to document; see the [external references](#external-references) and the [environment variables reference](/reference/environment/#agent-runtime-variables).
+
+The kind does declare three names, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY`, and `CLAUDE_CODE_OAUTH_TOKEN`, and they serve one purpose: a remote launch carries whichever of them Sortie's own environment sets, so a build host needs no copy of its own. A local launch inherits all three with everything else, and the declaration changes nothing there.
 
 A credential the CLI rejects therefore surfaces as a failing turn rather than as a session that refuses to start.
 

@@ -310,7 +310,9 @@ This adapter reads no subprocess exit code, so SSH exit code `255` (a connection
 
 ## Authentication
 
-Sortie manages no credential for this kind. The subprocess inherits the full parent process environment, and whichever runtime `agent.command` names reads its own credential from it, exactly as every other agent adapter's subprocess does. There is no preflight, no canary, and no adapter-specific environment variable, because there is no fixed runtime to preflight.
+Sortie manages no credential for this kind. A local subprocess inherits the full parent process environment, and whichever runtime `agent.command` names reads its own credential from it, exactly as every other agent adapter's subprocess does. There is no preflight, no canary, and no adapter-specific environment variable, because there is no fixed runtime to preflight.
+
+A remote session inherits the build host's environment instead. This kind declares no credential variable, so a remote launch carries nothing on its own account: put what the named runtime reads on the host, or name it under [`worker.ssh_pass_env`](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent).
 
 See [Gemini CLI on the Agent Client Protocol](/reference/agent-client-protocol-gemini/) and [Kiro CLI on the Agent Client Protocol](/reference/agent-client-protocol-kiro/) for what each of those two runtimes actually reads, and what a stored login versus an API-key credential changes about what the session can do.
 

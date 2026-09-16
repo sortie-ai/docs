@@ -114,7 +114,7 @@ Validates the workspace path, resolves the `kiro-cli` binary, verifies the crede
 
 1. Resolves the launch target. This validates that the workspace path is a non-empty absolute path pointing to an existing directory, and resolves `command` from `PATH`, defaulting to `kiro-cli`. In SSH mode, it resolves the local `ssh` binary instead and stores the remote command for later use.
 2. **Local mode:** runs the credential preflight. Confirms `KIRO_API_KEY` is set, then runs a `kiro-cli whoami` canary. See [authentication](#authentication).
-3. **SSH mode:** skips the credential preflight and injects `KIRO_API_KEY` inline into the remote command, shell-quoted. See [SSH remote execution](#ssh-remote-execution).
+3. **SSH mode:** skips the credential preflight. `KIRO_API_KEY` reaches the remote agent's environment instead, unchecked. See [SSH remote execution](#ssh-remote-execution).
 4. The session carries no agent process ID at the start, taking the session ID saved from a previous run as its own when continuation is requested.
 
 **Errors:**
@@ -234,9 +234,9 @@ When the worker configuration includes `ssh_hosts`, the adapter launches `kiro-c
 ### How it works
 
 1. Session start resolves the local `ssh` binary. The agent command is stored for remote execution rather than resolved locally.
-2. The credential preflight is skipped. The adapter prepends `KIRO_API_KEY` to the remote command and shell-quotes the value, because OpenSSH drops the orchestrator's local environment. When `KIRO_API_KEY` is empty, no prefix is added.
+2. The credential preflight is skipped. This kind declares `KIRO_API_KEY` as its credential variable, so the launch carries that name from Sortie's own environment into the remote agent's environment, delivered on the SSH session's standard input rather than in any argument. A value that is unset, empty, or only whitespace is not carried, leaving whatever the host holds in place. See [environment variables carried to a remote agent](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent).
 3. Each turn builds the per-turn argument list, then builds the SSH connection arguments to wrap it.
-4. The remote command is `cd -- '<workspace>' && <remoteCommand> '<arg>' ...`, with each adapter-generated argument shell-quoted.
+4. The remote shell enters the workspace, exports the variables the launch carries, and only then runs the configured command with that turn's arguments, each step chained on the success of the one before it. The workspace path and each adapter-generated argument are shell-quoted.
 
 ### SSH options
 
@@ -252,7 +252,7 @@ The adapter uses the shared `sshutil` transport defaults:
 
 ### Shell quoting
 
-The workspace path and the adapter-generated arguments are single-quoted with standard POSIX escaping before they are embedded in the remote shell command. The `KIRO_API_KEY` value is quoted with the same mechanism. The configured remote base command is treated as a pre-formed shell fragment; quoting inside `agent.command` is the operator's responsibility.
+The workspace path and the adapter-generated arguments are single-quoted with standard POSIX escaping before they are embedded in the remote shell command. The configured remote base command is treated as a pre-formed shell fragment; quoting inside `agent.command` is the operator's responsibility. The `KIRO_API_KEY` value is not part of that string.
 
 ### Exit codes
 
@@ -287,7 +287,7 @@ The presence check defends against the hang; the `whoami` canary defends against
 
 | Variable | Required | Description |
 |---|---|---|
-| `KIRO_API_KEY` | Yes (local mode) | Headless credential. In SSH mode, the orchestrator injects it inline into the remote command. |
+| `KIRO_API_KEY` | Yes (local mode) | Headless credential. A remote session receives it in the agent's own environment, carried from Sortie's environment because this kind declares it, and it overrides any value the host already holds. |
 
 ---
 

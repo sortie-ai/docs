@@ -519,7 +519,7 @@ Coding agent adapter, concurrency, timeouts, and retry behavior. These fields co
 | Field                            | Type    | Default         | Description                                                                           |
 | -------------------------------- | ------- | --------------- | ------------------------------------------------------------------------------------- |
 | `kind`                           | string  | `claude-code`   | Agent adapter identifier. Built-in adapters: `claude-code`, `copilot-cli`, `codex`, `opencode`, `kiro`, `agent-client-protocol` (a generic kind driving any runtime that speaks the [Agent Client Protocol](/reference/adapter-agent-client-protocol/), named by `command`), and `mock`, which simulates a session for local testing and launches no process. |
-| `command`                        | string  | adapter-defined | Command to launch the agent for adapters that run as a local subprocess (`claude-code`, `copilot-cli`, `codex`, `opencode`, `kiro`, `agent-client-protocol`). Adapters that do not start a local process ignore this field. For `agent-client-protocol` this field has no default and also carries the flag or subcommand that puts the named binary into protocol mode. |
+| `command`                        | string  | adapter-defined | Command to launch the agent for adapters that run as a local subprocess (`claude-code`, `copilot-cli`, `codex`, `opencode`, `kiro`, `agent-client-protocol`). Adapters that do not start a local process ignore this field. For `agent-client-protocol` this field has no default and also carries the flag or subcommand that puts the named binary into protocol mode. When [`worker.ssh_hosts`](#worker) sends the agent to a remote host, the value reaches the remote shell unsplit, so shell syntax in it is interpreted there. Sortie waits for the agent it starts and talks to it, so a value ending in `&` detaches the agent and the session cannot work. |
 | `max_turns`                      | integer | `20`            | Maximum turns per worker session. The worker re-checks tracker state after each turn. |
 | `max_sessions`                   | integer | `0` (unlimited) | Maximum completed sessions per issue before the orchestrator stops retrying. Must be non-negative. The separate `max_consecutive_absences` governs the consecutive-absence ceiling below. It is no longer derived from this field. Reaching this ceiling also posts one comment on the issue naming the session budget and `agent.max_sessions` as the setting that raises it. |
 | `max_tokens`                     | integer | `0` (unlimited) | Cumulative per-issue token ceiling. Sortie sums the `total_tokens` recorded for every completed session of the issue from run history, adds the running session's own reported spend, and stops once the sum reaches a non-zero budget. Three lanes evaluate it: the retry timer and the poll tick's rebuild each block the next dispatch, and Sortie stops the session already running as soon as a usage figure carries the sum to the ceiling. A session stopped that way is recorded with status `budget_stopped` and increments `sortie_runs_stopped_by_budget_total`. Independent of `max_sessions`; the first ceiling reached wins. A run whose agent reported no token usage contributes nothing to the sum; that case and a failed token-sum query both allow the dispatch with a warning instead of blocking it. On the in-flight lane a failed read leaves the run going, unless the running session's own spend has reached the ceiling by itself, which needs no read to establish. Must be non-negative. Reaching this ceiling also posts one comment on the issue naming the token budget and `agent.max_tokens` as the setting that raises it, and counting the sessions stopped in flight when there were any. |
@@ -1264,15 +1264,17 @@ See [how to control agent costs](/guides/control-costs/) for operational guidanc
 SSH remote execution. The host with the fewest active sessions is selected per dispatch. See the [scale agents with SSH](/guides/scale-agents-with-ssh/) guide for operational setup.
 
 > [!NOTE]
-> SSH worker mode requires POSIX remote hosts (Linux, macOS). The orchestrator itself runs on any platform, but remote command execution relies on `cd`, `--` and `&&` shell chaining via the remote host's POSIX shell.
+> SSH worker mode requires POSIX remote hosts (Linux, macOS). The orchestrator itself runs on any platform, but remote command execution relies on `cd`, `--` and `&&` shell chaining via the remote host's POSIX shell. A launch that carries an environment variable also needs the standard `dd` utility on the remote host.
 
 | Field                          | Type            | Default                        | Description                                                                 |
 | ------------------------------ | --------------- | ------------------------------ | --------------------------------------------------------------------------- |
 | `ssh_hosts`                    | list of strings | _(absent; runs locally)_       | SSH host targets for remote agent execution.                                |
 | `max_concurrent_agents_per_host` | integer       | _(absent; no per-host cap)_    | Per-host concurrency limit. Hosts at capacity are skipped during dispatch.  |
 | `ssh_strict_host_key_checking` | string          | `accept-new`                   | OpenSSH `StrictHostKeyChecking` value for remote sessions. Allowed values: `accept-new`, `yes`, `no`. |
+| `ssh_pass_env`                 | list of strings | _(absent)_                     | Names of environment variables Sortie reads from its own process environment and sends to every remote agent launch. Names only, never values. See [environment variables carried to a remote agent](#environment-variables-carried-to-a-remote-agent). |
+| `ssh_disallow_pass_env`        | list of strings | _(absent)_                     | Names Sortie never sends to a remote agent launch, whether they come from `ssh_pass_env` or from the agent kind's own credential set. |
 
-When `ssh_hosts` is absent or empty, all agents run locally. The `ssh_strict_host_key_checking` field is ignored in local mode. All three fields reload dynamically.
+When `ssh_hosts` is absent or empty, all agents run locally and every other field in this block is ignored; `ssh_pass_env` and `ssh_disallow_pass_env` each draw a startup warning naming the field in that case. Every field reloads dynamically: a change applies to sessions dispatched after the reload, and a session already running keeps what it started with.
 
 ### `ssh_strict_host_key_checking` values
 
@@ -1284,6 +1286,24 @@ When `ssh_hosts` is absent or empty, all agents run locally. The `ssh_strict_hos
 
 Invalid values produce a warning log at parse time and fall back to `accept-new`.
 
+### Environment variables carried to a remote agent
+
+The system `ssh` binary does not hand the orchestrator's environment to the remote shell, so a remote agent starts with the remote host's environment and nothing else. Two fields change that.
+
+`ssh_pass_env` names variables Sortie reads from its own process environment and sends with every remote launch. Each agent kind also carries a fixed set of credential variables without being listed; the [environment variables reference](/reference/environment/#variables-carried-to-a-remote-agent) gives the names per kind. `ssh_disallow_pass_env` names variables Sortie never sends, from either source.
+
+| Rule | Behavior |
+|---|---|
+| Delivery | A carried value travels on the SSH session's standard input, ahead of the agent command, never in a process argument. |
+| Precedence on the host | A carried variable overrides whatever value or login the remote host already holds for that name. |
+| Value unset, empty, or whitespace-only | The variable is skipped. A name listed under `ssh_pass_env` also logs `ssh_pass_env variable is not set or empty in the orchestrator environment` with the name; a name carried only because the agent kind declares it is skipped silently. |
+| Name in both fields | `ssh_disallow_pass_env` wins, and the entry logs `ssh_pass_env variable is disallowed by ssh_disallow_pass_env, not carrying it`. Sortie sends nothing of its own for that name, so the remote host's own value or login stays in effect. |
+| Literal names | Both fields take variable names, not values. An entry written as `$VAR` resolves before Sortie reads it, so the entry holds a value rather than a name; Sortie drops it and warns with the entry's position, never its contents. |
+| Entry that is not a variable name | Dropped with a warning naming the entry's position, never its contents. A valid name that Sortie reserves for the delivery mechanism itself is also dropped, with a warning that names it. |
+| Adapter-computed settings | Unaffected by either field. A kind that computes settings for its own runtime, such as OpenCode's managed `OPENCODE_*` values, sends them on the same carrier under neither field's control. |
+| Local launches | Unaffected by either field. A local agent subprocess already inherits Sortie's full environment. |
+| Remote host requirement | Any launch that carries a variable needs the standard `dd` utility on the remote host. Every remote `opencode` launch carries one, whatever these fields say. A host without `dd` fails the launch with `sortie: dd is required on the remote host to receive environment variables` on the agent's standard error. |
+
 ```yaml
 worker:
   ssh_hosts:
@@ -1291,7 +1311,14 @@ worker:
     - build02.internal
   max_concurrent_agents_per_host: 2
   ssh_strict_host_key_checking: "yes"
+  ssh_pass_env:
+    - SENTRY_AUTH_TOKEN
+    - NPM_TOKEN
+  ssh_disallow_pass_env:
+    - GITHUB_TOKEN
 ```
+
+`sortie validate` reports none of these warnings. They are produced when the worker block is read for dispatch: at startup, after a reload that changes them, and once in [`--dry-run`](/reference/cli/#--dry-run).
 
 ---
 
@@ -1476,7 +1503,7 @@ Sortie watches `WORKFLOW.md` for filesystem changes and re-applies configuration
 | `agent.kind`, `agent.command`, `agent.max_turns` | Future dispatches.            |
 | `agent.turn_timeout_ms`, `agent.read_timeout_ms`, `agent.stall_timeout_ms` | Future worker attempts. |
 | `agent.stop_grace_ms`                  | Future worker attempts for the per-session stop bound, which each attempt freezes when it starts. The shutdown worker-drain ceiling reads the active value instead, so a reloaded value bounds the next shutdown without waiting for a new attempt. |
-| `worker.ssh_hosts`, `worker.max_concurrent_agents_per_host`, `worker.ssh_strict_host_key_checking` | Dynamic. Future dispatches use the reloaded value; in-flight sessions are unaffected. |
+| `worker.ssh_hosts`, `worker.max_concurrent_agents_per_host`, `worker.ssh_strict_host_key_checking`, `worker.ssh_pass_env`, `worker.ssh_disallow_pass_env` | Dynamic. Future dispatches use the reloaded value; in-flight sessions are unaffected. |
 | Prompt template                        | Future worker attempts.                |
 | `dispatch.rules`, `dispatch.default`   | Future claims. In-flight issues keep the agent and template frozen at first dispatch. |
 | Per-rule `dispatch` template files     | Read on WORKFLOW.md load and reload; a standalone edit applies on the next WORKFLOW.md change or dispatch. |
