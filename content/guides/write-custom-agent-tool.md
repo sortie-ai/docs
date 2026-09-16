@@ -303,12 +303,13 @@ Key variables:
 | `SORTIE_WORKSPACE` | Absolute path to the session workspace directory |
 | `SORTIE_ISSUE_ID` | Tracker issue ID for the current session |
 | `SORTIE_ISSUE_IDENTIFIER` | Human-readable ticket key (e.g., `PROJ-123`) |
-| `SORTIE_SESSION_ID` | The agent's session identifier; Sortie writes it as an empty string in this environment |
 | `SORTIE_DISPATCH_ID` | Identifies the current dispatch; used by `cost_budget` to match the running session |
 | `SORTIE_ATTEMPT` | Current retry attempt number (1-based). Absent on first dispatch. |
 | `SORTIE_DB_PATH` | Path to the SQLite database (read-only access) |
 
 Read them with `os.Getenv` from inside your constructor or `Execute` method, depending on when you need the value. For the full table and details, see the [environment variables reference](/reference/environment/#mcp-server-environment).
+
+There's no environment variable for the agent's live session id: the worker hasn't learned it yet when it writes this environment. If your tool needs it, don't reach for `os.Getenv`. Read it the way `notify_operator` does: from the `.sortie/dispatch.json` record the worker keeps current, fenced by `SORTIE_DISPATCH_ID`. See [how `notify_operator` resolves a session id](/reference/agent-extensions/#notify_operator) for the mechanism.
 
 ## Understand tool tiers
 

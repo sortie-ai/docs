@@ -715,11 +715,13 @@ No additional fields are accepted. Unknown fields, trailing content, out-of-enum
 
 ### How it works
 
-Each accepted call produces one notification with two layers. The agent supplies the message (`severity`, `title`, `body`, optional `category`). The tool fills the envelope from session context the agent cannot set or forge: a generated UUID `notification_id`, an RFC3339 UTC `timestamp`, a `source` identifying the Sortie instance (the hostname), the `issue_id` and `identifier`, a `session_id` that is always an empty string, the `attempt` (`null` on the first run), and the dispatch-frozen `agent` kind from `SORTIE_SESSION_AGENT_KIND`.
+Each accepted call produces one notification with two layers. The agent supplies the message (`severity`, `title`, `body`, optional `category`). The tool fills the envelope from session context the agent cannot set or forge: a generated UUID `notification_id`, an RFC3339 UTC `timestamp`, a `source` identifying the Sortie instance (the hostname), the `issue_id` and `identifier`, a `dispatch_id`, a `session_id`, the `attempt` (`null` on the first run), and the dispatch-frozen `agent` kind from `SORTIE_SESSION_AGENT_KIND`.
+
+`dispatch_id` and `session_id` come from different places and change on different schedules. `dispatch_id` arrives once, in the tool server's own environment (`SORTIE_DISPATCH_ID`), and stays fixed for every notification sent by that dispatch, including every retry and continuation of a resumed session. `session_id` is not an environment variable: the worker writes the session id it has accepted from the agent runtime into a `.sortie/dispatch.json` record, and the tool re-reads that record on every call, accepting the value only when the record's `dispatch_id` matches its own. Until the worker has accepted a session id, `session_id` is empty; an agent kind whose runtime never reports one leaves it empty for the whole dispatch. A record left behind by a different dispatch is rejected the same way a missing record is, so a tool server process that outlives its own dispatch never reports a session id that belongs to someone else.
 
 Delivery goes to every configured backend in configuration order and stops at the first backend that fails, which yields a `send_failed` error. Partial delivery across backends is not reported in this version. Each backend call carries a 10-second timeout, so a slow endpoint cannot stall the turn indefinitely.
 
-Calls are capped per session. The effective cap is the highest non-zero `max_per_session` across the configured backends, falling back to 20 when every entry is `0` or unset; `0` selects the default, never unlimited. A call past the cap returns `rate_limited` and sends nothing. The counter counts accepted tool calls, not per-backend sends, and increments only after every backend succeeded, so a failed call does not consume the cap.
+Calls are capped per `sortie mcp-server` process. The effective cap is the highest non-zero `max_per_session` across the configured backends, falling back to 20 when every entry is `0` or unset; `0` selects the default, never unlimited. A call past the cap returns `rate_limited` and sends nothing. The counter counts accepted tool calls, not per-backend sends, and increments only after every backend succeeded, so a failed call does not consume the cap. The counter lives in memory in that one process: an agent runtime that keeps one tool server running for the whole session shares one count across it, but a runtime that starts a fresh tool server process for each turn starts a fresh count with each turn, and a `session_id` change never resets it either way.
 
 The backends never log or echo the endpoint URL, the request body, or the response body. Delivery failures surface as fixed categories (`timeout`, `connection failure`, `unauthorized (HTTP <code>)`, `rate limited (HTTP 429)`, `server error (HTTP <code>)`, `unexpected response (HTTP <code>)`) in the `send_failed` message, so a secret-bearing webhook URL never reaches a log or the agent.
 
@@ -734,7 +736,8 @@ The `webhook` backend posts the notification as a single JSON object with generi
   "source": "build-host-01",
   "issue_id": "abc123",
   "identifier": "PROJ-42",
-  "session_id": "",
+  "dispatch_id": "C5SHAUWY3XNYELVKFV46X6B2UP",
+  "session_id": "session-abc-001",
   "attempt": 2,
   "agent": "claude-code",
   "severity": "critical",
@@ -744,7 +747,7 @@ The `webhook` backend posts the notification as a single JSON object with generi
 }
 ```
 
-`attempt` is `null` on the first run and a number afterwards. `category` is omitted when the agent did not set one. This outbound webhook backend is unrelated to tracker webhooks: Sortie has no inbound webhook receiver and discovers tracker state only by polling, so the word describes an outbound POST here and nothing else.
+`attempt` is `null` on the first run and a number afterwards. `session_id` is `""` until the worker has accepted one from the agent runtime, and stays `""` for the whole dispatch when the agent kind never reports one. `category` is omitted when the agent did not set one. This outbound webhook backend is unrelated to tracker webhooks: Sortie has no inbound webhook receiver and discovers tracker state only by polling, so the word describes an outbound POST here and nothing else.
 
 The `slack` backend posts a Slack incoming-webhook body whose `text` field renders the message with the severity uppercased:
 
@@ -752,7 +755,7 @@ The `slack` backend posts a Slack incoming-webhook body whose `text` field rende
 {"text": "[CRITICAL] Decision needed: breaking schema change\nFixing this bug requires dropping a column other services may read. Need a human decision before proceeding."}
 ```
 
-The Slack rendering carries only the message. The envelope (issue key, session ID) does not appear in the Slack text.
+The Slack rendering carries only the message. The envelope (issue key, dispatch ID, session ID) does not appear in the Slack text.
 
 ### Response envelope
 
@@ -787,7 +790,7 @@ The Slack rendering carries only the message. The envelope (issue key, session I
 | Kind | Meaning |
 |---|---|
 | `invalid_input` | Malformed request: unknown or trailing fields, an out-of-enum `severity` or `category`, or an empty `title` or `body`. |
-| `rate_limited` | The per-session notification cap is reached. Nothing was sent. |
+| `rate_limited` | The tool server process's notification cap is reached. Nothing was sent. |
 | `send_failed` | A backend returned a transport failure, a non-2xx response, or an unparseable response. The message is a redacted category and never echoes the URL, request body, or response body. |
 | `backend_unavailable` | No backend could be resolved at execution time. Defensive: normal operation registers the tool only when a backend is configured. |
 
