@@ -67,3 +67,4 @@ Sortie watches this file, polls Jira for matching issues, creates an isolated wo
 - [Changelog](/changelog/): release history
 - [GitHub](https://github.com/sortie-ai/sortie): source code
 - [Contributing](https://github.com/sortie-ai/sortie/blob/main/CONTRIBUTING.md): how to contribute
+- [Discord](https://discord.gg/MCNrc8Wf9M): Discord community
