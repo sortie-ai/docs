@@ -311,7 +311,9 @@ The issue is open, `backlog` is gone, and `review` is present. If the label did 
 
 ### Check the dashboard
 
-The dashboard is served only while Sortie runs, so start it again with `sortie ./WORKFLOW.md` and open `http://127.0.0.1:7678/`. Run History lists issue `8` as `succeeded`, with `Attempt 1` and `Turns 1` in its expanded row. The Total Tokens card reads `0`, and runs on this kind never add to it. While Gemini works on your next issue, its expanded Running Sessions row says why: Usage reporting reads `this session reports no token usage`, and Model, API Requests, and Tokens show a dash.
+The dashboard is served only while Sortie runs, so start it again with `sortie ./WORKFLOW.md` and open `http://127.0.0.1:7678/`. Run History lists issue `8` as `succeeded`, with `Attempt 1` and `Turns 1` in its expanded row.
+
+What the Total Tokens card reads depends on the Gemini build you installed. Sortie takes this runtime's token figures from Gemini's own telemetry, and it does that for the one build it has been measured against, `0.59.0`. Scroll back to the `agent implementation` line in your log: the `version=` on it is the build that answered the handshake. On `0.59.0` the card carries this run's tokens, and while Gemini works on your next issue its expanded Running Sessions row names the model it used. On any other build the card stays at `0`, and that row reads `not reported yet` under Tokens until the turn ends, then `not reported`. Usage reporting reads `figures arrive when a turn ends, per model` either way, because that is what the kind declares for a local launch before the runtime has answered for itself. The [Gemini CLI reference](/reference/agent-client-protocol-gemini/#token-accounting-depends-on-the-build-and-its-in-turn-signal-understates) has the rest.
 
 ### Troubleshooting
 

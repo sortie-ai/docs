@@ -292,12 +292,12 @@ In local mode the adapter injects only the managed `OPENCODE_*` values above; ev
 
 **For `agent-client-protocol`, Sortie manages no credential at all.** This kind names no default runtime, so there is no fixed variable to preflight or document here: whichever binary `agent.command` names reads its own credential from the inherited environment, exactly like every other agent adapter's subprocess. See the [Agent Client Protocol adapter reference](/reference/adapter-agent-client-protocol/) for the kind itself, and [Gemini CLI](/reference/agent-client-protocol-gemini/) or [Kiro CLI](/reference/agent-client-protocol-kiro/) on that route for what each of those two runtimes actually reads.
 
-A local launch of Gemini CLI specifically does carry something Sortie sets, though it is not a credential: Sortie's own [measurement source](/reference/agent-client-protocol-gemini/#token-accounting-depends-on-the-build-and-its-in-turn-signal-understates) sets three variables to redirect the runtime's own telemetry to a file it reads for token accounting, overriding any value your own Gemini configuration already gives them.
+A local launch of Gemini CLI specifically does carry something Sortie sets, though it is not a credential: Sortie's own [measurement source](/reference/agent-client-protocol-gemini/#token-accounting-depends-on-the-build-and-its-in-turn-signal-understates) sets three variables to redirect the runtime's own telemetry to a file it reads for token accounting. They are appended to the environment Sortie itself started from, so they override any value already set there, and they reach nothing but that session's runtime.
 
 | Variable | Purpose | Description |
 |---|---|---|
 | `GEMINI_TELEMETRY_ENABLED` | Turns telemetry on | Set to `true` for the whole session. |
-| `GEMINI_TELEMETRY_TARGET` | Where telemetry goes | Set to `local`, overriding any other destination your own configuration names. |
+| `GEMINI_TELEMETRY_TARGET` | Where telemetry goes | Set to `local`, so the session's telemetry lands in a file rather than at any collector the inherited value named. |
 | `GEMINI_TELEMETRY_OUTFILE` | Telemetry output path | Points into a private directory Sortie creates for the session and removes when the session ends. |
 
 An SSH launch never sets these, which is one reason Gemini CLI over SSH is never measured.
