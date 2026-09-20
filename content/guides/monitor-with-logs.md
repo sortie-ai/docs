@@ -258,13 +258,13 @@ time=2026-03-26T14:35:22.000+00:00 level=WARN msg="token budget exhausted, block
 
 This fires when `agent.max_tokens` is set and an issue's cumulative tokens across every completed session reach the configured ceiling. It is the pre-dispatch lane: it runs before a scheduled retry fires and blocks that dispatch. A session already running is stopped by a separate record, below. `used_tokens` is the issue's running total; `budget_tokens` is the ceiling it hit. `used_sessions` and `budget_sessions` report the same comparison for the session-count budget, in case the issue is close to both ceilings at once.
 
-A session whose coding agent reported no token usage at all is recorded as unmeasured and contributes nothing to `used_tokens`. When an issue is still under the ceiling but some of its sessions went unmeasured, Sortie says so and dispatches anyway:
+A session whose coding agent reported no token usage at all is recorded as unmeasured and contributes nothing to `used_tokens`. When an issue is still under the ceiling but its total is known to fall short of what the issue really spent, Sortie says so and dispatches anyway:
 
 ```
-time=2026-03-26T14:35:22.000+00:00 level=WARN msg="token budget cannot be fully evaluated, allowing dispatch" issue_id=abc123 issue_identifier=MT-649 used_tokens=31000 budget_tokens=50000 unmeasured_sessions=2
+time=2026-03-26T14:35:22.000+00:00 level=WARN msg="token budget cannot be fully evaluated, allowing dispatch" issue_id=abc123 issue_identifier=MT-649 used_tokens=31000 budget_tokens=50000 unmeasured_sessions=2 unaccounted_turns=0
 ```
 
-`unmeasured_sessions` is how many of the issue's recorded sessions carry no spend figure, so `used_tokens` is a lower bound rather than the whole story. The ceiling message above takes precedence: an issue whose measured total already reaches the ceiling is blocked and logs that instead.
+Two counts say what the sum leaves out, and the record carries both every time. `unmeasured_sessions` is how many of the issue's recorded sessions carry no spend figure. `unaccounted_turns` is how many turns reached the model without a figure that covered them, which a session can accumulate even when every one of its figures arrived. Either count above `0` makes `used_tokens` a lower bound rather than the whole story. The ceiling message above takes precedence: an issue whose measured total already reaches the ceiling is blocked and logs that instead.
 
 If Sortie can't read the token total at all, it fails open rather than blocking a retry on a persistence error:
 
@@ -277,14 +277,14 @@ WARN in all three cases, but the outcome differs: dispatch proceeds for the latt
 ### Token ceiling stops a run in flight
 
 ```
-time=2026-03-26T14:41:07.000+00:00 level=WARN msg="run stopped by token ceiling" issue_id=abc123 issue_identifier=MT-649 session_id=session-abc-002 reason=token_budget used_tokens=50240 budget_tokens=50000 issue_tokens_completed=31000 session_tokens=19240 sum_source=confirmed_read ceiling_setting=agent.max_tokens unmeasured_sessions=0
+time=2026-03-26T14:41:07.000+00:00 level=WARN msg="run stopped by token ceiling" issue_id=abc123 issue_identifier=MT-649 session_id=session-abc-002 reason=token_budget used_tokens=50240 budget_tokens=50000 issue_tokens_completed=31000 session_tokens=19240 sum_source=confirmed_read ceiling_setting=agent.max_tokens unmeasured_sessions=0 unaccounted_turns=0
 ```
 
 The same ceiling, reached during a session rather than between two. Sortie cancels the worker, and the attempt lands in run history under status `budget_stopped` rather than `cancelled`. One record per run: later usage events on a session already stopped log nothing.
 
 Read `session_tokens` against `issue_tokens_completed` to see who spent the budget. `session_tokens` is what the cancelled session had spent on its own, `issue_tokens_completed` is what the issue's earlier sessions had already banked, and `used_tokens` is their sum, the figure compared against `budget_tokens`.
 
-`sum_source` says how that sum was established. `confirmed_read` means a database read settled the completed total, and `unmeasured_sessions` then reports how many of the issue's runs carry no spend figure. `session_spend_alone` means the read failed and the running session had spent the whole budget by itself, which needs no read to prove; the record carries no `unmeasured_sessions` in that case, and `used_tokens` is a lower bound.
+`sum_source` says how that sum was established. `confirmed_read` means a database read settled the completed total, and the record then carries `unmeasured_sessions` and `unaccounted_turns`, the two counts that report what the total leaves out. `session_spend_alone` means the read failed and the running session had spent the whole budget by itself, which needs no read to prove; neither count appears in that case, and `used_tokens` is a lower bound.
 
 Three more records surround the check, all WARN, all gated on `agent.max_tokens` being set. Two fire at dispatch and describe what the ceiling can bound for the session about to start:
 

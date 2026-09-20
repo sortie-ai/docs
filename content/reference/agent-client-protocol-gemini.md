@@ -65,9 +65,11 @@ The runtime's own workspace-trust guard raises an error only in its own headless
 
 ## Limitations
 
-### Token accounting understates spend in two shapes
+### Token accounting depends on the build, and its in-turn signal understates
 
-This runtime never sends the protocol's standard usage notification. What Sortie's generic adapter reads from this route is nothing at all: token accounting for this kind carries no spend counter, so every run over this route is recorded unmeasured, exactly as [the kind page states](/reference/adapter-agent-client-protocol/#token-accounting). Separately from what Sortie reads, the runtime itself attaches token counts to a completed turn's own result on a vendor-namespaced field, and that figure is incomplete in two ways worth knowing before treating it as a spend estimate by any other means: a turn Sortie cancels carries no such field at all, so a cancelled turn appears to have cost nothing even though the model was billed for it, and even a turn that does carry the field reports only input and output counts, never cached or thought tokens. Sortie cancels a turn that exceeds `agent.stall_timeout_ms` or `agent.turn_timeout_ms`, the time bounds that stand in for a token budget on this kind, so the first gap is reachable in ordinary operation, not only at the edge of a run.
+This runtime never sends the protocol's standard usage notification. Sortie measures it anyway, from telemetry the runtime writes on the machine that ran it, which makes this the one runtime on this kind whose local sessions are measured at all. [The kind page](/reference/adapter-agent-client-protocol/#token-accounting) carries the conditions and the notice that tells you which way a session went. Two of those conditions bite here: a session over SSH is never measured, because the telemetry lands on the far host, and the source supplies a figure only for a build it was measured against, so upgrading the runtime can end measurement with nothing else about the run changing.
+
+Separately, the runtime attaches its own token counts to a completed turn's result on a vendor-namespaced field, which Sortie reads as a lower bound on that turn rather than as the spend it records. That field is incomplete in two ways: a turn Sortie cancels carries no such field at all, and even a turn that does carry it reports only input and output counts, never cached or thought tokens. Sortie cancels a turn that exceeds `agent.stall_timeout_ms` or `agent.turn_timeout_ms`, so the first gap is reachable in ordinary operation, not only at the edge of a run.
 
 ### Sessions are not closed through the protocol
 

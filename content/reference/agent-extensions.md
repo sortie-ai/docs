@@ -599,6 +599,8 @@ At session exit, Sortie clears the row's dispatch ID before recording the finish
 
 A session whose coding agent reported no token usage is recorded as unmeasured: its spend is unknown, not zero, so it adds nothing to `used_tokens` and `unmeasured_sessions` counts it.
 
+A measured session can still leave spend out. When a turn reaches the model and the figure that arrives does not cover the whole of it, the difference reaches no counter: `used_tokens` omits it, and no response field counts it. `used_tokens_complete` is the only place it shows, which is why that field can read `false` while `unmeasured_sessions` is `0`.
+
 Run-history rows written before the token columns existed (migration 011) read as zero, so spend recorded before the upgrade is invisible to the budget. Rows written before the measurement flag existed (migration 012) count as measured, because their provenance is not recoverable.
 
 ### Response fields
@@ -613,7 +615,7 @@ The fields below are returned under `data` in the standard success envelope:
 | `used_sessions` | integer | Completed sessions for the issue. The running session is not counted. Unmeasured sessions still count here, because [`agent.max_sessions`](/reference/workflow-config/#agent) counts sessions rather than spend. |
 | `budget_sessions` | integer | The configured [`agent.max_sessions`](/reference/workflow-config/#agent). `0` means unlimited. |
 | `unmeasured_sessions` | integer | Completed sessions whose coding agent reported no token usage. `used_tokens` excludes them rather than counting them as zero spend. |
-| `used_tokens_complete` | boolean | `false` when `unmeasured_sessions` is above `0`, when no dispatch ID was supplied, or when no session record matches the supplied dispatch ID. `true` otherwise. On `false`, treat `used_tokens` as a lower bound and `remaining_tokens` as an upper bound. |
+| `used_tokens_complete` | boolean | `false` when `unmeasured_sessions` is above `0`, when a completed session left a turn's spend unaccounted for, when no dispatch ID was supplied, or when no session record matches the supplied dispatch ID. `true` otherwise. On `false`, treat `used_tokens` as a lower bound and `remaining_tokens` as an upper bound. |
 
 `used_tokens` includes the running session while `used_sessions` excludes it. The asymmetry is deliberate: a session is either finished or not, tokens accrue continuously, and a reading that ignored in-flight spend would be useless at exactly the moment the agent consults it.
 
