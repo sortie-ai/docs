@@ -282,6 +282,6 @@ The key pieces:
 - **Least-loaded dispatch**: Sortie balances work across hosts automatically
 - **Retry affinity**: failed sessions prefer the same host on retry, avoiding redundant workspace setup
 - **Agent tools**: available on `claude-code` and `copilot-cli` remotely; withheld on `codex`, `opencode`, and `agent-client-protocol`, which reach them only on a local launch
-- **Token usage**: reported remotely on `claude-code`, `codex`, and `opencode`; `copilot-cli` reports none over SSH, because it recovers its figures from an on-disk journal the adapter does not read remotely, so token budgets and cost estimates go inert for those sessions
+- **Token usage**: reported remotely on `claude-code`, `codex`, and `opencode`; `copilot-cli` and `agent-client-protocol` report none over SSH, because both recover their figures from files the runtime writes on the machine that ran it, which the adapter reads only on a local launch, so token budgets and cost estimates go inert for those sessions
 
 For the full SSH configuration schema, see the [WORKFLOW.md reference](/reference/workflow-config/). For environment variables injected into hooks during SSH dispatch, see the [environment variables reference](/reference/environment/).

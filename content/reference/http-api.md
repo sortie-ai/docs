@@ -320,8 +320,8 @@ The same row on a session that has measured nothing, showing only the fields tha
 | Field | Description |
 |---|---|
 | `unmeasured_sessions` | Ended sessions whose token usage was never recorded. Persisted, so it survives a restart. An upgrade backfills it from existing run history, but only as far back as Sortie has distinguished a measured run from an unmeasured one; an older run reads as measured and is not counted, even one that actually reported nothing. |
-| `running_unreported` | Currently running sessions whose agent kind reports usage but has not reported a figure yet. |
-| `running_non_reporting` | Currently running sessions whose `usage_arrival` is `"none"`. |
+| `running_unreported` | Currently running sessions whose agent kind reports usage, which have reported no figure yet and can still report one. |
+| `running_non_reporting` | Currently running sessions that will contribute no figure: `usage_arrival` is `"none"`, or it reports figures and the moment one could have arrived has passed with nothing counted. The two counts partition the running sessions the token totals exclude, so a session moves from `running_unreported` to this one rather than staying in limbo. |
 
 **`active_estimated_cost_usd`:** Estimated total cost across currently running sessions, computed from configured [token rates](/reference/workflow-config/#token_rates) and each running session's agent adapter kind. Sessions whose `tokens_measured` is `false` are excluded. Omitted when token rates are not configured or no running session both matches a configured rate and has reported token usage. This is a presentation-layer estimate, not provider billing data.
 

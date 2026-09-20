@@ -286,7 +286,7 @@ Read `session_tokens` against `issue_tokens_completed` to see who spent the budg
 
 `sum_source` says how that sum was established. `confirmed_read` means a database read settled the completed total, and the record then carries `unmeasured_sessions` and `unaccounted_turns`, the two counts that report what the total leaves out. `session_spend_alone` means the read failed and the running session had spent the whole budget by itself, which needs no read to prove; neither count appears in that case, and `used_tokens` is a lower bound.
 
-Three more records surround the check, all WARN, all gated on `agent.max_tokens` being set. Two fire at dispatch and describe what the ceiling can bound for the session about to start:
+Four more records surround the check, all WARN, all gated on `agent.max_tokens` being set. Two fire at dispatch and describe what the ceiling can bound for the session about to start:
 
 ```
 time=2026-03-26T14:38:02.000+00:00 level=WARN msg="token ceiling cannot bound this run" issue_id=abc123 issue_identifier=MT-649 agent_kind=kiro usage_arrival=none budget_tokens=50000
@@ -302,6 +302,14 @@ time=2026-03-26T14:40:55.000+00:00 level=WARN msg="in-flight token ceiling check
 ```
 
 The run keeps going and can pass the ceiling until a later read succeeds or the session ends. It logs once per run, no matter how many later reads fail, so read one of these as an interval during which the ceiling was not enforced rather than as a single moment.
+
+The fourth fires once, at the end of a run that reported nothing although its agent kind said figures would arrive:
+
+```
+time=2026-03-26T14:52:18.000+00:00 level=WARN msg="run reported no token usage, token ceiling could not bound it" issue_id=abc123 issue_identifier=MT-649 session_id=session-abc-004 agent_kind=agent-client-protocol usage_arrival=turn_end budget_tokens=50000
+```
+
+This is the after-the-fact counterpart of the first record. Nothing warned at dispatch, because the kind declares that figures arrive; the runtime behind it then produced none, and the ceiling bounded nothing. `agent-client-protocol` is where you are most likely to meet it: a local session there is declared reporting before its runtime has said anything, and it delivers a figure only for a runtime Sortie ships a measurement source for, on a build that source recognizes. See [token accounting on that kind](/reference/adapter-agent-client-protocol/#token-accounting) for which way a given session went.
 
 ### Dispatch preflight failures
 
