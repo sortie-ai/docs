@@ -67,7 +67,7 @@ Run this agent inside a hardened sandbox regardless of which posture you choose.
 
 ### Token accounting has no source on this route
 
-No per-turn token count reaches Sortie on this route, so every run over it is recorded unmeasured, exactly as [the kind page states](/reference/adapter-agent-client-protocol/#token-accounting): `agent.max_tokens` never takes effect for a session on this kind, and `agent.turn_timeout_ms` and `agent.stall_timeout_ms` are what bound a turn instead. The runtime's own unit of account is credits rather than tokens, which is a cost reading, not a token count, and nothing converts one into the other.
+No per-turn token count reaches Sortie on this route, and Sortie ships no measurement source for this runtime, so every run over it is recorded unmeasured, as [the kind page](/reference/adapter-agent-client-protocol/#token-accounting) describes for a runtime it cannot measure. `agent.max_tokens` therefore never takes effect on this route, and `agent.turn_timeout_ms` and `agent.stall_timeout_ms` are what bound a turn instead. The runtime's own unit of account is credits rather than tokens, which is a cost reading, not a token count, and nothing converts one into the other.
 
 ### Sessions are not closed through the protocol
 

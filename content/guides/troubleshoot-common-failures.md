@@ -169,7 +169,7 @@ The agent asked for something no unattended run can supply: an answer to a quest
 ## A session is stopped in flight by the token budget
 
 ```
-level=WARN msg="run stopped by token ceiling" issue_id="PROJ-42" issue_identifier="PROJ-42" session_id="session-abc-002" reason=token_budget used_tokens=1503417 budget_tokens=1500000 issue_tokens_completed=1481200 session_tokens=22217 sum_source=confirmed_read ceiling_setting=agent.max_tokens unmeasured_sessions=0
+level=WARN msg="run stopped by token ceiling" issue_id="PROJ-42" issue_identifier="PROJ-42" session_id="session-abc-002" reason=token_budget used_tokens=1503417 budget_tokens=1500000 issue_tokens_completed=1481200 session_tokens=22217 sum_source=confirmed_read ceiling_setting=agent.max_tokens unmeasured_sessions=0 unaccounted_turns=0
 ```
 
 The issue's cumulative token spend reached [`agent.max_tokens`](/reference/workflow-config/#agent) while a session was running, so Sortie cancelled the worker rather than let the session run to the end over budget. The attempt is recorded with status `budget_stopped`, the claim is released, and no retry is scheduled. At the next poll tick the issue enters the budget-exhausted set, and that is what posts the comment naming the ceiling on the tracker.
