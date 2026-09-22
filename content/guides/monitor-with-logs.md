@@ -281,7 +281,11 @@ WARN in all three cases, but the outcome differs: dispatch proceeds for the latt
 time=2026-03-26T14:41:07.000+00:00 level=WARN msg="run stopped by token ceiling" issue_id=abc123 issue_identifier=MT-649 session_id=session-abc-002 reason=token_budget used_tokens=50240 budget_tokens=50000 issue_tokens_completed=31000 session_tokens=19240 sum_source=confirmed_read ceiling_setting=agent.max_tokens unmeasured_sessions=0 unaccounted_turns=0
 ```
 
-The same ceiling, reached during a session rather than between two. Sortie cancels the worker, and the attempt lands in run history under status `budget_stopped` rather than `cancelled`. One record per run: later usage events on a session already stopped log nothing.
+The same ceiling, reached during a session rather than between two. The moment a usage figure carries the sum to the ceiling, Sortie decides to stop the run. This record is logged later, at the run's exit, once that decision is confirmed to be what ended the run, so its timestamp can trail the crossing by however long teardown takes.
+
+Not every decision produces this line. Only a run the ceiling's cancellation actually ends gets one; a run that finishes on its own, or that a different cancellation ends first, gets none. See [how to control agent costs](/guides/control-costs/#cap-tokens-per-issue) for which runs that is. A stop that lands during self-review, or keeps it from starting, is recorded here too, with no handoff transition performed. Later usage events on a session already stopped log nothing.
+
+`used_tokens` and the other counts on this line are a snapshot from the decision, not the exit. The run-history `error` field for the same run computes its own "used N of M tokens" figure fresh at exit, after any usage the session reported in between, so the two can differ: read this line's figures as what triggered the stop, and the run-history figure as the session's final tally.
 
 Read `session_tokens` against `issue_tokens_completed` to see who spent the budget. `session_tokens` is what the cancelled session had spent on its own, `issue_tokens_completed` is what the issue's earlier sessions had already banked, and `used_tokens` is their sum, the figure compared against `budget_tokens`.
 

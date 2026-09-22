@@ -187,6 +187,8 @@ coding turns → status read → self-review phase → session teardown → afte
 
 The phase's turns count toward the run's completed turns alongside the coding turns. A run admitted to the phase because it exhausted the turn budget, or because the agent wrote `needs-human-review`, takes exactly the disposition it would have taken without the phase; what changes is the work performed before that disposition is computed. Two exceptions: a `blocked` signal written during the phase converts the exit to the blocked disposition on any admission, and a run admitted by a `no-change-needed` declaration takes a *different* disposition depending on what the phase finds: the declaration stands, bypassing the ordinary evidence check, only when the phase confirms it; otherwise it is retracted and the run falls back to the disposition it would have taken with no declaration at all.
 
+A third exception sits outside the phase's own signals. When [`agent.max_tokens`](/reference/workflow-config/#agent) is set and its in-flight check cuts the phase short, or keeps it from starting after the run was otherwise admitted, the run exits recorded `budget_stopped` instead of whatever disposition the phase's own outcome would have produced, and it makes no handoff transition. See [how to control agent costs](/guides/control-costs/#cap-tokens-per-issue) for what triggers that stop.
+
 The `after_run` hook environment includes two self-review variables:
 
 | Variable | Values |
