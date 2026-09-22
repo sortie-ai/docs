@@ -218,6 +218,8 @@ level=INFO msg="tick completed" candidates=1 dispatched=1 ... running=1 retrying
 level=INFO msg="running hook" issue_id=8 issue_identifier=8 hook=after_create workspace=…/workspaces/8
 level=INFO msg="running hook" issue_id=8 issue_identifier=8 hook=before_run workspace=…/workspaces/8
 level=INFO msg="workspace prepared" issue_id=8 issue_identifier=8 workspace=…/workspaces/8
+level=INFO msg="agent implementation" component=clientprotocol-adapter session_id=… name=gemini-cli version=0.x.x
+level=INFO msg="agent credential verified" issue_id=8 issue_identifier=8 duration_ms=…
 level=INFO msg="agent session started" issue_id=8 issue_identifier=8 session_id=dae20664-…
 level=INFO msg="agent implementation" component=clientprotocol-adapter session_id=dae20664-… name=gemini-cli version=0.x.x
 level=INFO msg="turn started" issue_id=8 issue_identifier=8 session_id=dae20664-… turn_number=1 max_turns=3
@@ -225,7 +227,7 @@ level=INFO msg="tool call completed" issue_id=8 issue_identifier=8 session_id=da
 level=INFO msg="tool call completed" issue_id=8 issue_identifier=8 session_id=dae20664-… tool=edit duration_ms=3 outcome=success
 ```
 
-Notice the `agent implementation` line: it names the runtime and version that answered Sortie's protocol handshake. Each `tool call completed` line is one Gemini action finishing; `tool` names the kind of action, such as `read`, `edit`, or `execute`.
+Notice the `agent implementation` line: it names the runtime and version that answered Sortie's protocol handshake, logged once per session. It appears twice here: once for the credential-verification session, before `agent credential verified`, and again for the working session that follows it. Each `tool call completed` line is one Gemini action finishing; `tool` names the kind of action, such as `read`, `edit`, or `execute`.
 
 This task took one to two minutes in our runs. A larger repository takes longer; the 30-minute `turn_timeout_ms` is the backstop, not the expected duration.
 

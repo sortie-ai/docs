@@ -1,6 +1,6 @@
 ---
 title: "Kiro CLI Adapter"
-description: "Complete reference for the native kiro adapter: configuration, session lifecycle, plain-transcript headless output, credential preflight, time-based budgeting, error handling, within-session cwd-scoped resume, SSH remote execution, and how this route compares to Kiro CLI on the Agent Client Protocol."
+description: "Complete reference for the native kiro adapter: configuration, session lifecycle, plain-transcript headless output, credential verification, time-based budgeting, error handling, within-session cwd-scoped resume, SSH remote execution, and how this route compares to Kiro CLI on the Agent Client Protocol."
 author: Sortie AI
 date: 2026-05-29
 weight: 140
@@ -8,7 +8,7 @@ url: /reference/adapter-kiro/
 ---
 The Kiro CLI adapter connects Sortie to the [Kiro CLI](https://kiro.dev/docs/cli/), the rebranded Amazon Q Developer CLI, via subprocess management. It launches `kiro-cli chat --no-interactive`, reads a plain human transcript from stdout, and classifies the turn outcome from the process exit status and stderr. Headless Kiro emits no structured event stream, so the adapter parses no JSON. Registered under kind `"kiro"`.
 
-Each turn spawns a fresh subprocess (fork-per-turn). Session start runs a credential preflight but starts no long-lived process. Events arrive through the turn as it runs.
+Each turn spawns a fresh subprocess (fork-per-turn); session start itself starts no long-lived process. Events arrive through the turn as it runs. Whether the credential actually works is settled separately, once per worker attempt, by the [credential-verification step](/reference/workflow-config/#credential-verification) every agent kind runs before its first working turn; see [authentication](#authentication).
 
 See also: [WORKFLOW.md configuration](/reference/workflow-config/) for the full `agent` schema, [environment variables](/reference/environment/) for `KIRO_API_KEY`, [error reference](/reference/errors/#agent-errors) for all agent error kinds, [how to write a prompt template](/guides/write-prompt-template/) for template authoring.
 
@@ -110,12 +110,10 @@ Building the adapter reports the mutual-exclusion fault with the same message, s
 
 ### Session start
 
-Validates the workspace path, resolves the `kiro-cli` binary, verifies the credential, and initializes per-session state. No subprocess is spawned.
+Validates the workspace path, resolves the `kiro-cli` binary, and initializes per-session state. No subprocess is spawned for an ordinary working session; a [credential-verification session](#authentication) additionally runs a `whoami` guard and lists the workspace's existing conversations here.
 
 1. Resolves the launch target. This validates that the workspace path is a non-empty absolute path pointing to an existing directory, and resolves `command` from `PATH`, defaulting to `kiro-cli`. In SSH mode, it resolves the local `ssh` binary instead and stores the remote command for later use.
-2. **Local mode:** runs the credential preflight. Confirms `KIRO_API_KEY` is set, then runs a `kiro-cli whoami` canary. See [authentication](#authentication).
-3. **SSH mode:** skips the credential preflight. `KIRO_API_KEY` reaches the remote agent's environment instead, unchecked. See [SSH remote execution](#ssh-remote-execution).
-4. The session carries no agent process ID at the start, taking the session ID saved from a previous run as its own when continuation is requested.
+2. The session carries no agent process ID at the start, taking the session ID saved from a previous run as its own when continuation is requested.
 
 **Errors:**
 
@@ -126,11 +124,8 @@ Validates the workspace path, resolves the `kiro-cli` binary, verifies the crede
 | Agent command is empty or whitespace-only | `agent_not_found` |
 | Local `kiro-cli` binary not found in `PATH` | `agent_not_found` |
 | SSH binary not found (SSH mode) | `agent_not_found` |
-| `KIRO_API_KEY` not set (local mode) | `response_error` |
-| `kiro-cli whoami` canary times out or exits non-zero (local mode) | `response_error` |
-| Canary output shows an invalid or expired key (local mode) | `response_error` |
 
-The credential errors surface as `response_error` rather than `agent_not_found`, because the binary is already resolved when the canary runs. A canary failure means the present binary could not confirm the credential, not that the agent is missing, so it is classified as a retryable credential problem.
+Session start for a working session runs no credential check of its own: its credential-verification session already proved the credential moments before. See [authentication](#authentication) for that guard's own errors.
 
 ### Turn
 
@@ -158,14 +153,14 @@ This is the defining section. Headless Kiro emits no structured stream. There is
 
 stdout is a human transcript. For a turn that invokes no tools, it carries the assistant answer with a colorized `> ` marker and ANSI styling. A turn that invokes tools also prints tool-progress lines. The adapter launches with `--wrap never` to disable width-based line wrapping, strips ANSI color and style escapes from each line, and accumulates the cleaned text into a per-turn buffer.
 
-Each non-empty cleaned line is surfaced as a `notification` event, with the message truncated to 500 runes. The accumulated buffer is not truncated; the adapter's outcome classifier reads its length to distinguish an empty-stdout authentication failure from a turn that produced output. The notifications exist for observability; the adapter does not derive turn outcome from them.
+Each non-empty cleaned line is surfaced as a `notification` event, with the message truncated to 500 runes. The accumulated buffer is not truncated; the adapter's outcome classifier reads its length to tell a turn that produced nothing from a turn that produced output. The notifications exist for observability; the adapter does not derive turn outcome from them.
 
-stderr carries the signals the adapter classifies:
+stderr carries one signal the working-session adapter classifies, and one it does not:
 
 | stderr content | Meaning |
 |---|---|
 | `▸ Credits:` trailer | The one positive proof a turn executed, and only when the collection it came from finished. The numeric credit and time values vary; the prefix is the stable contract. |
-| `Authentication failed.` | The credential is present but invalid. |
+| `Authentication failed.` | The credential is present but invalid. Neither the working-session adapter nor the credential-verification guard (see [authentication](#authentication)) reads this marker: the guard decides from `whoami`'s own exit status, and a working turn under a rejected credential is left to the shared zero-work outcome. It is documented here because it is what you see in raw stderr while diagnosing one. |
 | Warnings (for example, `Failed to retrieve MCP settings`) | Non-fatal diagnostics. Re-emitted at WARN level on failure paths. |
 
 There are no per-event timestamps in the transcript. The adapter cannot reconstruct tool-call durations, so it emits no tool-result events. That is the practical difference from an adapter with a structured stream: there is nothing to correlate, so tool activity does not reach Sortie's events at all.
@@ -188,14 +183,13 @@ No model name is reported either, and not as an incidental side effect of the mi
 
 ### Outcome classification
 
-The turn outcome is determined from the process exit status, the two stderr signals, and the stdout transcript. The adapter's own classifier reports an outcome for exactly two cases: an exit-0 turn that printed the credits trailer, and an exit-0 turn whose stderr carried the authentication marker and whose stdout carried no non-blank line. Everything else is decided by the shared decision table from the exit status and the stdout evidence, so the messages on those rows are the shared ones rather than anything Kiro-specific.
+The turn outcome is determined from the process exit status, the credits trailer, and the stdout transcript. The adapter's own classifier reports an outcome for exactly one case, an exit-0 turn that printed the credits trailer; everything else, including an exit-0 turn a rejected credential left with empty stdout, is decided by the shared decision table from the exit status and the stdout evidence, so the messages on those rows are the shared ones rather than anything Kiro-specific. A working session runs no credential guard of its own (see [authentication](#authentication)), so a credential rejected outright surfaces through this same shared zero-work row rather than through anything naming the credential.
 
 | Kiro evidence | Exit reason | Error kind | Message | Decided by |
 |---|---|---|---|---|
 | Exit 0 with a `▸ Credits:` trailer on a stderr collection that finished | `turn_completed` | _(none)_ | _(empty)_ | The adapter's classifier. Also sets the resume flag for subsequent turns. |
-| Exit 0, no credits trailer, `Authentication failed.` on stderr, no non-blank stdout line | `turn_failed` | `response_error` | `kiro authentication failed` | The adapter's classifier. |
 | Exit 0, no credits trailer, at least one non-blank stdout line | `turn_completed` | _(none)_ | _(empty)_ | Shared work-present row. Does not set the resume flag. |
-| Exit 0, no credits trailer, no non-blank stdout line | `turn_failed` | `turn_failed` | `agent exited without producing output: no message from the agent` | Shared zero-work row. |
+| Exit 0, no credits trailer, no non-blank stdout line (this is also the shape a rejected credential takes on a working turn) | `turn_failed` | `turn_failed` | `agent exited without producing output: no message from the agent` | Shared zero-work row. |
 | Any other non-zero exit | `turn_failed` | `port_exit` | `non-zero exit` on the event, `exit code N` on the error | Shared non-zero-exit row. |
 | Exit 127 | `turn_failed` | `agent_not_found` | `agent binary not found` | Shared skeleton, before the classifier runs. |
 | Process terminated by a signal | `turn_cancelled` | `turn_cancelled` | `killed by signal` | Shared skeleton, before the classifier runs. The skeleton tests whether the process was signalled, not for a particular exit code. |
@@ -204,11 +198,11 @@ The turn outcome is determined from the process exit status, the two stderr sign
 
 The work evidence this adapter declares is the stdout transcript alone: a line that is not blank once ANSI escapes are stripped is a message from the agent. It declares no tool signal, because the transcript reports no tool activity, so the zero-work message names only the one signal looked for. The credits trailer stays the runtime's own success report and outranks that evidence, which is why a turn printing the trailer reports the same outcome whatever its stdout held.
 
-That ranking holds only for a trailer read from a stderr collection that finished. The trailer is the last thing headless Kiro writes, so one read from a collection cut short by the five-second bound described under [Turn](#turn) may belong to a transcript whose rest never arrived, and the adapter stops treating it as the success report. The turn falls to the rows below: a non-blank stdout line still completes it, and a turn with nothing on stdout fails. The `Authentication failed.` marker is unaffected, because a line that was read was read whatever followed it. The stderr Sortie re-emits from a cut-short collection ends with a marker of its own, saying later output may be missing.
+That ranking holds only for a trailer read from a stderr collection that finished. The trailer is the last thing headless Kiro writes, so one read from a collection cut short by the five-second bound described under [Turn](#turn) may belong to a transcript whose rest never arrived, and the adapter stops treating it as the success report. The turn falls to the rows below: a non-blank stdout line still completes it, and a turn with nothing on stdout fails. The stderr Sortie re-emits from a cut-short collection ends with a marker of its own, saying later output may be missing.
 
 ### Why exit 0 is not success
 
-A successful turn and an invalid-credential turn both exit 0. Exit code alone cannot distinguish them. Two signals can: the `▸ Credits:` trailer on stderr, which a turn prints only after it actually executed, and a non-blank line on stdout, which a rejected credential never produces. The adapter never maps a bare exit 0 to `turn_completed`. It requires one of those two and classifies an exit-0 turn carrying neither as a failure.
+A successful turn and an invalid-credential turn both exit 0 on the headless path. Exit code alone cannot distinguish them; that is one reason the [credential-verification step](/reference/workflow-config/#credential-verification) exists, to catch a rejected credential before any working turn runs at all. On a working turn itself, two signals distinguish the two outcomes: the `▸ Credits:` trailer on stderr, which a turn prints only after it actually executed, and a non-blank line on stdout, which a rejected credential never produces. The adapter never maps a bare exit 0 to `turn_completed`. It requires one of those two and classifies an exit-0 turn carrying neither as a failure.
 
 ---
 
@@ -234,7 +228,7 @@ When the worker configuration includes `ssh_hosts`, the adapter launches `kiro-c
 ### How it works
 
 1. Session start resolves the local `ssh` binary. The agent command is stored for remote execution rather than resolved locally.
-2. The credential preflight is skipped. This kind declares `KIRO_API_KEY` as its credential variable, so the launch carries that name from Sortie's own environment into the remote agent's environment, delivered on the SSH session's standard input rather than in any argument. A value that is unset, empty, or only whitespace is not carried, leaving whatever the host holds in place. See [environment variables carried to a remote agent](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent).
+2. This kind declares `KIRO_API_KEY` as its credential variable, so the launch carries that name from Sortie's own environment into the remote agent's environment, delivered on the SSH session's standard input rather than in any argument. A value that is unset, empty, or only whitespace is not carried, leaving whatever the host holds in place. See [environment variables carried to a remote agent](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent). The [credential-verification guard](#authentication) runs against the remote host the same way it runs locally; it is not skipped in SSH mode.
 3. Each turn builds the per-turn argument list, then builds the SSH connection arguments to wrap it.
 4. The remote shell enters the workspace, exports the variables the launch carries, and only then runs the configured command with that turn's arguments, each step chained on the success of the one before it. The workspace path and each adapter-generated argument are shell-quoted.
 
@@ -262,22 +256,21 @@ SSH exit code `255` indicates a connection failure (refused, timeout, unreachabl
 
 ## Authentication
 
-The adapter consumes `KIRO_API_KEY`. Which subscription plans entitle an account to headless API-key access is Kiro's to document; see the [external references](#external-references). Sortie does not manage the credential beyond the preflight; the subprocess inherits the full parent process environment, and `kiro-cli` reads the key directly.
+The adapter consumes `KIRO_API_KEY`, unless a `kiro-cli` login is already stored on the machine that runs the session. Which subscription plans entitle an account to headless API-key access, and which commands establish a stored login, are Kiro's to document; see the [external references](#external-references). Sortie does not manage the credential itself: the subprocess inherits the full parent process environment, and `kiro-cli` reads whichever credential it finds directly.
 
-Session start runs a credential preflight in local mode:
+Before any working turn runs, once per worker attempt, the [credential-verification step](/reference/workflow-config/#credential-verification) opens a session of its own and runs a guard at session start:
 
-1. Confirms `KIRO_API_KEY` is set and non-empty. A missing key fails with `response_error`.
-2. Runs a `kiro-cli whoami` canary with a 5-second timeout. A timeout or non-zero exit fails with `response_error`.
-3. Inspects the canary output. The key is accepted only when the output contains the success marker `Authenticated with API key` and does not contain `Authentication failed.`. Otherwise the preflight fails with `response_error` for an invalid or expired key.
+1. Runs a `kiro-cli whoami` canary, bounded at 60 seconds, generous enough to cover a stored login refreshing its token over the network.
+2. Decides on the exit status alone: exit `0` proceeds, anything else (a non-zero exit, a timeout, or a failure to start the canary at all) fails the run with `credential_unverified`.
 
-The preflight defends against two distinct failure shapes:
+The guard reads no output text: whether `KIRO_API_KEY` is set, or a stored login answers instead, `whoami` is what actually proves the credential, not a marker string in its stdout. This is what defends against the two failure shapes headless `chat` has:
 
-| Failure | Symptom without the preflight |
+| Failure | Symptom without the guard |
 |---|---|
-| No credential | Headless `chat` enters an interactive device-login flow and blocks indefinitely, because `--no-interactive` does not suppress login. |
+| No credential at all | Headless `chat` enters an interactive device-login flow and blocks indefinitely, because `--no-interactive` does not suppress login. |
 | Invalid key | Headless `chat` exits 0 with empty stdout and `Authentication failed.` on stderr, a silent failure that exit code alone cannot detect. |
 
-The presence check defends against the hang; the `whoami` canary defends against the silent exit-0 failure. It runs once per session, before any turn; a turn that goes silent afterward is ended by stall detection, and the turn timeout is the bound that remains if stall detection is disabled.
+A working session runs no guard of its own: its own verification session already proved the credential moments before, and a working turn's outcome is decided purely from the shared evidence described under [outcome classification](#outcome-classification). The verification session's own conversation is not left behind: session start lists the workspace's existing conversations before the guard runs, and session stop lists them again afterward, deleting whichever single new `classic` conversation the comparison finds with `kiro-cli chat --delete-session <id> --session-source v1`. A failed delete, or a comparison that cannot identify exactly one new conversation, is only logged; it never fails the run and never deletes the wrong conversation.
 
 {{< callout type="warning" >}}
 **MCP is unavailable on the `KIRO_API_KEY` path.** A server-side profile check fails under API-key authentication and the CLI disables MCP. The adapter passes no MCP flag and ignores the MCP configuration path the worker generates, so a Kiro session reaches no MCP server and none of Sortie's own tools. Its first-turn prompt carries no tool advertisement either. See [MCP](#mcp).
@@ -287,7 +280,7 @@ The presence check defends against the hang; the `whoami` canary defends against
 
 | Variable | Required | Description |
 |---|---|---|
-| `KIRO_API_KEY` | Yes (local mode) | Headless credential. A remote session receives it in the agent's own environment, carried from Sortie's environment because this kind declares it, and it overrides any value the host already holds. |
+| `KIRO_API_KEY` | Required, unless a `kiro-cli` login is already stored where the agent runs | Headless credential. Either this key or a stored login satisfies the credential-verification guard above. A remote session receives the variable in the agent's own environment, carried from Sortie's environment because this kind declares it, and it overrides any value the host already holds. |
 
 ---
 
@@ -313,14 +306,14 @@ Setting `kiro.mcp_config` therefore cannot reach the agent. The worker still rea
 | Protocol | CLI flags + JSONL stdout | CLI flags + JSONL stdout | JSON-RPC 2.0 over stdin/stdout | CLI flags + newline-delimited stdout envelopes | CLI flags + plain-text stdout transcript |
 | Headless output | Structured (`stream-json`) | Structured (`json`) | Structured (JSON-RPC notifications) | Structured (`--format json`) | Plain transcript, no structured stream |
 | Output format flag | `--output-format stream-json` | `--output-format json` | JSON-RPC notifications | `--format json` | None |
-| Session ID source | UUID generated by adapter | Discovered from `result` event | Thread ID from `thread/start` | Discovered from the first JSON envelope | None; carries the session ID saved from a previous run only |
-| Resume mechanism | `--resume <UUID>` | `--resume <sessionId>` or `--continue` | `thread/resume` or automatic within session | `--session <sessionID>` | `--resume` (cwd-scoped), after first success |
+| Session ID source | UUID generated by adapter | UUID generated by adapter | Thread ID from `thread/start` | Discovered from the first JSON envelope | None; carries the session ID saved from a previous run only |
+| Resume mechanism | `--resume <UUID>` | `--session-id <uuid>` on the first turn, `--resume <uuid>` after; never `--continue` | `thread/resume` or automatic within session | `--session <sessionID>` | `--resume` (cwd-scoped), after first success |
 | Token accounting | Result event `modelUsage`, with top-level `usage` fallback | Session-state journal on disk, with stream output tokens as the in-turn estimate | `thread/tokenUsage/updated` notification | Separate `export` subprocess | None (credits only, not tokens); every run unmeasured |
 | Model reporting | From `assistant` events | From `assistant.message`/`model.message` records | From the thread-open response, updated on reroute | Recovered from export `providerID/modelID` | Not available |
 | Permission control | `--permission-mode` or `--dangerously-skip-permissions` | `--autopilot` + `--no-ask-user` + tool scoping | `approvalPolicy` and sandbox policy | `--dangerously-skip-permissions` plus `OPENCODE_PERMISSION` | `--trust-all-tools` or `--trust-tools=<csv>` |
 | Inner turn limit | `claude-code.max_turns` | `copilot-cli.max_autopilot_continues` | None | None exposed by the adapter | None exposed by the adapter |
 | Exit-code reliability | Structured result event plus exit | Structured `result.exitCode` plus exit | JSON-RPC turn status | Terminal stdout `error` can still exit `0` | Exit `0` is ambiguous; success requires the credits trailer on stderr or a non-blank stdout line |
-| Credential preflight | None | Env vars + `gh auth status` | `account/read` over JSON-RPC | None | `kiro-cli whoami` canary at session start |
+| Adapter-specific credential check, beyond the [shared verification step](/reference/workflow-config/#credential-verification) every kind runs | None | None | `account/read` and, when needed, a login over JSON-RPC; this is the runtime's actual sign-in, not only a check | None | `kiro-cli whoami` guard, run only on the verification session |
 | Sortie's tools | Generated config path on `--mcp-config` | Generated config path on `--additional-mcp-config` | Generated servers re-expressed as command-line overrides, local launch only | Generated servers re-expressed as an inline configuration document, local launch only | None; the profile gate disables MCP under `KIRO_API_KEY`, and the first-turn advertisement is withheld |
 | Authentication | `ANTHROPIC_API_KEY` (+ Bedrock, Vertex) | `COPILOT_GITHUB_TOKEN` / `GH_TOKEN` / `GITHUB_TOKEN` / `gh auth` | `CODEX_API_KEY` or cached Codex auth | OpenCode-managed provider auth | `KIRO_API_KEY` |
 

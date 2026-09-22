@@ -42,10 +42,10 @@ The agent binary isn't installed or isn't on `PATH`.
 ## Agent crashes on authentication
 
 ```
-level=WARN msg="worker run failed, scheduling retry" error="agent turn 1: agent: port_exit: exit code 1" next_attempt=1 delay_ms=10000
+level=WARN msg="worker run failed, scheduling retry" error="agent session start: agent: credential_unverified: the agent runtime did not complete a credential verification request: exit code 1" next_attempt=1 delay_ms=10000
 ```
 
-Workers start and immediately crash. The actual cause (a missing `ANTHROPIC_API_KEY`) lives inside the agent subprocess, not in Sortie's error output. This is the most common deployment failure.
+Workers never reach a real turn. Before it starts work on an issue, Sortie opens a short-lived session of its own and sends one request through the configured agent, to confirm the credential actually works; see [credential verification](/reference/workflow-config/#credential-verification). What that gives you is the failure happening immediately, before any real work starts, under a name that says it is a credential problem (`credential_unverified`) rather than a puzzling stall or a working session that quietly fails partway through its first turn. It does not by itself say which variable is missing or wrong: that detail, a missing `ANTHROPIC_API_KEY` in this example, lives inside the agent subprocess's own output, not in Sortie's error text, and the steps below are how you read it.
 
 1. Verify the variable is set:
 
@@ -57,11 +57,15 @@ Workers start and immediately crash. The actual cause (a missing `ANTHROPIC_API_
 
 3. Read the `agent stderr` warnings immediately above the error. When a session or a turn fails, Sortie re-emits what the agent wrote to its standard error at WARN, so the runtime's own auth message is already in the default log. `--log-level debug` adds every stderr line as it is read, including from turns that did not fail.
 
-4. For SSH workers, check what the launch carried. A remote agent gets the build host's environment, plus its agent kind's credential variables and whatever [`worker.ssh_pass_env`](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent) names, read from Sortie's own environment. A name Sortie cannot supply is reported at startup:
+4. For SSH workers, check what the launch carried. Credential verification runs against the remote host the same way it runs locally. A remote agent gets the build host's environment, plus its agent kind's credential variables and whatever [`worker.ssh_pass_env`](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent) names, read from Sortie's own environment. A name Sortie cannot supply is reported at startup:
 
     ```
     level=WARN msg="ssh_pass_env variable is not set or empty in the orchestrator environment" variable=ANTHROPIC_API_KEY
     ```
+
+5. On `copilot-cli` specifically, this same error can mean an outdated CLI rather than a bad token: `--session-id` requires Copilot CLI 1.0.51 or later, and the verification session's own first request already carries it. Check `copilot --version` before troubleshooting the credential; see [session identity](/reference/adapter-copilot/#session-identity).
+
+No `agent credential verified` line precedes an error like this one; that line only appears once the check has actually passed. If you do see `agent credential verified` followed by a failure, the credential itself is fine and the problem is in the working turn instead: see [agent exits without producing output](#agent-exits-without-producing-output) or [a turn runs long and gets cut off](#a-turn-runs-long-and-gets-cut-off).
 
 ## A remote agent authenticates as the wrong account
 
