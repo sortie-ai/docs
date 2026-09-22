@@ -386,7 +386,9 @@ No parameters. The agent sends an empty JSON object:
 
 ### How it works
 
-The tool reads `.sortie/state.json`, a file the worker writes at session start, at the start of each turn, and again whenever a measurement arrives: on a token usage event, on any event carrying a non-zero usage payload, or on a turn's result carrying a measurement. The tool validates the file before reading: symlinks are rejected, and files larger than 4 KiB are refused.
+The tool reads `.sortie/state.json`, a file the worker writes at session start, at the start of each coding turn, and again whenever a measurement arrives: on a token usage event, on any event carrying a non-zero usage payload, or on a turn's result carrying a measurement. The tool validates the file before reading: symlinks are rejected, and files larger than 4 KiB are refused.
+
+Review and fix turns in the [self-review phase](/guides/configure-self-review/) write the file too, through that same measurement-arrival trigger, so `tokens` and `tokens_measured` can change after coding turns end. See the `turn_number` and `turns_remaining` rows for what self-review leaves unchanged.
 
 ### Response fields
 
@@ -394,9 +396,9 @@ The fields below are returned under `data` in the standard success envelope:
 
 | Field | Type | Description |
 |---|---|---|
-| `turn_number` | integer | Current turn within the session. |
+| `turn_number` | integer | `0` before the first turn begins, then the coding turn currently in progress. Self-review's review and fix turns do not advance it: once that phase starts, the field holds the run's last coding turn. |
 | `max_turns` | integer | Configured [`agent.max_turns`](/reference/workflow-config/). |
-| `turns_remaining` | integer | `max_turns - turn_number`, clamped to 0. |
+| `turns_remaining` | integer | `max_turns - turn_number`, clamped to `0`. Budgets only the coding turns: self-review's review and fix turns do not count against it and can still run after it reaches `0`. The [iteration limit](/guides/configure-self-review/#configure-iteration-limits) bounds those turns instead. |
 | `attempt` | integer or null | Retry/continuation attempt number. `null` on first run. |
 | `session_duration_seconds` | float | Wall-clock time since session started (millisecond precision). |
 | `tokens` | object | Token usage counters for the current session. Its four members are integer or null, and they are null together, exactly when `tokens_measured` is `false`. |
