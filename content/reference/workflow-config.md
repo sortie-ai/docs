@@ -133,7 +133,7 @@ self_review:
 notifications:
   - kind: slack                       # Notifier backend
     webhook_url: $SORTIE_SLACK_WEBHOOK_URL  # SORTIE_-prefixed reference (required)
-    max_per_session: 20               # Cap per sortie mcp-server process; 0 selects the default (20)
+    max_per_session: 20               # Cap for the whole agent run; 0 selects the default (20)
   - kind: webhook
     url: $SORTIE_OPS_WEBHOOK_URL      # Generic JSON POST endpoint
 
@@ -945,7 +945,7 @@ Each entry accepts two typed fields:
 | Field             | Type    | Default      | Description                                                                                         |
 | ----------------- | ------- | ------------ | ---------------------------------------------------------------------------------------------------- |
 | `kind`            | string  | _(required)_ | Backend discriminator. Built-in backends: `webhook`, `slack`.                                       |
-| `max_per_session` | integer | `20`         | Notification cap for one `sortie mcp-server` process. `0` selects the default (`20`); it never means unlimited. Must be non-negative. |
+| `max_per_session` | integer | `20`         | Notification cap for the whole agent run. `0` selects the default (`20`); it never means unlimited. Must be non-negative. |
 
 Every other key in an entry passes through to the backend untyped, with `$VAR` and `${VAR}` references resolved on string values, the same mechanism as [adapter pass-through configuration](#adapter-pass-through-configuration). Per-backend required fields:
 
@@ -954,7 +954,7 @@ Every other key in an entry passes through to the backend untyped, with `$VAR` a
 | `webhook` | `url`         | Endpoint that receives an HTTP POST of the notification as a JSON object. |
 | `slack`   | `webhook_url` | Slack incoming webhook URL that receives a Slack-shaped JSON body.        |
 
-When more than one entry sets `max_per_session`, the effective cap is the maximum non-zero value across entries, falling back to `20` when every entry is `0` or unset. The cap counts `notify_operator` calls, not per-backend sends, and it belongs to one `sortie mcp-server` process: an agent runtime that starts a new tool server process for each turn starts a new count with each turn, rather than sharing one count across the whole session.
+When more than one entry sets `max_per_session`, the effective cap is the maximum non-zero value across entries, falling back to `20` when every entry is `0` or unset. The cap applies to the whole agent run: every turn and every tool server process the run spawns share one count. A retry or a continuation of a resumed session starts a new run and a new count. See the [agent extensions reference](/reference/agent-extensions/#notify_operator) for how calls are counted and what happens when the count cannot be established.
 
 > [!WARNING]
 > Backend secrets must be references to `SORTIE_`-prefixed environment variables (`$SORTIE_NAME` or `${SORTIE_NAME}`). The `notify_operator` tool runs in a separate `sortie mcp-server` process that receives only `SORTIE_`-prefixed variables; a reference without the prefix, or to an unset variable, resolves to the empty string there and surfaces as a fatal sidecar startup error at session start rather than a notification posted nowhere. `sortie validate` checks the section's shape (a sequence of maps, a non-empty `kind`, a non-negative `max_per_session`) but cannot catch an unknown `kind` or an empty secret.
