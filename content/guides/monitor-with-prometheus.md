@@ -105,7 +105,7 @@ The dashboard includes these panels, grouped into collapsible rows:
 | Poll cycle health | Poll success/error/skip counts with duration overlay |
 | Reconciliation actions | Reconciliation outcome rate by action |
 | Budget Exhaustions | Issue entries into the budget-exhausted set over the last hour, by reason |
-| Runs Stopped In Flight | Sessions stopped in flight by a budget ceiling, by reason |
+| Runs Stopped In Flight | Runs recorded `budget_stopped`, by reason |
 | Tracker API | Tracker adapter call rate by operation and result |
 | Handoff transitions | Handoff transition outcome counters |
 | Dispatch transitions | Dispatch-time transition outcome counters |
