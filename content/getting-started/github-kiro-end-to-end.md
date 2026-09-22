@@ -31,7 +31,7 @@ In this tutorial, we will wire Sortie to GitHub Issues and the Kiro CLI, then wa
     export KIRO_API_KEY="your-kiro-api-key"
     ```
 
-    Confirm it works, the same check the adapter runs at session start:
+    Confirm it works, the same check Sortie runs before it starts work on an issue:
 
     ```bash
     kiro-cli whoami
@@ -208,9 +208,9 @@ Two credentials do two jobs, and they are unrelated. `SORTIE_GITHUB_TOKEN` is th
 
 Budgeting also works differently. The headless Kiro path reports no token counts, only an abstract credits figure, so Sortie emits no token-usage events and the dashboard's aggregate token total stays at zero. You do not have to read that zero as a clue: expand a running Kiro session on the dashboard and its `Usage reporting` field says it outright, `this session reports no token usage`, with a dash where the Model, API Requests, and Tokens figures would be. Budget enforcement is time-based: `agent.turn_timeout_ms` is the control, not a token cap. The [Kiro adapter reference](/reference/adapter-kiro/) covers the full accounting story.
 
-### The credential preflight (why your first run will not hang)
+### Why your first run will not hang
 
-Headless Kiro handles a missing credential and an invalid one differently, and neither is friendly. With no credential at all, `kiro-cli chat` does not error; it drops into an interactive device-login flow and waits, which would hang an unattended run. With an invalid key it exits fast but quietly, producing an empty turn rather than a clear failure. Sortie closes both gaps: at session start, before any turn runs, it confirms `KIRO_API_KEY` is set and validates it against your account. A missing or unusable credential stops the session immediately with a clear error in the log, so your first run fails loudly and early instead of hanging or completing empty. That is the same `kiro-cli whoami` check you ran in the prerequisites.
+Headless Kiro handles a missing credential and an invalid one differently, and neither is friendly. With no credential at all, `kiro-cli chat` does not error; it drops into an interactive device-login flow and waits, which would hang an unattended run. With an invalid key it exits fast but quietly, producing an empty turn rather than a clear failure. Sortie closes both gaps the same way for every agent it runs, Kiro included: before it starts work on an issue, it opens a short-lived session of its own and runs `kiro-cli whoami` against it, the same check you ran in the prerequisites. A missing or unusable credential stops the run immediately with a clear error in the log, so your first run fails loudly and early instead of hanging or completing empty. See [credential verification](/reference/workflow-config/#credential-verification) for the mechanism every kind shares.
 
 ### Workspace and hooks
 
@@ -255,11 +255,12 @@ level=INFO msg="tick completed" candidates=1 dispatched=1 ... running=1 retrying
 level=INFO msg="running hook" issue_id=7 issue_identifier=7 hook=after_create workspace=…/workspaces/7
 level=INFO msg="running hook" issue_id=7 issue_identifier=7 hook=before_run workspace=…/workspaces/7
 level=INFO msg="workspace prepared" issue_id=7 issue_identifier=7 workspace=…/workspaces/7
+level=INFO msg="agent credential verified" issue_id=7 issue_identifier=7 duration_ms=…
 level=INFO msg="agent session started" issue_id=7 issue_identifier=7 session_id=…
 level=INFO msg="turn started" issue_id=7 issue_identifier=7 turn_number=1 max_turns=5
 ```
 
-The agent is now working. That `agent session started` line confirms the credential preflight passed: Sortie validated `KIRO_API_KEY` before launching the first turn. A Kiro session for this task usually finishes in 3 to 10 minutes, depending on repository size and the model; the 30-minute `turn_timeout_ms` is the backstop, not the expected duration. Kiro's stdout transcript appears in the log at `debug` level as the agent reads files and writes code.
+The `agent credential verified` line is Sortie proving `KIRO_API_KEY` actually works, in a short-lived session of its own, before it starts the working session below it. The agent is now working. A Kiro session for this task usually finishes in 3 to 10 minutes, depending on repository size and the model; the 30-minute `turn_timeout_ms` is the backstop, not the expected duration. Kiro's stdout transcript appears in the log at `debug` level as the agent reads files and writes code.
 
 When the agent finishes a turn, you will see:
 
@@ -276,7 +277,7 @@ Here is the full lifecycle, step by step:
 1. Sortie polled GitHub and found issue #7 with the `backlog` label.
 2. `after_create` cloned the repository into `workspaces/7/`.
 3. `before_run` created the branch `sortie/7` from `origin/main`.
-4. Sortie ran the credential preflight, then launched `kiro-cli chat --no-interactive` with your pinned model and tool allowlist.
+4. Sortie verified the credential in a session of its own, then launched `kiro-cli chat --no-interactive` with your pinned model and tool allowlist.
 5. Kiro read the codebase, wrote the implementation, ran the test, and completed the turn.
 6. `after_run` committed the change, pushed `sortie/7`, and opened the pull request.
 7. Sortie removed the `backlog` label, added `review`, and left the issue open with the PR attached.
@@ -348,9 +349,9 @@ Open `http://127.0.0.1:7678/` in a browser while Sortie is running, on Sortie's 
 
 **The run shows no token-usage numbers.** The logs carry no token counts and the dashboard's aggregate token total stays at zero. This is not an error, and you do not have to infer it from a zero: while the session is still running, expand its row on the dashboard and read the `Usage reporting` field, which states `this session reports no token usage`. The headless Kiro path reports only an abstract credits figure, never tokens, so Sortie cannot emit token usage. Budget is time-based, so tune `agent.turn_timeout_ms` rather than a token cap.
 
-**The worker fails at session start with an authentication error.** You see `agent session start: KIRO_API_KEY is invalid or expired` (or `... is not set`), and no `agent session started` line follows. The key is missing, invalid, or the account lacks a Kiro Pro, Pro+, or Power subscription. Confirm with `kiro-cli whoami`; a good key prints your authenticated account.
+**The run fails before any turn, naming the credential.** You see `agent session start: agent: credential_unverified: ...`, and no `agent credential verified` line follows. The key is missing, invalid, or the account lacks a Kiro Pro, Pro+, or Power subscription. Confirm with `kiro-cli whoami`; a good key prints your authenticated account.
 
-**A turn hits the turn timeout.** The turn ends at the `turn_timeout_ms` backstop, the worker reports a `turn_timeout` error, and the attempt is retried. The cause is a stuck turn. The credential preflight prevents the no-credential device-login hang, so the usual culprit is a bad model name or a genuinely long task. Verify both with `kiro-cli whoami` and `kiro-cli chat --list-models --format json`.
+**A turn hits the turn timeout.** The turn ends at the `turn_timeout_ms` backstop, the worker reports a `turn_timeout` error, and the attempt is retried. The cause is a stuck turn. Credential verification prevents the no-credential device-login hang before any turn starts, so the usual culprit here is a bad model name or a genuinely long task. Verify both with `kiro-cli whoami` and `kiro-cli chat --list-models --format json`.
 
 For the full behavior matrix, including exit-code classification, output shape, and resume, see the [Kiro adapter reference](/reference/adapter-kiro/).
 
@@ -375,5 +376,5 @@ Where to go next:
 - [WORKFLOW.md configuration reference](/reference/workflow-config/): every field, every default, every constraint
 - [Monitor with logs](/guides/monitor-with-logs/): read the structured log output during long-running sessions
 - [Monitor with Prometheus](/guides/monitor-with-prometheus/): session counts and retry rates as time-series metrics
-- [Kiro CLI adapter reference](/reference/adapter-kiro/): configuration, headless output, the credential preflight, and time-based budgeting
+- [Kiro CLI adapter reference](/reference/adapter-kiro/): configuration, headless output, credential verification, and time-based budgeting
 - [Scale agents with SSH](/guides/scale-agents-with-ssh/): remote execution for production workloads

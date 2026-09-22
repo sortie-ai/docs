@@ -224,8 +224,8 @@ func (a *ACMEAdapter) StartSession(ctx context.Context, params domain.StartSessi
 		return domain.Session{}, agentErr
 	}
 
-	if target.RemoteCommand == "" {
-		if authErr := checkCredential(ctx, target.Command); authErr != nil {
+	if params.CredentialVerification {
+		if authErr := checkCredential(ctx, target, params.AgentConfig.StopGraceMS); authErr != nil {
 			return domain.Session{}, authErr
 		}
 	}
@@ -240,9 +240,11 @@ func (a *ACMEAdapter) StartSession(ctx context.Context, params domain.StartSessi
 
 `agentcore.ResolveLaunchTarget(params, "acme-cli")` returns a validated `LaunchTarget`. It checks the workspace path (this containment check is a security boundary, not a convenience), resolves the binary from the `agent.command` or your default, splits a multi-token command into `Command` plus `Args` (so `codex app-server` becomes `Args: ["app-server"]`), and picks local or SSH mode based on `params.SSHHost`. Store the returned target in your session state and pass a pointer to it into `NewForkPerTurnSession`, so per-turn mutations (such as a resume flag) are observed on later turns.
 
-Run a credential preflight only when a missing or invalid credential would hang or silently fail the agent. Kiro is the worked example: its headless `chat` blocks on interactive login when `KIRO_API_KEY` is absent, and exits 0 with empty output when the key is invalid, so the adapter runs a `whoami` canary in `StartSession` and returns a `domain.AgentError` before any turn. Do this preflight after `ResolveLaunchTarget` succeeds, because the binary must be resolved first, and skip it on a remote launch: the canary would run on the orchestrator host, not on the machine the agent starts on. The credential itself needs no code from you. Your `CredentialEnv` declaration is what carries it, and `LaunchTarget.SSHOptions` resolves each declared name from the orchestrator's environment when the launch is built.
+Before your working session's first turn, `agentcore.VerifyCredential` opens a session of its own, with `params.CredentialVerification` set, sends one fixed request through it, and closes it again; see [credential verification](/reference/workflow-config/#credential-verification) for the mechanism. This is where a credential guard belongs: gate it on `params.CredentialVerification` rather than on local-versus-SSH, so it runs identically in both modes, and let a working session (`params.CredentialVerification` false) skip it entirely, because its own verification session already proved the credential moments before. Kiro is the worked example: its headless `chat` blocks on interactive login when no credential is present, and exits 0 with empty output when the key is invalid, so its guard runs a `whoami` canary, decides on the exit status alone, and returns `agentcore.CredentialAbsentError(reason, cause)` on failure, which carries `Kind: domain.ErrCredentialUnverified`. Build the guard's own command with `target.AuxiliaryCommand`, which builds the right one for a local or an SSH launch from the same call, and bound the wait with `agentcore.CredentialExchangeBound` (60 seconds), generous enough for a credential that has to refresh itself over the network. Do this after `ResolveLaunchTarget` succeeds, because the binary must be resolved first. The credential itself needs no code from you beyond the guard: your `CredentialEnv` declaration is what carries it to a remote host, and `LaunchTarget.SSHOptions` resolves each declared name from the orchestrator's environment when the launch is built.
 
-**Verify:** `StartSession` returns a `Session` with no error for a valid `t.TempDir()` workspace, and a `domain.AgentError` for a missing credential.
+A guard you write yourself is only a shortcut for a runtime that would otherwise hang or fail silently. Every adapter gets a baseline check for free: `agentcore.VerifyCredential` already sends a real request and reports `credential_unverified` when the runtime cannot answer it, whether or not the adapter's own `StartSession` does anything extra.
+
+**Verify:** `StartSession` returns a `Session` with no error for a valid `t.TempDir()` workspace, and a `domain.AgentError` for a missing credential when `params.CredentialVerification` is true.
 
 ### Construct the command
 
@@ -369,19 +371,14 @@ If you read `stderrLines` for evidence rather than only to hand it to the operat
 
 ```go
 OnFinalize: func(emit func(domain.AgentEvent), _ any, exitCode int, stderrLines []string) (domain.TurnResult, *domain.AgentError) {
-	creditsSeen, authFailed := classifyStderr(stderrLines)
+	creditsSeen := classifyStderr(stderrLines)
 
 	ev := agentcore.TurnEvidence{ExitObserved: true, ExitCode: exitCode}
 	ev.Work, ev.WorkDetail = state.work.Report()
 
-	switch {
-	case exitCode == 0 && creditsSeen:
+	if exitCode == 0 && creditsSeen {
 		ev.Terminal = agentcore.TerminalSuccess
 		state.resumeRequested = true
-	case exitCode == 0 && authFailed && !state.work.Observed():
-		ev.Terminal = agentcore.TerminalFailure
-		ev.TerminalErrorKind = domain.ErrResponseError
-		ev.TerminalMessage = "kiro authentication failed"
 	}
 
 	return agentcore.FinalizeTurn(emit, state.logger(), ev,
@@ -389,17 +386,16 @@ OnFinalize: func(emit func(domain.AgentEvent), _ any, exitCode int, stderrLines 
 },
 ```
 
-The error kind is a control-flow decision, not a label. The orchestrator reads it to decide whether to retry. Here is what the rule produces for Kiro's five cases.
+The error kind is a control-flow decision, not a label. The orchestrator reads it to decide whether to retry. Here is what the rule produces for Kiro's four cases.
 
 | Evidence | `ExitReason` | Error kind | Retry behavior |
 |---|---|---|---|
 | exit 0, credits trailer on stderr | `EventTurnCompleted` | none | success |
-| exit 0, auth-failure marker, no non-blank stdout line | `EventTurnFailed` | `ErrResponseError` | retryable, exponential backoff |
 | exit 0, no credits trailer, a non-blank stdout line | `EventTurnCompleted` | none | success |
 | exit 0, no credits trailer, no non-blank stdout line | `EventTurnFailed` | `ErrTurnFailed` | retryable, exponential backoff |
 | any non-zero exit | `EventTurnFailed` | `ErrPortExit` | retryable, exponential backoff |
 
-Only the first two rows come from evidence Kiro sets itself. The last three are what the shared rule assigns to a zero exit with work, to a zero exit without it, and to a non-zero exit, and every adapter gets them for free. All three failure kinds here are retryable. Other kinds are not: `ErrAgentNotFound`, `ErrInvalidWorkspaceCwd`, `ErrTurnInputRequired`, and `ErrTurnCancelled` are non-retryable, so the orchestrator releases the claim instead of scheduling another attempt. Choose the kind that reflects what the orchestrator should do next, and confirm its retry semantics in the [agent errors reference](/reference/errors/#agent-errors).
+Only the first row comes from evidence Kiro sets itself. The other three are what the shared rule assigns to a zero exit with work, to a zero exit without it, and to a non-zero exit, and every adapter gets them for free. Kiro's working turns read no authentication signal of their own at all, exit 0 with empty output included: a rejected credential on a working turn lands in the shared zero-work row above, `ErrTurnFailed`, because by the time a working turn runs, the [credential-verification step](/reference/workflow-config/#credential-verification) has already proved the credential once. Both failure kinds shown here are retryable. Other kinds are not: `ErrAgentNotFound`, `ErrInvalidWorkspaceCwd`, `ErrTurnInputRequired`, and `ErrTurnCancelled` are non-retryable, so the orchestrator releases the claim instead of scheduling another attempt. Choose the kind that reflects what the orchestrator should do next, and confirm its retry semantics in the [agent errors reference](/reference/errors/#agent-errors).
 
 **Verify:** a table test feeds exit codes and stderr fixtures to your adapter and asserts both `ExitReason` and the error kind with `errors.As`. `dispositiontest.AssertDispositionContract` pins each case against the shared rule for you.
 
@@ -432,6 +428,7 @@ Write unit tests with the project's conventions: table-driven, `t.Parallel()` at
 - `command_test.go` asserts `buildArgs` output across config permutations (model set or not, trust modes, resume on or off).
 - `parse_test.go` asserts parsing and classification: JSONL decode against `testdata/` fixtures for a structured agent, ANSI stripping and stderr classification for an unstructured one.
 - `acme_test.go` covers session and turn behavior against a fake `acme-cli`, built with `agenttest.FakeRuntime`, and proves your registered usage-reporting declaration with `agenttest.AssertUsageReporting` against the events and result a real turn produced. For an arrival of `UsageArrivalNone`, that call fails unless the turn emitted no `token_usage` event, no event carrying a non-zero usage figure, and a result with `UsageMeasured` false.
+- A test calling `credentialtest.AssertCredentialVerification` (`internal/agent/agenttest/credentialtest`) against your adapter, with cases driving it through `agentcore.VerifyCredential`. This one is not optional once you register a kind: `TestEveryAgentKindHasCredentialVerificationCoverage`, in `cmd/sortie`, fails the whole build for every kind `registry.Agents` lists that has no test file anywhere in its own package calling that function, your new kind included. Give it at least one case wanting `WantVerified` and one wanting `WantUnverified`, and add a `WantSSHConnectionFailed` case too if your kind's registration sets `RequiresCommand`.
 
 ```go {filename="command_test.go"}
 func TestBuildArgs(t *testing.T) {

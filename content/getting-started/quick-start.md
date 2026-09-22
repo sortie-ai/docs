@@ -132,6 +132,7 @@ level=INFO msg="database path resolved" db_path=/home/you/sortie-demo/.sortie.db
 level=INFO msg="sortie started"
 level=INFO msg="tick completed" candidates=2 dispatched=2 ... running=2 retrying=0 ...
 level=INFO msg="workspace prepared" issue_id=1 issue_identifier=DEMO-1 workspace=…/DEMO-1
+level=INFO msg="agent credential verified" issue_id=1 issue_identifier=DEMO-1 duration_ms=…
 level=INFO msg="agent session started" issue_id=1 issue_identifier=DEMO-1 session_id=mock-session-001
 level=INFO msg="no tool execution channel for this session, withholding tool advertisement" issue_id=1 issue_identifier=DEMO-1 session_id=mock-session-001 agent_kind=mock remote=false
 level=INFO msg="turn started" issue_id=1 issue_identifier=DEMO-1 turn_number=1 max_turns=2

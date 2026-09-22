@@ -225,6 +225,7 @@ level=INFO msg="tick completed" candidates=1 dispatched=1 ... running=1 retrying
 level=INFO msg="running hook" issue_id=2 issue_identifier=2 hook=after_create workspace=…/workspaces/2
 level=INFO msg="running hook" issue_id=2 issue_identifier=2 hook=before_run workspace=…/workspaces/2
 level=INFO msg="workspace prepared" issue_id=2 issue_identifier=2 workspace=…/workspaces/2
+level=INFO msg="agent credential verified" issue_id=2 issue_identifier=2 duration_ms=…
 level=INFO msg="agent session started" issue_id=2 issue_identifier=2 session_id=…
 level=INFO msg="turn started" issue_id=2 issue_identifier=2 turn_number=1 max_turns=3
 ```

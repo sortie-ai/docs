@@ -116,12 +116,13 @@ The file is written for every kind, but not every session can reach it.
 ### Agent session
 
 ```
+time=2026-03-26T14:30:03.150+00:00 level=INFO msg="agent credential verified" issue_id=abc123 issue_identifier=MT-649 duration_ms=270
 time=2026-03-26T14:30:03.420+00:00 level=INFO msg="agent session started" issue_id=abc123 issue_identifier=MT-649 session_id=session-abc-001
 time=2026-03-26T14:30:03.500+00:00 level=INFO msg="turn started" issue_id=abc123 issue_identifier=MT-649 turn_number=1 max_turns=5
 time=2026-03-26T14:31:45.800+00:00 level=INFO msg="turn completed" issue_id=abc123 issue_identifier=MT-649 turn_number=1 max_turns=5
 ```
 
-Each issue gets a session with one or more turns. `turn_number` and `max_turns` show where the agent is in its work budget.
+`agent credential verified` is [credential verification](/reference/workflow-config/#credential-verification), a short-lived session Sortie opens for itself before every worker attempt, on every agent kind, to prove the credential actually works before spending a real turn on it; `duration_ms` is how long that check took. Each issue then gets a working session with one or more turns. `turn_number` and `max_turns` show where the agent is in its work budget.
 
 When the session's kind and launch mode deliver no tool channel, one more line lands between `agent session started` and `turn started`. Sortie says so once, on the first turn, and leaves the tool advertisement out of the prompt:
 

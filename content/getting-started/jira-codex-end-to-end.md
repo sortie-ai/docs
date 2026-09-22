@@ -266,6 +266,7 @@ level=INFO msg="tick completed" candidates=1 dispatched=1 ... running=1 retrying
 level=INFO msg="running hook" issue_id=10042 issue_identifier=PROJ-55 hook=after_create workspace=…/workspaces/PROJ-55
 level=INFO msg="running hook" issue_id=10042 issue_identifier=PROJ-55 hook=before_run workspace=…/workspaces/PROJ-55
 level=INFO msg="workspace prepared" issue_id=10042 issue_identifier=PROJ-55 workspace=…/workspaces/PROJ-55
+level=INFO msg="agent credential verified" issue_id=10042 issue_identifier=PROJ-55 duration_ms=…
 level=INFO msg="agent session started" issue_id=10042 issue_identifier=PROJ-55 session_id=…
 level=INFO msg="turn started" issue_id=10042 issue_identifier=PROJ-55 turn_number=1 max_turns=3
 ```
