@@ -888,11 +888,13 @@ Per-session variables written by the worker. Every row but `SORTIE_ATTEMPT` is w
 | `SORTIE_ISSUE_IDENTIFIER` | Human-readable issue key. |
 | `SORTIE_WORKSPACE` | Workspace root path. |
 | `SORTIE_DB_PATH` | SQLite database path. Gates the `workspace_history` and `cost_budget` tools. |
-| `SORTIE_DISPATCH_ID` | Identifies the current dispatch to the `cost_budget` tool, and fences the session id `notify_operator` reads from `.sortie/dispatch.json`. |
+| `SORTIE_DISPATCH_ID` | Identifies the current dispatch to the `cost_budget` tool, fences the session id `notify_operator` reads from `.sortie/dispatch.json`, and scopes the notification cap `notify_operator` enforces. |
 | `SORTIE_SESSION_AGENT_KIND` | Dispatch-frozen agent kind for the session. May be empty. |
 | `SORTIE_ATTEMPT` | Attempt number as a decimal integer. Absent on the first dispatch. |
 
 There is no `SORTIE_SESSION_ID` variable: the agent's session id is not known when the worker writes this environment. `notify_operator` reads it separately, live, from a workspace-held record; see [`notify_operator`](/reference/agent-extensions/#notify_operator).
+
+Without `SORTIE_WORKSPACE` and `SORTIE_DISPATCH_ID` in its environment, `notify_operator` returns `state_unavailable` for every call. This is one consequence of running `mcp-server` manually rather than letting an agent runtime launch it from `.sortie/mcp.json`.
 
 Tracker credentials (e.g., `SORTIE_TRACKER_API_KEY`) reach the server through the same `env` block via the `SORTIE_*` prefix scan. The MCP server resolves `$VAR` indirection in the workflow file against these variables.
 

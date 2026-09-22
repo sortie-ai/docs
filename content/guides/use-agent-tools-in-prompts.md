@@ -145,7 +145,7 @@ with severity "info" and category "progress" at meaningful milestones.
 Do not notify on every turn.
 ```
 
-The conditional phrasing matters: the tool is registered only when the operator configured a notification backend, so an unconditional instruction confuses agents in setups without one. The cap matters too: notifications are capped per running `sortie mcp-server` process (default 20), and calls past the cap return `rate_limited` errors, so instruct meaningful moments rather than a running commentary.
+The conditional phrasing matters: the tool is registered only when the operator configured a notification backend, so an unconditional instruction confuses agents in setups without one. The cap matters too: notifications are capped per agent run (default 20), shared across every turn of that run, and calls past the cap return `rate_limited` errors, so instruct meaningful moments rather than a running commentary.
 
 A notification does not stop the session or the retry loop. An agent that is genuinely blocked must still write `.sortie/status`. The right order is notify first, then write the file, so the human hears about the blocker and the orchestrator stops retrying.
 
@@ -277,7 +277,7 @@ The flow: the agent checks its budget, gathers context (related issues on first 
 
 **Treating `notify_operator` as a stop signal.** It notifies a human and changes nothing in orchestration: retries continue, the tracker state stays put, the claim stays held. Only `.sortie/status` stops the retry loop. Pair them: notify, then write the file.
 
-**Notifying on every turn.** Notifications are capped per running `sortie mcp-server` process (default 20); past the cap, calls return `rate_limited` errors. Reserve `notify_operator` for decisions, blockers, and meaningful milestones, not a running commentary.
+**Notifying on every turn.** Notifications are capped per agent run (default 20), shared across every turn; past the cap, calls return `rate_limited` errors. Reserve `notify_operator` for decisions, blockers, and meaningful milestones, not a running commentary.
 
 **Writing `.sortie/status` with unrecognized values.** Only `blocked`, `needs-human-review`, and `no-change-needed` are recognized. Values like `done`, `error`, or `waiting` are silently ignored. The agent writes the file thinking it communicated something, but the orchestrator sees nothing.
 

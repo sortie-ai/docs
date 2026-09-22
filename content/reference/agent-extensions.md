@@ -725,7 +725,9 @@ Each accepted call produces one notification with two layers. The agent supplies
 
 Delivery goes to every configured backend in configuration order and stops at the first backend that fails, which yields a `send_failed` error. Partial delivery across backends is not reported in this version. Each backend call carries a 10-second timeout, so a slow endpoint cannot stall the turn indefinitely.
 
-Calls are capped per `sortie mcp-server` process. The effective cap is the highest non-zero `max_per_session` across the configured backends, falling back to 20 when every entry is `0` or unset; `0` selects the default, never unlimited. A call past the cap returns `rate_limited` and sends nothing. The counter counts accepted tool calls, not per-backend sends, and increments only after every backend succeeded, so a failed call does not consume the cap. The counter lives in memory in that one process: an agent runtime that keeps one tool server running for the whole session shares one count across it, but a runtime that starts a fresh tool server process for each turn starts a fresh count with each turn, and a `session_id` change never resets it either way.
+Calls are capped per agent run (dispatch), not per `sortie mcp-server` process. The effective cap is the highest non-zero `max_per_session` across the configured backends, falling back to 20 when every entry is `0` or unset; `0` selects the default, never unlimited. Every turn and every tool server process the run spawns share one count, which Sortie keeps as files under the workspace's `.sortie/notification_slots/` directory rather than in a process's memory, so a runtime that starts a fresh tool server process for each turn still shares the run's count across every process it starts. A retry or a continuation of a resumed session mints a new dispatch ID, so it starts a new run and a new count; a `session_id` change on its own does not.
+
+A call counts once at least one backend has accepted the notification. If the first configured backend fails, nothing was delivered and the call does not consume the cap; if a later backend then fails after an earlier one succeeded, the call still counts even though delivery was partial. A call past the cap returns `rate_limited` and sends nothing. When the count cannot be established, the tool returns `state_unavailable` and sends nothing; see the error kinds table below for the exact conditions. This also covers a `sortie mcp-server` started by hand outside a dispatch: with no workspace path or dispatch ID in its environment, every `notify_operator` call it receives returns `state_unavailable`.
 
 The backends never log or echo the endpoint URL, the request body, or the response body. Delivery failures surface as fixed categories (`timeout`, `connection failure`, `unauthorized (HTTP <code>)`, `rate limited (HTTP 429)`, `server error (HTTP <code>)`, `unexpected response (HTTP <code>)`) in the `send_failed` message, so a secret-bearing webhook URL never reaches a log or the agent.
 
@@ -794,9 +796,10 @@ The Slack rendering carries only the message. The envelope (issue key, dispatch 
 | Kind | Meaning |
 |---|---|
 | `invalid_input` | Malformed request: unknown or trailing fields, an out-of-enum `severity` or `category`, or an empty `title` or `body`. |
-| `rate_limited` | The tool server process's notification cap is reached. Nothing was sent. |
+| `rate_limited` | The dispatch's notification cap is reached. Nothing was sent. |
 | `send_failed` | A backend returned a transport failure, a non-2xx response, or an unparseable response. The message is a redacted category and never echoes the URL, request body, or response body. |
 | `backend_unavailable` | No backend could be resolved at execution time. Defensive: normal operation registers the tool only when a backend is configured. |
+| `state_unavailable` | The notification count could not be established: the workspace path or the dispatch ID is missing, or `.sortie` (or its `notification_slots` subdirectory) is a symbolic link or not a directory. Nothing was sent. |
 
 ---
 
@@ -812,7 +815,7 @@ Every tool uses the same response envelope; each tool's section above documents 
 | `cost_budget` | `{"success": true, "data": {...}}` | `{"success": false, "error": {"kind": "...", "message": "..."}}` |
 | `notify_operator` | `{"success": true, "data": {...}}` | `{"success": false, "error": {"kind": "...", "message": "..."}}` |
 
-All tools provide structured `error.kind` values for programmatic handling. The Tier 1 tools (`sortie_status`, `workspace_history`, `cost_budget`) share a small closed set (`state_unavailable`, `state_malformed`, `query_failed`) because their only failure mode is local state that is missing or unreadable; the Tier 2 tools (`tracker_api`, `notify_operator`) carry broader kind sets covering transport, auth, rate-limit, and input failures.
+All tools provide structured `error.kind` values for programmatic handling. The Tier 1 tools (`sortie_status`, `workspace_history`, `cost_budget`) share a small closed set (`state_unavailable`, `state_malformed`, `query_failed`) because their only failure mode is local state that is missing or unreadable. The Tier 2 tools (`tracker_api`, `notify_operator`) carry broader kind sets covering transport, auth, rate-limit, and input failures; `notify_operator` also returns `state_unavailable` when it cannot establish its own notification count, the same local-state failure mode the Tier 1 tools share.
 
 ---
 
