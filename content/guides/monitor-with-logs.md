@@ -134,6 +134,14 @@ time=2026-03-26T14:30:03.500+00:00 level=INFO msg="turn started" issue_id=abc123
 
 This is the line to look for when an agent never mentions Sortie's tools. `remote=true` means the session was dispatched to an SSH host, which is the whole reason on a `codex` or `opencode` session; on `kiro` the line appears with `remote=false` too. Nothing is failing: the agent was deliberately not told about tools it could not call. See [delivery by agent kind](/reference/agent-extensions/#delivery-by-agent-kind).
 
+An agent runtime can also change its own session id after the session has already started. Sortie logs it the moment it happens:
+
+```
+time=2026-03-26T14:31:46.010+00:00 level=INFO msg="agent session id accepted" issue_id=abc123 issue_identifier=MT-649 session_id=session-abc-001 previous_session_id=session-abc-001 accepted_session_id=session-abc-001b
+```
+
+The `session_id` field on this line, like on every other line for the run, still names the id from `agent session started`: it identifies the run in the logs and never changes, so the recipes below keep working against it. `accepted_session_id` is the new value, and it is what the run's tracker comment, its operator notifications, and a continuation retry's resume attempt carry from this point on. Copilot CLI's adapter is one example: it captures the session id from each turn's own result and reports it back as that turn's session id, so a runtime-side change can reach Sortie this way.
+
 A session's agent kind can declare that it reports no token usage at all and then have its runtime send a usage figure anyway, contradicting its own declaration. Sortie discards the figure and logs it once per run, on the first occurrence:
 
 ```
