@@ -82,6 +82,22 @@ A run whose agent reported no token usage is recorded unmeasured and contributes
 
 Agents can read this budget themselves. The `cost_budget` tool returns cumulative spend and remaining budget mid-session, within a couple of seconds of the figure the orchestrator enforces, so a well-prompted agent wraps up on its own terms instead of being stopped in flight. See [how to use agent tools in prompts](/guides/use-agent-tools-in-prompts/) for the prompt pattern and the [agent extensions reference](/reference/agent-extensions/) for the response schema. For field-level details (validation, env override, reload), see the [`agent` section reference](/reference/workflow-config/#agent).
 
+### Warn before the ceiling stops a run
+
+`agent.token_warning_percent` sets a warning threshold below `max_tokens`, as a percentage of the ceiling. It changes nothing about when the ceiling stops a run; it only warns before that happens.
+
+```yaml
+agent:
+  max_tokens: 1500000
+  token_warning_percent: 90
+```
+
+With this config, the threshold is 90% of 1,500,000 tokens: 1,350,000 (rounded up to the nearest whole token when the percentage doesn't divide the ceiling evenly). From the start of the session, the `cost_budget` tool's response carries `warning_tokens` at that figure and `warning_reached` at `false`. Once the issue's live token sum reaches the threshold, Sortie logs one `token warning threshold reached` warning for the run and `warning_reached` turns `true`, giving a well-prompted agent roughly 150,000 tokens of headroom to wrap up before the ceiling cuts it off. See [how to use agent tools in prompts](/guides/use-agent-tools-in-prompts/#guide-the-agent-to-watch-the-token-budget) for the prompt pattern.
+
+The threshold has no effect while `max_tokens` is `0`: there is no ceiling to warn ahead of. [`sortie validate`](/reference/cli/#validate) flags that combination as an `ineffective_setting` warning. `token_warning_percent` accepts `0` to `99`; `0`, the default, disables the warning. A run warns at most once: after the first warning, later usage figures from the same run never repeat it.
+
+See [token warning threshold](/guides/monitor-with-logs/#token-warning-threshold) for the log record and the [`cost_budget` tool](/reference/agent-extensions/#cost_budget) for the response fields.
+
 ## Limit turns per session
 
 Each worker session runs a loop: invoke `RunTurn`, check the result, decide whether to continue. `agent.max_turns` caps how many iterations that loop gets.
@@ -230,7 +246,7 @@ rate(sortie_tokens_total{type="input"}[1h])
 
 Set up alerting when token burn exceeds your budget threshold. The [Prometheus guide](/guides/monitor-with-prometheus/) walks through scrape config and alert rules.
 
-**Logs.** Sortie's structured logs record what ran, not what it cost. No log line carries a dollar figure. Three carry a token count, all gated on `agent.max_tokens` being set: `token budget exhausted, blocking re-dispatch` when an issue reaches the ceiling between sessions, `run stopped by token ceiling`, logged once at the run's exit when the ceiling's own cancellation is confirmed to be what ended it, and `token budget cannot be fully evaluated, allowing dispatch` when it has not but the sum is known to fall short of what the issue really spent. All three carry `used_tokens`, the issue's measured cumulative tokens, and `budget_tokens`, the ceiling; the stop record adds `session_tokens`, what the session it cancelled had spent on its own. Grep for `token budget` and `token ceiling` to find them. For the spend figures themselves, reach for `sortie stats` or the `sortie_tokens_total` counter above. The [logging guide](/guides/monitor-with-logs/) covers structured log access.
+**Logs.** Sortie's structured logs record what ran, not what it cost. No log line carries a dollar figure. Several carry a token count, gated on `agent.max_tokens` being set: `token budget exhausted, blocking re-dispatch` when an issue reaches the ceiling between sessions, `run stopped by token ceiling`, logged once at the run's exit when the ceiling's own cancellation is confirmed to be what ended it, and `token budget cannot be fully evaluated, allowing dispatch` when it has not but the sum is known to fall short of what the issue really spent. Each of those three carries `used_tokens`, the issue's measured cumulative tokens, and `budget_tokens`, the ceiling; the stop record adds `session_tokens`, what the session it cancelled had spent on its own. When `agent.token_warning_percent` is also set, `token warning threshold reached` carries the same `used_tokens` and `budget_tokens` alongside `warning_tokens`, the configured threshold. Grep for `token budget`, `token ceiling`, and `token warning` to find them. For the spend figures themselves, reach for `sortie stats` or the `sortie_tokens_total` counter above. The [logging guide](/guides/monitor-with-logs/) covers structured log access.
 
 **`sortie stats`.** The `stats` subcommand reports what finished work actually cost, aggregated from the local database over a range you choose and broken down by outcome, coding agent, dispatch rule, and prompt template. It is the only one of these surfaces that reports historical spend against completed runs rather than live or per-event figures, which makes it the one to reach for when the question is which dispatch rule or prompt template is burning the budget. Cost figures need `token_rates`, exactly as the dashboard does; without it you get token counts and no dollars.
 
