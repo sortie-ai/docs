@@ -324,6 +324,16 @@ time=2026-03-26T14:52:18.000+00:00 level=WARN msg="run reported no token usage, 
 
 This is the after-the-fact counterpart of the first record. Nothing warned at dispatch, because the kind declares that figures arrive; the runtime behind it then produced none, and the ceiling bounded nothing. `agent-client-protocol` is where you are most likely to meet it: a local session there is declared reporting before its runtime has said anything, and it delivers a figure only for a runtime Sortie ships a measurement source for, on a build that source recognizes. See [token accounting on that kind](/reference/adapter-agent-client-protocol/#token-accounting) for which way a given session went.
 
+### Token warning threshold
+
+```
+time=2026-03-26T14:40:10.000+00:00 level=WARN msg="token warning threshold reached" issue_id=abc123 issue_identifier=MT-649 session_id=session-abc-002 used_tokens=1350000 warning_tokens=1350000 budget_tokens=1500000 issue_tokens_completed=1180000 session_tokens=170000 ceiling_setting=agent.max_tokens warning_setting=agent.token_warning_percent
+```
+
+This fires when [`agent.token_warning_percent`](/reference/workflow-config/#agent) is set and the issue's live token sum, the same sum `agent.max_tokens` enforces against, reaches the configured threshold. `used_tokens` and `warning_tokens` are the sum and the threshold it crossed; `budget_tokens` is the ceiling the threshold sits below. `issue_tokens_completed` and `session_tokens` split that sum the same way the ceiling's own stop record does: what earlier sessions had already banked, and what the running session has spent on its own.
+
+Sortie logs this once per run: a run that crosses the threshold again on a later usage figure does not log a second time, and a run that never crosses it does not log at all. See [how to control agent costs](/guides/control-costs/#warn-before-the-ceiling-stops-a-run) for choosing a percentage, and the [`cost_budget` tool](/reference/agent-extensions/#cost_budget) for how the agent reads the same condition mid-session.
+
 ### Dispatch preflight failures
 
 ```
@@ -364,6 +374,12 @@ Find sessions the token ceiling stopped in flight:
 
 ```bash
 grep 'run stopped by token ceiling' sortie.log
+```
+
+Find runs that crossed the token warning threshold:
+
+```bash
+grep 'token warning threshold reached' sortie.log
 ```
 
 Watch dispatches in real time:

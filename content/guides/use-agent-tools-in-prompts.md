@@ -65,6 +65,16 @@ Tune the threshold to your budget; 100,000 tokens is a sensible reserve when `ma
 
 The `null` case earns its line in the prompt. `remaining_tokens: null` means the budget is unlimited, not exhausted; an instruction that says "stop when remaining_tokens is low" without it makes the agent wind down on issues that have no token budget at all.
 
+Setting [`agent.token_warning_percent`](/reference/workflow-config/#agent) does the same job without a hand-picked token threshold: `cost_budget` then also returns `warning_tokens` and `warning_reached`, so the prompt can act on a threshold Sortie computes from the ceiling instead of one you guess at.
+
+```plaintext
+Call the cost_budget tool. If warning_reached is true, finish the most
+important change, commit what works, and summarize what remains instead
+of starting anything new.
+```
+
+`warning_reached` and a hand-picked `remaining_tokens` threshold answer the same question two ways; use whichever fits how you think about the budget, or both. See [how to control agent costs](/guides/control-costs/#warn-before-the-ceiling-stops-a-run) for choosing the percentage.
+
 ## Guide the agent to review prior history
 
 On continuation and retry runs, the agent has no memory of what happened before. Tell it to check:

@@ -581,7 +581,7 @@ The failure shape is the same structured envelope every built-in tool uses.
 
 ## `cost_budget`
 
-Read-only token accounting for the current issue. The agent calls this tool to check cumulative token spend across all of the issue's sessions and the remaining budget, then decide whether to skip an expensive step, return partial work, or hand off before the token ceiling cancels the session it is running in or blocks the next one. Where `sortie_status` reports token usage for the current session (read from `.sortie/state.json`), `cost_budget` reports cumulative spend across every session for the issue (read from SQLite) and compares it against the configured budget.
+Read-only token accounting for the current issue. The agent calls this tool to check cumulative token spend across all of the issue's sessions and the remaining budget, then decide whether to skip an expensive step, return partial work, or hand off before the token ceiling cancels the session it is running in or blocks the next one. Where `sortie_status` reports token usage for the current session (read from `.sortie/state.json`), `cost_budget` reports cumulative spend across every session for the issue (read from SQLite) and compares it against the configured budget. When [`agent.token_warning_percent`](/reference/workflow-config/#agent) is set, the tool's own description also tells the agent to watch for `warning_reached` and wrap up before the ceiling stops the run.
 
 `cost_budget` is a **Tier 1** tool: queries the local SQLite database in read-only mode, no external calls. Registered when both `SORTIE_DB_PATH` and `SORTIE_ISSUE_ID` are set and the database can be opened in read-only mode. That is the same condition as `workspace_history`, and the two share the same read-only connection. If the database open fails, the MCP server continues without both tools (non-fatal). When `SORTIE_DISPATCH_ID` is also set, the reading includes the running session's recorded spend; without it, only completed sessions count.
 
@@ -605,6 +605,8 @@ A measured session can still leave spend out. When a turn reaches the model and 
 
 Run-history rows written before the token columns existed (migration 011) read as zero, so spend recorded before the upgrade is invisible to the budget. Rows written before the measurement flag existed (migration 012) count as measured, because their provenance is not recoverable.
 
+The row backing this reading updates on the throttle described above, with one exception: the write that carries the usage figure reaching the [`agent.token_warning_percent`](/reference/workflow-config/#agent) threshold happens immediately, without waiting for the next throttled write. Because `warning_reached` is computed from this same response's own `used_tokens`, the two never disagree within one result: a reading taken before that write lands still reports `used_tokens` below the threshold and `warning_reached: false`.
+
 ### Response fields
 
 The fields below are returned under `data` in the standard success envelope:
@@ -618,8 +620,12 @@ The fields below are returned under `data` in the standard success envelope:
 | `budget_sessions` | integer | The configured [`agent.max_sessions`](/reference/workflow-config/#agent). `0` means unlimited. |
 | `unmeasured_sessions` | integer | Completed sessions whose coding agent reported no token usage. `used_tokens` excludes them rather than counting them as zero spend. |
 | `used_tokens_complete` | boolean | `false` when `unmeasured_sessions` is above `0`, when a completed session left a turn's spend unaccounted for, when no dispatch ID was supplied, or when no session record matches the supplied dispatch ID. `true` otherwise. On `false`, treat `used_tokens` as a lower bound and `remaining_tokens` as an upper bound. |
+| `warning_tokens` | integer | The configured [`agent.token_warning_percent`](/reference/workflow-config/#agent) threshold, in tokens. Present only while the tool server's own configuration sets that field above `0`; absent otherwise, together with `warning_reached`. |
+| `warning_reached` | boolean | `true` once `used_tokens` has reached `warning_tokens`. Present under the same condition as `warning_tokens`. |
 
 `used_tokens` includes the running session while `used_sessions` excludes it. The asymmetry is deliberate: a session is either finished or not, tokens accrue continuously, and a reading that ignored in-flight spend would be useless at exactly the moment the agent consults it.
+
+`warning_tokens` and `warning_reached` appear together or not at all, so a deployment that never sets `agent.token_warning_percent` gets a result byte-identical to one from before the warning threshold existed.
 
 The orchestrator enforces the same ceiling against a fresher figure than this one. `used_tokens` carries the running session's spend as last written to `session_metadata`, at most one write per issue every two seconds, while the check that stops a session in flight adds that session's live in-memory total instead. The reading an agent gets back therefore trails the enforced figure by up to one write interval, and never leads it. When the sum reaches a non-zero `budget_tokens`, the running session is cancelled and the next re-dispatch for the issue is blocked. See [how to control agent costs](/guides/control-costs/) for the enforcement behavior and budget strategy.
 
@@ -672,6 +678,25 @@ The orchestrator enforces the same ceiling against a fresher figure than this on
     "budget_sessions": 5,
     "unmeasured_sessions": 1,
     "used_tokens_complete": false
+  }
+}
+```
+
+**Success with a warning threshold configured and reached:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "used_tokens": 812000,
+    "budget_tokens": 1000000,
+    "remaining_tokens": 188000,
+    "used_sessions": 4,
+    "budget_sessions": 5,
+    "unmeasured_sessions": 0,
+    "used_tokens_complete": true,
+    "warning_tokens": 800000,
+    "warning_reached": true
   }
 }
 ```

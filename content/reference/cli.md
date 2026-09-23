@@ -305,20 +305,22 @@ The pipeline checks:
 
 The pipeline does **not** check:
 
-- **Value ranges**, for most fields. `agent.max_sessions`, `agent.max_tokens`, `agent.max_consecutive_absences`, `agent.turn_timeout_ms`, `agent.stop_grace_ms`, `workspace.retention_days`, `ci_feedback.max_retries`, `ci_feedback.max_log_lines`, the `self_review` integer fields, `reactions.*.max_retries`, and the `reactions.ci_failure` integer fields are checked and reject an out-of-range value as a configuration error. Negative values for `polling.interval_ms` or other timeout fields are accepted. Zero replaces with a built-in default for `polling.interval_ms` and `agent.read_timeout_ms`; for `agent.stall_timeout_ms` zero is kept and disables stall detection. `agent.turn_timeout_ms` and `agent.stop_grace_ms` must be positive; any other value is rejected rather than replaced.
+- **Value ranges**, for most fields. `agent.max_sessions`, `agent.max_tokens`, `agent.token_warning_percent`, `agent.max_consecutive_absences`, `agent.turn_timeout_ms`, `agent.stop_grace_ms`, `workspace.retention_days`, `ci_feedback.max_retries`, `ci_feedback.max_log_lines`, the `self_review` integer fields, `reactions.*.max_retries`, and the `reactions.ci_failure` integer fields are checked and reject an out-of-range value as a configuration error. Negative values for `polling.interval_ms` or other timeout fields are accepted. Zero replaces with a built-in default for `polling.interval_ms` and `agent.read_timeout_ms`; for `agent.stall_timeout_ms` zero is kept and disables stall detection. `agent.turn_timeout_ms` and `agent.stop_grace_ms` must be positive; any other value is rejected rather than replaced.
 - **Format constraints.** `tracker.endpoint` is not checked for valid URL syntax. Path fields are not checked for existence (except `workspace.root`).
 
 #### Advisory warnings
 
 Beyond the error-level checks above, `validate` runs static analysis on the front matter and the prompt template, plus four checks on the resolved configuration, emitting **warnings** for likely-wrong patterns. Warnings do not block validity: `valid` remains `true` and the exit code is `0` when only warnings are present. Runtime behavior is unchanged; warnings surface patterns that the orchestrator would silently accept or that would produce unexpected output.
 
-Six warning classes across two analysis passes, four configuration checks, plus adapter-specific warnings when the tracker adapter declares config validation (see [adapter-specific warning check values](#adapter-specific-warning-check-values)):
+Eight warning classes across two analysis passes, four configuration checks, plus adapter-specific warnings when the tracker adapter declares config validation (see [adapter-specific warning check values](#adapter-specific-warning-check-values)):
 
 **Front matter analysis:**
 
 - **Unknown top-level keys** (`unknown_key`). A top-level YAML key that is not a core section (`tracker`, `polling`, `workspace`, `hooks`, `agent`, `db_path`, `ci_feedback`, `self_review`, `reactions`, `dispatch`, `notifications`), not a recognized extension (`server`, `logging`, `worker`), and not the adapter pass-through block matching the configured `tracker.kind` or `agent.kind`. Catches typos like `trackers:` instead of `tracker:`.
 - **Unknown sub-keys** (`unknown_sub_key`). A key inside a known section that does not match any defined field. For example, `tracker.typo_endpoint` or `hooks.before_launch`. Sub-objects named after the section's adapter kind are exempt (e.g., `tracker.jira` when `tracker.kind` is `jira`).
 - **Type mismatches** (`type_mismatch`). A value whose YAML type does not match the expected type for a field. For example, `hooks.timeout_ms: "not-a-number"` or `tracker.kind: 123`. Also covers semantic issues: a non-positive `hooks.timeout_ms` that falls back to the default, and non-numeric or non-positive entries in `agent.max_concurrent_agents_by_state` that are silently ignored at runtime.
+- **Ineffective token warning threshold** (`ineffective_setting`). `agent.token_warning_percent` is set above `0` while `agent.max_tokens` is `0`, so the threshold derives from a ceiling that is not in force and never fires. Raise `agent.max_tokens` above `0`, or leave `token_warning_percent` unset.
+- **Unresolved extension variable** (`unresolved_extension_var`). A `$VAR` or `${VAR}` reference inside a top-level key outside the core schema, such as an adapter pass-through block or `server`, `logging`, or `worker` (for example `github.api_key` or `worker.ssh_hosts[0]`), whose named environment variable is unset or empty at the time the workflow loads. Fires once per field, naming every unset variable the field references; a field where only some of several variables are set still warns about the ones that are not.
 
 **Template static analysis:**
 
@@ -457,6 +459,8 @@ Warning diagnostics use a separate set of check values. They appear only in the 
 | `unknown_key` | Unrecognized top-level YAML key. Likely a typo (e.g., `trackers` instead of `tracker`). |
 | `unknown_sub_key` | Unrecognized key inside a known section (e.g., `tracker.typo_endpoint`). Adapter pass-through sub-objects matching the configured `kind` are exempt. |
 | `type_mismatch` | Value type does not match the expected type for the field (e.g., string where integer is expected). Also covers semantic issues: non-positive `hooks.timeout_ms`, non-numeric or non-positive values in `agent.max_concurrent_agents_by_state`. An out-of-range integer never produces this warning; see [Validation scope](#validation-scope) for what checks it instead. |
+| `ineffective_setting` | `agent.token_warning_percent` is set above `0` while `agent.max_tokens` is `0`, so the token warning threshold derives from a ceiling that is not in force. |
+| `unresolved_extension_var` | A `$VAR` or `${VAR}` reference inside an extension field (an adapter pass-through block, or `server`, `logging`, `worker`) whose named environment variable is unset or empty. |
 | `dot_context` | Reference to a top-level data key (`.issue`, `.attempt`, `.run`) inside a `{{ range }}` or `{{ with }}` block where dot is the current element, not root data. Use `$` prefix to fix. |
 | `unknown_var` | Top-level template variable not in the data contract. Valid variables: `.issue`, `.attempt`, `.run`. |
 | `unknown_field` | Sub-field of a known top-level variable that does not exist in the domain schema (e.g., `.issue.nonexistent`, `.run.foo`). |

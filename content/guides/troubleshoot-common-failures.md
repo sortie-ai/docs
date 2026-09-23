@@ -184,6 +184,8 @@ The issue's cumulative token spend reached [`agent.max_tokens`](/reference/workf
 
 3. **Raise the ceiling only if the work is worth it.** `agent.max_tokens` reloads from WORKFLOW.md without a restart, and the new value reaches the sessions already running from the next poll tick. See [how to control agent costs](/guides/control-costs/#cap-tokens-per-issue) for choosing a figure.
 
+4. **Set a warning threshold so the agent wraps up next time instead of getting cut off.** `agent.token_warning_percent` logs `token warning threshold reached` and marks the `cost_budget` tool's `warning_reached` field before the ceiling stops a run, giving a well-prompted agent room to finish cleanly. See [how to control agent costs](/guides/control-costs/#warn-before-the-ceiling-stops-a-run).
+
 ## Issue keeps re-running and never advances
 
 ```
