@@ -76,7 +76,7 @@ The full interaction between `.sortie/status` and `tracker.handoff_state` is doc
 | File absent | Normal behavior: continue and retry as configured. |
 | Unrecognized value | Ignored. Warning logged. Normal behavior continues. |
 | Read error | Treated as absent. Warning logged. Never fails the worker run. |
-| Symlink on `.sortie/` or `status` | Rejected as a symlink. Treated as absent. Warning logged. |
+| Workspace directory, `.sortie/`, or `status` is a symbolic link, the wrong entry type, or was swapped while Sortie opened it | Rejected. Treated as absent. Warning logged. |
 
 ### Auto-injection
 
@@ -106,7 +106,7 @@ During the self-review phase, a second injected instruction supersedes this one 
 
 Sortie deletes `.sortie/status` before each new dispatch, so a stale signal from a previous run cannot affect the new one.
 
-Sortie deletes it again at each point in a run where it acts on a recognized value: when a completion signal admits the run to the [self-review phase](/guides/configure-self-review/), and after every review turn and every fix turn inside that phase. Which value was read makes no difference at those points; `blocked`, `needs-human-review`, and `no-change-needed` are all removed. The read after a coding turn deletes nothing, so a recognized value written there stays on disk through teardown on a run that never enters the phase. Every deletion is best-effort and rejects a symlink the same way the read does; a deletion that fails is logged and changes nothing else about the run.
+Sortie deletes it again at each point in a run where it acts on a recognized value: when a completion signal admits the run to the [self-review phase](/guides/configure-self-review/), and after every review turn and every fix turn inside that phase. Which value was read makes no difference at those points; `blocked`, `needs-human-review`, and `no-change-needed` are all removed. The read after a coding turn deletes nothing, so a recognized value written there stays on disk through teardown on a run that never enters the phase. Every deletion is best-effort and applies the same rejection as the read: a link or wrong-type entry at the workspace directory, `.sortie/`, or `status` leaves the file in place rather than following it; a deletion that fails is logged and changes nothing else about the run.
 
 An absent or empty file therefore carries two meanings: the agent has written nothing, or Sortie has already acted on what it wrote. What an `after_run` hook or a later `cat` finds is a value Sortie has not acted on.
 
@@ -386,7 +386,7 @@ No parameters. The agent sends an empty JSON object:
 
 ### How it works
 
-The tool reads `.sortie/state.json`, a file the worker writes at session start, at the start of each coding turn, and again whenever a measurement arrives: on a token usage event, on any event carrying a non-zero usage payload, or on a turn's result carrying a measurement. The tool validates the file before reading: symlinks are rejected, and files larger than 4 KiB are refused.
+The tool reads `.sortie/state.json`, a file the worker writes at session start, at the start of each coding turn, and again whenever a measurement arrives: on a token usage event, on any event carrying a non-zero usage payload, or on a turn's result carrying a measurement. The tool validates the whole path before reading: the workspace directory, `.sortie/`, and the file itself must each be a real, unswapped entry of the expected type, and files larger than 4 KiB are refused.
 
 Review and fix turns in the [self-review phase](/guides/configure-self-review/) write the file too, through that same measurement-arrival trigger, so `tokens` and `tokens_measured` can change after coding turns end. See the `turn_number` and `turns_remaining` rows for what self-review leaves unchanged.
 
@@ -471,7 +471,7 @@ The failure shape is the same structured envelope every built-in tool uses.
 
 | Kind | Meaning |
 |---|---|
-| `state_unavailable` | The state file is absent, a symlink, oversized, or unreadable. |
+| `state_unavailable` | The state file, its `.sortie/` directory, or the workspace directory is absent, a symbolic link or other unexpected entry type, oversized, or unreadable. |
 | `state_malformed` | The state file is present but unparseable: malformed JSON or an invalid `started_at`. |
 
 ---
@@ -799,7 +799,7 @@ The Slack rendering carries only the message. The envelope (issue key, dispatch 
 | `rate_limited` | The dispatch's notification cap is reached. Nothing was sent. |
 | `send_failed` | A backend returned a transport failure, a non-2xx response, or an unparseable response. The message is a redacted category and never echoes the URL, request body, or response body. |
 | `backend_unavailable` | No backend could be resolved at execution time. Defensive: normal operation registers the tool only when a backend is configured. |
-| `state_unavailable` | The notification count could not be established: the workspace path or the dispatch ID is missing, or `.sortie` (or its `notification_slots` subdirectory) is a symbolic link or not a directory. Nothing was sent. |
+| `state_unavailable` | The notification count could not be established: the workspace path or the dispatch ID is missing, or the workspace directory, `.sortie`, or its `notification_slots` subdirectory is a symbolic link, not a directory, or was swapped while being opened. Nothing was sent. |
 
 ---
 

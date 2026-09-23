@@ -294,6 +294,26 @@ A hook exited non-zero. `after_create` and `before_run` failures are fatal for t
 
 3. For timeout errors, increase `hooks.timeout_ms` in WORKFLOW.md.
 
+## Workspace path is a symbolic link
+
+```
+level=WARN msg="worker run failed, scheduling retry" error="mcp config generation: open .sortie directory: /opt/sortie_workspaces/PROJ-42: is a symbolic link" next_attempt=1 delay_ms=10000
+```
+
+Something replaced the per-issue workspace directory with a symbolic link during workspace preparation, after Sortie confirmed the directory was real but before it wrote `.sortie/mcp.json`: an `after_create` or `before_run` hook script, or a process racing that window from outside Sortie. A symlink left behind by an earlier run's `after_run` or `before_remove` hook is caught earlier instead, as a workspace conflict when this attempt's workspace preparation starts; see step 2.
+
+1. Find what replaced the directory. Check `after_create` and `before_run` first; a script that removes and relinks a shared directory is the most common cause. Also check for an outside process (a cleanup job, a manual `ln -s`) that could run during that same window.
+2. Remove the symlink by hand. Workspace preparation on the next attempt only recreates a directory that is missing; a directory still occupied by a symlink is rejected instead, as a workspace conflict, so retries keep failing, under a different error, until the link is gone.
+3. If the workspace directory disappears entirely instead of being swapped, at any point from a hook through a later turn, Sortie reports it as an agent error instead:
+
+   ```
+   level=ERROR msg="worker run failed, non-retryable, releasing claim" error="agent session start: agent: invalid_workspace_cwd: workspace path does not exist: /opt/sortie_workspaces/PROJ-42: lstat /opt/sortie_workspaces/PROJ-42: no such file or directory"
+   ```
+
+   This one releases the claim instead of retrying with backoff. The issue becomes dispatchable again on the next poll cycle, and that dispatch's own workspace preparation recreates the missing directory from scratch.
+
+A hook that starts after the same directory breaks fails with its own `hook validate` error instead of either of the above; see [hook errors](/reference/errors/#hook-errors) in the error reference. See [control-file errors](/reference/errors/#control-file-errors), [agent errors](/reference/errors/#agent-errors), and [path errors](/reference/errors/#path-errors) for the full set of detail strings these checks can report.
+
 ## Issues not being dispatched
 
 ```

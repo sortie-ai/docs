@@ -133,7 +133,7 @@ EOF
 }
 ```
 
-If `.sortie/scm.json` is absent, is missing the pull request identity, or is a symlink (rejected for security), CI feedback is skipped for that run.
+If `.sortie/scm.json` is absent, is missing the pull request identity, or fails Sortie's directory and symlink checks on the workspace, `.sortie`, or the file itself (rejected for security), CI feedback is skipped for that run.
 
 ## What the agent sees
 

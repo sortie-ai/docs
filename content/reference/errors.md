@@ -84,7 +84,7 @@ Errors from agent adapter sessions. They appear in logs with the format `agent: 
 | Error kind | Description | Retryable | Backoff | Operator action |
 |---|---|---|---|---|
 | `agent_not_found` | Agent command or binary not found in `PATH`. Also triggered by SSH exit code `127` (remote binary missing). | No | - | Install the agent binary, or set `agent.command` in WORKFLOW.md. For SSH workers, install the agent on the remote host. |
-| `invalid_workspace_cwd` | Workspace path is invalid, doesn't exist, or isn't a directory. | No | - | Check `workspace.root` permissions and available disk space. |
+| `invalid_workspace_cwd` | The workspace path does not exist, is not a directory, or has become a symbolic link. Sortie re-checks the path under this error kind immediately before every agent subprocess launch: session start, every turn, and auxiliary commands such as credential verification. Hooks re-check the same path but report through the separate [`hook validate`](#hook-errors) error instead. | No | - | Check `workspace.root` permissions and available disk space. If the path is a symbolic link, find what replaced the directory (a hook script, a cleanup job, a manual `ln -s`) and remove the link. |
 | `response_timeout` | Startup or synchronous communication timed out before the agent responded. | Yes | Exponential | Increase [`agent.read_timeout_ms`](/reference/workflow-config/) if persistent. |
 | `turn_timeout` | A turn, including a self-review turn, exceeded the configured [`agent.turn_timeout_ms`](/reference/workflow-config/). | Yes | Exponential | Increase the timeout, or simplify the task so the agent finishes faster. |
 | `port_exit` | Agent subprocess exited unexpectedly (non-zero exit code, pipe failure, or crash), or the runtime reported no turn outcome and the adapter had no per-turn process exit to observe. | Yes | Exponential | Check agent logs for crash details. For SSH workers, exit code `255` indicates an SSH connection failure. Check connectivity and verify the host is in `worker.ssh_hosts`. |
@@ -132,7 +132,7 @@ Occur when lifecycle hook scripts (`after_create`, `before_run`, `after_run`, `b
 
 | Operation | Meaning | Operator action |
 |---|---|---|
-| `validate` | Empty script body or invalid timeout (non-positive `hooks.timeout_ms`). | Fix your hook script or set a valid `hooks.timeout_ms`. |
+| `validate` | Empty script body, invalid timeout (non-positive `hooks.timeout_ms`), or the workspace directory fails re-verification immediately before the hook starts (missing, not a directory, or replaced with a symbolic link). | Fix your hook script or set a valid `hooks.timeout_ms`. For a failed workspace re-verification, find what replaced or removed the directory between workspace preparation and the hook's start. |
 | `start` | Failed to spawn the hook subprocess (missing shell, permission denied). | On POSIX, check that `/bin/sh` exists and is executable. On Windows, check that `cmd.exe` is available. |
 | `run` | Script exited with non-zero exit code. The failure WARN record carries the script's combined stdout and stderr under `hook_output` (the last 8 KiB). | Read `hook_output` on the WARN record to diagnose the script failure. |
 | `timeout` | Script exceeded [`hooks.timeout_ms`](/reference/workflow-config/), or the run it belongs to was cancelled while the script was executing. | Increase `hooks.timeout_ms`, or make the hook script faster. |
@@ -147,10 +147,15 @@ Occur while the worker writes the MCP tool-server configuration (`.sortie/mcp.js
 
 | Detail | Meaning | Operator action |
 |---|---|---|
-| `.sortie is a symbolic link, refusing to write` | `.sortie` in the workspace is a symbolic link rather than an ordinary directory. Sortie refuses to write through it. | Find and remove whatever replaced `.sortie` with a symlink (a hook script, a prior agent action), then retry. |
-| `.sortie is not a directory` | `.sortie` exists as a regular file, not a directory. | Remove the file so Sortie can create `.sortie` as a directory. |
+| `<workspace path>: is a symbolic link` | The workspace directory itself was replaced with a symbolic link after Sortie prepared it. Sortie refuses to write `.sortie/mcp.json` through it. | Find and remove whatever replaced the workspace directory with a symlink (a hook script, a prior agent action), then retry. |
+| `<workspace path>: is not a directory` | The workspace path exists as a regular file or other non-directory entry. | Remove whatever occupies the workspace path so Sortie can use it as a directory again. |
+| `<workspace path>: lstat <workspace path>: no such file or directory` | The workspace directory was removed after Sortie prepared it. | Find what removed the workspace directory between hook execution and this write, then retry. |
+| `<workspace path>: changed while being opened` | The workspace directory was replaced between the check and the write (a race, not a stable misconfiguration). | Retry. If it recurs, find what is swapping the workspace directory concurrently with Sortie. |
+| `.sortie: is a symbolic link` | `.sortie` in the workspace is a symbolic link rather than an ordinary directory. Sortie refuses to write through it. | Find and remove whatever replaced `.sortie` with a symlink (a hook script, a prior agent action), then retry. |
+| `.sortie: is not a directory` | `.sortie` exists as a regular file, not a directory. | Remove the file so Sortie can create `.sortie` as a directory. |
+| `.sortie: changed while being opened` | `.sortie` was replaced between the check and the write (a race, not a stable misconfiguration). | Retry. If it recurs, find what is rewriting `.sortie` concurrently with Sortie. |
 
-This error is retryable with exponential backoff. A run blocked this way never reaches the agent session, and keeps retrying until whatever replaced `.sortie` is fixed.
+Every detail above appears after an `open .sortie directory: ` prefix in the full message. This error is retryable with exponential backoff. A run blocked this way never reaches the agent session. Workspace preparation on the next attempt recreates a workspace directory that is missing (`after_create` runs again if configured), so that specific cause usually clears on its own; a workspace path still occupied by a symbolic link or another non-directory entry is rejected there instead, as a `workspace conflict` error (see [Path errors](#path-errors) above), so retries continue failing, under that different error, until the entry is removed by hand.
 
 ---
 
