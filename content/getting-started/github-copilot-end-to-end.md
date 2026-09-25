@@ -13,7 +13,7 @@ The GitHub integration tutorial proved that Sortie can talk to your issue tracke
 ## Prerequisites
 
 - [GitHub integration tutorial](/getting-started/github-integration/) completed: Sortie connects to your GitHub repository and `SORTIE_GITHUB_TOKEN` is set
-- Copilot CLI 1.0.51 or later installed on your machine. This adapter assigns its own session ID with `--session-id`, a flag an older CLI rejects; on an older CLI the run fails before it does any work, with an error that names the credential rather than the version.
+- Copilot CLI 1.0.51 or later installed on your machine. This adapter assigns its own session ID with `--session-id`, a flag an older CLI rejects; on an older CLI the run fails before it does any work, with the CLI's own complaint about its command line rather than a message naming the version.
 
     ```bash
     copilot --version
@@ -171,7 +171,7 @@ The `copilot-cli` section is a pass-through to the Copilot CLI binary. `max_auto
 
 `SORTIE_GITHUB_TOKEN` authenticates Sortie to the GitHub API. `GITHUB_TOKEN` (or `GH_TOKEN`, or `COPILOT_GITHUB_TOKEN`) authenticates Copilot CLI to GitHub's AI backend. They can be the same token. If you ran the `export GITHUB_TOKEN="$SORTIE_GITHUB_TOKEN"` command from the prerequisites, both are already set.
 
-Before it starts work on an issue, Sortie opens a short-lived session of its own and sends one request through Copilot CLI to confirm the credential actually answers, rather than only checking that a variable is set. A missing or rejected credential stops the run immediately, naming the credential, instead of failing partway through the first turn. See [credential verification](/reference/workflow-config/#credential-verification) for the mechanism every agent kind shares.
+Before it starts work on an issue, Sortie opens a short-lived session of its own and sends one request through Copilot CLI to confirm the credential actually answers, rather than only checking that a variable is set. A missing or rejected credential stops the run immediately with Copilot CLI's own message about it, such as `No authentication information found`, instead of failing partway through the first turn. See [credential verification](/reference/workflow-config/#credential-verification) for the mechanism every agent kind shares.
 
 ### Workspace and hooks
 

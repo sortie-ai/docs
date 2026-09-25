@@ -31,13 +31,13 @@ In this tutorial, we will wire Sortie to GitHub Issues and the Kiro CLI, then wa
     export KIRO_API_KEY="your-kiro-api-key"
     ```
 
-    Confirm it works, the same check Sortie runs before it starts work on an issue:
+    Confirm the CLI sees it, the first check Sortie runs before it starts work on an issue:
 
     ```bash
     kiro-cli whoami
     ```
 
-    A valid key prints confirmation that you are authenticated. Now list the models valid for your account, because the workflow pins one:
+    This confirms the CLI has a key to use, not that Kiro accepts it. Sortie's own check also sends one request through Kiro, which is what catches a rejected key before any work starts. Now list the models valid for your account, because the workflow pins one:
 
     ```bash
     kiro-cli chat --list-models --format json
@@ -210,7 +210,7 @@ Budgeting also works differently. The headless Kiro path reports no token counts
 
 ### Why your first run will not hang
 
-Headless Kiro handles a missing credential and an invalid one differently, and neither is friendly. With no credential at all, `kiro-cli chat` does not error; it drops into an interactive device-login flow and waits, which would hang an unattended run. With an invalid key it exits fast but quietly, producing an empty turn rather than a clear failure. Sortie closes both gaps the same way for every agent it runs, Kiro included: before it starts work on an issue, it opens a short-lived session of its own and runs `kiro-cli whoami` against it, the same check you ran in the prerequisites. A missing or unusable credential stops the run immediately with a clear error in the log, so your first run fails loudly and early instead of hanging or completing empty. See [credential verification](/reference/workflow-config/#credential-verification) for the mechanism every kind shares.
+Headless Kiro handles a missing credential and an invalid one differently, and neither is friendly. With no credential at all, `kiro-cli chat` does not error; it drops into an interactive device-login flow and waits, which would hang an unattended run. With an invalid key it exits fast but quietly, producing an empty turn rather than a clear failure. Sortie closes both gaps before it starts work on an issue: it opens a short-lived session of its own, runs `kiro-cli whoami` in it, the check you ran in the prerequisites, and then sends one request through it, as it does for every agent. `whoami` catches a missing credential before `chat` can wait on a login, and the request catches a key Kiro rejects. A missing or unusable credential stops the run immediately with a clear error in the log, so your first run fails loudly and early instead of hanging or completing empty. See [credential verification](/reference/workflow-config/#credential-verification) for the mechanism every kind shares.
 
 ### Workspace and hooks
 
@@ -349,7 +349,7 @@ Open `http://127.0.0.1:7678/` in a browser while Sortie is running, on Sortie's 
 
 **The run shows no token-usage numbers.** The logs carry no token counts and the dashboard's aggregate token total stays at zero. This is not an error, and you do not have to infer it from a zero: while the session is still running, expand its row on the dashboard and read the `Usage reporting` field, which states `this session reports no token usage`. The headless Kiro path reports only an abstract credits figure, never tokens, so Sortie cannot emit token usage. Budget is time-based, so tune `agent.turn_timeout_ms` rather than a token cap.
 
-**The run fails before any turn.** You see `agent session start: agent: credential_unverified: ...`, or `agent session start: agent: port_exit: the agent runtime exited before responding: ...` followed by what `kiro-cli whoami` printed, and no `agent credential verified` line follows. The key is missing, invalid, or the account lacks a Kiro Pro, Pro+, or Power subscription. Confirm with `kiro-cli whoami`; a good key prints your authenticated account.
+**The run fails before any turn.** No `agent credential verified` line follows `agent session start`, and the error names one of two cases. With no key at all, you see `agent session start: agent: credential_unverified: the agent runtime reports no usable credential: whoami reports no signed-in account`. With a key Kiro rejects, you see `agent session start: agent: port_exit: the agent runtime exited before responding: exit status 0:` followed by what `kiro-cli chat` wrote to standard error, ending with Kiro's own message, such as `Access denied: The bearer token included in the request is invalid.` The key is missing, invalid, or the account lacks a Kiro Pro, Pro+, or Power subscription. `kiro-cli whoami` shows only whether a key is set, so confirm the key works with `kiro-cli chat --no-interactive "Reply OK"`: a working key gets an answer, and a rejected one prints the same message.
 
 **A turn hits the turn timeout.** The turn ends at the `turn_timeout_ms` backstop, the worker reports a `turn_timeout` error, and the attempt is retried. The cause is a stuck turn. Credential verification prevents the no-credential device-login hang before any turn starts, so the usual culprit here is a bad model name or a genuinely long task. Verify both with `kiro-cli whoami` and `kiro-cli chat --list-models --format json`.
 
