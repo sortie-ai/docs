@@ -160,7 +160,7 @@ stderr carries one signal the working-session adapter classifies, and one it doe
 | stderr content | Meaning |
 |---|---|
 | `▸ Credits:` trailer | The one positive proof a turn executed, and only when the collection it came from finished. The numeric credit and time values vary; the prefix is the stable contract. |
-| `Authentication failed.` | The credential is present but invalid. Neither the working-session adapter nor the credential-verification guard (see [authentication](#authentication)) reads this marker: the guard decides from `whoami`'s own exit status, and a working turn under a rejected credential is left to the shared zero-work outcome. It is documented here because it is what you see in raw stderr while diagnosing one. |
+| `Authentication failed.` | The credential is present but invalid. Neither the working-session adapter nor the credential-verification guard (see [authentication](#authentication)) reads this marker: the guard decides from `whoami`'s own JSON answer, and a working turn under a rejected credential, which exits with empty stdout, takes the [early exit report](/reference/errors/#early-exit-report), whose text carries this line. |
 | Warnings (for example, `Failed to retrieve MCP settings`) | Non-fatal diagnostics. Re-emitted at WARN level on failure paths. |
 
 There are no per-event timestamps in the transcript. The adapter cannot reconstruct tool-call durations, so it emits no tool-result events. That is the practical difference from an adapter with a structured stream: there is nothing to correlate, so tool activity does not reach Sortie's events at all.
@@ -183,20 +183,20 @@ No model name is reported either, and not as an incidental side effect of the mi
 
 ### Outcome classification
 
-The turn outcome is determined from the process exit status, the credits trailer, and the stdout transcript. The adapter's own classifier reports an outcome for exactly one case, an exit-0 turn that printed the credits trailer; everything else, including an exit-0 turn a rejected credential left with empty stdout, is decided by the shared decision table from the exit status and the stdout evidence, so the messages on those rows are the shared ones rather than anything Kiro-specific. A working session runs no credential guard of its own (see [authentication](#authentication)), so a credential rejected outright surfaces through this same shared zero-work row rather than through anything naming the credential.
+The turn outcome is determined from the process exit status, the credits trailer, and the stdout transcript. The adapter's own classifier reports an outcome for exactly one case, an exit-0 turn that printed the credits trailer; everything else, including an exit-0 turn a rejected credential left with empty stdout, is decided by the shared decision table from the exit status and the stdout evidence, so the messages on those rows are the shared ones rather than anything Kiro-specific. A working session runs no credential guard of its own (see [authentication](#authentication)), so a credential rejected outright surfaces through the shared early-exit row, carrying the runtime's own stderr, rather than through anything naming the credential.
 
 | Kiro evidence | Exit reason | Error kind | Message | Decided by |
 |---|---|---|---|---|
 | Exit 0 with a `▸ Credits:` trailer on a stderr collection that finished | `turn_completed` | _(none)_ | _(empty)_ | The adapter's classifier. Also sets the resume flag for subsequent turns. |
 | Exit 0, no credits trailer, at least one non-blank stdout line | `turn_completed` | _(none)_ | _(empty)_ | Shared work-present row. Does not set the resume flag. |
-| Exit 0, no credits trailer, no non-blank stdout line (this is also the shape a rejected credential takes on a working turn) | `turn_failed` | `turn_failed` | `agent exited without producing output: no message from the agent` | Shared zero-work row. |
+| No non-blank stdout line, whatever the exit status, and Sortie did not stop the process (this is also the shape a rejected credential takes on a working turn) | `turn_failed` | `port_exit` | `the agent runtime exited before responding: exit status N` on the event, followed by the end of stderr on the error; see the [early exit report](/reference/errors/#early-exit-report) | Shared early-exit row, outranked only by the credits trailer. |
 | Any other non-zero exit | `turn_failed` | `port_exit` | `non-zero exit` on the event, `exit code N` on the error | Shared non-zero-exit row. |
-| Exit 127 | `turn_failed` | `agent_not_found` | `agent binary not found` | Shared skeleton, before the classifier runs. |
-| Process terminated by a signal | `turn_cancelled` | `turn_cancelled` | `killed by signal` | Shared skeleton, before the classifier runs. The skeleton tests whether the process was signalled, not for a particular exit code. |
+| Exit 127 after a non-blank stdout line | `turn_failed` | `agent_not_found` | `agent binary not found` | Shared skeleton, before the classifier runs. |
+| Process terminated by a signal Sortie sent, or by any signal after a non-blank stdout line | `turn_cancelled` | `turn_cancelled` | `killed by signal` | Shared skeleton, before the classifier runs. The skeleton tests whether the process was signalled, not for a particular exit code. |
 | Turn cancelled | `turn_cancelled` | `turn_cancelled` | `context cancelled` | Shared skeleton, before the classifier runs. |
 | Stdout read failure | `turn_failed` | `port_exit` | `stdout read error: <detail>` | Shared skeleton. Becomes `turn_cancelled` if the turn is already cancelled. |
 
-The work evidence this adapter declares is the stdout transcript alone: a line that is not blank once ANSI escapes are stripped is a message from the agent. It declares no tool signal, because the transcript reports no tool activity, so the zero-work message names only the one signal looked for. The credits trailer stays the runtime's own success report and outranks that evidence, which is why a turn printing the trailer reports the same outcome whatever its stdout held.
+The work evidence this adapter declares is the stdout transcript alone: a line that is not blank once ANSI escapes are stripped is a message from the agent. It declares no tool signal, because the transcript reports no tool activity. A non-blank line is also what the shared early-exit row looks for, so a turn without one takes that row rather than a zero-work outcome. The credits trailer stays the runtime's own success report and outranks that evidence, which is why a turn printing the trailer reports the same outcome whatever its stdout held.
 
 That ranking holds only for a trailer read from a stderr collection that finished. The trailer is the last thing headless Kiro writes, so one read from a collection cut short by the five-second bound described under [Turn](#turn) may belong to a transcript whose rest never arrived, and the adapter stops treating it as the success report. The turn falls to the rows below: a non-blank stdout line still completes it, and a turn with nothing on stdout fails. The stderr Sortie re-emits from a cut-short collection ends with a marker of its own, saying later output may be missing.
 
@@ -250,7 +250,7 @@ The workspace path and the adapter-generated arguments are single-quoted with st
 
 ### Exit codes
 
-SSH exit code `255` indicates a connection failure (refused, timeout, unreachable) and maps to `port_exit` through the generic non-zero branch. Exit code `127` means the remote `kiro-cli` binary is not in `PATH` and maps to `agent_not_found`.
+SSH exit code `255` indicates a connection failure (refused, timeout, unreachable) and maps to `port_exit`. Exit code `127` means the remote `kiro-cli` binary is not in `PATH`; the process wrote nothing to stdout, so it takes the [early exit report](/reference/errors/#early-exit-report) under `port_exit`, carrying `exit status 127` and the remote shell's own message.
 
 ---
 
@@ -260,10 +260,17 @@ The adapter consumes `KIRO_API_KEY`, unless a `kiro-cli` login is already stored
 
 Before any working turn runs, once per worker attempt, the [credential-verification step](/reference/workflow-config/#credential-verification) opens a session of its own and runs a guard at session start:
 
-1. Runs a `kiro-cli whoami` canary, bounded at 60 seconds, generous enough to cover a stored login refreshing its token over the network.
-2. Decides on the exit status alone: exit `0` proceeds, anything else (a non-zero exit, a timeout, or a failure to start the canary at all) fails the run with `credential_unverified`.
+1. Runs a `kiro-cli whoami --format json` canary, bounded at 60 seconds, generous enough to cover a stored login refreshing its token over the network.
+2. Decides on the runtime's own answer, not on the exit status alone:
 
-The guard reads no output text: whether `KIRO_API_KEY` is set, or a stored login answers instead, `whoami` is what actually proves the credential, not a marker string in its stdout. This is what defends against the two failure shapes headless `chat` has:
+| `whoami` outcome | Result |
+|---|---|
+| Exit `0` | The guard passes. |
+| A failing exit whose stdout holds a JSON object whose only member is `account`, set to `null`: the runtime's own report that no account is signed in | `credential_unverified`, `whoami reports no signed-in account` |
+| No exit within the 60-second bound, or the canary could not be started | `credential_unverified`, naming which |
+| Any other failing exit | `port_exit`, the [early exit report](/reference/errors/#early-exit-report) carrying `whoami`'s exit status and the end of its stderr |
+
+Whether `KIRO_API_KEY` is set, or a stored login answers instead, `whoami` is what actually proves the credential, not a marker string such as `Authentication failed.`. This is what defends against the two failure shapes headless `chat` has:
 
 | Failure | Symptom without the guard |
 |---|---|

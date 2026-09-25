@@ -305,9 +305,10 @@ An error kind is absent only on a `turn_completed` outcome; every other outcome 
 | A JSON envelope carried a `sessionID` other than the one already adopted | `turn_failed` | `response_error` | Message is `session id mismatch: expected "...", got "..."`. The turn is aborted rather than reconciled. |
 | Stdout `error` envelope observed, whatever the process exit status | `turn_failed` | `turn_failed` | Structured logical failure, authoritative over the exit code. Message is the envelope's own detail; see [masked failures](#masked-failures). |
 | Turn cancelled, or the session stopped | `turn_cancelled` | `turn_cancelled` | Message is `turn cancelled`. Cancellation outranks the process-exit classification. |
+| No `error` envelope, and the process exited before writing a readable line to stdout, whatever its exit status | `turn_failed` | `port_exit` | The [early exit report](/reference/errors/#early-exit-report): `the agent runtime exited before responding: exit status N`, followed by the end of the process's stderr. |
 | No `error` envelope, exit `0`, at least one `text`, `reasoning`, or `tool_use` part parsed | `turn_completed` | _(none)_ | Normal completion. |
-| No `error` envelope, exit `0`, no such part parsed | `turn_failed` | `turn_failed` | The model produced nothing this turn. Message is `agent exited without producing output: no message from the agent and no tool call`. |
-| No `error` envelope, non-zero exit | `turn_failed` | `port_exit` | Process-level failure. Message is `exit code N`. |
+| No `error` envelope, exit `0`, output written but no such part parsed | `turn_failed` | `turn_failed` | The model produced nothing this turn. Message is `agent exited without producing output: no message from the agent and no tool call`. |
+| No `error` envelope, non-zero exit after writing output | `turn_failed` | `port_exit` | Process-level failure. Message is `exit code N`. |
 
 The adapter never trusts exit code `0` as sufficient proof of success. A terminal stdout `error` envelope is authoritative.
 
@@ -381,7 +382,7 @@ The workspace path and the adapter-generated OpenCode arguments are single-quote
 
 ### Exit codes
 
-SSH exit codes `255` and `127` are not special-cased. They fall through the adapter's generic non-zero process-exit branch and map to `port_exit` unless OpenCode already emitted a terminal stdout `error` envelope. Exit code `0` is still not sufficient to prove success, because OpenCode can emit a terminal `error` envelope and still exit `0`.
+SSH exit code `255` indicates a connection failure and maps to `port_exit` unless OpenCode already emitted a terminal stdout `error` envelope. Exit code `127` means the remote binary is not in `PATH`; the process wrote nothing to stdout, so the turn takes the [early exit report](/reference/errors/#early-exit-report) under `port_exit`, carrying `exit status 127` and the remote shell's own message. Exit code `0` is still not sufficient to prove success, because OpenCode can emit a terminal `error` envelope and still exit `0`.
 
 ---
 

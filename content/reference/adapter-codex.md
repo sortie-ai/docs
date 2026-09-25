@@ -148,6 +148,7 @@ Launches the app-server subprocess, performs the JSON-RPC initialization handsha
 | Subprocess failed to start | `port_exit` |
 | Pipe creation failed (stdin, stdout, stderr) | `port_exit` |
 | Generated MCP configuration unreadable or not expressible | `response_error` |
+| The app-server exits before a startup handshake step is answered: the initialize exchange, the authentication check, `thread/start`, or `thread/resume` | `port_exit`, as the [early exit report](/reference/errors/#early-exit-report) |
 | Initialize handshake failed | `response_error` |
 | Authentication failed | `response_error` |
 | Thread start/resume failed | `response_error` |
@@ -346,7 +347,7 @@ The workspace path and each per-turn argument are single-quoted with embedded si
 
 ### Exit codes
 
-SSH exit code `255` indicates a connection failure (refused, timeout, unreachable) and maps to `port_exit`. Exit code `127` means the remote agent binary is not in `PATH` and maps to `agent_not_found`.
+SSH exit code `255` indicates a connection failure (refused, timeout, unreachable) and maps to `port_exit`. Exit code `127` means the remote agent binary is not in `PATH`; the app-server never answers its handshake, so session start fails with the [early exit report](/reference/errors/#early-exit-report) under `port_exit`, carrying `exit status 127` and the remote shell's own message.
 
 ---
 

@@ -31,7 +31,7 @@ The agent binary isn't installed or isn't on `PATH`.
       command: /usr/local/bin/claude-code
     ```
 
-3. For SSH workers, the binary must exist on every remote host. Exit code `127` in logs means the remote host is missing it:
+3. For SSH workers, the binary must exist on every remote host. A host missing it fails differently: the run is retried, and its error reads `port_exit: the agent runtime exited before responding: exit status 127` followed by the remote shell's own message (see [agent exits before it responds](#agent-exits-before-it-responds)). Check the host directly:
 
     ```bash
     ssh build01.internal "which claude && echo ok"
@@ -63,7 +63,7 @@ Workers never reach a real turn. Before it starts work on an issue, Sortie opens
     level=WARN msg="ssh_pass_env variable is not set or empty in the orchestrator environment" variable=ANTHROPIC_API_KEY
     ```
 
-5. On `copilot-cli` specifically, this same error can mean an outdated CLI rather than a bad token: `--session-id` requires Copilot CLI 1.0.51 or later, and the verification session's own first request already carries it. Check `copilot --version` before troubleshooting the credential; see [session identity](/reference/adapter-copilot/#session-identity).
+5. On `copilot-cli` and `kiro`, a rejected credential can instead fail with `port_exit` and the CLI's own message, because those CLIs refuse a credential by printing a message and exiting. That case is [agent exits before it responds](#agent-exits-before-it-responds); the fixes above still apply.
 
 No `agent credential verified` line precedes an error like this one; that line only appears once the check has actually passed. If you do see `agent credential verified` followed by a failure, the credential itself is fine and the problem is in the working turn instead: see [agent exits without producing output](#agent-exits-without-producing-output) or [a turn runs long and gets cut off](#a-turn-runs-long-and-gets-cut-off).
 
@@ -108,6 +108,22 @@ Every remote `opencode` launch carries variables whatever your configuration say
 
 2. Install it where it is missing. It ships with coreutils and with busybox, so most base images have it; distroless and scratch-based images often do not.
 
+## Agent exits before it responds
+
+```
+level=WARN msg="worker run failed, scheduling retry" error="agent session start: agent: port_exit: the agent runtime exited before responding: exit status 2: error: unknown option '--sortie-unknown-switch'" next_attempt=1 delay_ms=10000
+```
+
+The agent process ended before it answered, and everything after the exit status is the end of what it wrote to standard error, with known credentials shown as `[redacted]`. A prefix of `agent session start:` means it happened before the first turn, on the credential check or while the working session started; `agent turn N:` means a working turn. The quoted output usually names the cause, so read it first. For the exact message format, see the [early exit report](/reference/errors/#early-exit-report).
+
+1. **A switch the agent does not accept.** Remove or correct the flag in `agent.command`. On `copilot-cli`, a CLI older than 1.0.51 rejects the `--session-id` switch Sortie always passes; check `copilot --version` and upgrade. See [session identity](/reference/adapter-copilot/#session-identity).
+
+2. **A rejected credential.** Copilot CLI and Kiro can report a rejected credential this way rather than as `credential_unverified`. Fix it as described under [agent crashes on authentication](#agent-crashes-on-authentication).
+
+3. **A program that cannot start.** A wrapper script whose interpreter is missing, or a remote host without the agent binary (`exit status 127`). Install what is missing, or point `agent.command` at a program that exists.
+
+4. **Confirm the fix.** Run the configured command by hand, on the same host and in the workspace directory, and check it no longer prints the error. The run is retried with exponential backoff, so the fix takes effect on the next scheduled retry, and `agent credential verified` in the log shows the check has passed.
+
 ## Agent exits without producing output
 
 ```
@@ -115,7 +131,7 @@ level=WARN msg="agent exited without producing output, treating as failure"
 level=WARN msg="worker run failed, scheduling retry" error="agent turn 1: agent: turn_failed: agent exited without producing output: no message from the agent and no tool call" next_attempt=1 delay_ms=10000
 ```
 
-The agent subprocess exited with code 0 without reporting a turn outcome, and the adapter found no evidence the model produced anything. Evidence is a message from the agent or a tool call, read from that turn's own stream, and the error line names the signals the adapter looked for after a colon. Claude Code, Copilot CLI, and OpenCode look for both, so their line ends `no message from the agent and no tool call`. Kiro reads a plain transcript that reports no tool activity, so it looks for a message only and its line ends `no message from the agent`. Sortie treats every one of these as `turn_failed` and retries with exponential backoff. Common causes:
+The agent subprocess wrote output and exited with code 0, but reported no turn outcome, and the adapter found no evidence the model produced anything. Evidence is a message from the agent or a tool call, read from that turn's own stream, and the error line names the signals the adapter looked for after a colon. Claude Code, Copilot CLI, and OpenCode look for both, so their line ends `no message from the agent and no tool call`. Sortie treats every one of these as `turn_failed` and retries with exponential backoff. An agent that exited without writing anything to standard output, Kiro included, fails as [agent exits before it responds](#agent-exits-before-it-responds) instead, with its own standard error in the message. Common causes:
 
 1. **MCP config parsing failure.** The agent failed to parse `--additional-mcp-config` or `--mcp-config` and exited silently. Check the WARN-level log lines immediately above the error. Sortie emits the agent's stderr content, which contains the parse error. On `codex` and `opencode` a bad MCP configuration fails differently: those adapters read it themselves before the agent starts, so the session ends with a `response_error` naming the file rather than a silent exit.
 
