@@ -42,10 +42,10 @@ The agent binary isn't installed or isn't on `PATH`.
 ## Agent crashes on authentication
 
 ```
-level=WARN msg="worker run failed, scheduling retry" error="agent session start: agent: credential_unverified: the agent runtime did not complete a credential verification request: exit code 1" next_attempt=1 delay_ms=10000
+level=WARN msg="worker run failed, scheduling retry" error="agent session start: agent: credential_unverified: the agent runtime did not complete a credential verification request: Not logged in · Please run /login" next_attempt=1 delay_ms=10000
 ```
 
-Workers never reach a real turn. Before it starts work on an issue, Sortie opens a short-lived session of its own and sends one request through the configured agent, to confirm the credential actually works; see [credential verification](/reference/workflow-config/#credential-verification). What that gives you is the failure happening immediately, before any real work starts, under a name that says it is a credential problem (`credential_unverified`) rather than a puzzling stall or a working session that quietly fails partway through its first turn. It does not by itself say which variable is missing or wrong: that detail, a missing `ANTHROPIC_API_KEY` in this example, lives inside the agent subprocess's own output, not in Sortie's error text, and the steps below are how you read it.
+Workers never reach a real turn. Before it starts work on an issue, Sortie opens a short-lived session of its own and sends one request through the configured agent, to confirm the credential actually works; see [credential verification](/reference/workflow-config/#credential-verification). What that gives you is the failure happening immediately, before any real work starts, under a name that says it is a credential problem (`credential_unverified`) rather than a puzzling stall or a working session that quietly fails partway through its first turn. The message ends with what the agent itself reported, here Claude Code's answer to a missing `ANTHROPIC_API_KEY`, but it does not name the variable that is missing or wrong. The steps below find it.
 
 1. Verify the variable is set:
 
@@ -120,7 +120,7 @@ The agent process ended before it answered, and everything after the exit status
 
 2. **A rejected credential.** Copilot CLI and Kiro can report a rejected credential this way rather than as `credential_unverified`. Fix it as described under [agent crashes on authentication](#agent-crashes-on-authentication).
 
-3. **A program that cannot start.** A wrapper script whose interpreter is missing, or a remote host without the agent binary (`exit status 127`). Install what is missing, or point `agent.command` at a program that exists.
+3. **A program that cannot start.** A wrapper script that starts its interpreter through `/usr/bin/env` on a host without that interpreter, or a remote host without the agent binary (`exit status 127`). Install what is missing, or point `agent.command` at a program that exists. A local `copilot-cli` launch fails earlier instead, at its version check: the error reads `agent_not_found: copilot binary found but not functional; ensure Node.js 22+ is available`, and Sortie releases the claim rather than retrying. See [session start](/reference/adapter-copilot/#session-start).
 
 4. **Confirm the fix.** Run the configured command by hand, on the same host and in the workspace directory, and check it no longer prints the error. The run is retried with exponential backoff, so the fix takes effect on the next scheduled retry, and `agent credential verified` in the log shows the check has passed.
 

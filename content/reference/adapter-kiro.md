@@ -160,7 +160,7 @@ stderr carries one signal the working-session adapter classifies, and one it doe
 | stderr content | Meaning |
 |---|---|
 | `▸ Credits:` trailer | The one positive proof a turn executed, and only when the collection it came from finished. The numeric credit and time values vary; the prefix is the stable contract. |
-| `Authentication failed.` | The credential is present but invalid. Neither the working-session adapter nor the credential-verification guard (see [authentication](#authentication)) reads this marker: the guard decides from `whoami`'s own JSON answer, and a working turn under a rejected credential, which exits with empty stdout, takes the [early exit report](/reference/errors/#early-exit-report), whose text carries this line. |
+| An access-denied message, for example `Access denied: The bearer token included in the request is invalid.` | The credential is present but invalid. Neither the working-session adapter nor the credential-verification guard (see [authentication](#authentication)) reads this message: the guard decides from `whoami`'s own JSON answer, and a request under a rejected credential, the verification request or a working turn, exits with empty stdout and takes the [early exit report](/reference/errors/#early-exit-report), whose text carries this line. |
 | Warnings (for example, `Failed to retrieve MCP settings`) | Non-fatal diagnostics. Re-emitted at WARN level on failure paths. |
 
 There are no per-event timestamps in the transcript. The adapter cannot reconstruct tool-call durations, so it emits no tool-result events. That is the practical difference from an adapter with a structured stream: there is nothing to correlate, so tool activity does not reach Sortie's events at all.
@@ -270,12 +270,12 @@ Before any working turn runs, once per worker attempt, the [credential-verificat
 | No exit within the 60-second bound, or the canary could not be started | `credential_unverified`, naming which |
 | Any other failing exit | `port_exit`, the [early exit report](/reference/errors/#early-exit-report) carrying `whoami`'s exit status and the end of its stderr |
 
-Whether `KIRO_API_KEY` is set, or a stored login answers instead, `whoami` is what actually proves the credential, not a marker string such as `Authentication failed.`. This is what defends against the two failure shapes headless `chat` has:
+The guard settles whether a credential is present, not whether Kiro accepts it: with `KIRO_API_KEY` set, `whoami` reports an API-key account and exits `0` whether or not Kiro accepts the key. The verification step's one request settles the rest. Between them they catch the two failure shapes headless `chat` has:
 
-| Failure | Symptom without the guard |
-|---|---|
-| No credential at all | Headless `chat` enters an interactive device-login flow and blocks indefinitely, because `--no-interactive` does not suppress login. |
-| Invalid key | Headless `chat` exits 0 with empty stdout and `Authentication failed.` on stderr, a silent failure that exit code alone cannot detect. |
+| Failure | Symptom in headless `chat` | Caught by |
+|---|---|---|
+| No credential at all | Enters an interactive device-login flow and blocks indefinitely, because `--no-interactive` does not suppress login. | The guard: `credential_unverified`, `whoami reports no signed-in account` |
+| Invalid key | Exits 0 with empty stdout and an access-denied message on stderr, a silent failure that exit code alone cannot detect. | The verification request: `port_exit`, the [early exit report](/reference/errors/#early-exit-report) carrying that message |
 
 A working session runs no guard of its own: its own verification session already proved the credential moments before, and a working turn's outcome is decided purely from the shared evidence described under [outcome classification](#outcome-classification). The verification session's own conversation is not left behind: session start lists the workspace's existing conversations before the guard runs, and session stop lists them again afterward, deleting whichever single new `classic` conversation the comparison finds with `kiro-cli chat --delete-session <id> --session-source v1`. A failed delete, or a comparison that cannot identify exactly one new conversation, is only logged; it never fails the run and never deletes the wrong conversation.
 
