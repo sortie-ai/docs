@@ -271,15 +271,17 @@ The outcome is not decided by the exit code alone. The shared decision table eva
 | Evidence, in evaluation order | Exit reason | Error kind |
 |---|---|---|
 | A denied `AskUserQuestion` was observed during the turn | `turn_input_required` | `turn_input_required` |
-| Orchestrator cancelled the turn, or the process was killed by a signal | `turn_cancelled` | `turn_cancelled` |
-| Exit code `127` | `turn_failed` | `agent_not_found` |
+| Orchestrator cancelled the turn | `turn_cancelled` | `turn_cancelled` |
+| The process was killed by a signal Sortie sent, or by any signal after writing output | `turn_cancelled` | `turn_cancelled` |
+| Exit code `127`, after writing output | `turn_failed` | `agent_not_found` |
 | `result` event with subtype `success` and `is_error` false | `turn_completed` | _(none)_ |
 | `result` event that is `is_error` or has any other subtype | `turn_failed` | `turn_failed` |
+| No `result` event, the process exited before writing a readable line to stdout, whatever its exit status | `turn_failed` | `port_exit`, as the [early exit report](/reference/errors/#early-exit-report) |
 | No `result` event, non-zero exit | `turn_failed` | `port_exit` |
 | No `result` event, exit `0`, no message from the agent and no tool call this turn | `turn_failed` | `turn_failed` |
 | No `result` event, exit `0`, a message from the agent or a tool call this turn | `turn_completed` | _(none)_ |
 
-The human-input, cancellation, and exit-`127` rows are decided before the adapter's own classifier runs. The work test reads this turn's own stream rather than the run-cumulative token figure. A message from the agent is a `text` content block carrying text on an `assistant` message; a tool call is a `tool_use` or `tool_result` block. Stderr from a failing turn is re-emitted at WARN level.
+The human-input, cancellation, signal, and exit-`127` rows are decided before the adapter's own classifier runs; the signal and exit-`127` rows apply only once the process has written output, because an exit before that is the early-exit row. The work test reads this turn's own stream rather than the run-cumulative token figure. A message from the agent is a `text` content block carrying text on an `assistant` message; a tool call is a `tool_use` or `tool_result` block. Stderr from a failing turn is re-emitted at WARN level.
 
 ### Stdout read failure
 
@@ -320,7 +322,7 @@ The workspace path and each per-turn CLI argument are single-quoted with embedde
 
 ### Exit codes
 
-SSH exit code `255` indicates a connection failure (refused, timeout, unreachable) and maps to `port_exit`. Exit code `127` means the remote agent binary is not in `PATH` and maps to `agent_not_found`.
+SSH exit code `255` indicates a connection failure (refused, timeout, unreachable) and maps to `port_exit`. Exit code `127` means the remote agent binary is not in `PATH`; the process wrote nothing to stdout, so the turn takes the [early exit report](/reference/errors/#early-exit-report) under `port_exit`, carrying `exit status 127` and the remote shell's own message.
 
 ---
 

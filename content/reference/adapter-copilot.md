@@ -248,17 +248,19 @@ The outcome is not decided by the exit code alone. The shared decision table eva
 
 | Evidence, in evaluation order | Exit reason | Error kind |
 |---|---|---|
-| Orchestrator cancelled the turn, or the process was killed by a signal | `turn_cancelled` | `turn_cancelled` |
-| Exit code `127` | `turn_failed` | `agent_not_found` |
+| Orchestrator cancelled the turn | `turn_cancelled` | `turn_cancelled` |
+| The process was killed by a signal Sortie sent, or by any signal after writing output | `turn_cancelled` | `turn_cancelled` |
+| Exit code `127`, after writing output | `turn_failed` | `agent_not_found` |
 | `result` event carrying `exitCode: 0`, no `session.task_complete` event this turn | `turn_failed` | `turn_incomplete` |
 | `result` event carrying `exitCode: 0`, a `session.task_complete` event reporting `success: false` | `turn_failed` | `turn_failed` |
 | `result` event carrying `exitCode: 0`, a `session.task_complete` event reporting `success` true or omitted | `turn_completed` | _(none)_ |
 | `result` event carrying any other `exitCode`, or carrying no `exitCode` field | `turn_failed` | `turn_failed` |
+| No `result` event, the process exited before writing a readable line to stdout, whatever its exit status | `turn_failed` | `port_exit`, as the [early exit report](/reference/errors/#early-exit-report) |
 | No `result` event, non-zero exit | `turn_failed` | `port_exit` |
 | No `result` event, exit `0`, no message from the agent and no tool call this turn | `turn_failed` | `turn_failed` |
 | No `result` event, exit `0`, a message from the agent or a tool call this turn | `turn_completed` | _(none)_ |
 
-The cancellation and exit-`127` rows are decided before the adapter's own classifier runs. The work test reads this turn's own stream rather than any token count. A message from the agent is a non-empty `data.content` on an `assistant.message`, or any `assistant.message_delta`, whose event type names an assistant message even though its payload stays unparsed. A tool call is a non-empty `data.toolRequests` on an `assistant.message`, or a `tool.execution_start` or `tool.execution_complete` whose data parsed. Stderr from a failing turn is re-emitted at WARN level.
+The cancellation, signal, and exit-`127` rows are decided before the adapter's own classifier runs; the signal and exit-`127` rows apply only once the process has written output, because an exit before that is the early-exit row. The work test reads this turn's own stream rather than any token count. A message from the agent is a non-empty `data.content` on an `assistant.message`, or any `assistant.message_delta`, whose event type names an assistant message even though its payload stays unparsed. A tool call is a non-empty `data.toolRequests` on an `assistant.message`, or a `tool.execution_start` or `tool.execution_complete` whose data parsed. Stderr from a failing turn is re-emitted at WARN level.
 
 A `result` event with `exitCode: 0` is not decisive by itself: the adapter also checks whether this turn saw a `session.task_complete` report, the runtime's own record of whether the work finished. The [`max_autopilot_continues`](#agentmax_turns-vs-copilot-climax_autopilot_continues) ceiling can stop the runtime mid-task with a clean exit and no such report; without this check that outcome read as an ordinary success. `turn_incomplete` is retried like the other transient turn failures, on exponential backoff, and the retry resumes the same session with a fresh continuation ceiling. Raise `copilot-cli.max_autopilot_continues` if the task genuinely needs more autopilot steps per turn. No other built-in adapter reports `turn_incomplete` today.
 
@@ -286,7 +288,7 @@ This adapter assigns the identifier itself: session start mints a fresh v4 UUID 
 
 `--continue` is never passed: that flag resumes whichever session the home directory saw most recently, possibly another issue's, or the [credential-verification step's](/reference/workflow-config/#credential-verification) own session. Minting the identifier up front avoids that risk entirely.
 
-`--session-id` requires Copilot CLI 1.0.51 or later; an older CLI rejects the flag, and Sortie does not check the installed version for this. The [credential-verification step](/reference/workflow-config/#credential-verification) opens its own session the same way, with `--session-id` on its own first request, so an outdated CLI fails there, before the working session ever starts. That failure is classified the same way a genuinely rejected credential is, `credential_unverified`, which reads like a bad token rather than an old CLI. If you see that error on a CLI you have not upgraded in a while, confirm the installed version with `copilot --version` before troubleshooting the credential itself.
+`--session-id` requires Copilot CLI 1.0.51 or later; an older CLI rejects the flag, and Sortie does not check the installed version for this. The [credential-verification step](/reference/workflow-config/#credential-verification) opens its own session the same way, with `--session-id` on its own first request, so an outdated CLI fails there, before the working session ever starts. A CLI that rejects the switch on standard error and exits before writing to stdout is reported as the [early exit report](/reference/errors/#early-exit-report), `port_exit`, so its own complaint about `--session-id` appears in the error text.
 
 ---
 
@@ -319,7 +321,7 @@ The workspace path and each per-turn CLI argument are single-quoted with embedde
 
 ### Exit codes
 
-SSH exit code `255` indicates a connection failure (refused, timeout, unreachable) and maps to `port_exit`. Exit code `127` means the remote agent binary is not in `PATH` and maps to `agent_not_found`.
+SSH exit code `255` indicates a connection failure (refused, timeout, unreachable) and maps to `port_exit`. Exit code `127` means the remote agent binary is not in `PATH`; the process wrote nothing to stdout, so the turn takes the [early exit report](/reference/errors/#early-exit-report) under `port_exit`, carrying `exit status 127` and the remote shell's own message.
 
 ---
 
@@ -327,7 +329,7 @@ SSH exit code `255` indicates a connection failure (refused, timeout, unreachabl
 
 Sortie does not manage Copilot CLI credentials and runs no preflight of its own: the adapter spawns the subprocess with the full parent process environment, and the Copilot CLI resolves its own credential from it. Which source it reads, and in what order, is the CLI's own to document.
 
-Whether that resolves to a working credential is settled once, before the working session's first turn, by the [credential-verification step](/reference/workflow-config/#credential-verification) every agent kind runs: it opens a session of its own, sends one fixed request, and reports `credential_unverified` if the CLI cannot answer it. The step exercises the credential rather than checking for its presence, so whichever source the CLI actually resolves, an environment variable or a stored login, passes or fails on the same footing.
+Whether that resolves to a working credential is settled once, before the working session's first turn, by the [credential-verification step](/reference/workflow-config/#credential-verification) every agent kind runs: it opens a session of its own, sends one fixed request, and reports `credential_unverified` if the CLI cannot answer it. A CLI that rejects the credential by printing a message and exiting before it writes to stdout is reported as the [early exit report](/reference/errors/#early-exit-report) instead, `port_exit`, carrying that message. The step exercises the credential rather than checking for its presence, so whichever source the CLI actually resolves, an environment variable or a stored login, passes or fails on the same footing.
 
 That verification session carries the same switches as the working session it precedes, with three exceptions: `--max-autopilot-continues 0` in place of the configured ceiling, `--disable-builtin-mcps` in place of any MCP configuration, and no tool server. Once the check completes, session stop deletes that session's own conversation through a one-shot `copilot --server --stdio` process, sending it a `session.delete` request; a failed delete is only logged, never retried, and never fails the run.
 

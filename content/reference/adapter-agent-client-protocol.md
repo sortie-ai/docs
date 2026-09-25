@@ -108,7 +108,8 @@ Launches the subprocess, performs the `initialize` handshake, and creates or con
 | Generated MCP configuration unreadable or malformed | `response_error` |
 | Subprocess failed to start, or a stdio pipe could not be created | `port_exit` |
 | The connection ends, including the subprocess exiting or the standard-output wait described under [process shutdown](#process-shutdown) giving up, before `session/new`, `session/load`, or `session/resume` receives a response | `port_exit` |
-| The connection ends before `initialize` answers | `port_exit`, except `credential_unverified` on a [credential-verification](/reference/workflow-config/#credential-verification) session, unless the connection loss was itself an SSH connection failure |
+| The connection ends before `initialize` answers | `port_exit`, on a [credential-verification](/reference/workflow-config/#credential-verification) session and a working session alike |
+| Either connection loss above, when the runtime process has itself exited | `port_exit`, as the [early exit report](/reference/errors/#early-exit-report) carrying the runtime's exit status and the end of its stderr; a connection that ends while the runtime stays alive reports `agent connection ended before responding` instead |
 | `initialize` timed out | `response_timeout` |
 | `initialize` or `session/new` returned error code `-32000`, the protocol's own "authentication required" code | `credential_unverified` |
 | `initialize` returned any other protocol-level error, or reported a version other than the one this adapter is generated against | `response_error` |
@@ -316,7 +317,7 @@ No configured environment reaches the remote runtime beyond what OpenSSH itself 
 
 ### Exit codes
 
-This adapter reads no subprocess exit code, so SSH exit code `255` (a connection failure) and exit code `127` (the remote binary not on `PATH`) are not special-cased. Both reach the session as the loss of its connection and report `port_exit`, whether the session was still starting or running a turn. A missing local `ssh` binary is the one launch failure reported as `agent_not_found`.
+SSH exit code `255` (a connection failure) and exit code `127` (the remote binary not on `PATH`) both reach the session as the loss of its connection and report `port_exit`, whether the session was still starting or running a turn. A `127` during startup is the runtime exiting before its handshake completes, so session start reports the [early exit report](/reference/errors/#early-exit-report), carrying `exit status 127` and the remote shell's own message. A missing local `ssh` binary is the one launch failure reported as `agent_not_found`.
 
 ---
 
@@ -324,7 +325,7 @@ This adapter reads no subprocess exit code, so SSH exit code `255` (a connection
 
 Sortie manages no credential for this kind. A local subprocess inherits the full parent process environment, and whichever runtime `agent.command` names reads its own credential from it, exactly as every other agent adapter's subprocess does. There is no adapter-specific preflight, canary, or environment variable, because there is no fixed runtime to preflight.
 
-Whether the credential actually works is still settled, like every kind, by the [credential-verification step](/reference/workflow-config/#credential-verification): a runtime whose `initialize` or `session/new` answers `-32000` there, or whose connection is lost before `initialize` answers at all, fails the run with `credential_unverified` before any working turn. See the [session start errors table](#session-start) for the exact mapping.
+Whether the credential actually works is still settled, like every kind, by the [credential-verification step](/reference/workflow-config/#credential-verification): a runtime whose `initialize` or `session/new` answers `-32000` there fails the run with `credential_unverified` before any working turn, and one that exits before it answers fails it with the [early exit report](/reference/errors/#early-exit-report) under `port_exit`. See the [session start errors table](#session-start) for the exact mapping.
 
 A remote session inherits the build host's environment instead. This kind declares no credential variable, so a remote launch carries nothing on its own account: put what the named runtime reads on the host, or name it under [`worker.ssh_pass_env`](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent).
 
