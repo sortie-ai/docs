@@ -48,7 +48,7 @@ Today, the agent side already spans six materially different shapes:
 | Claude Code | CLI JSONL stdout | One subprocess per turn |
 | Copilot CLI | CLI JSON stdout stream | One subprocess per turn |
 | Codex | JSON-RPC app server | One persistent subprocess across turns |
-| OpenCode CLI | Newline-delimited JSON envelopes plus `opencode export --sanitize` for final usage recovery | One subprocess per turn, plus one export subprocess after each turn |
+| OpenCode CLI | Newline-delimited JSON envelopes plus a second subprocess for final usage recovery (`opencode export --sanitize` on OpenCode 1.x, `opencode session export --standalone --sanitize` on 2.x) | One subprocess per turn, plus one usage-recovery subprocess after each turn |
 | Kiro | Plain-text transcript on stdout, no structured output | One subprocess per turn |
 | Agent Client Protocol | Newline-delimited JSON-RPC 2.0 over stdio, a shared vendor-neutral protocol several runtimes implement | One persistent subprocess across turns |
 

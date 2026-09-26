@@ -20,7 +20,7 @@ In this tutorial, we will connect Sortie to Jira and the OpenCode CLI, then watc
     opencode --version
     ```
 
-    You should see a version string. Sortie resolves `opencode` from `PATH` at session start, so this confirms the binary it will launch. If the command is not found, follow the [OpenCode CLI docs](https://opencode.ai/docs/cli/).
+    You should see a version string. Sortie resolves `opencode` from `PATH` at session start and reads this same version to detect whether it is driving OpenCode 1.x or 2.x, so this confirms the binary it will launch. This tutorial installs 1.x; Sortie supports 2.x (`npm install -g @opencode/cli`) the same way, with no workflow change beyond what the [OpenCode adapter reference](/reference/adapter-opencode/#version-detection) lists as major-specific. If the command is not found, follow the [OpenCode CLI docs](https://opencode.ai/docs/cli/).
 
 - `ANTHROPIC_API_KEY` set in your environment:
 
@@ -178,7 +178,7 @@ Nothing changes here. `workspace.root` still gives each Jira issue its own clone
 
 `agent.kind: opencode` selects the OpenCode adapter registered in Sortie under the `opencode` kind. `agent.command: opencode` tells Sortie which binary to launch, and the adapter resolves that command from `PATH` when the session starts. The `opencode:` block is smaller than the `claude-code:` block from the Claude tutorial because OpenCode rolls provider selection into the model string itself: `anthropic/claude-sonnet-4-5` means "use Anthropic, then use that model." There is no separate `provider:` field to set. `opencode.model` is a pass-through string Sortie never validates, so swap in whatever provider/model pair OpenCode currently supports; the [OpenCode adapter reference](/reference/adapter-opencode/) and OpenCode's own provider docs list the current options.
 
-The other OpenCode-specific field here is `dangerously_skip_permissions: true`. This is the unattended equivalent of Claude Code's `permission_mode: bypassPermissions`: it tells the CLI to approve each permissioned action itself. It is also the default. Setting it to `false` does not make the run wait for someone; nobody is there. The runtime auto-rejects every permissioned tool call instead, and Sortie warns about that before the run. The adapter also supports deeper tool-scoping controls, but that is reference territory. When you need it, the [OpenCode adapter reference](/reference/adapter-opencode/) covers the full surface.
+The other OpenCode-specific field here is `dangerously_skip_permissions: true`. This is the unattended equivalent of Claude Code's `permission_mode: bypassPermissions`: it tells the CLI to approve each permissioned action itself. It is also the default. Setting it to `false` does not make the run wait for someone; nobody is there. The runtime refuses every permissioned tool call instead of performing it, and Sortie warns about that before the run. The adapter also supports deeper tool-scoping controls, but that is reference territory. When you need it, the [OpenCode adapter reference](/reference/adapter-opencode/) covers the full surface.
 
 #### Authentication: OpenCode multi-provider model
 

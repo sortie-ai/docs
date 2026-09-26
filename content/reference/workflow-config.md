@@ -1107,33 +1107,32 @@ codex:
 
 ### `opencode`
 
+The adapter supports OpenCode 1.x and 2.x and detects which one `agent.command` names by querying its version at the start of each session, refusing a version it cannot read and any major other than 1 or 2. Several fields below map to a different CLI flag, environment variable, or configuration field depending on which major is detected; see the [OpenCode adapter reference](/reference/adapter-opencode/#opencode-extension-section) for the per-major mapping and [version detection](/reference/adapter-opencode/#version-detection) for the mechanism and every version-related refusal.
+
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `model` | string | _(CLI default)_ | Model identifier in `provider/model` form. |
-| `agent` | string | _(none)_ | OpenCode agent name passed through unchanged. |
-| `variant` | string | _(none)_ | Provider-specific reasoning variant passed through unchanged. |
-| `thinking` | boolean | `false` | Adds the `--thinking` flag. |
-| `pure` | boolean | `false` | Adds the `--pure` flag. |
-| `dangerously_skip_permissions` | boolean | `true` | Adds `--dangerously-skip-permissions` when true. Omitted when false, which makes the runtime auto-reject every permissioned tool call; that draws the `opencode.dangerously_skip_permissions.auto_reject` warning. See [validate-time checks](/reference/adapter-opencode/#validate-time-checks). |
-| `disable_autocompact` | boolean | `true` | Sets the managed `OPENCODE_DISABLE_AUTOCOMPACT` environment variable for both `run` and `export` subprocesses. |
-| `allowed_tools` | list of strings | `[]` | Builds the managed `OPENCODE_PERMISSION` allowlist. Listed keys become `allow`; every known key not listed becomes `deny`. Unknown keys are forwarded unchanged. |
-| `denied_tools` | list of strings | `[]` | Adds deny rules to `OPENCODE_PERMISSION`. Overlap with `allowed_tools` is rejected when the adapter is built. |
+| `agent` | string | _(none)_ | OpenCode agent name, passed through unchanged. |
+| `variant` | string | _(none)_ | Reasoning variant. Some combinations with `model` are refused on OpenCode 2.x; see the [OpenCode adapter reference](/reference/adapter-opencode/#version-detection). |
+| `thinking` | boolean | `false` | Requests reasoning output. |
+| `pure` | boolean | `false` | Runs OpenCode without external plugins. Supported on OpenCode 1.x only; see the [OpenCode adapter reference](/reference/adapter-opencode/#version-detection). |
+| `dangerously_skip_permissions` | boolean | `true` | Auto-approves permission requests. `false` changes tool-call behavior; see [validate-time checks](/reference/adapter-opencode/#validate-time-checks). |
+| `disable_autocompact` | boolean | `true` | Disables OpenCode's own context autocompaction. |
+| `allowed_tools` | list of strings | `[]` | Builds an allowlist permission policy: listed keys become `allow`, every known key not listed becomes `deny`, unknown keys are forwarded unchanged. |
+| `denied_tools` | list of strings | `[]` | Adds `deny` rules to the same policy `allowed_tools` builds. Overlap with `allowed_tools` is rejected when the adapter is built. |
 | `mcp_config` | string | _(none)_ | Path to an MCP server configuration file, resolved relative to the WORKFLOW.md directory when not absolute. Its servers are merged into the copy Sortie generates for its own tool sidecar; the original is never modified, and a file already declaring `sortie-tools` fails the attempt. |
 
-The OpenCode runtime accepts no MCP configuration path either, so the adapter re-expresses the generated servers as the runtime's own configuration document and sets it in the turn's environment. That happens on a local launch only; an SSH session receives none, and reaches no Sortie tool. See [MCP](/reference/adapter-opencode/#mcp).
+The OpenCode runtime accepts no MCP configuration path either, so the adapter re-expresses the generated servers as the runtime's own server entries and sets them in the turn's environment. That happens on a local launch only; an SSH session receives none, and reaches no Sortie tool. See [MCP](/reference/adapter-opencode/#mcp).
 
-The OpenCode adapter always adds `run --format json --dir <workspace> -- <prompt>`. It does not expose `--attach`, `--port`, `--command`, `--file`, `--title`, `--continue`, or `--fork` through WORKFLOW.md.
-
-The OpenCode adapter spawns one `opencode run --format json` subprocess per turn and a second `opencode export --sanitize <sessionID>` subprocess after the turn to recover authoritative token usage. See the [OpenCode CLI adapter reference](/reference/adapter-opencode/) for the full lifecycle, SSH behavior, and authentication model.
+The adapter runs one `opencode run --format json` subprocess per turn and a second subprocess after the turn to recover authoritative token usage; the exact command for each varies by major. Neither major exposes `--attach`, `--port`, `--command`, `--file`, `--title`, `--continue`, or `--fork` through WORKFLOW.md. See the [OpenCode CLI adapter reference](/reference/adapter-opencode/) for the exact commands, the full lifecycle, SSH behavior, and authentication model.
 
 > [!WARNING]
-> `agent.max_turns` (orchestrator turn-loop limit) and OpenCode's internal step budget are not the same thing. The adapter does not expose an OpenCode-specific inner turn cap.
+> `agent.max_turns` (orchestrator turn-loop limit) and OpenCode's internal step budget are not the same thing. The adapter does not expose an OpenCode-specific inner turn cap, on either major.
 
 ```yaml
 opencode:
   model: <provider>/<model-id>
   variant: high
-  pure: true
   dangerously_skip_permissions: true
   disable_autocompact: true
   allowed_tools:
