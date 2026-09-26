@@ -235,6 +235,7 @@ level=INFO msg="tick completed" candidates=1 dispatched=1 ... running=1 retrying
 level=INFO msg="running hook" issue_id=a7c4f8e2-1b9d-4e3a-8f2c-6d5e4a3b2c1f issue_identifier=ENG-42 hook=after_create workspace=…/workspaces/ENG-42
 level=INFO msg="running hook" issue_id=a7c4f8e2-1b9d-4e3a-8f2c-6d5e4a3b2c1f issue_identifier=ENG-42 hook=before_run workspace=…/workspaces/ENG-42
 level=INFO msg="workspace prepared" issue_id=a7c4f8e2-1b9d-4e3a-8f2c-6d5e4a3b2c1f issue_identifier=ENG-42 workspace=…/workspaces/ENG-42
+level=INFO msg="agent credential verified" issue_id=a7c4f8e2-1b9d-4e3a-8f2c-6d5e4a3b2c1f issue_identifier=ENG-42 duration_ms=…
 level=INFO msg="agent session started" issue_id=a7c4f8e2-1b9d-4e3a-8f2c-6d5e4a3b2c1f issue_identifier=ENG-42 session_id=…
 level=INFO msg="turn started" issue_id=a7c4f8e2-1b9d-4e3a-8f2c-6d5e4a3b2c1f issue_identifier=ENG-42 turn_number=1 max_turns=3
 ```

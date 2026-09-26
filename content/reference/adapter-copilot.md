@@ -8,7 +8,9 @@ url: /reference/adapter-copilot/
 ---
 The Copilot CLI adapter connects Sortie to the [GitHub Copilot CLI](https://docs.github.com/en/copilot/using-github-copilot/using-github-copilot-in-the-command-line) via subprocess management. It launches the `copilot` binary with `--output-format json`, reads newline-delimited JSON from stdout, and normalizes events into Sortie's own event vocabulary. Registered under kind `"copilot-cli"`.
 
-Each turn spawns an independent subprocess. Session start runs a canary check and a credential preflight before a session is created; both are local-mode only.
+Each turn spawns an independent subprocess. Session start runs a version canary before a session is created, local-mode only; whether the credential actually works is settled separately, by the [credential-verification step](/reference/workflow-config/#credential-verification) every kind runs before its first working turn.
+
+Copilot CLI 1.0.51 or later is required: this adapter assigns its own session identifier with `--session-id`, a flag older releases reject. See [session identity](#session-identity).
 
 See also: [WORKFLOW.md configuration](/reference/workflow-config/) for the full `agent` schema, [environment variables](/reference/environment/) for GitHub token variables, [error reference](/reference/errors/#agent-errors) for all agent error kinds, [how to write a prompt template](/guides/write-prompt-template/) for template authoring.
 
@@ -125,14 +127,15 @@ This is a warning rather than an error. Warnings leave `valid` true and the exit
 
 ### Session start
 
-Validates the workspace path, resolves the agent binary, runs a canary check, and verifies authentication. No subprocess is spawned.
+Validates the workspace path, resolves the agent binary, runs a canary check, and mints the session identifier. No subprocess is spawned.
 
 1. Validates that the workspace path is a non-empty absolute path pointing to an existing directory.
 2. Resolves the `command` from `PATH`. In SSH mode, resolves the local `ssh` binary instead; the agent command resolves on the remote host.
-3. **Canary check (local mode only):** runs `copilot --version` with a 5-second timeout. Any non-zero exit or timeout fails the session with `agent_not_found`; the adapter does not read the version it printed.
-4. **Credential preflight (local mode only):** accepts a non-empty `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN`. With none of them set, it falls back to `gh auth status` (2-second timeout), and only when `gh` itself is on `PATH`. The adapter tests only that a source exists; it never inspects the token's value.
-5. Adopts the session ID saved from a previous run, for continuation sessions. The session ID may remain empty until the first `result` event populates it.
-6. The session then records the workspace path, resolved binary, session ID, and SSH configuration for later turns to use.
+3. **Canary check (local mode only):** runs `copilot --version` with a 5-second timeout. Any non-zero exit or timeout fails the session with `agent_not_found`; the adapter does not read the version it printed, so this check confirms only that a working binary is present, not that it is new enough for `--session-id` (see [session identity](#session-identity)) or that any credential works.
+4. Mints a fresh v4 UUID as the session identifier, unless a session ID saved from a previous run was supplied for a continuation session, in which case that value is used instead.
+5. The session then records the workspace path, resolved binary, session ID, and SSH configuration for later turns to use.
+
+No credential check runs here. Whether the environment or an authenticated `gh` actually lets Copilot CLI answer is settled once, before the working session's first turn, by the [credential-verification step](/reference/workflow-config/#credential-verification); see [authentication](#authentication).
 
 **Errors:**
 
@@ -142,7 +145,7 @@ Validates the workspace path, resolves the agent binary, runs a canary check, an
 | Workspace path is not a directory | `invalid_workspace_cwd` |
 | Agent binary not found in `PATH` | `agent_not_found` |
 | Canary `copilot --version` timed out or exited non-zero | `agent_not_found` |
-| No GitHub authentication source found | `agent_not_found` |
+| Session identifier could not be generated (the system's random source is unavailable) | `agent_not_found` |
 | SSH binary not found (SSH mode) | `agent_not_found` |
 
 ### Turn
@@ -151,7 +154,7 @@ Spawns a Copilot CLI subprocess, reads JSONL events from stdout, and delivers th
 
 1. Builds the CLI argument list from session state and pass-through configuration.
 2. Always includes: `-p <prompt>`, `--output-format json`, `-s`, `--autopilot`, `--no-ask-user`, and `--max-autopilot-continues <n>` (`50` when `copilot-cli.max_autopilot_continues` is unset or not positive).
-3. Applies session management flags (see [session resume mechanism](#session-resume-mechanism)).
+3. Applies session management flags (see [session identity](#session-identity)).
 4. Spawns the subprocess in the workspace path, with the full parent process environment, and with the shutdown behavior described under [process shutdown](#process-shutdown).
 5. Emits `session_started` event before it starts reading output.
 6. Reads stdout one line at a time (64 KB initial buffer, 10 MB maximum line length).
@@ -175,7 +178,7 @@ Terminates a running subprocess. Safe to call when no subprocess is active.
 
 By default, stopping a running subprocess sends an immediate kill signal, giving the agent process no chance to flush output buffers, close network connections, or emit final token-usage events. Sortie overrides that default: it sends a graceful shutdown signal instead (POSIX: `SIGTERM`; Windows: `CTRL_BREAK_EVENT` via the process group) and waits up to `stop_grace_ms` before force-killing the process (POSIX: `SIGKILL`; Windows: `TerminateJobObject`). This applies whenever Sortie stops the subprocess, whether the orchestrator initiated it (a reconciliation kill, stall detection, or a turn timeout) or Sortie itself received a shutdown signal.
 
-On all platforms, the subprocess runs in its own process group. On Windows, it is additionally assigned to a Job Object with `KILL_ON_JOB_CLOSE`, so the entire process tree (including MCP servers and other children) is terminated on shutdown or if Sortie crashes. The subprocess starts suspended and is resumed only after that assignment succeeds, so nothing it spawns can run before the job takes effect. This covers every subprocess the adapter launches on Windows, not only turns: the `copilot --version` canary and the `gh auth status` preflight below start suspended too. A failed assignment logs WARN `process group assignment failed`; a failed resume logs WARN `process resume failed` and fails whichever launch it was, reporting `agent_not_found` for the canary and for the `gh auth status` preflight alike, and `port_exit` for a turn.
+On all platforms, the subprocess runs in its own process group. On Windows, it is additionally assigned to a Job Object with `KILL_ON_JOB_CLOSE`, so the entire process tree (including MCP servers and other children) is terminated on shutdown or if Sortie crashes. The subprocess starts suspended and is resumed only after that assignment succeeds, so nothing it spawns can run before the job takes effect. This covers every subprocess the adapter launches on Windows, not only turns: the `copilot --version` canary starts suspended too. A failed assignment logs WARN `process group assignment failed`; a failed resume logs WARN `process resume failed` and fails whichever launch it was, reporting `agent_not_found` for the canary and `port_exit` for a turn.
 
 Session stop follows the same shape: it sends the graceful signal, waits up to `stop_grace_ms`, and force-kills the process group if the wait elapses. If the stop request is itself interrupted before the grace period elapses, the process group is still force-killed and the interruption is reported as the error.
 
@@ -245,17 +248,19 @@ The outcome is not decided by the exit code alone. The shared decision table eva
 
 | Evidence, in evaluation order | Exit reason | Error kind |
 |---|---|---|
-| Orchestrator cancelled the turn, or the process was killed by a signal | `turn_cancelled` | `turn_cancelled` |
-| Exit code `127` | `turn_failed` | `agent_not_found` |
+| Orchestrator cancelled the turn | `turn_cancelled` | `turn_cancelled` |
+| The process was killed by a signal Sortie sent, or by any signal after writing output | `turn_cancelled` | `turn_cancelled` |
+| Exit code `127`, after writing output | `turn_failed` | `agent_not_found` |
 | `result` event carrying `exitCode: 0`, no `session.task_complete` event this turn | `turn_failed` | `turn_incomplete` |
 | `result` event carrying `exitCode: 0`, a `session.task_complete` event reporting `success: false` | `turn_failed` | `turn_failed` |
 | `result` event carrying `exitCode: 0`, a `session.task_complete` event reporting `success` true or omitted | `turn_completed` | _(none)_ |
 | `result` event carrying any other `exitCode`, or carrying no `exitCode` field | `turn_failed` | `turn_failed` |
+| No `result` event, the process exited before writing a line the adapter decodes as an event, whatever its exit status | `turn_failed` | `port_exit`, as the [early exit report](/reference/errors/#early-exit-report) |
 | No `result` event, non-zero exit | `turn_failed` | `port_exit` |
 | No `result` event, exit `0`, no message from the agent and no tool call this turn | `turn_failed` | `turn_failed` |
 | No `result` event, exit `0`, a message from the agent or a tool call this turn | `turn_completed` | _(none)_ |
 
-The cancellation and exit-`127` rows are decided before the adapter's own classifier runs. The work test reads this turn's own stream rather than any token count. A message from the agent is a non-empty `data.content` on an `assistant.message`, or any `assistant.message_delta`, whose event type names an assistant message even though its payload stays unparsed. A tool call is a non-empty `data.toolRequests` on an `assistant.message`, or a `tool.execution_start` or `tool.execution_complete` whose data parsed. Stderr from a failing turn is re-emitted at WARN level.
+The cancellation, signal, and exit-`127` rows are decided before the adapter's own classifier runs; the signal and exit-`127` rows apply only once the process has written output, because an exit before that is the early-exit row. The work test reads this turn's own stream rather than any token count. A message from the agent is a non-empty `data.content` on an `assistant.message`, or any `assistant.message_delta`, whose event type names an assistant message even though its payload stays unparsed. A tool call is a non-empty `data.toolRequests` on an `assistant.message`, or a `tool.execution_start` or `tool.execution_complete` whose data parsed. Stderr from a failing turn is re-emitted at WARN level.
 
 A `result` event with `exitCode: 0` is not decisive by itself: the adapter also checks whether this turn saw a `session.task_complete` report, the runtime's own record of whether the work finished. The [`max_autopilot_continues`](#agentmax_turns-vs-copilot-climax_autopilot_continues) ceiling can stop the runtime mid-task with a clean exit and no such report; without this check that outcome read as an ordinary success. `turn_incomplete` is retried like the other transient turn failures, on exponential backoff, and the retry resumes the same session with a fresh continuation ceiling. Raise `copilot-cli.max_autopilot_continues` if the task genuinely needs more autopilot steps per turn. No other built-in adapter reports `turn_incomplete` today.
 
@@ -271,20 +276,19 @@ If output reading from stdout fails (buffer overflow, broken pipe), the adapter:
 
 ---
 
-## Session resume mechanism
+## Session identity
 
-**Key difference from Claude Code:** session ID discovery is deferred.
+This adapter assigns the identifier itself: session start mints a fresh v4 UUID for every session it creates, before any turn runs, the same way the [Claude Code adapter](/reference/adapter-claude-code/#session-persistence-and-resume) does.
 
-Claude Code knows its session ID before its first turn: the adapter generates a UUID for a new session, or adopts the one carried over from an earlier attempt. Copilot CLI reports its session ID only in the `result` event at the end of a turn. The adapter handles this with a fallback mechanism:
+| Turn | CLI flag |
+|---|---|
+| First turn of a session this run created | `--session-id <uuid>` |
+| Every later turn of that session | `--resume <uuid>` |
+| Any turn of a session the orchestrator handed back from an earlier attempt | `--resume <uuid>`, from the first turn |
 
-| Turn | Session ID known? | CLI flag |
-|---|---|---|
-| First turn, new session | No | _(neither `--resume` nor `--continue`)_ |
-| First turn, session ID carried over from an earlier worker attempt on the same issue | Yes | `--resume <sessionId>` |
-| Subsequent turn, ID captured from result | Yes | `--resume <sessionId>` |
-| Subsequent turn, no ID ever captured | No | `--continue` (resumes most recent conversation in workspace) |
+`--continue` is never passed: that flag resumes whichever session the home directory saw most recently, possibly another issue's, or the [credential-verification step's](/reference/workflow-config/#credential-verification) own session. Minting the identifier up front avoids that risk entirely.
 
-The `--continue` fallback is a safety net. Under normal operation, the first turn's result event provides the session ID for all subsequent turns.
+`--session-id` requires Copilot CLI 1.0.51 or later; an older CLI rejects the flag, and Sortie does not check the installed version for this. The [credential-verification step](/reference/workflow-config/#credential-verification) opens its own session the same way, with `--session-id` on its own first request, so an outdated CLI fails there, before the working session ever starts. A CLI that rejects the switch on standard error and exits before writing to stdout is reported as the [early exit report](/reference/errors/#early-exit-report), `port_exit`, so its own complaint about `--session-id` appears in the error text.
 
 ---
 
@@ -294,7 +298,7 @@ When the worker configuration includes `ssh_hosts`, the adapter launches Copilot
 
 ### How it works
 
-1. Session start resolves the local `ssh` binary from `PATH`. The agent command is stored for remote execution rather than resolved locally. The canary check and authentication preflight are skipped in SSH mode.
+1. Session start resolves the local `ssh` binary from `PATH`. The agent command is stored for remote execution rather than resolved locally. The version canary is skipped in SSH mode; the [credential-verification step](/reference/workflow-config/#credential-verification) still runs, against the remote host.
 2. Each turn builds an SSH command that wraps the remote Copilot CLI invocation.
 3. The remote shell enters the workspace, exports the [environment variables the launch carries](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent), and only then runs the configured command with that turn's arguments, each step chained on the success of the one before it. The workspace path and each argument are individually single-quoted; the agent command is inserted as configured, unquoted.
 4. The carried set includes this kind's own credential variables, `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, and `GITHUB_TOKEN`. See [authentication](#authentication) for what that overrides on the host.
@@ -317,31 +321,24 @@ The workspace path and each per-turn CLI argument are single-quoted with embedde
 
 ### Exit codes
 
-SSH exit code `255` indicates a connection failure (refused, timeout, unreachable) and maps to `port_exit`. Exit code `127` means the remote agent binary is not in `PATH` and maps to `agent_not_found`.
+SSH exit code `255` indicates a connection failure (refused, timeout, unreachable) and maps to `port_exit`. Exit code `127` means the remote agent binary is not in `PATH`; the process wrote nothing to stdout, so the turn takes the [early exit report](/reference/errors/#early-exit-report) under `port_exit`, carrying `exit status 127` and the remote shell's own message.
 
 ---
 
 ## Authentication
 
-Sortie does not manage Copilot CLI credentials. The adapter spawns the subprocess with the full parent process environment, and the Copilot CLI reads its authentication variables directly.
+Sortie does not manage Copilot CLI credentials and runs no preflight of its own: the adapter spawns the subprocess with the full parent process environment, and the Copilot CLI resolves its own credential from it. Which source it reads, and in what order, is the CLI's own to document.
 
-Authentication check order at session start (local mode only):
+Whether that resolves to a working credential is settled once, before the working session's first turn, by the [credential-verification step](/reference/workflow-config/#credential-verification) every agent kind runs: it opens a session of its own, sends one fixed request, and reports `credential_unverified` if the CLI cannot answer it. A CLI that rejects the credential by printing a message and exiting before it writes to stdout is reported as the [early exit report](/reference/errors/#early-exit-report) instead, `port_exit`, carrying that message. The step exercises the credential rather than checking for its presence, so whichever source the CLI actually resolves, an environment variable or a stored login, passes or fails on the same footing.
 
-1. `COPILOT_GITHUB_TOKEN` environment variable.
-2. `GH_TOKEN` environment variable.
-3. `GITHUB_TOKEN` environment variable.
-4. `gh auth status` (2-second timeout), attempted only when `gh` resolves on `PATH`. If it exits cleanly, the adapter logs a warning and proceeds.
+That verification session carries the same switches as the working session it precedes, with three exceptions: `--max-autopilot-continues 0` in place of the configured ceiling, `--disable-builtin-mcps` in place of any MCP configuration, and no tool server. Once the check completes, session stop deletes that session's own conversation through a one-shot `copilot --server --stdio` process, sending it a `session.delete` request; a failed delete is only logged, never retried, and never fails the run.
 
-If none are found, session start fails with `agent_not_found` and a descriptive message listing the expected variables.
-
-At runtime, the Copilot CLI handles its own authentication using whichever token is available in the process environment.
-
-A remote session skips that check and receives the tokens instead. This kind declares `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, and `GITHUB_TOKEN` as its credential variables, so a remote launch carries whichever of them Sortie's own environment sets into the agent's environment on the build host. A carried token overrides a `copilot auth login` stored there, which matters when Sortie holds one of those names for something else: `tracker.api_key: $GITHUB_TOKEN` is enough to re-authenticate every remote session as the tracker's identity. Name the variable under [`worker.ssh_disallow_pass_env`](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent) to leave the host's own login in effect.
+A remote session receives the tokens directly instead of running any check locally. This kind declares `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, and `GITHUB_TOKEN` as its credential variables, so a remote launch carries whichever of them Sortie's own environment sets into the agent's environment on the build host. A carried token overrides a `copilot auth login` stored there, which matters when Sortie holds one of those names for something else: `tracker.api_key: $GITHUB_TOKEN` is enough to re-authenticate every remote session as the tracker's identity. Name the variable under [`worker.ssh_disallow_pass_env`](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent) to leave the host's own login in effect.
 
 {{< callout type="warning" >}}
 **A present token does not guarantee a working one**
 
-Sortie's preflight only checks that one of the token variables is set, or that `gh auth status` succeeds. It does not inspect the token's type or scopes. Whether a given token authenticates with Copilot CLI, and what type and permission it needs, is GitHub's to document; see [managing your personal access tokens](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens) in the external references. A token that satisfies Sortie's preflight can still be rejected by the CLI itself at runtime.
+Neither Sortie nor the credential-verification step inspects a token's type or scopes; the step only confirms that a real request completes. Whether a given token authenticates with Copilot CLI, and what type and permission it needs, is GitHub's to document; see [managing your personal access tokens](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens) in the external references. A token with the wrong scopes can still fail the credential-verification request even though a variable is set.
 {{< /callout >}}
 
 ---
@@ -353,15 +350,16 @@ Sortie's preflight only checks that one of the token variables is set, or that `
 | Kind | `claude-code` | `copilot-cli` |
 | Default command | `claude` | `copilot` |
 | Output format flag | `--output-format stream-json` | `--output-format json` |
-| Session ID at start | UUID generated by adapter | Discovered from first `result` event |
-| Resume flag | `--resume <UUID>` | `--resume <sessionId>` or `--continue` fallback |
+| Session ID at start | UUID generated by adapter | UUID generated by adapter |
+| Resume flag | `--resume <UUID>` | `--session-id <uuid>` on the first turn of a session this run created, `--resume <uuid>` on every later turn; `--continue` is never used |
 | Input token reporting | Per-request, from the result event's per-model breakdown | Recovered from the runtime's session-state journal after exit; unavailable in SSH mode |
 | Model reporting | From `assistant` events | From the session-state journal's `session.shutdown` record, after the subprocess exits |
 | Permission mode | `--permission-mode` or `--dangerously-skip-permissions` | `--autopilot` + `--no-ask-user`, plus `--allow-all` unless `allowed_tools` is set |
 | Tool error detail | Error text with XML/ANSI stripping | Boolean `success` flag only |
 | Authentication | `ANTHROPIC_API_KEY` (+ Bedrock, Vertex) | `COPILOT_GITHUB_TOKEN` / `GH_TOKEN` / `GITHUB_TOKEN` / `gh auth` |
 | Canary check | None | `copilot --version` (5-second timeout) |
-| Auth preflight | None | Checks env vars + `gh auth status` |
+| Credential check | None; settled by [credential verification](/reference/workflow-config/#credential-verification) like every kind | Settled by [credential verification](/reference/workflow-config/#credential-verification) like every kind; no adapter-specific preflight of its own |
+| Minimum runtime version | None enforced | 1.0.51, for `--session-id`; not checked by Sortie |
 
 For Claude Code configuration, see [Claude Code adapter reference](/reference/adapter-claude-code/).
 

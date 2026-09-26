@@ -234,6 +234,7 @@ level=INFO msg="database path resolved" db_path=/home/you/sortie-gitea/.sortie.d
 level=INFO msg="sortie started"
 level=INFO msg="tick completed" candidates=2 dispatched=2 ... running=2 retrying=0 ...
 level=INFO msg="workspace prepared" issue_id=1 issue_identifier=1 workspace=…/1
+level=INFO msg="agent credential verified" issue_id=1 issue_identifier=1 duration_ms=…
 level=INFO msg="agent session started" issue_id=1 issue_identifier=1 session_id=mock-session-001
 level=INFO msg="turn started" issue_id=1 issue_identifier=1 turn_number=1 max_turns=1
 level=INFO msg="turn completed" issue_id=1 issue_identifier=1 turn_number=1 max_turns=1

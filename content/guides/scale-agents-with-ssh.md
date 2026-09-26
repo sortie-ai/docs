@@ -266,7 +266,7 @@ For the full list of allowed values, see the [worker configuration reference](/r
 
 SSH connection problems (exit code 255) are transient infrastructure failures. Sortie retries them automatically with exponential backoff. The retry uses host affinity: it prefers dispatching back to the same host, but falls back to the least-loaded alternative if that host is at capacity or unreachable.
 
-A remote "command not found" error (exit code 127) is fatal. It means the agent binary is missing on that host. Sortie will not retry this. Check that your configured `agent.command` (e.g., `claude`, `copilot`, `codex app-server`) is installed and on `PATH` for the SSH user.
+A remote "command not found" error (exit code 127) means the agent binary is missing on that host. The run fails with `port_exit`, its error carrying `exit status 127` and the remote shell's own message, and is retried with exponential backoff, so it keeps failing until the binary is installed. Check that your configured `agent.command` (e.g., `claude`, `copilot`, `codex app-server`) is installed and on `PATH` for the SSH user.
 
 ## What we configured
 
@@ -282,6 +282,6 @@ The key pieces:
 - **Least-loaded dispatch**: Sortie balances work across hosts automatically
 - **Retry affinity**: failed sessions prefer the same host on retry, avoiding redundant workspace setup
 - **Agent tools**: available on `claude-code` and `copilot-cli` remotely; withheld on `codex`, `opencode`, and `agent-client-protocol`, which reach them only on a local launch
-- **Token usage**: reported remotely on `claude-code`, `codex`, and `opencode`; `copilot-cli` reports none over SSH, because it recovers its figures from an on-disk journal the adapter does not read remotely, so token budgets and cost estimates go inert for those sessions
+- **Token usage**: reported remotely on `claude-code`, `codex`, and `opencode`; `copilot-cli` and `agent-client-protocol` report none over SSH, because both recover their figures from files the runtime writes on the machine that ran it, which the adapter reads only on a local launch, so token budgets and cost estimates go inert for those sessions
 
 For the full SSH configuration schema, see the [WORKFLOW.md reference](/reference/workflow-config/). For environment variables injected into hooks during SSH dispatch, see the [environment variables reference](/reference/environment/).

@@ -198,6 +198,7 @@ level=INFO msg="database path resolved" db_path=/home/you/sortie-jira/.sortie.db
 level=INFO msg="sortie started"
 level=INFO msg="tick completed" candidates=1 dispatched=1 ... running=1 retrying=0 ...
 level=INFO msg="workspace prepared" issue_id=12345 issue_identifier=PROJ-42 workspace=…/PROJ-42
+level=INFO msg="agent credential verified" issue_id=12345 issue_identifier=PROJ-42 duration_ms=…
 level=INFO msg="agent session started" issue_id=12345 issue_identifier=PROJ-42 session_id=mock-session-001
 level=INFO msg="turn started" issue_id=12345 issue_identifier=PROJ-42 turn_number=1 max_turns=1
 level=INFO msg="turn completed" issue_id=12345 issue_identifier=PROJ-42 turn_number=1 max_turns=1

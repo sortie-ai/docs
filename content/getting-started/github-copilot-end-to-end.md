@@ -13,15 +13,15 @@ The GitHub integration tutorial proved that Sortie can talk to your issue tracke
 ## Prerequisites
 
 - [GitHub integration tutorial](/getting-started/github-integration/) completed: Sortie connects to your GitHub repository and `SORTIE_GITHUB_TOKEN` is set
-- Copilot CLI installed on your machine:
+- Copilot CLI 1.0.51 or later installed on your machine. This adapter assigns its own session ID with `--session-id`, a flag an older CLI rejects; on an older CLI the run fails before it does any work, with the CLI's own complaint about its command line rather than a message naming the version.
 
     ```bash
     copilot --version
     ```
 
-    You should see a version string. If the command is not found, install the [Copilot CLI](https://docs.github.com/en/copilot/using-github-copilot/using-github-copilot-in-the-command-line) and follow its own prerequisites.
+    Confirm the version is 1.0.51 or later. If the command is not found, install the [Copilot CLI](https://docs.github.com/en/copilot/using-github-copilot/using-github-copilot-in-the-command-line) and follow its own prerequisites.
 
-- GitHub authentication for Copilot CLI. The adapter checks for tokens in this order: `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`. If none are set, it falls back to `gh auth status`. The fastest path is to reuse the token you already have:
+- GitHub authentication for Copilot CLI. The CLI resolves its own credential; which source it reads is the CLI's own to document. Sortie confirms that credential actually works before it starts work on an issue, rather than only checking that a variable is set; see [authentication: one token, two jobs](#authentication-one-token-two-jobs). The fastest path is to reuse the token you already have:
 
     ```bash
     export GITHUB_TOKEN="$SORTIE_GITHUB_TOKEN"
@@ -171,6 +171,8 @@ The `copilot-cli` section is a pass-through to the Copilot CLI binary. `max_auto
 
 `SORTIE_GITHUB_TOKEN` authenticates Sortie to the GitHub API. `GITHUB_TOKEN` (or `GH_TOKEN`, or `COPILOT_GITHUB_TOKEN`) authenticates Copilot CLI to GitHub's AI backend. They can be the same token. If you ran the `export GITHUB_TOKEN="$SORTIE_GITHUB_TOKEN"` command from the prerequisites, both are already set.
 
+Before it starts work on an issue, Sortie opens a short-lived session of its own and sends one request through Copilot CLI to confirm the credential actually answers, rather than only checking that a variable is set. A missing or rejected credential stops the run immediately with Copilot CLI's own message about it, such as `No authentication information found`, instead of failing partway through the first turn. See [credential verification](/reference/workflow-config/#credential-verification) for the mechanism every agent kind shares.
+
 ### Workspace and hooks
 
 The hooks work the same way as in the Claude Code tutorial: `after_create` clones the repo, `before_run` creates a branch from `origin/main`, and `after_run` commits and pushes. For a detailed walkthrough of the hook lifecycle and environment variables, see the [hooks section in the Claude Code tutorial](/getting-started/jira-claude-end-to-end/#workspace-and-hooks).
@@ -214,11 +216,12 @@ level=INFO msg="tick completed" candidates=1 dispatched=1 ... running=1 retrying
 level=INFO msg="running hook" issue_id=5 issue_identifier=5 hook=after_create workspace=…/workspaces/5
 level=INFO msg="running hook" issue_id=5 issue_identifier=5 hook=before_run workspace=…/workspaces/5
 level=INFO msg="workspace prepared" issue_id=5 issue_identifier=5 workspace=…/workspaces/5
+level=INFO msg="agent credential verified" issue_id=5 issue_identifier=5 duration_ms=…
 level=INFO msg="agent session started" issue_id=5 issue_identifier=5 session_id=…
 level=INFO msg="turn started" issue_id=5 issue_identifier=5 turn_number=1 max_turns=3
 ```
 
-The agent is now working. A Copilot CLI session typically takes 3–10 minutes depending on the task complexity and model. The agent reads files, writes code, and runs tests. Each action appears as events in the log at `debug` level.
+The `agent credential verified` line is Sortie proving your GitHub token works, in a short-lived session of its own, before it starts the working session below it. The agent is now working. A Copilot CLI session typically takes 3–10 minutes depending on the task complexity and model. The agent reads files, writes code, and runs tests. Each action appears as events in the log at `debug` level.
 
 Notice that issue identifiers are bare numbers (`5`, not `#5` or `PROJ-55`). Both `Issue.ID` and `Issue.Identifier` are the issue number for the GitHub adapter.
 
@@ -237,7 +240,7 @@ Here is the full lifecycle, step by step:
 1. Sortie polled GitHub and found issue #5 with a `backlog` label.
 2. `after_create` cloned the repository into `workspaces/5/`.
 3. `before_run` created the branch `sortie/5` from `origin/main`.
-4. Copilot CLI started a session and worked on the task.
+4. Sortie verified the credential in a session of its own, then Copilot CLI started the working session and worked on the task.
 5. The agent completed the turn and exited.
 6. `after_run` committed the changes and pushed the branch.
 7. Sortie removed the `backlog` label and added `review`, leaving the issue open for a human.

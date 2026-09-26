@@ -133,7 +133,7 @@ self_review:
 notifications:
   - kind: slack                       # Notifier backend
     webhook_url: $SORTIE_SLACK_WEBHOOK_URL  # SORTIE_-prefixed reference (required)
-    max_per_session: 20               # Cap per sortie mcp-server process; 0 selects the default (20)
+    max_per_session: 20               # Cap for the whole agent run; 0 selects the default (20)
   - kind: webhook
     url: $SORTIE_OPS_WEBHOOK_URL      # Generic JSON POST endpoint
 
@@ -237,9 +237,11 @@ The `comments` sub-object controls whether Sortie posts plain-text comments on t
 
 | Flag | Fires when | Comment content |
 |---|---|---|
-| `on_dispatch` | Worker starts (after in-progress transition, before workspace preparation) | Session started acknowledgment with agent kind and attempt number. Session ID and workspace are "pending" at this point. |
-| `on_completion` | Worker exits normally | Session ID, duration, turns completed. Includes "(re-queuing)" suffix when a continuation retry is scheduled. |
-| `on_failure` | Worker exits with an error | Session ID, duration, truncated error message (200 char limit), retry status and next attempt number. |
+| `on_dispatch` | Worker starts (after in-progress transition, before workspace preparation) | The single line `Sortie session started.` |
+| `on_completion` | Worker exits normally | Duration and turns completed. The headline gains a `(re-queuing)` suffix when a continuation retry is scheduled, and names the status the agent signaled when the run ended on one. |
+| `on_failure` | Worker exits with an error | Duration and retry status: `Retry: yes (attempt N)` with the next attempt number, or `Retry: no (not retryable)`. |
+
+No comment carries the agent session ID, the agent kind, or the error text. The cause of a failure is in the log, the run history, and the dashboard.
 
 Comment failures are non-fatal. A failed comment logs WARN and never blocks dispatch, completion, retry, or handoff.
 
@@ -522,7 +524,8 @@ Coding agent adapter, concurrency, timeouts, and retry behavior. These fields co
 | `command`                        | string  | adapter-defined | Command to launch the agent for adapters that run as a local subprocess (`claude-code`, `copilot-cli`, `codex`, `opencode`, `kiro`, `agent-client-protocol`). Adapters that do not start a local process ignore this field. For `agent-client-protocol` this field has no default and also carries the flag or subcommand that puts the named binary into protocol mode. When [`worker.ssh_hosts`](#worker) sends the agent to a remote host, the value reaches the remote shell unsplit, so shell syntax in it is interpreted there. Sortie waits for the agent it starts and talks to it, so a value ending in `&` detaches the agent and the session cannot work. |
 | `max_turns`                      | integer | `20`            | Maximum turns per worker session. The worker re-checks tracker state after each turn. |
 | `max_sessions`                   | integer | `0` (unlimited) | Maximum completed sessions per issue before the orchestrator stops retrying. Must be non-negative. The separate `max_consecutive_absences` governs the consecutive-absence ceiling below. It is no longer derived from this field. Reaching this ceiling also posts one comment on the issue naming the session budget and `agent.max_sessions` as the setting that raises it. |
-| `max_tokens`                     | integer | `0` (unlimited) | Cumulative per-issue token ceiling. Sortie sums the `total_tokens` recorded for every completed session of the issue from run history, adds the running session's own reported spend, and stops once the sum reaches a non-zero budget. Three lanes evaluate it: the retry timer and the poll tick's rebuild each block the next dispatch, and Sortie stops the session already running as soon as a usage figure carries the sum to the ceiling. A session stopped that way is recorded with status `budget_stopped` and increments `sortie_runs_stopped_by_budget_total`. Independent of `max_sessions`; the first ceiling reached wins. A run whose agent reported no token usage contributes nothing to the sum; that case and a failed token-sum query both allow the dispatch with a warning instead of blocking it. On the in-flight lane a failed read leaves the run going, unless the running session's own spend has reached the ceiling by itself, which needs no read to establish. Must be non-negative. Reaching this ceiling also posts one comment on the issue naming the token budget and `agent.max_tokens` as the setting that raises it, and counting the sessions stopped in flight when there were any. |
+| `max_tokens`                     | integer | `0` (unlimited) | Cumulative per-issue token ceiling. Sortie sums the `total_tokens` recorded for every completed session of the issue from run history, adds the running session's own reported spend, and stops once the sum reaches a non-zero budget. Three lanes evaluate it: the retry timer and the poll tick's rebuild each block the next dispatch, and Sortie stops the session already running as soon as a usage figure carries the sum to the ceiling. When this cancellation is what ends the session, it is recorded with status `budget_stopped` and increments `sortie_runs_stopped_by_budget_total`. See [how to control agent costs](/guides/control-costs/#cap-tokens-per-issue). Independent of `max_sessions`; the first ceiling reached wins. A run whose agent reported no token usage contributes nothing to the sum; that case and a failed token-sum query both allow the dispatch with a warning instead of blocking it. On the in-flight lane a failed read leaves the run going, unless the running session's own spend has reached the ceiling by itself, which needs no read to establish. Must be non-negative. Reaching this ceiling also posts one comment on the issue naming the token budget and `agent.max_tokens` as the setting that raises it, and counting the sessions stopped in flight when there were any. `token_warning_percent`, below, warns before this ceiling stops a run. |
+| `token_warning_percent`          | integer | `0` (off)       | Warning threshold below `max_tokens`, as a percentage of the ceiling. The threshold in tokens is that percentage of `max_tokens`, rounded up to the nearest whole token. Must be `0` to `99`; an out-of-range value is rejected as a configuration error when the configuration loads. Has no effect while `max_tokens` is `0`; [`sortie validate`](/reference/cli/#validate) reports that combination as an `ineffective_setting` warning. Evaluated on the same live per-issue token sum the ceiling reads: once when a run is dispatched and again on each usage figure while it runs. While set above `0`, the `cost_budget` tool's response always carries `warning_tokens` and `warning_reached`; `warning_reached` turns `true` once the sum reaches the threshold, and Sortie also logs one warning for that run at that point, so the agent can wrap up or hand off before `max_tokens` stops the run. A run warns at most once. See [how to control agent costs](/guides/control-costs/#warn-before-the-ceiling-stops-a-run). |
 | `max_consecutive_absences`       | integer | `3`             | Bounds how many runs in a row may be observed to have produced no evidence of work before the issue is parked. Any run that produces evidence of work resets the count to zero. The separate `max_sessions` governs the total per-issue session budget; the two ceilings are independent. Unlike `max_sessions` and `max_tokens`, `0` does not mean unlimited here: `0` and negative values are rejected as a configuration error. |
 | `max_concurrent_agents`          | integer | `10`            | Global concurrency limit across all issues.                                           |
 | `max_concurrent_agents_by_state` | map     | `{}`            | Per-state concurrency limits. Keys are state names, lowercased for matching. Non-positive or non-numeric entries are silently ignored; an entry outside the range an integer setting accepts is rejected when the configuration loads instead. |
@@ -532,7 +535,17 @@ Coding agent adapter, concurrency, timeouts, and retry behavior. These fields co
 | `stop_grace_ms`                  | integer | `5000` (5s)     | How long an adapter waits for the agent to exit on its own after a graceful termination signal, before it force-terminates the process group. Must be positive and no greater than `9223372036854` (about 292 years); any other value is rejected when the configuration loads. An adapter that launches no process, such as `mock`, has no such period. Stopping one session is allowed this value plus a fixed 15 seconds for the output collection and process reaping that follow it, 20 seconds at the default. The force-terminate step itself waits for the process group to report no member left, resending the termination for up to 2 more seconds when a member needs more than one resend to clear, so a session whose process group is slow to tear down can take up to 2 seconds longer than that total. Raising `stop_grace_ms` raises both that bound and the [shutdown worker-drain ceiling](/reference/cli/#signals) by the same amount. |
 | `max_retry_backoff_ms`           | integer | `300000` (5m)   | Maximum delay cap for exponential backoff on retries.                                 |
 
-`max_concurrent_agents`, `max_concurrent_agents_by_state`, `max_retry_backoff_ms`, `max_sessions`, `max_tokens`, and `max_consecutive_absences` reload dynamically without restart; a reloaded `max_tokens` reaches the sessions already running from the next poll tick onward, and applies at the next retry evaluation. All other fields apply to future dispatches only, except where the per-field Dynamic reload table at the end of this document states a finer-grained answer.
+`max_concurrent_agents`, `max_concurrent_agents_by_state`, `max_retry_backoff_ms`, `max_sessions`, `max_tokens`, `token_warning_percent`, and `max_consecutive_absences` reload dynamically without restart; a reloaded `max_tokens` reaches the sessions already running from the next poll tick onward, and applies at the next retry evaluation. A reloaded `token_warning_percent` reaches the event loop the same way: a run already in flight that has not yet warned is evaluated against the new threshold from its next usage figure, and a run dispatched after the reload starts under it. All other fields apply to future dispatches only, except where the per-field Dynamic reload table at the end of this document states a finer-grained answer.
+
+### Credential verification
+
+Before a worker attempt sends the working session's first turn, it opens a separate, short-lived session with the configured agent kind, asks it to answer one fixed prompt, and closes that session again. This runs on every worker attempt, every agent kind, and every host, including one assigned from [`worker.ssh_hosts`](#worker); there is nothing to configure. Its purpose is to catch a credential the runtime cannot actually use before the agent starts working the issue, rather than partway through a turn.
+
+A runtime that cannot complete that one request fails the worker attempt with error kind `credential_unverified` before any working turn runs. A runtime that exits before it responds fails it with `port_exit` instead, carrying its exit status and the end of its standard error; see the [early exit report](/reference/errors/#early-exit-report). Either failure is retryable with exponential backoff, the same as most agent errors; see the [`credential_unverified` row](/reference/errors/#agent-errors) for what else can surface from this step and what to do about it. A successful check costs one short model request, priced at the configured model's rate like any other request; that spend counts toward the run's own token usage and toward `agent.max_tokens` the same way a working turn's spend does. The extra time to start and stop the short-lived session is wall-clock overhead only; it is not itself token spend. The step reuses the session's own configuration, so it authenticates exactly the way the working session that follows it would.
+
+Every built-in kind cleans up after itself where its runtime allows it: `claude-code` disables session persistence for this one session, so it leaves no file behind; `codex` marks the session ephemeral and read-only; `copilot-cli`, `kiro`, and `opencode` delete the conversation they created once the check is done; `agent-client-protocol` deletes it only when the runtime's own handshake advertises a delete method, and otherwise falls back to whatever teardown a working session on that runtime would use, which for a runtime whose handshake advertises neither a close nor a delete method leaves the conversation in the runtime's own store; `mock` creates nothing to clean up. See each kind's own adapter reference for the exact mechanism, and the [Agent Client Protocol kind's session-close section](/reference/adapter-agent-client-protocol/#session-close) for which specific runtimes fall into that last case.
+
+`agent.read_timeout_ms` bounds this step's own network waits the same way it bounds a working session's; the [Agent Client Protocol adapter](/reference/adapter-agent-client-protocol/#agent-section) additionally holds its handshake open for at least 60 seconds regardless of a shorter `read_timeout_ms`, because a runtime that has to establish its credential with its own backend before it answers needs more room than an already-authenticated one does. See that adapter's own `read_timeout_ms` row for the detail.
 
 ### Usage reporting by agent kind
 
@@ -545,12 +558,12 @@ Every agent kind Sortie ships declares when a session's token figures reach the 
 | `codex` | `figures arrive during each turn, per model` | A dedicated token-usage notification carries a run-cumulative snapshot once per model API request. See [Codex adapter reference](/reference/adapter-codex/#token-accounting). |
 | `opencode` | `figures arrive when a turn ends, per model` | An export subprocess, run after the turn's subprocess exits, recovers the figure. See [OpenCode CLI adapter reference](/reference/adapter-opencode/#token-accounting). |
 | `kiro` | `this session reports no token usage` | The headless path emits an abstract credits figure on stderr, never input or output token counts. See [Kiro CLI adapter reference](/reference/adapter-kiro/#token-accounting). |
-| `agent-client-protocol` | `this session reports no token usage` | The protocol's own usage notification reports context occupancy rather than a per-turn count, and the adapter takes no figure from it. See [Agent Client Protocol adapter reference](/reference/adapter-agent-client-protocol/#token-accounting). |
+| `agent-client-protocol` | `figures arrive when a turn ends, per model` on a local launch of a runtime Sortie ships a measurement source for, `this session reports no token usage` otherwise | The protocol's own usage notification reports context occupancy rather than a per-turn count, so the figure comes from a source that reads the runtime's own output outside the wire; Gemini CLI is the one runtime with such a source today. An SSH launch skips that read. See [Agent Client Protocol adapter reference](/reference/adapter-agent-client-protocol/#token-accounting). |
 | `mock` | `figures arrive during each turn, as a session total`, with `, per model` instead when `mock.model_name` is set to a non-empty value, and `this session reports no token usage` when `mock.report_token_usage` is `false` whatever else the block sets | Canned figures from a simulated session. The kind launches no process, and its own block decides what a session reports. |
 
 Four behaviors follow from a session's declared arrival.
 
-`agent.max_tokens` bounds the session in progress for a kind whose figures arrive at all, and bounds nothing for a kind that reports none: Sortie records `token ceiling cannot bound this run` at the dispatch that starts such a session, and `agent.turn_timeout_ms` is the bound that remains for it. See [how to control agent costs](/guides/control-costs/#cap-tokens-per-issue) for what the ceiling does when a session reaches it.
+`agent.max_tokens` bounds the session in progress for a kind whose figures arrive at all, and bounds nothing for a kind that reports none: Sortie records `token ceiling cannot bound this run` at the dispatch that starts such a session, and `agent.turn_timeout_ms` is the bound that remains for it. A declaration is a promise about the kind, not about the runtime behind it, so a session can be dispatched under a reporting declaration and still end having reported nothing; Sortie records `run reported no token usage, token ceiling could not bound it` when it does. See [how to control agent costs](/guides/control-costs/#cap-tokens-per-issue) for what the ceiling does when a session reaches it, and the [logging guide](/guides/monitor-with-logs/#token-ceiling-stops-a-run-in-flight) for the records that surround it.
 
 A session's API request count is a count of requests only where figures arrive during each turn, the one arrival that emits a figure per model API request. The dashboard's **API Requests** field and the API's `api_request_count` carry a number for such a session while no turn has begun or once a figure has arrived. They carry no count for one whose first turn has begun with nothing counted, or for any other session.
 
@@ -935,7 +948,7 @@ Each entry accepts two typed fields:
 | Field             | Type    | Default      | Description                                                                                         |
 | ----------------- | ------- | ------------ | ---------------------------------------------------------------------------------------------------- |
 | `kind`            | string  | _(required)_ | Backend discriminator. Built-in backends: `webhook`, `slack`.                                       |
-| `max_per_session` | integer | `20`         | Notification cap for one `sortie mcp-server` process. `0` selects the default (`20`); it never means unlimited. Must be non-negative. |
+| `max_per_session` | integer | `20`         | Notification cap for the whole agent run. `0` selects the default (`20`); it never means unlimited. Must be non-negative. |
 
 Every other key in an entry passes through to the backend untyped, with `$VAR` and `${VAR}` references resolved on string values, the same mechanism as [adapter pass-through configuration](#adapter-pass-through-configuration). Per-backend required fields:
 
@@ -944,7 +957,7 @@ Every other key in an entry passes through to the backend untyped, with `$VAR` a
 | `webhook` | `url`         | Endpoint that receives an HTTP POST of the notification as a JSON object. |
 | `slack`   | `webhook_url` | Slack incoming webhook URL that receives a Slack-shaped JSON body.        |
 
-When more than one entry sets `max_per_session`, the effective cap is the maximum non-zero value across entries, falling back to `20` when every entry is `0` or unset. The cap counts `notify_operator` calls, not per-backend sends, and it belongs to one `sortie mcp-server` process: an agent runtime that starts a new tool server process for each turn starts a new count with each turn, rather than sharing one count across the whole session.
+When more than one entry sets `max_per_session`, the effective cap is the maximum non-zero value across entries, falling back to `20` when every entry is `0` or unset. The cap applies to the whole agent run: every turn and every tool server process the run spawns share one count. A retry or a continuation of a resumed session starts a new run and a new count. See the [agent extensions reference](/reference/agent-extensions/#notify_operator) for how calls are counted and what happens when the count cannot be established.
 
 > [!WARNING]
 > Backend secrets must be references to `SORTIE_`-prefixed environment variables (`$SORTIE_NAME` or `${SORTIE_NAME}`). The `notify_operator` tool runs in a separate `sortie mcp-server` process that receives only `SORTIE_`-prefixed variables; a reference without the prefix, or to an unset variable, resolves to the empty string there and surfaces as a fatal sidecar startup error at session start rather than a notification posted nowhere. `sortie validate` checks the section's shape (a sequence of maps, a non-empty `kind`, a non-negative `max_per_session`) but cannot catch an unknown `kind` or an empty secret.
@@ -1094,33 +1107,32 @@ codex:
 
 ### `opencode`
 
+The adapter supports OpenCode 1.x and 2.x and detects which one `agent.command` names by querying its version at the start of each session, refusing a version it cannot read and any major other than 1 or 2. Several fields below map to a different CLI flag, environment variable, or configuration field depending on which major is detected; see the [OpenCode adapter reference](/reference/adapter-opencode/#opencode-extension-section) for the per-major mapping and [version detection](/reference/adapter-opencode/#version-detection) for the mechanism and every version-related refusal.
+
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `model` | string | _(CLI default)_ | Model identifier in `provider/model` form. |
-| `agent` | string | _(none)_ | OpenCode agent name passed through unchanged. |
-| `variant` | string | _(none)_ | Provider-specific reasoning variant passed through unchanged. |
-| `thinking` | boolean | `false` | Adds the `--thinking` flag. |
-| `pure` | boolean | `false` | Adds the `--pure` flag. |
-| `dangerously_skip_permissions` | boolean | `true` | Adds `--dangerously-skip-permissions` when true. Omitted when false, which makes the runtime auto-reject every permissioned tool call; that draws the `opencode.dangerously_skip_permissions.auto_reject` warning. See [validate-time checks](/reference/adapter-opencode/#validate-time-checks). |
-| `disable_autocompact` | boolean | `true` | Sets the managed `OPENCODE_DISABLE_AUTOCOMPACT` environment variable for both `run` and `export` subprocesses. |
-| `allowed_tools` | list of strings | `[]` | Builds the managed `OPENCODE_PERMISSION` allowlist. Listed keys become `allow`; every known key not listed becomes `deny`. Unknown keys are forwarded unchanged. |
-| `denied_tools` | list of strings | `[]` | Adds deny rules to `OPENCODE_PERMISSION`. Overlap with `allowed_tools` is rejected when the adapter is built. |
+| `agent` | string | _(none)_ | OpenCode agent name, passed through unchanged. |
+| `variant` | string | _(none)_ | Reasoning variant. Some combinations with `model` are refused on OpenCode 2.x; see the [OpenCode adapter reference](/reference/adapter-opencode/#version-detection). |
+| `thinking` | boolean | `false` | Requests reasoning output. |
+| `pure` | boolean | `false` | Runs OpenCode without external plugins. Supported on OpenCode 1.x only; see the [OpenCode adapter reference](/reference/adapter-opencode/#version-detection). |
+| `dangerously_skip_permissions` | boolean | `true` | Auto-approves permission requests. `false` changes tool-call behavior; see [validate-time checks](/reference/adapter-opencode/#validate-time-checks). |
+| `disable_autocompact` | boolean | `true` | Disables OpenCode's own context autocompaction. |
+| `allowed_tools` | list of strings | `[]` | Builds an allowlist permission policy: listed keys become `allow`, every known key not listed becomes `deny`, unknown keys are forwarded unchanged. |
+| `denied_tools` | list of strings | `[]` | Adds `deny` rules to the same policy `allowed_tools` builds. Overlap with `allowed_tools` is rejected when the adapter is built. |
 | `mcp_config` | string | _(none)_ | Path to an MCP server configuration file, resolved relative to the WORKFLOW.md directory when not absolute. Its servers are merged into the copy Sortie generates for its own tool sidecar; the original is never modified, and a file already declaring `sortie-tools` fails the attempt. |
 
-The OpenCode runtime accepts no MCP configuration path either, so the adapter re-expresses the generated servers as the runtime's own configuration document and sets it in the turn's environment. That happens on a local launch only; an SSH session receives none, and reaches no Sortie tool. See [MCP](/reference/adapter-opencode/#mcp).
+The OpenCode runtime accepts no MCP configuration path either, so the adapter re-expresses the generated servers as the runtime's own server entries and sets them in the turn's environment. That happens on a local launch only; an SSH session receives none, and reaches no Sortie tool. See [MCP](/reference/adapter-opencode/#mcp).
 
-The OpenCode adapter always adds `run --format json --dir <workspace> -- <prompt>`. It does not expose `--attach`, `--port`, `--command`, `--file`, `--title`, `--continue`, or `--fork` through WORKFLOW.md.
-
-The OpenCode adapter spawns one `opencode run --format json` subprocess per turn and a second `opencode export --sanitize <sessionID>` subprocess after the turn to recover authoritative token usage. See the [OpenCode CLI adapter reference](/reference/adapter-opencode/) for the full lifecycle, SSH behavior, and authentication model.
+The adapter runs one `opencode run --format json` subprocess per turn and a second subprocess after the turn to recover authoritative token usage; the exact command for each varies by major. Neither major exposes `--attach`, `--port`, `--command`, `--file`, `--title`, `--continue`, or `--fork` through WORKFLOW.md. See the [OpenCode CLI adapter reference](/reference/adapter-opencode/) for the exact commands, the full lifecycle, SSH behavior, and authentication model.
 
 > [!WARNING]
-> `agent.max_turns` (orchestrator turn-loop limit) and OpenCode's internal step budget are not the same thing. The adapter does not expose an OpenCode-specific inner turn cap.
+> `agent.max_turns` (orchestrator turn-loop limit) and OpenCode's internal step budget are not the same thing. The adapter does not expose an OpenCode-specific inner turn cap, on either major.
 
 ```yaml
 opencode:
   model: <provider>/<model-id>
   variant: high
-  pure: true
   dangerously_skip_permissions: true
   disable_autocompact: true
   allowed_tools:
@@ -1495,6 +1507,7 @@ Sortie watches `WORKFLOW.md` for filesystem changes and re-applies configuration
 | `agent.max_retry_backoff_ms`           | Next retry schedule.                   |
 | `agent.max_sessions`                   | Next retry evaluation.                 |
 | `agent.max_tokens`                     | Next poll tick for a session already running; next retry evaluation for a blocked dispatch. |
+| `agent.token_warning_percent`          | Next poll tick for a run already running and not yet warned; runs dispatched after the reload use it from the start. A running session's `cost_budget` reading, `warning_tokens` and `budget_tokens` alike, reflects whatever WORKFLOW.md said when its tool server last started: on a kind that launches a fresh process each turn, that is the next turn; on a kind with a persistent process for the whole session, not until the next dispatch. |
 | `agent.max_consecutive_absences`       | Next worker exit, retry evaluation, or poll-tick park sweep. |
 | `tracker.*`                            | Future dispatches and reconciliation.  |
 | `tracker.comments.on_dispatch`         | Future dispatches.                     |

@@ -47,7 +47,7 @@ The orchestrator reacts to a normalized event vocabulary, not to your CLI's nati
 | `tool_result` | `EventToolResult` | A tool call completed. Carries `ToolName` and `ToolDurationMS`. |
 | `malformed` | `EventMalformed` | An unparseable line from the agent. |
 
-The data flows like this. `StartSession` receives `StartSessionParams` (the workspace path, an `AgentConfig`, an optional `ResumeSessionID`, SSH fields, and an MCP config path) and returns a `Session` whose `Internal any` field carries your adapter state opaquely. `RunTurn` receives that `Session` plus `RunTurnParams` (the rendered `Prompt`, the `Issue`, and the `OnEvent` callback) and returns a `TurnResult` (`SessionID`, `ExitReason`, `Usage`, `UsageMeasured`). The orchestrator copies `SessionID` and token deltas out of the events and the result; it never reads `Session.Internal`. Set `UsageMeasured` only once the runtime has reported a usage figure for the session: a `false` value with zero `Usage` records the spend as unknown rather than as nothing, which is what keeps a token budget from silently treating an unmeasurable agent as free.
+The data flows like this. `StartSession` receives `StartSessionParams` (the workspace path, an `AgentConfig`, an optional `ResumeSessionID`, SSH fields, and an MCP config path) and returns a `Session` whose `Internal any` field carries your adapter state opaquely. `RunTurn` receives that `Session` plus `RunTurnParams` (the rendered `Prompt`, the `Issue`, and the `OnEvent` callback) and returns a `TurnResult` (`SessionID`, `ExitReason`, `Usage`, `UsageMeasured`, `SpendUnaccounted`). The orchestrator copies `SessionID` and token deltas out of the events and the result; it never reads `Session.Internal`. A non-empty `SessionID`, whether from a `session_started` event or from `TurnResult`, replaces whatever session id the orchestrator has accepted so far, for this run's dispatch record, its exit result, and what a continuation retry resumes under. Report the id your runtime would continue the session under as of the end of that turn, never one it has already moved past: Copilot CLI's adapter, for example, captures the session id off a turn's own result and returns it as that turn's `TurnResult.SessionID`, so a runtime-assigned change reaches the orchestrator without any extra event. Set `UsageMeasured` only once the runtime has reported a usage figure for the session: a `false` value with zero `Usage` records the spend as unknown rather than as nothing, which is what keeps a token budget from silently treating an unmeasurable agent as free.
 
 **Verify:** you can state, for your agent, which `AgentEventType` values its output maps to and when each one fires during a turn.
 
@@ -224,8 +224,8 @@ func (a *ACMEAdapter) StartSession(ctx context.Context, params domain.StartSessi
 		return domain.Session{}, agentErr
 	}
 
-	if target.RemoteCommand == "" {
-		if authErr := checkCredential(ctx, target.Command); authErr != nil {
+	if params.CredentialVerification {
+		if authErr := checkCredential(ctx, target, params.AgentConfig.StopGraceMS); authErr != nil {
 			return domain.Session{}, authErr
 		}
 	}
@@ -240,9 +240,11 @@ func (a *ACMEAdapter) StartSession(ctx context.Context, params domain.StartSessi
 
 `agentcore.ResolveLaunchTarget(params, "acme-cli")` returns a validated `LaunchTarget`. It checks the workspace path (this containment check is a security boundary, not a convenience), resolves the binary from the `agent.command` or your default, splits a multi-token command into `Command` plus `Args` (so `codex app-server` becomes `Args: ["app-server"]`), and picks local or SSH mode based on `params.SSHHost`. Store the returned target in your session state and pass a pointer to it into `NewForkPerTurnSession`, so per-turn mutations (such as a resume flag) are observed on later turns.
 
-Run a credential preflight only when a missing or invalid credential would hang or silently fail the agent. Kiro is the worked example: its headless `chat` blocks on interactive login when `KIRO_API_KEY` is absent, and exits 0 with empty output when the key is invalid, so the adapter runs a `whoami` canary in `StartSession` and returns a `domain.AgentError` before any turn. Do this preflight after `ResolveLaunchTarget` succeeds, because the binary must be resolved first, and skip it on a remote launch: the canary would run on the orchestrator host, not on the machine the agent starts on. The credential itself needs no code from you. Your `CredentialEnv` declaration is what carries it, and `LaunchTarget.SSHOptions` resolves each declared name from the orchestrator's environment when the launch is built.
+Before your working session's first turn, `agentcore.VerifyCredential` opens a session of its own, with `params.CredentialVerification` set, sends one fixed request through it, and closes it again; see [credential verification](/reference/workflow-config/#credential-verification) for the mechanism. This is where a credential guard belongs: gate it on `params.CredentialVerification` rather than on local-versus-SSH, so it runs identically in both modes, and let a working session (`params.CredentialVerification` false) skip it entirely, because its own verification session already proved the credential moments before. Kiro is the worked example: its headless `chat` blocks on interactive login when no credential is present, so its guard runs a `whoami --format json` canary and decides on the runtime's own answer. The guard settles presence only, because `whoami` accepts a key Kiro's backend would reject. A rejected key needs no code from you: `chat` exits 0 with empty output, so the shared verification request fails with the early exit report and carries Kiro's own message. Guard only the wait your runtime would block on, and leave acceptance to that request. A failing exit whose output reports no signed-in account returns `agentcore.CredentialAbsentError(reason, cause)`, which carries `Kind: domain.ErrCredentialUnverified`; any other failing exit returns `agentcore.ExitedEarly(target, result).Report(stderr)`, the shared [early exit report](/reference/errors/#early-exit-report), so the runtime's own exit status and standard error reach the operator instead of a guess about the credential. Build the guard's own command with `target.AuxiliaryCommand`, which builds the right one for a local or an SSH launch from the same call and re-verifies the workspace path immediately before building it, returning `(nil, *domain.AgentError)` if that fails; check that error before looking at the command's exit status, and return it unchanged rather than reinterpreting it as a credential failure. Bound the wait with `agentcore.CredentialExchangeBound` (60 seconds), generous enough for a credential that has to refresh itself over the network. Do this after `ResolveLaunchTarget` succeeds, because the binary must be resolved first. The credential itself needs no code from you beyond the guard: your `CredentialEnv` declaration is what carries it to a remote host, and `LaunchTarget.SSHOptions` resolves each declared name from the orchestrator's environment when the launch is built.
 
-**Verify:** `StartSession` returns a `Session` with no error for a valid `t.TempDir()` workspace, and a `domain.AgentError` for a missing credential.
+A guard you write yourself is only a shortcut for a runtime that would otherwise hang or fail silently. Every adapter gets a baseline check for free: `agentcore.VerifyCredential` already sends a real request and reports `credential_unverified` when the runtime cannot answer it, whether or not the adapter's own `StartSession` does anything extra. A runtime that exits before it answers keeps the early exit report the skeleton built, `port_exit`, rather than becoming `credential_unverified`.
+
+**Verify:** `StartSession` returns a `Session` with no error for a valid `t.TempDir()` workspace, and a `domain.AgentError` for a missing credential when `params.CredentialVerification` is true.
 
 ### Construct the command
 
@@ -330,7 +332,7 @@ ParseLine: func(line []byte, emit func(domain.AgentEvent), pid string) (any, err
 	if text != "" {
 		emit(domain.AgentEvent{
 			Type:     domain.EventNotification,
-			Message:  typeutil.TruncateRunes(text, 500),
+			Message:  redact.Truncate(text, 500),
 			AgentPID: pid,
 		})
 	}
@@ -339,7 +341,7 @@ ParseLine: func(line []byte, emit func(domain.AgentEvent), pid string) (any, err
 GetUsage: func() domain.TokenUsage { return domain.TokenUsage{} },
 ```
 
-Truncate captured text with `typeutil.TruncateRunes` so a long line does not bloat the event. `agentcore.EmitNotification(emit, text)` is the helper for the simpler case where you do not need to attach the PID. `GetUsage` returns the zero `TokenUsage`, which is how the orchestrator learns this agent has no token data. `state.work` is the per-turn work observer covered under [classify the outcome](#classify-the-outcome-and-pick-the-right-error-kind); a transcript line that is not blank is the only work signal this runtime offers, so that is the one signal the adapter declares and the one it records here.
+Truncate captured text with `redact.Truncate`, which masks every credential Sortie knows before it cuts, so a long line does not bloat the event and a token the runtime echoes does not reach the log. `agentcore.EmitNotification(emit, text)` is the helper for the simpler case where you do not need to attach the PID. `GetUsage` returns the zero `TokenUsage`, which is how the orchestrator learns this agent has no token data. `state.work` is the per-turn work observer covered under [classify the outcome](#classify-the-outcome-and-pick-the-right-error-kind); a transcript line that is not blank is the only work signal this runtime offers, so that is the one signal the adapter declares and the one it records here.
 
 In both modes, `GetSessionID` returns your current session id and `GetUsage` returns the token snapshot; the skeleton calls them when it builds the `TurnResult` on the cancellation and signal paths. `EmitSessionStartID` is the one optional hook: leave it `nil` if you emit `session_started` from inside `ParseLine` (Claude Code does this on its init line), or set it to a closure returning the session id to emit `session_started` before the scan loop (Copilot CLI does this).
 
@@ -347,41 +349,37 @@ In both modes, `GetSessionID` returns your current session id and `GetUsage` ret
 
 ### Classify the outcome and pick the right error kind
 
-`OnFinalize` reports what it observed; it does not decide the turn. It receives `emit`, `lastParsed` (the last non-nil value `ParseLine` returned), `exitCode`, and `stderrLines`, fills in an `agentcore.TurnEvidence`, and returns `agentcore.FinalizeTurn(emit, logger, ev, meta)`. `FinalizeTurn` applies the disposition rule every adapter shares, emits the terminal event, and builds the paired `(domain.TurnResult, *domain.AgentError)`. A kind declaring `UsageArrivalTurnEnd` returns `state.usage.Finalize(...)` instead, described under [Register the adapter](#register-the-adapter); it wraps this same call.
+`OnFinalize` reports what it observed; it does not decide the turn. It receives `emit`, `lastParsed` (the last non-nil value `ParseLine` returned), `exitCode`, `stderrLines`, and `earlyExit`, fills in an `agentcore.TurnEvidence`, and returns `agentcore.FinalizeTurn(emit, logger, ev, meta)`. `FinalizeTurn` applies the disposition rule every adapter shares, emits the terminal event, and builds the paired `(domain.TurnResult, *domain.AgentError)`. A kind declaring `UsageArrivalTurnEnd` returns `state.usage.Finalize(...)` instead, described under [Register the adapter](#register-the-adapter); it wraps this same call.
 
 That indirection is enforced, not advisory. Constructing a `domain.AgentEvent` or a `domain.AgentError` for your own turn outcome, or calling `agentcore.EmitTurnCompleted`, `EmitTurnFailed`, or `EmitTurnCancelled` directly, breaks the shared decision; a test in `agentcore` walks every adapter package and fails on it. `OnFinalize` must not call `EmitWarnLines` either: the skeleton does that for you when `FinalizeTurn` returns a non-nil error.
 
-The skeleton handles the hard cases before `OnFinalize` ever runs. It owns context cancellation, the stdout scan-error path, exit code 127 (binary not found, mapped to `ErrAgentNotFound`), and signal kills (`SIGTERM` / `SIGKILL`, mapped to `ErrTurnCancelled`). `OnFinalize` covers only what remains: a normal process exit. Do not try to detect 127 or signals here.
+The skeleton handles the hard cases before `OnFinalize` ever runs. It owns context cancellation, the stdout scan-error path, and the SSH connection failure. It also watches whether the process wrote a line your `ParseLine` hook accepts (returns without error): when the process exits before one, and `Stop` did not signal it, the skeleton builds the [early exit report](/reference/errors/#early-exit-report) from the exit status and the collected stderr and hands it to `OnFinalize` as `earlyExit`, whatever the exit status. A `ParseLine` that never rejects a line, because it treats every line as valid plain text, counts every readable line as a response; a `ParseLine` that rejects a line it cannot decode does not count that line, so an agent that prints only unreadable output before exiting takes this report too. Otherwise the skeleton owns exit code 127 (binary not found, mapped to `ErrAgentNotFound`) and signal kills (`SIGTERM` / `SIGKILL`, mapped to `ErrTurnCancelled`). `OnFinalize` covers every other ending, including a process that exited `127` or died from a signal Sortie did not send before writing an accepted line: that one arrives with `earlyExit` set. Copy `earlyExit` onto the evidence unchanged, and do not try to detect 127, signals, or an empty stdout here.
 
-Three fields carry the evidence.
+These fields carry the evidence.
 
 | Field | What you set it to |
 |---|---|
 | `Terminal` | What the runtime reported: `TerminalSuccess`, `TerminalFailure`, `TerminalCancelled`, or `TerminalAbsent` when it reported nothing. Pair a failure with `TerminalErrorKind` and `TerminalMessage`. |
 | `ExitObserved`, `ExitCode` | The turn's own process exit. A persistent-subprocess adapter leaves `ExitObserved` false, because its process outlives the turn. |
+| `EarlyExit` | The `earlyExit` argument, exactly as the skeleton passed it. The rule consults it only when it is a report the shared package built, so a value you construct yourself is ignored. |
 | `Work`, `WorkDetail` | Per-turn evidence that the model produced something. Do not fill the pair in by hand. Construct an `agentcore.WorkObserver` at the top of each turn from an `agentcore.WorkSignals` declaration, naming which of `AssistantOutput` and `ToolActivity` your runtime reports; call `ObserveAssistantOutput` and `ObserveToolActivity` as the stream reports them; then set `ev.Work, ev.WorkDetail = observer.Report()`. The detail is a compile-time constant the observer picks from your declaration, so every adapter declaring the same signals prints the same message. A runtime that reports neither signal builds no observer and leaves both fields at their zero value. |
 
-The rule reads those fields in order and stops at the first match: a terminal report wins outright, then a missing process exit, then a non-zero exit, then the work evidence. A positive report from the runtime is never second-guessed by counting output, and exit code zero is never a success signal on its own, so an adapter with nothing positive to report gets a failed turn. That holds for an adapter that declared no signal at all: it takes a row of its own, and a clean exit on that row is still a failed turn, because a kind with nothing to observe has produced no evidence either.
+The rule reads those fields in order and stops at the first match: a terminal report wins outright, then a missing process exit, then the early exit report, then a non-zero exit, then the work evidence. A positive report from the runtime is never second-guessed by counting output, and exit code zero is never a success signal on its own, so an adapter with nothing positive to report gets a failed turn. That holds for an adapter that declared no signal at all: it takes a row of its own, and a clean exit on that row is still a failed turn, because a kind with nothing to observe has produced no evidence either.
 
 For a structured agent, read `lastParsed` and set `Terminal` from the result line. For an unstructured agent, derive it from the exit status, stderr, and the observer. Kiro is the worked example, and its exit-0 case is ambiguous: the process exits 0 whether or not a turn actually ran. Its `RunTurn` opens each turn with `state.work = agentcore.NewWorkObserver(agentcore.WorkSignals{AssistantOutput: true})`, and the credits trailer on stderr is the runtime's own success report, ranking above whatever that observer saw.
 
 If you read `stderrLines` for evidence rather than only to hand it to the operator, test it for `procutil.AbandonedMarker` before you trust it. The slice carries that marker at the end when the drain could not finish inside its bound, which happens when a descendant of the agent inherited the standard-error handle and outlived it. Everything collected up to that point is real, but a transcript ending there proves nothing about what the runtime went on to write, so a marker you find should disqualify whatever positive signal you were looking for and leave the turn to the shared rule. Kiro applies exactly this test to its credits trailer. A signal that reports a failure survives the same cut, because a line you read is a line the runtime wrote.
 
 ```go
-OnFinalize: func(emit func(domain.AgentEvent), _ any, exitCode int, stderrLines []string) (domain.TurnResult, *domain.AgentError) {
-	creditsSeen, authFailed := classifyStderr(stderrLines)
+OnFinalize: func(emit func(domain.AgentEvent), _ any, exitCode int, stderrLines []string, earlyExit *domain.AgentError) (domain.TurnResult, *domain.AgentError) {
+	creditsSeen := classifyStderr(stderrLines)
 
-	ev := agentcore.TurnEvidence{ExitObserved: true, ExitCode: exitCode}
+	ev := agentcore.TurnEvidence{ExitObserved: true, ExitCode: exitCode, EarlyExit: earlyExit}
 	ev.Work, ev.WorkDetail = state.work.Report()
 
-	switch {
-	case exitCode == 0 && creditsSeen:
+	if exitCode == 0 && creditsSeen {
 		ev.Terminal = agentcore.TerminalSuccess
 		state.resumeRequested = true
-	case exitCode == 0 && authFailed && !state.work.Observed():
-		ev.Terminal = agentcore.TerminalFailure
-		ev.TerminalErrorKind = domain.ErrResponseError
-		ev.TerminalMessage = "kiro authentication failed"
 	}
 
 	return agentcore.FinalizeTurn(emit, state.logger(), ev,
@@ -389,17 +387,16 @@ OnFinalize: func(emit func(domain.AgentEvent), _ any, exitCode int, stderrLines 
 },
 ```
 
-The error kind is a control-flow decision, not a label. The orchestrator reads it to decide whether to retry. Here is what the rule produces for Kiro's five cases.
+The error kind is a control-flow decision, not a label. The orchestrator reads it to decide whether to retry. Here is what the rule produces for Kiro's cases.
 
 | Evidence | `ExitReason` | Error kind | Retry behavior |
 |---|---|---|---|
 | exit 0, credits trailer on stderr | `EventTurnCompleted` | none | success |
-| exit 0, auth-failure marker, no non-blank stdout line | `EventTurnFailed` | `ErrResponseError` | retryable, exponential backoff |
 | exit 0, no credits trailer, a non-blank stdout line | `EventTurnCompleted` | none | success |
-| exit 0, no credits trailer, no non-blank stdout line | `EventTurnFailed` | `ErrTurnFailed` | retryable, exponential backoff |
-| any non-zero exit | `EventTurnFailed` | `ErrPortExit` | retryable, exponential backoff |
+| no credits trailer, no non-blank stdout line, any exit status | `EventTurnFailed` | `ErrPortExit`, the early exit report | retryable, exponential backoff |
+| non-zero exit after a non-blank stdout line | `EventTurnFailed` | `ErrPortExit` | retryable, exponential backoff |
 
-Only the first two rows come from evidence Kiro sets itself. The last three are what the shared rule assigns to a zero exit with work, to a zero exit without it, and to a non-zero exit, and every adapter gets them for free. All three failure kinds here are retryable. Other kinds are not: `ErrAgentNotFound`, `ErrInvalidWorkspaceCwd`, `ErrTurnInputRequired`, and `ErrTurnCancelled` are non-retryable, so the orchestrator releases the claim instead of scheduling another attempt. Choose the kind that reflects what the orchestrator should do next, and confirm its retry semantics in the [agent errors reference](/reference/errors/#agent-errors).
+Only the first row comes from evidence Kiro sets itself. The others are what the shared rule assigns to a zero exit with work, to an exit before any output, and to a non-zero exit after output, and every adapter gets them for free. Kiro's working turns read no authentication signal of their own at all, exit 0 with empty output included: a rejected credential on a working turn lands in the shared early-exit row above, carrying the runtime's own stderr, because by the time a working turn runs, the [credential-verification step](/reference/workflow-config/#credential-verification) has already proved the credential once. The one failure kind shown here, `ErrPortExit`, is retryable. Other kinds are not: `ErrAgentNotFound`, `ErrInvalidWorkspaceCwd`, `ErrTurnInputRequired`, and `ErrTurnCancelled` are non-retryable, so the orchestrator releases the claim instead of scheduling another attempt. Choose the kind that reflects what the orchestrator should do next, and confirm its retry semantics in the [agent errors reference](/reference/errors/#agent-errors).
 
 **Verify:** a table test feeds exit codes and stderr fixtures to your adapter and asserts both `ExitReason` and the error kind with `errors.As`. `dispositiontest.AssertDispositionContract` pins each case against the shared rule for you.
 
@@ -417,6 +414,8 @@ Make the agent's capabilities and limitations visible to operators, because they
 
 Token-usage emission is optional. If the CLI reports tokens while a turn is still in flight, drive an `agentcore.RunUsage` and emit `EventTokenUsage` as figures arrive. If your authoritative figure only settles after the turn's work is over, report it through `agentcore.TurnEndUsage` instead, covered under [Register the adapter](#register-the-adapter). If the CLI reports no tokens at all, leave `TurnResult.Usage` at the zero value, emit no `EventTokenUsage`, and the agent is budgeted by time only, through `agent.turn_timeout_ms`. Kiro is the worked example: its headless path reports an abstract credits figure, never token counts, so token budgets are inert and `agent.turn_timeout_ms` is the time-based budget that remains.
 
+A third case cuts across both: the turn reached the model and you cannot prove your figures covered it. That happens when no figure came back for the turn at all, and it happens when one came back that fell short of the turn. Set `TurnResult.SpendUnaccounted` on either, and report whatever partial figure you do have in `Usage`, since a turn that produced nothing contributes no number and emits no `token_usage` event while a turn whose figure fell short reports and emits it as any measured turn does. It is graded per turn and does not latch, so a later turn your figures do cover reports `false` again, which is what separates it from `UsageMeasured`. The orchestrator sums it across the run and stores the count, and that count is what turns `used_tokens_complete` false on the `cost_budget` tool and adds `unaccounted_turns` to the token-ceiling log records.
+
 Tool permissions are surfaced through the passthrough config. Every run is unattended, so the default has to be a posture the runtime can carry through a turn without stopping to ask, and a pass-through value that reopens the interactive path is refused through the shared configuration-diagnostic channel rather than accepted. Kiro is the worked example again: it exposes a `trust_tools` allowlist and a mutually exclusive `trust_all_tools` switch, resolves to full trust when neither is set, and refuses any narrower posture, because what `kiro-cli` does when it meets an untrusted tool under `--no-interactive` is unestablished. Expose only the flags your CLI actually has, and declare a diagnostic for each one that could let the agent stop and wait.
 
 State these capabilities and limitations in three places so operators find them: the `UsageArrival` and `UsageAttribution` declaration on registration, which is the one every Sortie surface reads; the adapter package doc comment; and the agent's docs-site reference page. An operator who reads "this agent reports no token usage; budget it with `turn_timeout_ms`" before they deploy avoids a confusing first run.
@@ -430,6 +429,7 @@ Write unit tests with the project's conventions: table-driven, `t.Parallel()` at
 - `command_test.go` asserts `buildArgs` output across config permutations (model set or not, trust modes, resume on or off).
 - `parse_test.go` asserts parsing and classification: JSONL decode against `testdata/` fixtures for a structured agent, ANSI stripping and stderr classification for an unstructured one.
 - `acme_test.go` covers session and turn behavior against a fake `acme-cli`, built with `agenttest.FakeRuntime`, and proves your registered usage-reporting declaration with `agenttest.AssertUsageReporting` against the events and result a real turn produced. For an arrival of `UsageArrivalNone`, that call fails unless the turn emitted no `token_usage` event, no event carrying a non-zero usage figure, and a result with `UsageMeasured` false.
+- A test calling `credentialtest.AssertCredentialVerification` (`internal/agent/agenttest/credentialtest`) against your adapter, with cases driving it through `agentcore.VerifyCredential`. This one is not optional once you register a kind: `TestEveryAgentKindHasCredentialVerificationCoverage`, in `cmd/sortie`, fails the whole build for every kind `registry.Agents` lists that has no test file anywhere in its own package calling that function, your new kind included. Give it at least one case wanting `WantVerified` and one wanting `WantUnverified`, and add a `WantSSHConnectionFailed` case too if your kind's registration sets `RequiresCommand`.
 
 ```go {filename="command_test.go"}
 func TestBuildArgs(t *testing.T) {
@@ -585,7 +585,7 @@ These steps need repository access an outside contributor does not have. Make th
 
 **Calling `EmitWarnLines` inside `OnFinalize`.** The skeleton calls it for you when `OnFinalize` returns a non-nil error. Calling it yourself double-logs the stderr.
 
-**Handling cancellation, exit 127, or signal kills inside `OnFinalize`.** The skeleton owns those arms. `OnFinalize` sees only a normal process exit; trying to detect a signal there is dead code.
+**Handling cancellation, exit 127, or signal kills inside `OnFinalize`.** The skeleton owns those arms. A 127 or a signal that still reaches `OnFinalize` comes with `earlyExit` set, and the shared rule already decides it; testing `exitCode` for either there replaces the early exit report with an outcome of your own.
 
 **Deciding the turn disposition yourself.** Report evidence through `TurnEvidence` and let `FinalizeTurn` decide. Emitting a terminal event or building a `domain.AgentError` for your own outcome fails the conformance test in `agentcore` and re-forks a rule every other adapter shares.
 
@@ -593,7 +593,7 @@ These steps need repository access an outside contributor does not have. Make th
 
 **Inventing a structured stream or fabricating token usage where the CLI provides neither.** If there is no token data, `GetUsage` returns the zero `TokenUsage` and you emit no `token_usage` event. Do not synthesize numbers.
 
-**Weakening the workspace validation that `ResolveLaunchTarget` performs.** Path containment and `cwd` validation are security boundaries. Always resolve through `ResolveLaunchTarget`; never bypass it to launch in an unvalidated directory.
+**Weakening the workspace validation that `ResolveLaunchTarget` performs, or setting `cmd.Dir` directly instead of routing through `LaunchTarget.BindWorkspace`.** Path containment and `cwd` validation are security boundaries, and they are re-checked immediately before every subprocess launch, not just once at session start. `ForkPerTurnSession` and `AuxiliaryCommand` call `BindWorkspace` for you; if you construct a launch outside those paths, call `BindWorkspace` yourself rather than copying `target.WorkspacePath` onto `cmd.Dir`, or a workspace swapped for a symbolic link after `ResolveLaunchTarget` ran once at session start goes uncaught. `BindWorkspace` also sets `cmd.Env` (to `os.Environ()` when it is nil) and rewrites `PWD` in it to the same verified path, so a runtime that trusts `PWD` over its own working directory still lands in the workspace. Assign `cmd.Env` before calling `BindWorkspace`, never after: an assignment that comes later silently overwrites the `PWD` it just set, and the runtime is back to trusting whatever `PWD` it inherited.
 
 **Integration tests that fail instead of skipping when the gating env var is absent.** Skip with `t.Skip`. A normal `make test` must never fail because a credential is missing.
 

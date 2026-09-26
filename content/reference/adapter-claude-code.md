@@ -106,6 +106,8 @@ The adapter passes `--session-id <uuid>` on the first turn of a session it opene
 
 `session_persistence: false` passes `--no-session-persistence`, and Claude Code then writes no session file for `--resume` to read. Sortie refuses that configuration before any run starts, as the `agent.kind.session_resume` error under [validate-time checks](#validate-time-checks).
 
+The [credential-verification session](/reference/workflow-config/#credential-verification) every worker attempt opens before its working session always carries `--no-session-persistence` on top of whatever `claude-code.session_persistence` says, along with `--tools ""` and `--strict-mcp-config`, so that one extra session asks for no tools, reaches no MCP server, and writes no session file for the CLI to keep. It leaves no leftover conversation behind for this reason, unlike a kind whose runtime has no such flag and instead deletes the conversation explicitly.
+
 The refusal is unconditional. It does not depend on `agent.max_turns`, on the configured reactions, on the retry budgets, or on `tracker.handoff_state`. A single-turn budget does not avoid the conflict either: Sortie re-dispatches an issue carrying its earlier session after a retry, a continuation, a stall, or a restart, so the first turn of such a dispatch is already a resumed turn.
 
 Leaving `session_persistence` unset, or setting it to `true`, resumes normally. `agent.max_turns` defaults to `20`, so a session ordinarily runs more than one turn.
@@ -269,15 +271,17 @@ The outcome is not decided by the exit code alone. The shared decision table eva
 | Evidence, in evaluation order | Exit reason | Error kind |
 |---|---|---|
 | A denied `AskUserQuestion` was observed during the turn | `turn_input_required` | `turn_input_required` |
-| Orchestrator cancelled the turn, or the process was killed by a signal | `turn_cancelled` | `turn_cancelled` |
-| Exit code `127` | `turn_failed` | `agent_not_found` |
+| Orchestrator cancelled the turn | `turn_cancelled` | `turn_cancelled` |
+| The process was killed by a signal Sortie sent, or by any signal after writing output | `turn_cancelled` | `turn_cancelled` |
+| Exit code `127`, after writing output | `turn_failed` | `agent_not_found` |
 | `result` event with subtype `success` and `is_error` false | `turn_completed` | _(none)_ |
 | `result` event that is `is_error` or has any other subtype | `turn_failed` | `turn_failed` |
+| No `result` event, the process exited before writing a line the adapter decodes as an event, whatever its exit status | `turn_failed` | `port_exit`, as the [early exit report](/reference/errors/#early-exit-report) |
 | No `result` event, non-zero exit | `turn_failed` | `port_exit` |
 | No `result` event, exit `0`, no message from the agent and no tool call this turn | `turn_failed` | `turn_failed` |
 | No `result` event, exit `0`, a message from the agent or a tool call this turn | `turn_completed` | _(none)_ |
 
-The human-input, cancellation, and exit-`127` rows are decided before the adapter's own classifier runs. The work test reads this turn's own stream rather than the run-cumulative token figure. A message from the agent is a `text` content block carrying text on an `assistant` message; a tool call is a `tool_use` or `tool_result` block. Stderr from a failing turn is re-emitted at WARN level.
+The human-input, cancellation, signal, and exit-`127` rows are decided before the adapter's own classifier runs; the signal and exit-`127` rows apply only once the process has written output, because an exit before that is the early-exit row. The work test reads this turn's own stream rather than the run-cumulative token figure. A message from the agent is a `text` content block carrying text on an `assistant` message; a tool call is a `tool_use` or `tool_result` block. Stderr from a failing turn is re-emitted at WARN level.
 
 ### Stdout read failure
 
@@ -318,7 +322,7 @@ The workspace path and each per-turn CLI argument are single-quoted with embedde
 
 ### Exit codes
 
-SSH exit code `255` indicates a connection failure (refused, timeout, unreachable) and maps to `port_exit`. Exit code `127` means the remote agent binary is not in `PATH` and maps to `agent_not_found`.
+SSH exit code `255` indicates a connection failure (refused, timeout, unreachable) and maps to `port_exit`. Exit code `127` means the remote agent binary is not in `PATH`; the process wrote nothing to stdout, so the turn takes the [early exit report](/reference/errors/#early-exit-report) under `port_exit`, carrying `exit status 127` and the remote shell's own message.
 
 ---
 
@@ -330,7 +334,7 @@ The adapter runs no credential preflight and reads no credential variable for it
 
 The kind does declare three names, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY`, and `CLAUDE_CODE_OAUTH_TOKEN`, and they serve one purpose: a remote launch carries whichever of them Sortie's own environment sets, so a build host needs no copy of its own. A local launch inherits all three with everything else, and the declaration changes nothing there.
 
-A credential the CLI rejects therefore surfaces as a failing turn rather than as a session that refuses to start.
+A credential the CLI rejects therefore never surfaces as a session that refuses to start: it surfaces on the [credential-verification session](/reference/workflow-config/#credential-verification) every worker attempt opens first, as `credential_unverified` before any working turn, rather than on the working session itself.
 
 ---
 

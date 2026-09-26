@@ -43,7 +43,7 @@ The runtime's own log is the only place that states the cause when tools go miss
 
 ### Confirming which credential a run will actually use
 
-Sortie runs no credential preflight for this kind; see [authentication](/reference/adapter-agent-client-protocol/#authentication). Confirm the credential yourself before an unattended run, not after one silently loses its tools or hangs:
+The [credential-verification step](/reference/workflow-config/#credential-verification) every worker attempt opens before its working session proves the credential answers a request at all, but it says nothing about which credential answered or whether that credential can reach Sortie's tools; see [authentication](/reference/adapter-agent-client-protocol/#authentication). Confirm the credential yourself before an unattended run, not after one silently loses its tools or hangs:
 
 ```sh
 kiro-cli whoami
@@ -67,11 +67,11 @@ Run this agent inside a hardened sandbox regardless of which posture you choose.
 
 ### Token accounting has no source on this route
 
-No per-turn token count reaches Sortie on this route, so every run over it is recorded unmeasured, exactly as [the kind page states](/reference/adapter-agent-client-protocol/#token-accounting): `agent.max_tokens` never takes effect for a session on this kind, and `agent.turn_timeout_ms` and `agent.stall_timeout_ms` are what bound a turn instead. The runtime's own unit of account is credits rather than tokens, which is a cost reading, not a token count, and nothing converts one into the other.
+No per-turn token count reaches Sortie on this route, and Sortie ships no measurement source for this runtime, so every run over it is recorded unmeasured, as [the kind page](/reference/adapter-agent-client-protocol/#token-accounting) describes for a runtime it cannot measure. `agent.max_tokens` therefore never takes effect on this route, and `agent.turn_timeout_ms` and `agent.stall_timeout_ms` are what bound a turn instead. The runtime's own unit of account is credits rather than tokens, which is a cost reading, not a token count, and nothing converts one into the other.
 
 ### Sessions are not closed through the protocol
 
-This runtime's `initialize` handshake advertises an empty `sessionCapabilities` object, so `session/close` is never selected against it: a session here always ends through process termination, described in the [kind page's process shutdown section](/reference/adapter-agent-client-protocol/#process-shutdown).
+This runtime's `initialize` handshake advertises an empty `sessionCapabilities` object, so `session/close` is never selected against it: a session here always ends through process termination, described in the [kind page's process shutdown section](/reference/adapter-agent-client-protocol/#process-shutdown). The short-lived [credential-verification](/reference/workflow-config/#credential-verification) session every worker attempt opens before the working one ends the same way, with nothing to call back and remove it; see [the kind page's session close section](/reference/adapter-agent-client-protocol/#session-close) for what that leaves behind on a runtime, this one included, that advertises neither method.
 
 ### A large vendor-namespaced surface exists and is safely ignored
 

@@ -76,7 +76,7 @@ The full interaction between `.sortie/status` and `tracker.handoff_state` is doc
 | File absent | Normal behavior: continue and retry as configured. |
 | Unrecognized value | Ignored. Warning logged. Normal behavior continues. |
 | Read error | Treated as absent. Warning logged. Never fails the worker run. |
-| Symlink on `.sortie/` or `status` | Rejected as a symlink. Treated as absent. Warning logged. |
+| Workspace directory, `.sortie/`, or `status` is a symbolic link, the wrong entry type, or was swapped while Sortie opened it | Rejected. Treated as absent. Warning logged. |
 
 ### Auto-injection
 
@@ -106,7 +106,7 @@ During the self-review phase, a second injected instruction supersedes this one 
 
 Sortie deletes `.sortie/status` before each new dispatch, so a stale signal from a previous run cannot affect the new one.
 
-Sortie deletes it again at each point in a run where it acts on a recognized value: when a completion signal admits the run to the [self-review phase](/guides/configure-self-review/), and after every review turn and every fix turn inside that phase. Which value was read makes no difference at those points; `blocked`, `needs-human-review`, and `no-change-needed` are all removed. The read after a coding turn deletes nothing, so a recognized value written there stays on disk through teardown on a run that never enters the phase. Every deletion is best-effort and rejects a symlink the same way the read does; a deletion that fails is logged and changes nothing else about the run.
+Sortie deletes it again at each point in a run where it acts on a recognized value: when a completion signal admits the run to the [self-review phase](/guides/configure-self-review/), and after every review turn and every fix turn inside that phase. Which value was read makes no difference at those points; `blocked`, `needs-human-review`, and `no-change-needed` are all removed. The read after a coding turn deletes nothing, so a recognized value written there stays on disk through teardown on a run that never enters the phase. Every deletion is best-effort and applies the same rejection as the read: a link or wrong-type entry at the workspace directory, `.sortie/`, or `status` leaves the file in place rather than following it; a deletion that fails is logged and changes nothing else about the run.
 
 An absent or empty file therefore carries two meanings: the agent has written nothing, or Sortie has already acted on what it wrote. What an `after_run` hook or a later `cat` finds is a value Sortie has not acted on.
 
@@ -386,7 +386,9 @@ No parameters. The agent sends an empty JSON object:
 
 ### How it works
 
-The tool reads `.sortie/state.json`, a file the worker writes at session start, at the start of each turn, and again whenever a measurement arrives: on a token usage event, on any event carrying a non-zero usage payload, or on a turn's result carrying a measurement. The tool validates the file before reading: symlinks are rejected, and files larger than 4 KiB are refused.
+The tool reads `.sortie/state.json`, a file the worker writes at session start, at the start of each coding turn, and again whenever a measurement arrives: on a token usage event, on any event carrying a non-zero usage payload, or on a turn's result carrying a measurement. The tool validates the whole path before reading: the workspace directory, `.sortie/`, and the file itself must each be a real, unswapped entry of the expected type, and files larger than 4 KiB are refused.
+
+Review and fix turns in the [self-review phase](/guides/configure-self-review/) write the file too, through that same measurement-arrival trigger, so `tokens` and `tokens_measured` can change after coding turns end. See the `turn_number` and `turns_remaining` rows for what self-review leaves unchanged.
 
 ### Response fields
 
@@ -394,9 +396,9 @@ The fields below are returned under `data` in the standard success envelope:
 
 | Field | Type | Description |
 |---|---|---|
-| `turn_number` | integer | Current turn within the session. |
+| `turn_number` | integer | `0` before the first turn begins, then the coding turn currently in progress. Self-review's review and fix turns do not advance it: once that phase starts, the field holds the run's last coding turn. |
 | `max_turns` | integer | Configured [`agent.max_turns`](/reference/workflow-config/). |
-| `turns_remaining` | integer | `max_turns - turn_number`, clamped to 0. |
+| `turns_remaining` | integer | `max_turns - turn_number`, clamped to `0`. Budgets only the coding turns: self-review's review and fix turns do not count against it and can still run after it reaches `0`. The [iteration limit](/guides/configure-self-review/#configure-iteration-limits) bounds those turns instead. |
 | `attempt` | integer or null | Retry/continuation attempt number. `null` on first run. |
 | `session_duration_seconds` | float | Wall-clock time since session started (millisecond precision). |
 | `tokens` | object | Token usage counters for the current session. Its four members are integer or null, and they are null together, exactly when `tokens_measured` is `false`. |
@@ -469,7 +471,7 @@ The failure shape is the same structured envelope every built-in tool uses.
 
 | Kind | Meaning |
 |---|---|
-| `state_unavailable` | The state file is absent, a symlink, oversized, or unreadable. |
+| `state_unavailable` | The state file, its `.sortie/` directory, or the workspace directory is absent, a symbolic link or other unexpected entry type, oversized, or unreadable. |
 | `state_malformed` | The state file is present but unparseable: malformed JSON or an invalid `started_at`. |
 
 ---
@@ -579,7 +581,7 @@ The failure shape is the same structured envelope every built-in tool uses.
 
 ## `cost_budget`
 
-Read-only token accounting for the current issue. The agent calls this tool to check cumulative token spend across all of the issue's sessions and the remaining budget, then decide whether to skip an expensive step, return partial work, or hand off before the token ceiling cancels the session it is running in or blocks the next one. Where `sortie_status` reports token usage for the current session (read from `.sortie/state.json`), `cost_budget` reports cumulative spend across every session for the issue (read from SQLite) and compares it against the configured budget.
+Read-only token accounting for the current issue. The agent calls this tool to check cumulative token spend across all of the issue's sessions and the remaining budget, then decide whether to skip an expensive step, return partial work, or hand off before the token ceiling cancels the session it is running in or blocks the next one. Where `sortie_status` reports token usage for the current session (read from `.sortie/state.json`), `cost_budget` reports cumulative spend across every session for the issue (read from SQLite) and compares it against the configured budget. When [`agent.token_warning_percent`](/reference/workflow-config/#agent) is set, the tool's own description also tells the agent to watch for `warning_reached` and wrap up before the ceiling stops the run.
 
 `cost_budget` is a **Tier 1** tool: queries the local SQLite database in read-only mode, no external calls. Registered when both `SORTIE_DB_PATH` and `SORTIE_ISSUE_ID` are set and the database can be opened in read-only mode. That is the same condition as `workspace_history`, and the two share the same read-only connection. If the database open fails, the MCP server continues without both tools (non-fatal). When `SORTIE_DISPATCH_ID` is also set, the reading includes the running session's recorded spend; without it, only completed sessions count.
 
@@ -599,7 +601,11 @@ At session exit, Sortie clears the row's dispatch ID before recording the finish
 
 A session whose coding agent reported no token usage is recorded as unmeasured: its spend is unknown, not zero, so it adds nothing to `used_tokens` and `unmeasured_sessions` counts it.
 
+A measured session can still leave spend out. When a turn reaches the model and the figure that arrives does not cover the whole of it, the difference reaches no counter: `used_tokens` omits it, and no response field counts it. `used_tokens_complete` is the only place it shows, which is why that field can read `false` while `unmeasured_sessions` is `0`.
+
 Run-history rows written before the token columns existed (migration 011) read as zero, so spend recorded before the upgrade is invisible to the budget. Rows written before the measurement flag existed (migration 012) count as measured, because their provenance is not recoverable.
+
+The row backing this reading updates on the throttle described above, with one exception: the write that carries the usage figure reaching the [`agent.token_warning_percent`](/reference/workflow-config/#agent) threshold happens immediately, without waiting for the next throttled write. Because `warning_reached` is computed from this same response's own `used_tokens`, the two never disagree within one result: a reading taken before that write lands still reports `used_tokens` below the threshold and `warning_reached: false`.
 
 ### Response fields
 
@@ -613,9 +619,13 @@ The fields below are returned under `data` in the standard success envelope:
 | `used_sessions` | integer | Completed sessions for the issue. The running session is not counted. Unmeasured sessions still count here, because [`agent.max_sessions`](/reference/workflow-config/#agent) counts sessions rather than spend. |
 | `budget_sessions` | integer | The configured [`agent.max_sessions`](/reference/workflow-config/#agent). `0` means unlimited. |
 | `unmeasured_sessions` | integer | Completed sessions whose coding agent reported no token usage. `used_tokens` excludes them rather than counting them as zero spend. |
-| `used_tokens_complete` | boolean | `false` when `unmeasured_sessions` is above `0`, when no dispatch ID was supplied, or when no session record matches the supplied dispatch ID. `true` otherwise. On `false`, treat `used_tokens` as a lower bound and `remaining_tokens` as an upper bound. |
+| `used_tokens_complete` | boolean | `false` when `unmeasured_sessions` is above `0`, when a completed session left a turn's spend unaccounted for, when no dispatch ID was supplied, or when no session record matches the supplied dispatch ID. `true` otherwise. On `false`, treat `used_tokens` as a lower bound and `remaining_tokens` as an upper bound. |
+| `warning_tokens` | integer | The configured [`agent.token_warning_percent`](/reference/workflow-config/#agent) threshold, in tokens. Present only while the tool server's own configuration sets that field above `0`; absent otherwise, together with `warning_reached`. |
+| `warning_reached` | boolean | `true` once `used_tokens` has reached `warning_tokens`. Present under the same condition as `warning_tokens`. |
 
 `used_tokens` includes the running session while `used_sessions` excludes it. The asymmetry is deliberate: a session is either finished or not, tokens accrue continuously, and a reading that ignored in-flight spend would be useless at exactly the moment the agent consults it.
+
+`warning_tokens` and `warning_reached` appear together or not at all, so a deployment that never sets `agent.token_warning_percent` gets a result byte-identical to one from before the warning threshold existed.
 
 The orchestrator enforces the same ceiling against a fresher figure than this one. `used_tokens` carries the running session's spend as last written to `session_metadata`, at most one write per issue every two seconds, while the check that stops a session in flight adds that session's live in-memory total instead. The reading an agent gets back therefore trails the enforced figure by up to one write interval, and never leads it. When the sum reaches a non-zero `budget_tokens`, the running session is cancelled and the next re-dispatch for the issue is blocked. See [how to control agent costs](/guides/control-costs/) for the enforcement behavior and budget strategy.
 
@@ -672,6 +682,25 @@ The orchestrator enforces the same ceiling against a fresher figure than this on
 }
 ```
 
+**Success with a warning threshold configured and reached:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "used_tokens": 812000,
+    "budget_tokens": 1000000,
+    "remaining_tokens": 188000,
+    "used_sessions": 4,
+    "budget_sessions": 5,
+    "unmeasured_sessions": 0,
+    "used_tokens_complete": true,
+    "warning_tokens": 800000,
+    "warning_reached": true
+  }
+}
+```
+
 **Error:**
 
 ```json
@@ -721,7 +750,9 @@ Each accepted call produces one notification with two layers. The agent supplies
 
 Delivery goes to every configured backend in configuration order and stops at the first backend that fails, which yields a `send_failed` error. Partial delivery across backends is not reported in this version. Each backend call carries a 10-second timeout, so a slow endpoint cannot stall the turn indefinitely.
 
-Calls are capped per `sortie mcp-server` process. The effective cap is the highest non-zero `max_per_session` across the configured backends, falling back to 20 when every entry is `0` or unset; `0` selects the default, never unlimited. A call past the cap returns `rate_limited` and sends nothing. The counter counts accepted tool calls, not per-backend sends, and increments only after every backend succeeded, so a failed call does not consume the cap. The counter lives in memory in that one process: an agent runtime that keeps one tool server running for the whole session shares one count across it, but a runtime that starts a fresh tool server process for each turn starts a fresh count with each turn, and a `session_id` change never resets it either way.
+Calls are capped per agent run (dispatch), not per `sortie mcp-server` process. The effective cap is the highest non-zero `max_per_session` across the configured backends, falling back to 20 when every entry is `0` or unset; `0` selects the default, never unlimited. Every turn and every tool server process the run spawns share one count, which Sortie keeps as files under the workspace's `.sortie/notification_slots/` directory rather than in a process's memory, so a runtime that starts a fresh tool server process for each turn still shares the run's count across every process it starts. A retry or a continuation of a resumed session mints a new dispatch ID, so it starts a new run and a new count; a `session_id` change on its own does not.
+
+A call counts once at least one backend has accepted the notification. If the first configured backend fails, nothing was delivered and the call does not consume the cap; if a later backend then fails after an earlier one succeeded, the call still counts even though delivery was partial. A call past the cap returns `rate_limited` and sends nothing. When the count cannot be established, the tool returns `state_unavailable` and sends nothing; see the error kinds table below for the exact conditions. This also covers a `sortie mcp-server` started by hand outside a dispatch: with no workspace path or dispatch ID in its environment, every `notify_operator` call it receives returns `state_unavailable`.
 
 The backends never log or echo the endpoint URL, the request body, or the response body. Delivery failures surface as fixed categories (`timeout`, `connection failure`, `unauthorized (HTTP <code>)`, `rate limited (HTTP 429)`, `server error (HTTP <code>)`, `unexpected response (HTTP <code>)`) in the `send_failed` message, so a secret-bearing webhook URL never reaches a log or the agent.
 
@@ -790,9 +821,10 @@ The Slack rendering carries only the message. The envelope (issue key, dispatch 
 | Kind | Meaning |
 |---|---|
 | `invalid_input` | Malformed request: unknown or trailing fields, an out-of-enum `severity` or `category`, or an empty `title` or `body`. |
-| `rate_limited` | The tool server process's notification cap is reached. Nothing was sent. |
+| `rate_limited` | The dispatch's notification cap is reached. Nothing was sent. |
 | `send_failed` | A backend returned a transport failure, a non-2xx response, or an unparseable response. The message is a redacted category and never echoes the URL, request body, or response body. |
 | `backend_unavailable` | No backend could be resolved at execution time. Defensive: normal operation registers the tool only when a backend is configured. |
+| `state_unavailable` | The notification count could not be established: the workspace path or the dispatch ID is missing, or the workspace directory, `.sortie`, or its `notification_slots` subdirectory is a symbolic link, not a directory, or was swapped while being opened. Nothing was sent. |
 
 ---
 
@@ -808,7 +840,7 @@ Every tool uses the same response envelope; each tool's section above documents 
 | `cost_budget` | `{"success": true, "data": {...}}` | `{"success": false, "error": {"kind": "...", "message": "..."}}` |
 | `notify_operator` | `{"success": true, "data": {...}}` | `{"success": false, "error": {"kind": "...", "message": "..."}}` |
 
-All tools provide structured `error.kind` values for programmatic handling. The Tier 1 tools (`sortie_status`, `workspace_history`, `cost_budget`) share a small closed set (`state_unavailable`, `state_malformed`, `query_failed`) because their only failure mode is local state that is missing or unreadable; the Tier 2 tools (`tracker_api`, `notify_operator`) carry broader kind sets covering transport, auth, rate-limit, and input failures.
+All tools provide structured `error.kind` values for programmatic handling. The Tier 1 tools (`sortie_status`, `workspace_history`, `cost_budget`) share a small closed set (`state_unavailable`, `state_malformed`, `query_failed`) because their only failure mode is local state that is missing or unreadable. The Tier 2 tools (`tracker_api`, `notify_operator`) carry broader kind sets covering transport, auth, rate-limit, and input failures; `notify_operator` also returns `state_unavailable` when it cannot establish its own notification count, the same local-state failure mode the Tier 1 tools share.
 
 ---
 

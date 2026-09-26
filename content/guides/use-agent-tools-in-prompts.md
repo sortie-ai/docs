@@ -61,9 +61,19 @@ change, commit what works, and summarize what remains instead of
 starting anything new.
 ```
 
-Tune the threshold to your budget; 100,000 tokens is a sensible reserve when `max_tokens` is in the low millions. Unlike `sortie_status`, which covers the current session only, `cost_budget` reports spend across all of the issue's sessions, including the one in flight. The in-flight part of that figure refreshes at most every two seconds, so it trails what the orchestrator enforces rather than leading it: an agent acting on the reading acts early, never late. A `used_tokens_complete` of `false` means `used_tokens` is a lower bound and `remaining_tokens` is optimistic; this happens both for sessions whose agent reported no usage at all and for the running session itself before its own first token report lands, so seeing `false` early in a session is expected, not a sign of missing history. See the [`cost_budget` tool](/reference/agent-extensions/#cost_budget) for the exact conditions.
+Tune the threshold to your budget; 100,000 tokens is a sensible reserve when `max_tokens` is in the low millions. Unlike `sortie_status`, which covers the current session only, `cost_budget` reports spend across all of the issue's sessions, including the one in flight. The in-flight part of that figure refreshes at most every two seconds, so it trails what the orchestrator enforces rather than leading it: an agent acting on the reading acts early, never late. A `used_tokens_complete` of `false` means `used_tokens` is a lower bound and `remaining_tokens` is optimistic; this happens for sessions whose agent reported no usage at all, for a turn that reached the model without a figure covering it, and for the running session itself before its own first token report lands, so seeing `false` early in a session is expected, not a sign of missing history. See the [`cost_budget` tool](/reference/agent-extensions/#cost_budget) for the exact conditions.
 
 The `null` case earns its line in the prompt. `remaining_tokens: null` means the budget is unlimited, not exhausted; an instruction that says "stop when remaining_tokens is low" without it makes the agent wind down on issues that have no token budget at all.
+
+Setting [`agent.token_warning_percent`](/reference/workflow-config/#agent) does the same job without a hand-picked token threshold: `cost_budget` then also returns `warning_tokens` and `warning_reached`, so the prompt can act on a threshold Sortie computes from the ceiling instead of one you guess at.
+
+```plaintext
+Call the cost_budget tool. If warning_reached is true, finish the most
+important change, commit what works, and summarize what remains instead
+of starting anything new.
+```
+
+`warning_reached` and a hand-picked `remaining_tokens` threshold answer the same question two ways; use whichever fits how you think about the budget, or both. See [how to control agent costs](/guides/control-costs/#warn-before-the-ceiling-stops-a-run) for choosing the percentage.
 
 ## Guide the agent to review prior history
 
@@ -145,7 +155,7 @@ with severity "info" and category "progress" at meaningful milestones.
 Do not notify on every turn.
 ```
 
-The conditional phrasing matters: the tool is registered only when the operator configured a notification backend, so an unconditional instruction confuses agents in setups without one. The cap matters too: notifications are capped per running `sortie mcp-server` process (default 20), and calls past the cap return `rate_limited` errors, so instruct meaningful moments rather than a running commentary.
+The conditional phrasing matters: the tool is registered only when the operator configured a notification backend, so an unconditional instruction confuses agents in setups without one. The cap matters too: notifications are capped per agent run (default 20), shared across every turn of that run, and calls past the cap return `rate_limited` errors, so instruct meaningful moments rather than a running commentary.
 
 A notification does not stop the session or the retry loop. An agent that is genuinely blocked must still write `.sortie/status`. The right order is notify first, then write the file, so the human hears about the blocker and the orchestrator stops retrying.
 
@@ -277,7 +287,7 @@ The flow: the agent checks its budget, gathers context (related issues on first 
 
 **Treating `notify_operator` as a stop signal.** It notifies a human and changes nothing in orchestration: retries continue, the tracker state stays put, the claim stays held. Only `.sortie/status` stops the retry loop. Pair them: notify, then write the file.
 
-**Notifying on every turn.** Notifications are capped per running `sortie mcp-server` process (default 20); past the cap, calls return `rate_limited` errors. Reserve `notify_operator` for decisions, blockers, and meaningful milestones, not a running commentary.
+**Notifying on every turn.** Notifications are capped per agent run (default 20), shared across every turn; past the cap, calls return `rate_limited` errors. Reserve `notify_operator` for decisions, blockers, and meaningful milestones, not a running commentary.
 
 **Writing `.sortie/status` with unrecognized values.** Only `blocked`, `needs-human-review`, and `no-change-needed` are recognized. Values like `done`, `error`, or `waiting` are silently ignored. The agent writes the file thinking it communicated something, but the orchestrator sees nothing.
 

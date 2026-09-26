@@ -180,7 +180,7 @@ With this flag, Gemini runs any command the model decides to run, with your user
 
 `SORTIE_GITHUB_TOKEN` lets Sortie read issues and swap their labels; `GEMINI_API_KEY`, or your stored login, authenticates Gemini CLI. Sortie never reads or checks the Gemini credential. The `gemini` process signs itself in from the environment it inherits, as it did for your `reply with ok` check, so start Sortie from that same shell.
 
-Budgeting follows the kind, not the runtime. No session on `agent-client-protocol` reports token usage, so every run is recorded unmeasured and a token ceiling has nothing to count. The limits that bound this run are in the file: `max_turns: 3` caps the turns per session, `turn_timeout_ms` stops any turn at 30 minutes, `stall_timeout_ms` stops one that goes five minutes without an event, and `max_concurrent_agents: 1` runs one Gemini process at a time. Add `agent.max_tokens` and `sortie validate` warns, under `agent.kind.no_usage_reporting`, that the ceiling can never be reached. See the kind reference's [token accounting section](/reference/adapter-agent-client-protocol/#token-accounting) for why, and [How to Control Agent Costs](/guides/control-costs/#limit-turns-per-session) for the limits that do apply.
+Budgeting follows the runtime and where it runs, not the kind on its own. Sortie measures a local Gemini session by reading the runtime's own telemetry, so a token ceiling has something to count here, provided the build you installed is one Sortie's source recognizes; the [Gemini CLI reference's token accounting section](/reference/agent-client-protocol-gemini/#token-accounting-depends-on-the-build-and-its-in-turn-signal-understates) names the build and the conditions that decide which way a session went. The limits that bound this run sit in the file either way: `max_turns: 3` caps the turns per session, `turn_timeout_ms` stops any turn at 30 minutes, `stall_timeout_ms` stops one that goes five minutes without an event, and `max_concurrent_agents: 1` runs one Gemini process at a time. See [How to Control Agent Costs](/guides/control-costs/#limit-turns-per-session) for the limits that apply.
 
 ### Workspace and hooks
 
@@ -218,6 +218,8 @@ level=INFO msg="tick completed" candidates=1 dispatched=1 ... running=1 retrying
 level=INFO msg="running hook" issue_id=8 issue_identifier=8 hook=after_create workspace=…/workspaces/8
 level=INFO msg="running hook" issue_id=8 issue_identifier=8 hook=before_run workspace=…/workspaces/8
 level=INFO msg="workspace prepared" issue_id=8 issue_identifier=8 workspace=…/workspaces/8
+level=INFO msg="agent implementation" component=clientprotocol-adapter session_id=… name=gemini-cli version=0.x.x
+level=INFO msg="agent credential verified" issue_id=8 issue_identifier=8 duration_ms=…
 level=INFO msg="agent session started" issue_id=8 issue_identifier=8 session_id=dae20664-…
 level=INFO msg="agent implementation" component=clientprotocol-adapter session_id=dae20664-… name=gemini-cli version=0.x.x
 level=INFO msg="turn started" issue_id=8 issue_identifier=8 session_id=dae20664-… turn_number=1 max_turns=3
@@ -225,7 +227,7 @@ level=INFO msg="tool call completed" issue_id=8 issue_identifier=8 session_id=da
 level=INFO msg="tool call completed" issue_id=8 issue_identifier=8 session_id=dae20664-… tool=edit duration_ms=3 outcome=success
 ```
 
-Notice the `agent implementation` line: it names the runtime and version that answered Sortie's protocol handshake. Each `tool call completed` line is one Gemini action finishing; `tool` names the kind of action, such as `read`, `edit`, or `execute`.
+Notice the `agent implementation` line: it names the runtime and version that answered Sortie's protocol handshake, logged once per session. It appears twice here: once for the credential-verification session, before `agent credential verified`, and again for the working session that follows it. Each `tool call completed` line is one Gemini action finishing; `tool` names the kind of action, such as `read`, `edit`, or `execute`.
 
 This task took one to two minutes in our runs. A larger repository takes longer; the 30-minute `turn_timeout_ms` is the backstop, not the expected duration.
 
@@ -311,7 +313,9 @@ The issue is open, `backlog` is gone, and `review` is present. If the label did 
 
 ### Check the dashboard
 
-The dashboard is served only while Sortie runs, so start it again with `sortie ./WORKFLOW.md` and open `http://127.0.0.1:7678/`. Run History lists issue `8` as `succeeded`, with `Attempt 1` and `Turns 1` in its expanded row. The Total Tokens card reads `0`, and runs on this kind never add to it. While Gemini works on your next issue, its expanded Running Sessions row says why: Usage reporting reads `this session reports no token usage`, and Model, API Requests, and Tokens show a dash.
+The dashboard is served only while Sortie runs, so start it again with `sortie ./WORKFLOW.md` and open `http://127.0.0.1:7678/`. Run History lists issue `8` as `succeeded`, with `Attempt 1` and `Turns 1` in its expanded row.
+
+What the Total Tokens card reads depends on the Gemini build you installed. Sortie takes this runtime's token figures from Gemini's own telemetry, and it does that for the one build it has been measured against, `0.59.0`. Scroll back to the `agent implementation` line in your log: the `version=` on it is the build that answered the handshake. On `0.59.0` the card carries this run's tokens, and while Gemini works on your next issue its expanded Running Sessions row names the model it used. On any other build the card stays at `0`, and that row reads `not reported yet` under Tokens until the turn ends, then `not reported`. Usage reporting reads `figures arrive when a turn ends, per model` either way, because that is what the kind declares for a local launch before the runtime has answered for itself. The [Gemini CLI reference](/reference/agent-client-protocol-gemini/#token-accounting-depends-on-the-build-and-its-in-turn-signal-understates) has the rest.
 
 ### Troubleshooting
 

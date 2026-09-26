@@ -119,7 +119,7 @@ EOF
 }
 ```
 
-If `.sortie/scm.json` is absent, has empty required fields, or is a symlink (rejected for security), the PR-scoped reactions skip that workspace silently.
+If `.sortie/scm.json` is absent, has empty required fields, or fails Sortie's directory and symlink checks on the workspace, `.sortie`, or the file itself (rejected for security), the PR-scoped reactions skip that workspace silently.
 
 ## Set up auto-merge
 

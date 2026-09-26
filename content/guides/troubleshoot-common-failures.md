@@ -31,7 +31,7 @@ The agent binary isn't installed or isn't on `PATH`.
       command: /usr/local/bin/claude-code
     ```
 
-3. For SSH workers, the binary must exist on every remote host. Exit code `127` in logs means the remote host is missing it:
+3. For SSH workers, the binary must exist on every remote host. A host missing it fails differently: the run is retried, and its error reads `port_exit: the agent runtime exited before responding: exit status 127` followed by the remote shell's own message (see [agent exits before it responds](#agent-exits-before-it-responds)). Check the host directly:
 
     ```bash
     ssh build01.internal "which claude && echo ok"
@@ -42,10 +42,10 @@ The agent binary isn't installed or isn't on `PATH`.
 ## Agent crashes on authentication
 
 ```
-level=WARN msg="worker run failed, scheduling retry" error="agent turn 1: agent: port_exit: exit code 1" next_attempt=1 delay_ms=10000
+level=WARN msg="worker run failed, scheduling retry" error="agent session start: agent: credential_unverified: the agent runtime did not complete a credential verification request: Not logged in · Please run /login" next_attempt=1 delay_ms=10000
 ```
 
-Workers start and immediately crash. The actual cause (a missing `ANTHROPIC_API_KEY`) lives inside the agent subprocess, not in Sortie's error output. This is the most common deployment failure.
+Workers never reach a real turn. Before it starts work on an issue, Sortie opens a short-lived session of its own and sends one request through the configured agent, to confirm the credential actually works; see [credential verification](/reference/workflow-config/#credential-verification). What that gives you is the failure happening immediately, before any real work starts, under a name that says it is a credential problem (`credential_unverified`) rather than a puzzling stall or a working session that quietly fails partway through its first turn. The message ends with what the agent itself reported, here Claude Code's answer to a missing `ANTHROPIC_API_KEY`, but it does not name the variable that is missing or wrong. The steps below find it.
 
 1. Verify the variable is set:
 
@@ -57,11 +57,15 @@ Workers start and immediately crash. The actual cause (a missing `ANTHROPIC_API_
 
 3. Read the `agent stderr` warnings immediately above the error. When a session or a turn fails, Sortie re-emits what the agent wrote to its standard error at WARN, so the runtime's own auth message is already in the default log. `--log-level debug` adds every stderr line as it is read, including from turns that did not fail.
 
-4. For SSH workers, check what the launch carried. A remote agent gets the build host's environment, plus its agent kind's credential variables and whatever [`worker.ssh_pass_env`](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent) names, read from Sortie's own environment. A name Sortie cannot supply is reported at startup:
+4. For SSH workers, check what the launch carried. Credential verification runs against the remote host the same way it runs locally. A remote agent gets the build host's environment, plus its agent kind's credential variables and whatever [`worker.ssh_pass_env`](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent) names, read from Sortie's own environment. A name Sortie cannot supply is reported at startup:
 
     ```
     level=WARN msg="ssh_pass_env variable is not set or empty in the orchestrator environment" variable=ANTHROPIC_API_KEY
     ```
+
+5. On `copilot-cli` and `kiro`, a rejected credential can instead fail with `port_exit` and the CLI's own message, because those CLIs refuse a credential by printing a message and exiting. That case is [agent exits before it responds](#agent-exits-before-it-responds); the fixes above still apply.
+
+No `agent credential verified` line precedes an error like this one; that line only appears once the check has actually passed. If you do see `agent credential verified` followed by a failure, the credential itself is fine and the problem is in the working turn instead: see [agent exits without producing output](#agent-exits-without-producing-output) or [a turn runs long and gets cut off](#a-turn-runs-long-and-gets-cut-off).
 
 ## A remote agent authenticates as the wrong account
 
@@ -104,6 +108,22 @@ Every remote `opencode` launch carries variables whatever your configuration say
 
 2. Install it where it is missing. It ships with coreutils and with busybox, so most base images have it; distroless and scratch-based images often do not.
 
+## Agent exits before it responds
+
+```
+level=WARN msg="worker run failed, scheduling retry" error="agent session start: agent: port_exit: the agent runtime exited before responding: exit status 2: error: unknown option '--sortie-unknown-switch'" next_attempt=1 delay_ms=10000
+```
+
+The agent process ended before it answered, and everything after the exit status is the end of what it wrote to standard error, with known credentials shown as `[redacted]`. A prefix of `agent session start:` means it happened before the first turn, on the credential check or while the working session started; `agent turn N:` means a working turn. The quoted output usually names the cause, so read it first. For the exact message format, see the [early exit report](/reference/errors/#early-exit-report).
+
+1. **A switch the agent does not accept.** Remove or correct the flag in `agent.command`. On `copilot-cli`, a CLI older than 1.0.51 rejects the `--session-id` switch Sortie always passes; check `copilot --version` and upgrade. See [session identity](/reference/adapter-copilot/#session-identity).
+
+2. **A rejected credential.** Copilot CLI and Kiro can report a rejected credential this way rather than as `credential_unverified`. Fix it as described under [agent crashes on authentication](#agent-crashes-on-authentication).
+
+3. **A program that cannot start.** A wrapper script that starts its interpreter through `/usr/bin/env` on a host without that interpreter, or a remote host without the agent binary (`exit status 127`). Install what is missing, or point `agent.command` at a program that exists. A local `copilot-cli` launch fails earlier instead, at its version check: the error reads `agent_not_found: copilot binary found but not functional; ensure Node.js 22+ is available`, and Sortie releases the claim rather than retrying. See [session start](/reference/adapter-copilot/#session-start).
+
+4. **Confirm the fix.** Run the configured command by hand, on the same host and in the workspace directory, and check it no longer prints the error. The run is retried with exponential backoff, so the fix takes effect on the next scheduled retry, and `agent credential verified` in the log shows the check has passed.
+
 ## Agent exits without producing output
 
 ```
@@ -111,7 +131,7 @@ level=WARN msg="agent exited without producing output, treating as failure"
 level=WARN msg="worker run failed, scheduling retry" error="agent turn 1: agent: turn_failed: agent exited without producing output: no message from the agent and no tool call" next_attempt=1 delay_ms=10000
 ```
 
-The agent subprocess exited with code 0 without reporting a turn outcome, and the adapter found no evidence the model produced anything. Evidence is a message from the agent or a tool call, read from that turn's own stream, and the error line names the signals the adapter looked for after a colon. Claude Code, Copilot CLI, and OpenCode look for both, so their line ends `no message from the agent and no tool call`. Kiro reads a plain transcript that reports no tool activity, so it looks for a message only and its line ends `no message from the agent`. Sortie treats every one of these as `turn_failed` and retries with exponential backoff. Common causes:
+The agent subprocess wrote output and exited with code 0, but reported no turn outcome, and the adapter found no evidence the model produced anything. Evidence is a message from the agent or a tool call, read from that turn's own stream, and the error line names the signals the adapter looked for after a colon. Claude Code, Copilot CLI, and OpenCode look for both, so their line ends `no message from the agent and no tool call`. Sortie treats every one of these as `turn_failed` and retries with exponential backoff. An agent that exited without writing anything to standard output, Kiro included, fails as [agent exits before it responds](#agent-exits-before-it-responds) instead, with its own standard error in the message. Common causes:
 
 1. **MCP config parsing failure.** The agent failed to parse `--additional-mcp-config` or `--mcp-config` and exited silently. Check the WARN-level log lines immediately above the error. Sortie emits the agent's stderr content, which contains the parse error. On `codex` and `opencode` a bad MCP configuration fails differently: those adapters read it themselves before the agent starts, so the session ends with a `response_error` naming the file rather than a silent exit.
 
@@ -169,16 +189,18 @@ The agent asked for something no unattended run can supply: an answer to a quest
 ## A session is stopped in flight by the token budget
 
 ```
-level=WARN msg="run stopped by token ceiling" issue_id="PROJ-42" issue_identifier="PROJ-42" session_id="session-abc-002" reason=token_budget used_tokens=1503417 budget_tokens=1500000 issue_tokens_completed=1481200 session_tokens=22217 sum_source=confirmed_read ceiling_setting=agent.max_tokens unmeasured_sessions=0
+level=WARN msg="run stopped by token ceiling" issue_id="PROJ-42" issue_identifier="PROJ-42" session_id="session-abc-002" reason=token_budget used_tokens=1503417 budget_tokens=1500000 issue_tokens_completed=1481200 session_tokens=22217 sum_source=confirmed_read ceiling_setting=agent.max_tokens unmeasured_sessions=0 unaccounted_turns=0
 ```
 
-The issue's cumulative token spend reached [`agent.max_tokens`](/reference/workflow-config/#agent) while a session was running, so Sortie cancelled the worker rather than let the session run to the end over budget. The attempt is recorded with status `budget_stopped`, the claim is released, and no retry is scheduled. At the next poll tick the issue enters the budget-exhausted set, and that is what posts the comment naming the ceiling on the tracker.
+The issue's cumulative token spend reached [`agent.max_tokens`](/reference/workflow-config/#agent) while a session was running, so Sortie cancelled the worker rather than let the session run to the end over budget. The attempt is recorded with status `budget_stopped`, the claim is released, and no retry is scheduled. If the stop landed while the run was in self-review, or before that phase started, the run is recorded the same way and makes no handoff transition, even where the phase would otherwise have passed. At the next poll tick the issue enters the budget-exhausted set, and that is what posts the comment naming the ceiling on the tracker.
 
 1. **Tell it apart from a stall or a reconciliation kill.** Those cancel the same worker context, so the agent reports the same `turn_cancelled` error either way. The recorded status is what separates them: only the token ceiling records `budget_stopped`. See the [worker exit kinds](/reference/errors/#worker-exit-kinds) table.
 
 2. **Read `session_tokens` against `issue_tokens_completed` before changing anything.** `session_tokens` is what the cancelled session had spent; `issue_tokens_completed` is what the issue's earlier sessions had already banked. When the second figure sits just under the budget on its own, the session had almost no room from the start, and raising the ceiling buys the issue another attempt rather than a longer one. When `session_tokens` carries most of the total, one session is spending the whole budget and `agent.max_turns` or the adapter's own per-turn cap is the tighter lever.
 
 3. **Raise the ceiling only if the work is worth it.** `agent.max_tokens` reloads from WORKFLOW.md without a restart, and the new value reaches the sessions already running from the next poll tick. See [how to control agent costs](/guides/control-costs/#cap-tokens-per-issue) for choosing a figure.
+
+4. **Set a warning threshold so the agent wraps up next time instead of getting cut off.** `agent.token_warning_percent` logs `token warning threshold reached` and marks the `cost_budget` tool's `warning_reached` field before the ceiling stops a run, giving a well-prompted agent room to finish cleanly. See [how to control agent costs](/guides/control-costs/#warn-before-the-ceiling-stops-a-run).
 
 ## Issue keeps re-running and never advances
 
@@ -289,6 +311,26 @@ A hook exited non-zero. `after_create` and `before_run` failures are fatal for t
     Common causes: SSH key not forwarded, wrong repo URL, missing dependencies. Hooks run with a restricted environment that strips variables like `GIT_SSH_COMMAND`; see the [environment reference](/reference/environment/#hook-subprocess-environment).
 
 3. For timeout errors, increase `hooks.timeout_ms` in WORKFLOW.md.
+
+## Workspace path is a symbolic link
+
+```
+level=WARN msg="worker run failed, scheduling retry" error="mcp config generation: open .sortie directory: /opt/sortie_workspaces/PROJ-42: is a symbolic link" next_attempt=1 delay_ms=10000
+```
+
+Something replaced the per-issue workspace directory with a symbolic link during workspace preparation, after Sortie confirmed the directory was real but before it wrote `.sortie/mcp.json`: an `after_create` or `before_run` hook script, or a process racing that window from outside Sortie. A symlink left behind by an earlier run's `after_run` or `before_remove` hook is caught earlier instead, as a workspace conflict when this attempt's workspace preparation starts; see step 2.
+
+1. Find what replaced the directory. Check `after_create` and `before_run` first; a script that removes and relinks a shared directory is the most common cause. Also check for an outside process (a cleanup job, a manual `ln -s`) that could run during that same window.
+2. Remove the symlink by hand. Workspace preparation on the next attempt only recreates a directory that is missing; a directory still occupied by a symlink is rejected instead, as a workspace conflict, so retries keep failing, under a different error, until the link is gone.
+3. If the workspace directory disappears entirely instead of being swapped, at any point from a hook through a later turn, Sortie reports it as an agent error instead:
+
+   ```
+   level=ERROR msg="worker run failed, non-retryable, releasing claim" error="agent session start: agent: invalid_workspace_cwd: workspace path does not exist: /opt/sortie_workspaces/PROJ-42: lstat /opt/sortie_workspaces/PROJ-42: no such file or directory"
+   ```
+
+   This one releases the claim instead of retrying with backoff. The issue becomes dispatchable again on the next poll cycle, and that dispatch's own workspace preparation recreates the missing directory from scratch.
+
+A hook that starts after the same directory breaks fails with its own `hook validate` error instead of either of the above; see [hook errors](/reference/errors/#hook-errors) in the error reference. See [control-file errors](/reference/errors/#control-file-errors), [agent errors](/reference/errors/#agent-errors), and [path errors](/reference/errors/#path-errors) for the full set of detail strings these checks can report.
 
 ## Issues not being dispatched
 

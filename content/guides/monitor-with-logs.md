@@ -116,12 +116,13 @@ The file is written for every kind, but not every session can reach it.
 ### Agent session
 
 ```
+time=2026-03-26T14:30:03.150+00:00 level=INFO msg="agent credential verified" issue_id=abc123 issue_identifier=MT-649 duration_ms=270
 time=2026-03-26T14:30:03.420+00:00 level=INFO msg="agent session started" issue_id=abc123 issue_identifier=MT-649 session_id=session-abc-001
 time=2026-03-26T14:30:03.500+00:00 level=INFO msg="turn started" issue_id=abc123 issue_identifier=MT-649 turn_number=1 max_turns=5
 time=2026-03-26T14:31:45.800+00:00 level=INFO msg="turn completed" issue_id=abc123 issue_identifier=MT-649 turn_number=1 max_turns=5
 ```
 
-Each issue gets a session with one or more turns. `turn_number` and `max_turns` show where the agent is in its work budget.
+`agent credential verified` is [credential verification](/reference/workflow-config/#credential-verification), a short-lived session Sortie opens for itself before every worker attempt, on every agent kind, to prove the credential actually works before spending a real turn on it; `duration_ms` is how long that check took. Each issue then gets a working session with one or more turns. `turn_number` and `max_turns` show where the agent is in its work budget.
 
 When the session's kind and launch mode deliver no tool channel, one more line lands between `agent session started` and `turn started`. Sortie says so once, on the first turn, and leaves the tool advertisement out of the prompt:
 
@@ -132,6 +133,14 @@ time=2026-03-26T14:30:03.500+00:00 level=INFO msg="turn started" issue_id=abc123
 ```
 
 This is the line to look for when an agent never mentions Sortie's tools. `remote=true` means the session was dispatched to an SSH host, which is the whole reason on a `codex` or `opencode` session; on `kiro` the line appears with `remote=false` too. Nothing is failing: the agent was deliberately not told about tools it could not call. See [delivery by agent kind](/reference/agent-extensions/#delivery-by-agent-kind).
+
+An agent runtime can also change its own session id after the session has already started. Sortie logs it the moment it happens:
+
+```
+time=2026-03-26T14:31:46.010+00:00 level=INFO msg="agent session id accepted" issue_id=abc123 issue_identifier=MT-649 session_id=session-abc-001 previous_session_id=session-abc-001 accepted_session_id=session-abc-001b
+```
+
+The `session_id` field on this line, like on every other line for the run, still names the id from `agent session started`: it identifies the run in the logs and never changes, so the recipes below keep working against it. `accepted_session_id` is the new value, and it is what the run's tracker comment, its operator notifications, and a continuation retry's resume attempt carry from this point on. Copilot CLI's adapter is one example: it captures the session id from each turn's own result and reports it back as that turn's session id, so a runtime-side change can reach Sortie this way.
 
 A session's agent kind can declare that it reports no token usage at all and then have its runtime send a usage figure anyway, contradicting its own declaration. Sortie discards the figure and logs it once per run, on the first occurrence:
 
@@ -258,13 +267,13 @@ time=2026-03-26T14:35:22.000+00:00 level=WARN msg="token budget exhausted, block
 
 This fires when `agent.max_tokens` is set and an issue's cumulative tokens across every completed session reach the configured ceiling. It is the pre-dispatch lane: it runs before a scheduled retry fires and blocks that dispatch. A session already running is stopped by a separate record, below. `used_tokens` is the issue's running total; `budget_tokens` is the ceiling it hit. `used_sessions` and `budget_sessions` report the same comparison for the session-count budget, in case the issue is close to both ceilings at once.
 
-A session whose coding agent reported no token usage at all is recorded as unmeasured and contributes nothing to `used_tokens`. When an issue is still under the ceiling but some of its sessions went unmeasured, Sortie says so and dispatches anyway:
+A session whose coding agent reported no token usage at all is recorded as unmeasured and contributes nothing to `used_tokens`. When an issue is still under the ceiling but its total is known to fall short of what the issue really spent, Sortie says so and dispatches anyway:
 
 ```
-time=2026-03-26T14:35:22.000+00:00 level=WARN msg="token budget cannot be fully evaluated, allowing dispatch" issue_id=abc123 issue_identifier=MT-649 used_tokens=31000 budget_tokens=50000 unmeasured_sessions=2
+time=2026-03-26T14:35:22.000+00:00 level=WARN msg="token budget cannot be fully evaluated, allowing dispatch" issue_id=abc123 issue_identifier=MT-649 used_tokens=31000 budget_tokens=50000 unmeasured_sessions=2 unaccounted_turns=0
 ```
 
-`unmeasured_sessions` is how many of the issue's recorded sessions carry no spend figure, so `used_tokens` is a lower bound rather than the whole story. The ceiling message above takes precedence: an issue whose measured total already reaches the ceiling is blocked and logs that instead.
+Two counts say what the sum leaves out, and the record carries both every time. `unmeasured_sessions` is how many of the issue's recorded sessions carry no spend figure. `unaccounted_turns` is how many turns reached the model without a figure that covered them, which a session can accumulate even when every one of its figures arrived. Either count above `0` makes `used_tokens` a lower bound rather than the whole story. The ceiling message above takes precedence: an issue whose measured total already reaches the ceiling is blocked and logs that instead.
 
 If Sortie can't read the token total at all, it fails open rather than blocking a retry on a persistence error:
 
@@ -277,16 +286,20 @@ WARN in all three cases, but the outcome differs: dispatch proceeds for the latt
 ### Token ceiling stops a run in flight
 
 ```
-time=2026-03-26T14:41:07.000+00:00 level=WARN msg="run stopped by token ceiling" issue_id=abc123 issue_identifier=MT-649 session_id=session-abc-002 reason=token_budget used_tokens=50240 budget_tokens=50000 issue_tokens_completed=31000 session_tokens=19240 sum_source=confirmed_read ceiling_setting=agent.max_tokens unmeasured_sessions=0
+time=2026-03-26T14:41:07.000+00:00 level=WARN msg="run stopped by token ceiling" issue_id=abc123 issue_identifier=MT-649 session_id=session-abc-002 reason=token_budget used_tokens=50240 budget_tokens=50000 issue_tokens_completed=31000 session_tokens=19240 sum_source=confirmed_read ceiling_setting=agent.max_tokens unmeasured_sessions=0 unaccounted_turns=0
 ```
 
-The same ceiling, reached during a session rather than between two. Sortie cancels the worker, and the attempt lands in run history under status `budget_stopped` rather than `cancelled`. One record per run: later usage events on a session already stopped log nothing.
+The same ceiling, reached during a session rather than between two. The moment a usage figure carries the sum to the ceiling, Sortie decides to stop the run. This record is logged later, at the run's exit, once that decision is confirmed to be what ended the run, so its timestamp can trail the crossing by however long teardown takes.
+
+Not every decision produces this line. Only a run the ceiling's cancellation actually ends gets one; a run that finishes on its own, or that a different cancellation ends first, gets none. See [how to control agent costs](/guides/control-costs/#cap-tokens-per-issue) for which runs that is. A stop that lands during self-review, or keeps it from starting, is recorded here too, with no handoff transition performed. Later usage events on a session already stopped log nothing.
+
+`used_tokens` and the other counts on this line are a snapshot from the decision, not the exit. The run-history `error` field for the same run computes its own "used N of M tokens" figure fresh at exit, after any usage the session reported in between, so the two can differ: read this line's figures as what triggered the stop, and the run-history figure as the session's final tally.
 
 Read `session_tokens` against `issue_tokens_completed` to see who spent the budget. `session_tokens` is what the cancelled session had spent on its own, `issue_tokens_completed` is what the issue's earlier sessions had already banked, and `used_tokens` is their sum, the figure compared against `budget_tokens`.
 
-`sum_source` says how that sum was established. `confirmed_read` means a database read settled the completed total, and `unmeasured_sessions` then reports how many of the issue's runs carry no spend figure. `session_spend_alone` means the read failed and the running session had spent the whole budget by itself, which needs no read to prove; the record carries no `unmeasured_sessions` in that case, and `used_tokens` is a lower bound.
+`sum_source` says how that sum was established. `confirmed_read` means a database read settled the completed total, and the record then carries `unmeasured_sessions` and `unaccounted_turns`, the two counts that report what the total leaves out. `session_spend_alone` means the read failed and the running session had spent the whole budget by itself, which needs no read to prove; neither count appears in that case, and `used_tokens` is a lower bound.
 
-Three more records surround the check, all WARN, all gated on `agent.max_tokens` being set. Two fire at dispatch and describe what the ceiling can bound for the session about to start:
+Four more records surround the check, all WARN, all gated on `agent.max_tokens` being set. Two fire at dispatch and describe what the ceiling can bound for the session about to start:
 
 ```
 time=2026-03-26T14:38:02.000+00:00 level=WARN msg="token ceiling cannot bound this run" issue_id=abc123 issue_identifier=MT-649 agent_kind=kiro usage_arrival=none budget_tokens=50000
@@ -302,6 +315,24 @@ time=2026-03-26T14:40:55.000+00:00 level=WARN msg="in-flight token ceiling check
 ```
 
 The run keeps going and can pass the ceiling until a later read succeeds or the session ends. It logs once per run, no matter how many later reads fail, so read one of these as an interval during which the ceiling was not enforced rather than as a single moment.
+
+The fourth fires once, at the end of a run that reported nothing although its agent kind said figures would arrive:
+
+```
+time=2026-03-26T14:52:18.000+00:00 level=WARN msg="run reported no token usage, token ceiling could not bound it" issue_id=abc123 issue_identifier=MT-649 session_id=session-abc-004 agent_kind=agent-client-protocol usage_arrival=turn_end budget_tokens=50000
+```
+
+This is the after-the-fact counterpart of the first record. Nothing warned at dispatch, because the kind declares that figures arrive; the runtime behind it then produced none, and the ceiling bounded nothing. `agent-client-protocol` is where you are most likely to meet it: a local session there is declared reporting before its runtime has said anything, and it delivers a figure only for a runtime Sortie ships a measurement source for, on a build that source recognizes. See [token accounting on that kind](/reference/adapter-agent-client-protocol/#token-accounting) for which way a given session went.
+
+### Token warning threshold
+
+```
+time=2026-03-26T14:40:10.000+00:00 level=WARN msg="token warning threshold reached" issue_id=abc123 issue_identifier=MT-649 session_id=session-abc-002 used_tokens=1350000 warning_tokens=1350000 budget_tokens=1500000 issue_tokens_completed=1180000 session_tokens=170000 ceiling_setting=agent.max_tokens warning_setting=agent.token_warning_percent
+```
+
+This fires when [`agent.token_warning_percent`](/reference/workflow-config/#agent) is set and the issue's live token sum, the same sum `agent.max_tokens` enforces against, reaches the configured threshold. `used_tokens` and `warning_tokens` are the sum and the threshold it crossed; `budget_tokens` is the ceiling the threshold sits below. `issue_tokens_completed` and `session_tokens` split that sum the same way the ceiling's own stop record does: what earlier sessions had already banked, and what the running session has spent on its own.
+
+Sortie logs this once per run: a run that crosses the threshold again on a later usage figure does not log a second time, and a run that never crosses it does not log at all. See [how to control agent costs](/guides/control-costs/#warn-before-the-ceiling-stops-a-run) for choosing a percentage, and the [`cost_budget` tool](/reference/agent-extensions/#cost_budget) for how the agent reads the same condition mid-session.
 
 ### Dispatch preflight failures
 
@@ -343,6 +374,12 @@ Find sessions the token ceiling stopped in flight:
 
 ```bash
 grep 'run stopped by token ceiling' sortie.log
+```
+
+Find runs that crossed the token warning threshold:
+
+```bash
+grep 'token warning threshold reached' sortie.log
 ```
 
 Watch dispatches in real time:

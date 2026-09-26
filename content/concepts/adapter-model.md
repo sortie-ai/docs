@@ -31,6 +31,8 @@ Agent adapters follow the same principle but face a different challenge. Tracker
 
 The `AgentAdapter` interface has three methods, organized around session lifecycle: `StartSession` launches or connects to an agent process in a workspace directory. `RunTurn` executes one prompt turn, delivering every event synchronously through a callback as the turn runs. `StopSession` terminates the process cleanly.
 
+The orchestrator calls those same three methods twice per worker attempt, not once. Before the working session, it drives a second, short-lived one: `StartSession` with `CredentialVerification` set on the params, one `RunTurn` sending a fixed prompt, then `StopSession`. This is a shared orchestrator-level wrapper, not a fourth interface method: an adapter gets it for free, and only has to notice the flag if its runtime needs to behave differently on that one session (no tools, no continuation record, a cleanup call if the runtime offers one). A cheaper check, `StartSession` succeeding or an environment variable being non-empty, would not prove the runtime's backend actually accepts the credential; running the real request is the one check that works the same way regardless of what a given adapter's own protocol looks like.
+
 The harder problem is event normalization. Claude Code streams JSONL with dozens of message types (tool calls, approvals, errors, token usage, system notifications), each with its own structure. A future HTTP-based agent adapter might use Server-Sent Events with a completely different schema. The adapter normalizes everything into `AgentEvent`, a single type with an `EventType`, `TokenUsage`, `ToolName`, `Message`, and a handful of other fields. The orchestrator reacts to `turn_completed`, `turn_failed`, `token_usage` without knowing which agent produced them or what the native event format looked like.
 
 There are thirteen normalized event types, from `session_started` through `tool_result` to `malformed`, covering the full range of things an agent can do during a session. The adapter maps its native protocol onto this vocabulary. Events that don't fit any category land as `other_message` rather than being silently dropped.
@@ -46,7 +48,7 @@ Today, the agent side already spans six materially different shapes:
 | Claude Code | CLI JSONL stdout | One subprocess per turn |
 | Copilot CLI | CLI JSON stdout stream | One subprocess per turn |
 | Codex | JSON-RPC app server | One persistent subprocess across turns |
-| OpenCode CLI | Newline-delimited JSON envelopes plus `opencode export --sanitize` for final usage recovery | One subprocess per turn, plus one export subprocess after each turn |
+| OpenCode CLI | Newline-delimited JSON envelopes plus a second subprocess for final usage recovery (`opencode export --sanitize` on OpenCode 1.x, `opencode session export --standalone --sanitize` on 2.x) | One subprocess per turn, plus one usage-recovery subprocess after each turn |
 | Kiro | Plain-text transcript on stdout, no structured output | One subprocess per turn |
 | Agent Client Protocol | Newline-delimited JSON-RPC 2.0 over stdio, a shared vendor-neutral protocol several runtimes implement | One persistent subprocess across turns |
 
