@@ -19,7 +19,7 @@ The pairing is deliberate. Gitea is self-hosted, and OpenCode can run against a 
     opencode --version
     ```
 
-    You should see a version string. Sortie resolves `opencode` from `PATH` at session start, so this confirms the binary it will launch. To install it, follow the [OpenCode CLI docs](https://opencode.ai/docs/cli/).
+    You should see a version string. Sortie resolves `opencode` from `PATH` at session start and reads this same version to detect whether it is driving OpenCode 1.x or 2.x, so this confirms the binary it will launch. Sortie supports both majors the same way; see the [OpenCode adapter reference](/reference/adapter-opencode/#version-detection) for what differs between them. To install it, follow the [OpenCode CLI docs](https://opencode.ai/docs/cli/).
 
 - A locally served, OpenAI-compatible model, exposed to OpenCode as a custom provider in your `opencode.json`. OpenCode reads provider configuration from its own config, and a custom provider carries a `baseURL` pointing at your local endpoint. The [OpenCode configuration docs](https://opencode.ai/docs/config/) cover the provider schema. This tutorial calls that provider `local` and selects it through `opencode.model`. List what OpenCode has configured with:
 
@@ -167,7 +167,7 @@ Nothing about the hooks is OpenCode-specific. `workspace.root` gives each Gitea 
 
 #### Agent: OpenCode CLI
 
-`agent.kind: opencode` selects the OpenCode adapter, registered under the `opencode` kind. `agent.command: opencode` names the binary, which the adapter resolves from `PATH` when the session starts. The `opencode:` block is small because OpenCode folds provider selection into the model string: `local/your-model` means "use the `local` provider, then that model." There is no separate provider field to set. `dangerously_skip_permissions: true` is the unattended switch, the equivalent of Claude Code's bypass mode: it tells the CLI to approve each permissioned action itself. It is also the default. Setting it to `false` does not make the run interactive, because there is nobody to be interactive with: the runtime auto-rejects every permissioned tool call instead, and Sortie warns about that before the run. The adapter also exposes finer tool scoping through `allowed_tools` and `denied_tools`, which is reference territory. When you need it, the [OpenCode adapter reference](/reference/adapter-opencode/) covers the full surface.
+`agent.kind: opencode` selects the OpenCode adapter, registered under the `opencode` kind. `agent.command: opencode` names the binary, which the adapter resolves from `PATH` when the session starts. The `opencode:` block is small because OpenCode folds provider selection into the model string: `local/your-model` means "use the `local` provider, then that model." There is no separate provider field to set. `dangerously_skip_permissions: true` is the unattended switch, the equivalent of Claude Code's bypass mode: it tells the CLI to approve each permissioned action itself. It is also the default. Setting it to `false` does not make the run interactive, because there is nobody to be interactive with: the runtime refuses every permissioned tool call instead of performing it, and Sortie warns about that before the run. The adapter also exposes finer tool scoping through `allowed_tools` and `denied_tools`, which is reference territory. When you need it, the [OpenCode adapter reference](/reference/adapter-opencode/) covers the full surface.
 
 #### A locally served model backend
 
@@ -175,7 +175,7 @@ Two credentials are in play, and they do different jobs. `SORTIE_GITEA_TOKEN` au
 
 For a fully self-hosted stack, point OpenCode at a model you serve yourself. OpenCode reaches a locally served, OpenAI-compatible backend through a custom provider defined in its `opencode.json`, where the provider carries a `baseURL` for your local endpoint. The [OpenCode configuration docs](https://opencode.ai/docs/config/) cover that provider schema. Once the `local` provider exists, `opencode.model: local/your-model` selects it, and no cloud model API key is involved. The model that writes your code runs on hardware you control.
 
-The adapter reinforces that posture. On every run it sets `OPENCODE_DISABLE_AUTOUPDATE=true` and `OPENCODE_DISABLE_LSP_DOWNLOAD=true`, so OpenCode does not reach out to update itself or download language servers mid-session. For the full provider model and every managed variable, see the [OpenCode adapter reference](/reference/adapter-opencode/).
+The adapter reinforces that posture. On every run it sets `OPENCODE_DISABLE_AUTOUPDATE=true`, so OpenCode does not reach out to update itself mid-session; on OpenCode 1.x it also sets `OPENCODE_DISABLE_LSP_DOWNLOAD=true` to stop language-server downloads. For the full provider model and every managed variable, per major, see the [OpenCode adapter reference](/reference/adapter-opencode/#version-detection).
 
 #### Inner turn budget
 

@@ -276,7 +276,7 @@ The outcome is not decided by the exit code alone. The shared decision table eva
 | Exit code `127`, after writing output | `turn_failed` | `agent_not_found` |
 | `result` event with subtype `success` and `is_error` false | `turn_completed` | _(none)_ |
 | `result` event that is `is_error` or has any other subtype | `turn_failed` | `turn_failed` |
-| No `result` event, the process exited before writing a readable line to stdout, whatever its exit status | `turn_failed` | `port_exit`, as the [early exit report](/reference/errors/#early-exit-report) |
+| No `result` event, the process exited before writing a line the adapter decodes as an event, whatever its exit status | `turn_failed` | `port_exit`, as the [early exit report](/reference/errors/#early-exit-report) |
 | No `result` event, non-zero exit | `turn_failed` | `port_exit` |
 | No `result` event, exit `0`, no message from the agent and no tool call this turn | `turn_failed` | `turn_failed` |
 | No `result` event, exit `0`, a message from the agent or a tool call this turn | `turn_completed` | _(none)_ |
