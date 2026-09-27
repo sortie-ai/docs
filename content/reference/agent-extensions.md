@@ -401,7 +401,7 @@ The fields below are returned under `data` in the standard success envelope:
 | `turns_remaining` | integer | `max_turns - turn_number`, clamped to `0`. Budgets only the coding turns: self-review's review and fix turns do not count against it and can still run after it reaches `0`. The [iteration limit](/guides/configure-self-review/#configure-iteration-limits) bounds those turns instead. |
 | `attempt` | integer or null | Retry/continuation attempt number. `null` on first run. |
 | `session_duration_seconds` | float | Wall-clock time since session started (millisecond precision). |
-| `tokens` | object | Token usage counters for the current session. Its four members are integer or null, and they are null together, exactly when `tokens_measured` is `false`. |
+| `tokens` | object | Token usage counters for the current session. Its five members are integer or null, and they are null together exactly when `tokens_measured` is `false`. |
 | `tokens_measured` | boolean | Whether the session's token figures are a measurement. `true` before the first turn begins and once a figure has reached the worker; `false` from the start of turn 1 until one does. Stays `false` for the life of a session whose agent kind reports no token usage, whatever its runtime sends. |
 
 Token usage fields:
@@ -412,6 +412,7 @@ Token usage fields:
 | `output_tokens` | integer or null | Total output tokens generated. |
 | `total_tokens` | integer or null | Sum of input and output tokens. |
 | `cache_read_tokens` | integer or null | Tokens served from prompt cache. |
+| `cache_write_tokens` | integer or null | Input tokens written to prompt cache. |
 
 Zeros beside `tokens_measured: true` are themselves a measurement, and they arise two ways: a session that has not begun a turn, whose zeros are proven because nothing has run, and a runtime that measured the work and found it cost nothing. A state file that carries figures and no `tokens_measured` field reads as `tokens_measured: false`, and its figures are not reported.
 
@@ -432,7 +433,8 @@ Zeros beside `tokens_measured: true` are themselves a measurement, and they aris
       "input_tokens": 45000,
       "output_tokens": 12000,
       "total_tokens": 57000,
-      "cache_read_tokens": 8000
+      "cache_read_tokens": 8000,
+      "cache_write_tokens": 1200
     },
     "tokens_measured": true
   }
@@ -447,7 +449,8 @@ Zeros beside `tokens_measured: true` are themselves a measurement, and they aris
     "input_tokens": null,
     "output_tokens": null,
     "total_tokens": null,
-    "cache_read_tokens": null
+    "cache_read_tokens": null,
+    "cache_write_tokens": null
   },
   "tokens_measured": false
 }

@@ -63,7 +63,7 @@ Cards across the top provide the high-level picture. Some appear unconditionally
 | **Running** | Green | Integer | Always | Number of agent sessions currently executing. Maps to `sortie_sessions_running` in [Prometheus](/reference/prometheus-metrics/). |
 | **Retrying** | Yellow | Integer | Always | Number of issues in the retry queue, waiting for their next attempt after an error, continuation, or stall timeout. Maps to `sortie_sessions_retrying`. |
 | **Slots Free** | Gray | Integer | Always | Remaining dispatch capacity: `max_concurrent_agents − running`. When this reaches 0, the orchestrator waits for a running session to finish before dispatching the next issue. |
-| **Total Tokens** | Blue | Integer (comma-formatted) | Always | Cumulative LLM tokens consumed across all sessions since startup: input plus output. Cache-read tokens are a subset of input and are not added on top. Sessions that reported no token usage contribute nothing. |
+| **Total Tokens** | Blue | Integer (comma-formatted) | Always | Cumulative LLM tokens consumed across all sessions since startup: input plus output. Cache-read and cache-write tokens are subsets of input and are not added on top. Sessions that reported no token usage contribute nothing. |
 | **Active Est. Cost (USD)** | Neutral | USD string | `token_rates` configured | Estimated cost across currently running sessions, computed from configured per-token rates. Shows an em dash when no running session matches a configured rate. See [cost estimation](#cost-estimation). |
 | **Budget Blocked** | Neutral | Integer | At least one issue budget-exhausted | Number of issues currently held out of dispatch by a per-issue [`agent.max_sessions` or `agent.max_tokens`](/reference/workflow-config/#agent) ceiling. Maps to `sortie_budget_exhausted_issues`. See the [budget blocked table](#budget-blocked-table) below. |
 
@@ -124,8 +124,8 @@ Lists every agent session that is actively executing. Sorted by start time (olde
 | **Usage reporting** | When this session's token figures arrive and what they attribute to, stated once for the four fields below. Reads `figures arrive during each turn` or `figures arrive when a turn ends`, followed by `, per model` or `, as a session total`; `this session reports no token usage` for a kind that produces no figure at all; `not declared` for a custom adapter that declared neither. The [usage reporting table](/reference/workflow-config/#usage-reporting-by-agent-kind) states the value each built-in kind declares. |
 | **Model** | LLM model name reported by the agent. Reads `not reported yet` when the session attributes figures per model but has not named one, `not attributed to a model` when its figures are session-level totals, and an em dash when the session reports no usage. |
 | **API Requests** | Number of LLM API requests the agent has made. A count appears when this session's figures arrive during each turn and either one has already arrived or no turn has begun, so a `0` here is a measurement rather than a blank. When the breakdown names two or more models, the count carries the split in parentheses, ordered by model name: `12 (model-a: 5, model-b: 7)`. Reads `not reported yet` when figures arrive during each turn but the session's first turn has begun with nothing counted, which is what both a session waiting on its first figure and a runtime that declared per-request figures but delivers none look like from the event stream. Reads `not measured` when figures arrive at turn end instead, because that count settles at most once per turn rather than once per request, and an em dash when the session reports no usage. |
-| **Tokens** | Total tokens consumed by this session. When cache-read tokens are nonzero, they appear in parentheses (e.g., `12,450 (8,200 cached)`). Reads `not reported yet` while the session has reported nothing and a figure can still arrive, which is distinct from a reported `0`; `not reported` once the moment its kind reports at has passed with nothing counted, so the row stops promising a figure that is no longer coming; and an em dash when the session reports no usage at all. A figure that leaves out the turn still in flight carries the suffix `, excludes the turn in progress`. |
-| **Est. Cost** | Estimated cost for this session based on configured [token rates](/reference/workflow-config/#token_rates). Shows an em dash when `token_rates` is absent, when no rate is configured for this session's agent adapter kind, when its **Tokens** field is unmeasured, or when the session reports no usage. Carries the same `, excludes the turn in progress` suffix as **Tokens**. |
+| **Tokens** | Total tokens consumed by this session. Nonzero cache counts appear in parentheses, for example `12,450 (8,200 cache read, 900 cache write)`. Reads `not reported yet` while the session has reported nothing and a figure can still arrive, which is distinct from a reported `0`; `not reported` once the moment its kind reports at has passed with nothing counted, so the row stops promising a figure that is no longer coming; and an em dash when the session reports no usage at all. A figure that leaves out the turn still in flight carries the suffix `, excludes the turn in progress`. |
+| **Est. Cost** | Estimated cost for this session based on configured [token rates](/reference/workflow-config/#token_rates). Shows an em dash when `token_rates` is absent, when no rate is configured for this session's agent adapter kind, when that entry lacks an input or output rate, when its **Tokens** field is unmeasured, or when the session reports no usage. Carries the same `, excludes the turn in progress` suffix as **Tokens**. |
 | **Tool Time** | Percentage of elapsed wall-clock time the agent spent in tool calls. Shows `N/A` until the session has both elapsed time and recorded tool time. |
 | **API Time** | Percentage of elapsed wall-clock time the agent spent waiting for LLM API responses. Shows `N/A` until both elapsed time and API time are recorded. |
 
@@ -190,13 +190,14 @@ Lists recently completed session attempts, both successful and failed. Shows the
 
 ## Footer
 
-The footer combines two kinds of figures. Agent runtime, Input, Cache, and Output are cumulative across every session since Sortie's database was created, not since the current process started: a restart continues from the last persisted values instead of resetting to zero. Est. Cost, when shown, is computed only from the sessions currently running and is never persisted; see [Cost estimation](#cost-estimation) below. Auto-refresh is a page-behavior note, not a statistic.
+The footer combines two kinds of figures. Agent runtime, Input, Cache Read, Cache Write, and Output are cumulative across every session since Sortie's database was created, not since the current process started: a restart continues from the last persisted values instead of resetting to zero. Est. Cost, when shown, is computed only from the sessions currently running and is never persisted; see [Cost estimation](#cost-estimation) below. Auto-refresh is a page-behavior note, not a statistic.
 
 | Element | Description |
 |---|---|
 | **Agent runtime** | Cumulative wall-clock time agents have spent running, formatted as `Xh Xm Xs`. |
 | **Input** | Total input tokens consumed (comma-formatted). |
-| **Cache** | Total cache-read tokens (comma-formatted). |
+| **Cache Read** | Total cache-read tokens (comma-formatted). |
+| **Cache Write** | Total cache-write tokens (comma-formatted). |
 | **Output** | Total output tokens consumed (comma-formatted). |
 | **Est. Cost** | Estimated cost across running sessions. Appears only when `token_rates` is configured. Shows an em dash when no running session matches a configured rate. |
 | **Auto-refresh** | Reminder that the page refreshes every 5 seconds. |
@@ -216,13 +217,15 @@ The last line appears only alongside the Est. Cost card, so only when `token_rat
 
 ## Cost estimation
 
-The dashboard displays estimated USD cost when `token_rates` is configured in WORKFLOW.md front matter. Without `token_rates`, the dashboard shows raw token counts only. No cost figures appear anywhere.
+The dashboard displays estimated USD cost when `token_rates` contains an entry. Without `token_rates`, the dashboard shows raw token counts only. An incomplete entry still displays the cost surfaces but prices no session for its kind.
 
 Cost is computed at render time from per-session token counts and the configured rate for each session's agent adapter kind. No cost data is persisted. The formula for a single session:
 
 $$
-\text{cost} = \frac{\text{input\_tokens} \times \text{input\_per\_mtok} + \text{output\_tokens} \times \text{output\_per\_mtok} + \text{cache\_read\_tokens} \times \text{cache\_read\_per\_mtok}}{1{,}000{,}000}
+\text{cost} = \frac{F R_i + C_r R_r + C_w R_w + O R_o}{1{,}000{,}000}
 $$
+
+Here, $F = \max(I - C_r - C_w, 0)$ is fresh input. $I$, $O$, $C_r$, and $C_w$ are input, output, cache-read, and cache-write token counts; $R_i$, $R_o$, $R_r$, and $R_w$ are their configured rates. An omitted cache rate uses $R_i$. Both $R_i$ and $R_o$ must be configured, or the entry prices nothing.
 
 The aggregate cost card sums per-session costs across currently running sessions. Historical sessions are excluded.
 

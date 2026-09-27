@@ -216,7 +216,7 @@ Reported token counts are cumulative over the whole session the orchestrator ope
 1. `tokenUsage.total` is thread-cumulative, so a resumed thread reports spend the current run did not incur. The adapter subtracts a baseline to recover this run's own contribution: at the first notification matching the running turn, the baseline is `total` minus `last`.
 2. Each later notification for the running turn reports `total` minus that baseline as the run-cumulative snapshot, emitted as one `token_usage` event.
 3. A notification whose `turnId` belongs to another turn raises the baseline instead of emitting an event, so a foreign turn's spend never lands in this run's total.
-4. `input_tokens` comes from `inputTokens`, `output_tokens` from `outputTokens`, and `cache_read_tokens` from `cachedInputTokens`. `total_tokens` is computed as `input_tokens + output_tokens` rather than read from the notification's own `totalTokens`.
+4. `input_tokens` comes from `inputTokens`, `output_tokens` from `outputTokens`, and `cache_read_tokens` from `cachedInputTokens`. The notification exposes no cache-write count, so `cache_write_tokens` is `0`. `total_tokens` is computed as `input_tokens + output_tokens` rather than read from the notification's own `totalTokens`.
 5. A notification carrying no `tokenUsage` object emits no event and leaves the session's measurement state untouched. A session that never receives one is recorded as unmeasured rather than as having spent zero.
 
 ### Model tracking
