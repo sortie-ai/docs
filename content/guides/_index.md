@@ -25,6 +25,7 @@ Step-by-step instructions for configuring, operating, and extending Sortie.
   {{< card link="run-multiple-workflows" title="Multiple Workflows" subtitle="Separate processes for different projects." >}}
   {{< card link="orchestrate-across-repositories" title="Multi-Repo Orchestration" subtitle="One Sortie instance per repository." >}}
   {{< card link="configure-dispatch-rules" title="Dispatch Rules" subtitle="Route issues to agents and templates by label, type, or priority." >}}
+  {{< card link="run-kiro-cli-in-acp-mode" title="Kiro CLI ACP Mode" subtitle="Connect Kiro CLI to Sortie over ACP, and convert an existing kiro-cli config." >}}
 {{< /cards >}}
 
 ## Operations

@@ -8,6 +8,9 @@ weight: 90
 ---
 In this tutorial, we will wire Sortie to GitHub Issues and the Kiro CLI, then watch the full cycle run without you touching it: Sortie picks up a labeled issue from GitHub, clones your repository, Kiro writes and commits the code, Sortie pushes the branch and opens a pull request, and the issue moves to its review state. This builds on the [GitHub integration tutorial](/getting-started/github-integration/) and adds three pieces: the Kiro CLI agent adapter, workspace hooks for git, and a prompt template. The tracker stays GitHub, exactly as it was in the [Copilot CLI tutorial](/getting-started/github-copilot-end-to-end/). Only the agent changes.
 
+> [!WARNING]
+> **The `kiro` agent kind this tutorial drives is deprecated.** Kiro CLI now runs through the generic `agent-client-protocol` kind instead. `sortie validate` below reports it, and the run log warns about it too; see [advisory warnings](/reference/cli/#advisory-warnings) for exactly how often each one fires. This tutorial still works as written; see [how to run Kiro CLI in ACP mode](/guides/run-kiro-cli-in-acp-mode/) when you are ready to switch a real deployment.
+
 ## Prerequisites
 
 - [GitHub integration tutorial](/getting-started/github-integration/) completed. Sortie connects to your GitHub repository, `SORTIE_GITHUB_TOKEN` is set, and the four state labels (`backlog`, `in-progress`, `review`, `done`) exist on the repository.
@@ -228,13 +231,14 @@ Check for syntax errors and misconfigured fields before running:
 sortie validate ./WORKFLOW.md
 ```
 
-One advisory warning is expected here:
+Two advisory warnings are expected here:
 
 ```
 warning: agent.kind.no_tool_channel: agent kind "kiro" has no tool execution channel: Sortie's tools are neither advertised nor callable for it
+warning: agent.kind.deprecated: agent kind "kiro" is deprecated and will be removed in a later release; use agent kind "agent-client-protocol" instead
 ```
 
-Kiro's runtime disables MCP under the API-key credential this tutorial uses, so Sortie's own agent tools cannot reach the session and its first-turn prompt does not offer them. The agent still reads the issue, writes code, and pushes a branch, which is everything this walkthrough needs. A warning leaves the configuration valid: confirm with `echo $?`, which should print `0`. Anything printed with an `error:` prefix is a real problem to fix before running.
+Kiro's runtime disables MCP under the API-key credential this tutorial uses, so Sortie's own agent tools cannot reach the session and its first-turn prompt does not offer them. The agent still reads the issue, writes code, and pushes a branch, which is everything this walkthrough needs. The second warning is the deprecation notice covered above; see [how to run Kiro CLI in ACP mode](/guides/run-kiro-cli-in-acp-mode/) when this stops being a tutorial and becomes a real deployment. Two warnings leave the configuration valid: confirm with `echo $?`, which should print `0`. Anything printed with an `error:` prefix is a real problem to fix before running.
 
 ### Run Sortie
 
@@ -251,6 +255,7 @@ level=INFO msg="sortie starting" version=0.x.x workflow_path=/home/you/sortie-ki
 level=INFO msg="database path resolved" db_path=/home/you/sortie-kiro-e2e/.sortie.db
 level=INFO msg="http server listening" addr=127.0.0.1:7678
 level=INFO msg="sortie started"
+level=WARN msg="agent kind is deprecated and will be removed in a later release" agent_kind=kiro replacement_kind=agent-client-protocol
 level=INFO msg="tick completed" candidates=1 dispatched=1 ... running=1 retrying=0 ...
 level=INFO msg="running hook" issue_id=7 issue_identifier=7 hook=after_create workspace=…/workspaces/7
 level=INFO msg="running hook" issue_id=7 issue_identifier=7 hook=before_run workspace=…/workspaces/7

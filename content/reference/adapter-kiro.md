@@ -12,6 +12,9 @@ Each turn spawns a fresh subprocess (fork-per-turn); session start itself starts
 
 See also: [WORKFLOW.md configuration](/reference/workflow-config/) for the full `agent` schema, [environment variables](/reference/environment/) for `KIRO_API_KEY`, [error reference](/reference/errors/#agent-errors) for all agent error kinds, [how to write a prompt template](/guides/write-prompt-template/) for template authoring.
 
+> [!WARNING]
+> **The `kiro` kind is deprecated.** Kiro CLI now runs through the generic [`agent-client-protocol`](/reference/adapter-agent-client-protocol/) kind, which delivers Sortie's own tools under a stored device login, something this kind never has. A workflow naming `kiro` keeps running: both `sortie validate` and the run log warn about it, naming the replacement (see [advisory warnings](/reference/cli/#advisory-warnings) for exactly how often each one fires). See [how to run Kiro CLI in ACP mode](/guides/run-kiro-cli-in-acp-mode/) before the warning catches you mid-run.
+
 ---
 
 ## Two routes to this runtime
@@ -24,7 +27,7 @@ Kiro CLI is reachable from Sortie two ways, and they are not equivalent. This pa
 | Session continuation across a separate agent launch | Never; see [session resume](#session-resume) below | Delivered, confirmed by observed replay from a second process |
 | Token accounting | Credits only; every run unmeasured | Credits only; every run unmeasured |
 
-Both kinds stay supported, and neither retires the other. Choosing between them is a per-deployment decision, not a migration: this kind fits a deployment authenticating with `KIRO_API_KEY` that does not need Sortie's own tools reaching the agent; the protocol route, under a stored device login, is the one that delivers them.
+This kind is deprecated in favor of the protocol route above. It keeps running: a workflow naming `kiro` draws a warning from `sortie validate` and from the run log, each naming `agent-client-protocol` as the replacement; see [advisory warnings](/reference/cli/#advisory-warnings) for exactly how often each one fires. See [how to run Kiro CLI in ACP mode](/guides/run-kiro-cli-in-acp-mode/) for the field-by-field conversion, including the credential decision that decides whether the move actually gets you Sortie's tools.
 
 ---
 
@@ -340,6 +343,7 @@ Setting `kiro.mcp_config` therefore cannot reach the agent. The worker still rea
 ## Related pages
 
 - [Kiro CLI on the Agent Client Protocol](/reference/agent-client-protocol-kiro/): the other route to this runtime, and what it delivers that this one does not
+- [How to run Kiro CLI in ACP mode](/guides/run-kiro-cli-in-acp-mode/): the field-by-field conversion, the credential decision, and what to check after the move
 - [Agent Client Protocol adapter reference](/reference/adapter-agent-client-protocol/): the generic kind that route runs on
 - [WORKFLOW.md configuration reference](/reference/workflow-config/): full `agent` schema and `kiro` extension block
 - [Environment variables reference](/reference/environment/): `KIRO_API_KEY` and runtime environment behavior
