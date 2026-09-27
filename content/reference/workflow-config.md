@@ -609,7 +609,7 @@ Each entry in `rules` accepts:
 | `agent`    | string | _(fallback)_ | Agent kind for matching issues. Must name a registered adapter. Falls through to `default.agent`, then `agent.kind`. |
 | `template` | string | _(fallback)_ | Prompt template path, relative to the WORKFLOW.md directory. Falls through to `default.template`, then the body template. |
 
-A session a rule routes to an agent kind other than the top-level `agent.kind` reads the matching [adapter pass-through block](#adapter-pass-through-configuration) and no other. With that block absent the session still dispatches, on the shared `agent` settings and the adapter's own defaults for everything else; neither `sortie validate` nor startup preflight reports the absence.
+A session a rule routes to an agent kind other than the top-level `agent.kind` reads the matching [adapter pass-through block](#adapter-pass-through-configuration) and no other. With that block absent, Sortie refuses to dispatch rather than falling back to the shared `agent` settings: the check fires as [`dispatch.agent.missing_block`](/reference/errors/#startup-and-configuration-errors), which fails `sortie validate` and blocks Sortie from starting; a fault introduced only by a later config reload blocks dispatch on every poll instead, until the block is added.
 
 ### Match predicates
 
