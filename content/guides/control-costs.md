@@ -223,7 +223,7 @@ These are worst cases in the sense that the system stops itself once it reaches 
 
 Five tools give you cost visibility without any extra infrastructure.
 
-**Dashboard.** Each running session's expandable detail panel carries an `Est. Cost` field, which holds a figure once `token_rates` is configured in WORKFLOW.md and an em dash otherwise, and an `Active Est. Cost (USD)` card aggregates across all active sessions when rates are configured. The same panel's `Usage reporting` field states whether that session's agent kind reports token figures at all, which is what tells a blank cost apart from a missing rate. The run history table is a different surface: its columns are `Identifier`, `Status`, `Started`, and `Duration`, and expanding a row adds attempt, turns, workflow, and error. No cost or token figure appears there for a completed session, because the cost figures the dashboard renders describe live and aggregate state. For spend against runs that have already finished, reach for [`sortie stats`](/reference/cli/#stats) below. The HTTP server runs by default on `http://localhost:7678`. See the [dashboard reference](/reference/dashboard/#cost-estimation) for details.
+**Dashboard.** Each running session's expandable detail panel carries an `Est. Cost` field, which holds a figure once its agent kind has both an input and output rate in WORKFLOW.md and an em dash otherwise. An `Active Est. Cost (USD)` card aggregates the priced active sessions. The same panel's `Usage reporting` field states whether that session's agent kind reports token figures at all, which is what tells a blank cost apart from a missing rate. The run history table is a different surface: its columns are `Identifier`, `Status`, `Started`, and `Duration`, and expanding a row adds attempt, turns, workflow, and error. No cost or token figure appears there for a completed session, because the cost figures the dashboard renders describe live and aggregate state. For spend against runs that have already finished, reach for [`sortie stats`](/reference/cli/#stats) below. The HTTP server runs by default on `http://localhost:7678`. See the [dashboard reference](/reference/dashboard/#cost-estimation) for details.
 
 Configure token rates to see cost estimates on the dashboard:
 
@@ -234,11 +234,12 @@ token_rates:
     input_per_mtok: 0.00
     output_per_mtok: 0.00
     cache_read_per_mtok: 0.00
+    cache_write_per_mtok: 0.00
 ```
 
 Without `token_rates`, the dashboard shows raw token counts only. See the [`token_rates` reference](/reference/workflow-config/#token_rates) for the full schema.
 
-**Prometheus.** The `sortie_tokens_total` counter tracks cumulative token consumption with a `type` label (`input`, `output`, `cache_read`). Pair it with model pricing to estimate dollar cost. A PromQL query for hourly input token rate:
+**Prometheus.** The `sortie_tokens_total` counter tracks cumulative token consumption with a `type` label (`input`, `output`, `cache_read`, `cache_write`). Cache reads and writes are subsets of input, so don't sum every type. A PromQL query for hourly input token rate:
 
 ```promql
 rate(sortie_tokens_total{type="input"}[1h])

@@ -42,7 +42,7 @@ The orchestrator reacts to a normalized event vocabulary, not to your CLI's nati
 | `turn_completed` | `EventTurnCompleted` | The turn finished successfully. |
 | `turn_failed` | `EventTurnFailed` | The turn finished with a failure. |
 | `turn_cancelled` | `EventTurnCancelled` | The turn was cancelled (context cancellation, stall, or signal). |
-| `token_usage` | `EventTokenUsage` | Normalized token counters. Drives token-based budgets. |
+| `token_usage` | `EventTokenUsage` | Normalized input, output, total, cache-read, and cache-write counters. Drives token-based budgets. |
 | `notification` | `EventNotification` | An informational message, surfaced for observability. |
 | `tool_result` | `EventToolResult` | A tool call completed. Carries `ToolName` and `ToolDurationMS`. |
 | `malformed` | `EventMalformed` | An unparseable line from the agent. |
@@ -298,7 +298,7 @@ ParseLine: func(line []byte, emit func(domain.AgentEvent), pid string) (any, err
 	case "assistant":
 		if usage, id, ok := parseAssistantUsage(event); ok {
 			_, seen := state.turnMessages[id]
-			state.turnMessages[id] = componentwiseMaxUsage(state.turnMessages[id], usage)
+			state.turnMessages[id] = agentcore.MaxUsage(state.turnMessages[id], usage)
 			snapshot := state.acc.SetTurnProvisional(sumTurnMessages(state.turnMessages))
 			if !seen {
 				emit(domain.AgentEvent{Type: domain.EventTokenUsage, Usage: snapshot, Model: state.lastModel})
@@ -318,6 +318,8 @@ ParseLine: func(line []byte, emit func(domain.AgentEvent), pid string) (any, err
 ```
 
 `state.acc` is an `agentcore.RunUsage`, constructed once with `agentcore.NewRunUsage()` in `StartSession` and never reset between turns; `GetUsage` returns its `Snapshot()`. `SetTurnProvisional` replaces the turn's in-flight contribution and returns the raised run-cumulative snapshot to emit; gate the emission on a message id's first sighting, since a streaming CLI can repeat one id across several deltas of the same API request. `AddTurn` folds a turn's authoritative total, read from its terminal event, into the run's settled total, superseding whatever the provisional figures already reported. Register tool starts with `ToolTracker.Begin(id, name)` and close them with `End(id)` to get the duration. Reset the per-turn state, message ids and tool tracker included, at the top of each `RunTurn`; `RunUsage` is the one field that survives across turns. Return the terminal event reference so the next step can read its status.
+
+Populate every counter the runtime exposes. `InputTokens` includes prompt-cache reads and writes, while `CacheReadTokens` and `CacheWriteTokens` preserve those disjoint subsets for pricing. Set a missing cache counter to zero, and compute `TotalTokens` as input plus output. Use `agentcore.MaxUsage`, `AddUsage`, and `SubtractUsage` instead of local arithmetic so a newly added counter is not dropped by one adapter's fold.
 
 #### Unstructured output
 

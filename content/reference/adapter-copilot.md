@@ -202,7 +202,7 @@ Reported counts are cumulative over the whole session the orchestrator opened, a
 
 The runtime writes one journal per session at `<COPILOT_HOME>/session-state/<session id>/events.jsonl`, falling back to `~/.copilot/session-state/...` when `COPILOT_HOME` is unset. The last line whose `type` is `session.shutdown` holds the session's authoritative totals, taken from its `data.modelMetrics` map summed across every model entry, or from `data.tokenDetails` when `modelMetrics` is absent or empty.
 
-`input_tokens` is the sum of plain input, cache-read, and cache-write counts; `cache_read_tokens` carries the cache-read count separately as a subset of input; `total_tokens` is computed as `input_tokens + output_tokens`.
+`input_tokens` is the sum of plain input, cache-read, and cache-write counts. `cache_read_tokens` and `cache_write_tokens` carry the two cache counts separately as disjoint subsets of input. `total_tokens` is computed as `input_tokens + output_tokens`.
 
 ### Accumulation logic
 

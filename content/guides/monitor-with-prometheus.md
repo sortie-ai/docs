@@ -96,7 +96,7 @@ The dashboard includes these panels, grouped into collapsible rows:
 |---|---|
 | Active sessions | Running, retrying, and available slots as stat panels, elapsed time, and a time series |
 | Budget Blocked | Issues currently held out of dispatch by a budget ceiling, by reason |
-| Token consumption | Input and output token rates over time |
+| Token consumption | Input, output, cache-read, and cache-write token rates over time |
 | Dispatch outcomes | Success vs. error dispatch rate |
 | Agent runtime | Cumulative agent runtime rate |
 | Worker exits | Worker completion rate by exit type |
@@ -143,8 +143,10 @@ rate(sortie_dispatches_total{outcome="success"}[30m]) == 0
 **Token burn rate exceeding budget.** Adjust the threshold to match your cost appetite. This example fires above 100k tokens per hour:
 
 ```promql
-sum(rate(sortie_tokens_total[1h])) > 100000
+sum(rate(sortie_tokens_total{type=~"input|output"}[1h])) > 100000
 ```
+
+The filter excludes `cache_read` and `cache_write`, which are already included in `input`.
 
 **All slots full for over 15 minutes.** Agents may be stalled or your concurrency limit is too low for the workload:
 

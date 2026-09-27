@@ -160,6 +160,7 @@ token_rates:
     input_per_mtok: 3.00              # USD per million input tokens
     output_per_mtok: 15.00            # USD per million output tokens
     cache_read_per_mtok: 0.30         # USD per million cache-read tokens
+    cache_write_per_mtok: 3.75        # USD per million cache-write tokens
 
 # --- Database ---------------------------------------------------------
 db_path: .sortie.db                   # SQLite file (relative to WORKFLOW.md)
@@ -1238,20 +1239,27 @@ Per-adapter token pricing for cost estimation on the [dashboard](/reference/dash
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `token_rates` | map | _(absent)_ | Top-level extension key. Keys are agent adapter kind strings. With rates configured, the dashboard shows estimated cost and the [`sortie stats`](/reference/cli/#stats) subcommand prices the runs it aggregates from run history. When absent or empty, the dashboard shows raw token counts without cost estimates, and `sortie stats` reports no cost figures. |
-| `token_rates.<kind>.input_per_mtok` | number | _(not set)_ | USD per million input tokens. |
-| `token_rates.<kind>.output_per_mtok` | number | _(not set)_ | USD per million output tokens. |
-| `token_rates.<kind>.cache_read_per_mtok` | number | _(not set)_ | USD per million cache-read tokens. |
+| `token_rates.<kind>.input_per_mtok` | number | _(not set)_ | USD per million fresh input tokens, and the fallback rate for either cache class when its rate is omitted. Required with `output_per_mtok` for this kind to produce cost estimates. |
+| `token_rates.<kind>.output_per_mtok` | number | _(not set)_ | USD per million output tokens. Required with `input_per_mtok` for this kind to produce cost estimates. |
+| `token_rates.<kind>.cache_read_per_mtok` | number | `input_per_mtok` | USD per million cache-read tokens. |
+| `token_rates.<kind>.cache_write_per_mtok` | number | `input_per_mtok` | USD per million cache-write tokens. |
 
-Each rate field is optional. A missing field means cost is not estimated for that token type. A zero value is valid and produces `$0.00`. Partial rates are accepted: configuring only `output_per_mtok` computes cost from output tokens alone.
+An entry must set both `input_per_mtok` and `output_per_mtok` to price any usage. Cache rates are optional: an omitted cache-read or cache-write rate falls back to `input_per_mtok`. A zero value is valid.
+
+Sortie prices fresh input, cache reads, cache writes, and output as disjoint buckets. Fresh input is `input_tokens - cache_read_tokens - cache_write_tokens`, floored at zero. This prevents cache tokens, which are already included in `input_tokens`, from being charged twice.
 
 An entry keyed to an agent kind that reports no token usage for the sessions a workflow produces has no effect: there is nothing to price, and the dashboard's Est. Cost field for such a session stays blank. [`sortie validate`](/reference/cli/#validate) reports that combination as an `agent.kind.no_cost_estimate` warning naming the kind, so it is not something to discover from a blank column. Whether a kind reports usage can depend on the launch: `copilot-cli` reports it locally and none over SSH, so adding a [`worker.ssh_hosts`](#worker) pool can make a previously effective entry inert.
 
 Validation rules:
 
 - `token_rates` must be a map when present. Non-map values produce a warning (not a fatal error).
-- Rate values must be non-negative numbers. Negative values produce a warning and are treated as not configured.
+- Each agent-kind value must be a map. A different type produces a warning, and the entry prices nothing.
+- Rate values must be finite, non-negative numbers. Invalid values produce a warning and are treated as not configured.
+- Unknown keys inside an entry produce a warning and are ignored.
+- An entry missing `input_per_mtok` or `output_per_mtok` produces a warning and prices nothing.
 - An entry keyed to the empty string is dropped with a warning. It prices no kind.
-- Invalid sub-values produce warnings logged at startup. They do not prevent boot.
+
+These warnings are configuration advisories under the `token_rates` check. They appear in `sortie validate` without changing `valid` or the exit status, in a dry run, and once per applicable configuration in the running orchestrator's log. `sortie stats` also includes the warnings in its report because they affect which runs it can price.
 
 Token rates do not reload dynamically. Changes require a process restart, consistent with `server.port` and `server.host`.
 
@@ -1261,10 +1269,12 @@ token_rates:
     input_per_mtok: 3.00
     output_per_mtok: 15.00
     cache_read_per_mtok: 0.30
+    cache_write_per_mtok: 3.75
   copilot-cli:
     input_per_mtok: 2.00
     output_per_mtok: 8.00
     cache_read_per_mtok: 0.20
+    cache_write_per_mtok: 2.50
   codex:
     input_per_mtok: 2.50
     output_per_mtok: 10.00

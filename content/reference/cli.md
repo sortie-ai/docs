@@ -348,6 +348,7 @@ Every check in this group runs for every agent kind the configuration can reach,
 - **Env file missing** (`env_file.missing`). The file named by [`--env-file`](#--env-file) or `SORTIE_ENV_FILE` does not exist; no values are read from it.
 - **Env override replaced a non-mapping section** (`env_override.section_replaced`). A [`SORTIE_*` override](/reference/environment/#configuration-overrides) targets a section that is not a YAML mapping; the section is replaced with one holding only the overridden settings.
 - **Deprecated agent kind** (`agent.kind.deprecated`). A reachable agent kind is deprecated; the message names its replacement. Fires for every agent kind the configuration can reach, including one named only by a dispatch rule, the same set the configuration-checks group above covers.
+- **Invalid token rate entry** (`token_rates`). The block or an entry has the wrong type, an entry uses an empty kind or unknown key, a rate is invalid, or an entry lacks `input_per_mtok` or `output_per_mtok`. The warning names the rejected value or incomplete entry; the workflow remains valid.
 
 Each of these is recomputed fresh every time the configuration is built. `sortie validate` and `sortie` [`--dry-run`](#--dry-run) report every currently-applicable advisory on every invocation, with no memory of an earlier run. The long-running process is the exception: its run log records an advisory once and again only after the condition has cleared and returned, kept in memory for the life of the process, so a restart logs it again immediately if the condition still holds. None of them affect `valid` or the exit code.
 
@@ -487,6 +488,7 @@ Warning diagnostics use a separate set of check values. They appear only in the 
 | `env_file.missing` | The file named by [`--env-file`](#--env-file) or `SORTIE_ENV_FILE` does not exist; no values are read from it. |
 | `env_override.section_replaced` | A `SORTIE_*` override targets a section that is not a YAML mapping; the section is replaced with one holding only the overridden settings. |
 | `agent.kind.deprecated` | A reachable agent kind is deprecated; the message names its replacement. |
+| `token_rates` | A `token_rates` value is malformed, incomplete, or contains an unrecognized key. The invalid part is ignored or the incomplete entry prices nothing. |
 
 #### Adapter-specific warning check values
 
@@ -576,7 +578,7 @@ Which figures a report can carry depends on the database it reads, not on the ve
 | Turns | `turns_completed` | Mean turns, in the summary and in every breakdown row |
 | Self-review | `review_metadata` | The self-review section |
 | Dispatch-rule routing | `rule_name`, `template_id` | The dispatch-rule and prompt-template breakdowns |
-| Tokens | `input_tokens`, `output_tokens`, `total_tokens`, `cache_read_tokens` | Token sums and every derived cost figure |
+| Tokens | `input_tokens`, `output_tokens`, `total_tokens`, `cache_read_tokens` | Token sums and every derived cost figure. `cache_write_tokens`, when present, adds the cache-write sum without changing the tier. |
 | Token measurement | `tokens_measured` | Which runs the coding agent could measure, and so which ones the token and cost figures cover |
 
 **`base`**: at least one group is missing. The report falls back to run counts, the outcome breakdown, the coding-agent breakdown, and durations. Turns, tokens, cost, the dispatch-rule breakdown, the prompt-template breakdown, and the self-review section are all left out.
@@ -590,6 +592,8 @@ warning: this database was written before sortie recorded dispatch-rule routing,
 A degraded report is still a report: the warning goes to stderr in text mode and into `warnings` in JSON, and the exit code is `0`. In JSON, `by_rule` and `by_template` are empty arrays, `self_review` is `null`, and every figure the tier cannot supply is `null` rather than `0`. A null means the database never recorded that figure, not that the figure measured zero.
 
 The remedy is to run the orchestrator once with this workflow. Startup applies the pending migrations, and runs recorded from then on carry the full set. `stats` cannot do this itself; its read-only connection cannot apply a migration.
+
+A full-tier database that predates `cache_write_tokens` remains full. The command reports `cache_write` as `0` and prices those historical input tokens at `input_per_mtok`, matching how they were recorded before the cache-write counter existed.
 
 When `run_history` is absent altogether, or missing any of `status`, `agent_adapter`, `started_at`, or `completed_at`, the file is not a Sortie database and the command exits `1`:
 
@@ -616,7 +620,7 @@ generated: 2026-08-09T07:51:43Z
 runs 9   succeeded 7 (77.8%)
 duration (succeeded)    p50 2m 49s   p95 7m 12s   mean 3m 34s   samples 7
 turns (succeeded)       3.3
-tokens (measured runs)  input 502,900   output 96,000   total 598,900   cache read 12,638,000
+tokens (measured runs)  input 502,900   output 96,000   total 598,900   cache read 126,380   cache write 18,200
 cost (measured runs)    $6.49   per succeeded run $0.93
 
 by outcome
@@ -687,7 +691,7 @@ Envelope:
 | `since` | string or null | The `--since` bound, RFC3339 UTC. `null` when the flag was omitted, meaning the range is open at the start. |
 | `until` | string or null | The `--until` bound, RFC3339 UTC. `null` when the flag was omitted, meaning the range is open at the end. |
 | `schema_tier` | string | `"full"` or `"base"`. See [schema tiers](#schema-tiers). |
-| `warnings` | array of string | Advisory messages: a degraded schema, or a malformed `token_rates` block. Empty when there is nothing to report, never `null`. The `warning: ` prefix belongs to text rendering and is not part of these strings. |
+| `warnings` | array of string | Advisory messages: a degraded schema, or a malformed, incomplete, or unrecognized `token_rates` value. Empty when there is nothing to report, never `null`. The `warning: ` prefix belongs to text rendering and is not part of these strings. |
 | `summary` | object | Report-wide figures. Always present. |
 | `by_status` | array of object | Breakdown by outcome. |
 | `by_adapter` | array of object | Breakdown by coding agent. |
@@ -709,7 +713,7 @@ Envelope:
 | `cost_per_succeeded_run_usd` | number or null | `cost_usd` divided by the succeeded runs that were measured. `null` whenever `cost_usd` is `null`, and when no measured run succeeded. |
 | `zero_duration_runs` | integer | Runs that took no measurable time. A run that a CI result closed out carries the same start and finish time. |
 | `duration_excluded_runs` | integer | Runs left out of every duration figure because their stored timestamps could not be parsed or ran backwards. |
-| `cost_unpriced_runs` | integer | Runs left out of the cost figures because `token_rates` has no entry for their coding agent. |
+| `cost_unpriced_runs` | integer | Runs left out of the cost figures because `token_rates` has no complete entry for their coding agent. An entry is complete only when it sets both input and output rates. |
 | `tokens_unmeasured_runs` | integer | Runs left out of the token and cost figures because the coding agent behind them reported no token usage. `0` on the `base` tier, where the distinction was never recorded. |
 
 Each element of `by_status`, `by_adapter`, `by_rule`, and `by_template`:
@@ -747,6 +751,7 @@ Durations are seconds here. Text mode renders the same values as `2m 49s`.
 | `output` | integer | Sum of recorded output tokens over the measured runs. |
 | `total` | integer | Sum of the recorded totals, taken as stored rather than recomputed from `input` and `output`. |
 | `cache_read` | integer | Sum of recorded cache-read tokens over the measured runs. |
+| `cache_write` | integer | Sum of recorded cache-write tokens over the measured runs. |
 
 `self_review`:
 
@@ -782,7 +787,7 @@ A worked example, expanded for readability and trimmed to one row per breakdown.
     "success_rate": 0.7778,
     "duration_seconds": {"p50": 169, "p95": 432, "mean": 214.6, "samples": 7},
     "mean_turns_succeeded": 3.29,
-    "tokens": {"input": 502900, "output": 96000, "total": 598900, "cache_read": 12638000},
+    "tokens": {"input": 502900, "output": 96000, "total": 598900, "cache_read": 126380, "cache_write": 18200},
     "cost_usd": 6.49,
     "cost_per_succeeded_run_usd": 0.93,
     "zero_duration_runs": 0,
@@ -799,7 +804,7 @@ A worked example, expanded for readability and trimmed to one row per breakdown.
       "share": 0.7778,
       "duration_seconds": {"p50": 169, "p95": 432, "mean": 214.6, "samples": 7},
       "mean_turns": 3.29,
-      "tokens": {"input": 341900, "output": 67000, "total": 408900, "cache_read": 9038000},
+      "tokens": {"input": 341900, "output": 67000, "total": 408900, "cache_read": 90380, "cache_write": 12100},
       "cost_usd": 4.59,
       "cost_per_succeeded_run_usd": 0.66,
       "tokens_unmeasured_runs": 0
@@ -814,7 +819,7 @@ A worked example, expanded for readability and trimmed to one row per breakdown.
       "share": 0.6667,
       "duration_seconds": {"p50": 161, "p95": 580, "mean": 272, "samples": 6},
       "mean_turns": 3.33,
-      "tokens": {"input": 324500, "output": 63900, "total": 388400, "cache_read": 12638000},
+      "tokens": {"input": 324500, "output": 63900, "total": 388400, "cache_read": 126380, "cache_write": 18200},
       "cost_usd": 5.72,
       "cost_per_succeeded_run_usd": 1.14,
       "tokens_unmeasured_runs": 0
@@ -829,7 +834,7 @@ A worked example, expanded for readability and trimmed to one row per breakdown.
       "share": 0.4444,
       "duration_seconds": {"p50": 150, "p95": 169, "mean": 155, "samples": 4},
       "mean_turns": 2.5,
-      "tokens": {"input": 145100, "output": 27700, "total": 172800, "cache_read": 5636000},
+      "tokens": {"input": 145100, "output": 27700, "total": 172800, "cache_read": 56360, "cache_write": 8100},
       "cost_usd": 2.54,
       "cost_per_succeeded_run_usd": 0.64,
       "tokens_unmeasured_runs": 0
@@ -844,7 +849,7 @@ A worked example, expanded for readability and trimmed to one row per breakdown.
       "share": 0.4444,
       "duration_seconds": {"p50": 150, "p95": 169, "mean": 155, "samples": 4},
       "mean_turns": 2.5,
-      "tokens": {"input": 145100, "output": 27700, "total": 172800, "cache_read": 5636000},
+      "tokens": {"input": 145100, "output": 27700, "total": 172800, "cache_read": 56360, "cache_write": 8100},
       "cost_usd": 2.54,
       "cost_per_succeeded_run_usd": 0.64,
       "tokens_unmeasured_runs": 0
