@@ -77,7 +77,7 @@ Check out {{ .label_fix.branch }} for pull request #{{ .label_fix.pr_number }} i
 
 The agent fetches the diff or the comments and posts to the PR through its own SCM tooling; the orchestrator injects only the coordinates and posts nothing. For the full continuation-key schema, see the [label commands reference](/reference/label-commands/).
 
-Without the `label_review` branch, a review dispatch renders your normal work prompt and posts nothing. Sortie cannot detect the missing branch when it renders the template, so the workflow loader logs an advisory warning at load. Grep your logs for it:
+Without the `label_review` branch, a review dispatch renders your normal work prompt and posts nothing. Sortie cannot detect the missing branch when it renders the template, so it records an advisory warning, both in the run log and in `sortie validate`'s report (see the [CLI reference](/reference/cli/#advisory-warnings) for how often each reports it). Grep your logs for it:
 
 ```
 label_commands active but prompt template has no label_review branch
@@ -146,7 +146,7 @@ grep "label-fix dispatched" sortie.log
 
 **Nothing happens after you apply the label.** Check, in order: the `label_commands` block is present and its `provider` is non-empty; the applied label name matches `review_label` or `fix_label` (matching is case-insensitive); the PR is Sortie-managed, with `.sortie/scm.json` carrying `pr_number`, `owner`, and `repo`; and the linked issue has not reached a terminal state, after which commands on its PR are ignored. If none of those apply, check the logs for a repeating warning about the label-event read on that PR: an entry the forge serves with an unreadable timestamp fails the whole read, and Sortie retries it indefinitely without dispatching anything.
 
-**The session runs but no review or fix appears.** The prompt template is missing the `{{ if .label_review }}` (or `{{ if .label_fix }}`) branch, so the dispatch rendered your normal work prompt. Look for the load-time warning `label_commands active but prompt template has no label_review branch`, add the branch from the shipped example, and reload.
+**The session runs but no review or fix appears.** The prompt template is missing the `{{ if .label_review }}` (or `{{ if .label_fix }}`) branch, so the dispatch rendered your normal work prompt. Run `sortie validate` to see the advisory offline: it reports `reactions.label_commands.review_branch_missing` (or `..._fix_branch_missing`) every time you run it, unlike the run log, which prints the matching warning only once. Add the branch from the shipped example, and reload.
 
 **The label never disappears after the session starts.** The label-removal write failed (a missing scope or a transport error). Sortie logs a warning and proceeds, because acceptance rests on its own record rather than on the removal. Remove the stale label manually before you issue the next command.
 

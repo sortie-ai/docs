@@ -243,7 +243,7 @@ Two consequences follow, each restated under the kind it affects. `merge_conflic
 
 ### `reactions.ci_failure`
 
-Polls CI status for Sortie-created branches and dispatches a continuation turn when CI fails. This kind supersedes the deprecated top-level `ci_feedback` block; when both are present, `reactions.ci_failure` takes precedence and a deprecation warning is logged.
+Polls CI status for Sortie-created branches and dispatches a continuation turn when CI fails. This kind supersedes the deprecated top-level `ci_feedback` block; when both are present, `reactions.ci_failure` takes precedence and Sortie records a `ci_feedback.deprecated` [advisory warning](/reference/cli/#advisory-warnings). The run log prints it once and again only after the block disappears and returns; `sortie validate` reports it fresh on every run.
 
 **Fields** (beyond the common fields):
 

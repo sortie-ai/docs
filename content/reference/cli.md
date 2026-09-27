@@ -168,7 +168,7 @@ Real environment variables take precedence over `.env` values. When both `--env-
 
 When `--env-file` is provided, the CLI resolves the path to absolute and exports it as `SORTIE_ENV_FILE` in the process environment. This makes the value available to the MCP server through the [config env block](/reference/environment/#mcp-server-environment), so the MCP server can locate and load the `.env` file to resolve credential `$VAR` indirection. The absolute resolution is necessary because the MCP server's working directory (the per-issue workspace) differs from the orchestrator's.
 
-The file is re-read on every WORKFLOW.md reload (file change detection). If the file does not exist at load time, a warning is logged and loading continues without it.
+The file is re-read on every WORKFLOW.md reload (file change detection). If the file does not exist, loading continues without it, and Sortie records an `env_file.missing` [advisory warning](#advisory-warnings). The run log prints it once and again only after the file has existed and gone missing again; `sortie validate` reports it fresh on every run.
 
 ### `--port`
 
@@ -310,9 +310,9 @@ The pipeline does **not** check:
 
 #### Advisory warnings
 
-Beyond the error-level checks above, `validate` runs static analysis on the front matter and the prompt template, plus four checks on the resolved configuration, emitting **warnings** for likely-wrong patterns. Warnings do not block validity: `valid` remains `true` and the exit code is `0` when only warnings are present. Runtime behavior is unchanged; warnings surface patterns that the orchestrator would silently accept or that would produce unexpected output.
+Beyond the error-level checks above, `validate` runs static analysis on the front matter and the prompt template, checks the resolved configuration for likely-wrong patterns, and reports the advisories recorded while that configuration was built or loaded, emitting **warnings** in every case. Warnings do not block validity: `valid` remains `true` and the exit code is `0` when only warnings are present. Runtime behavior is unchanged; warnings surface patterns that the orchestrator would silently accept, that would produce unexpected output, or that it would otherwise only report through the run log.
 
-Eight warning classes across two analysis passes, four configuration checks, plus adapter-specific warnings when the tracker adapter declares config validation (see [adapter-specific warning check values](#adapter-specific-warning-check-values)):
+`validate` groups these warnings by what produced them: static analysis of the front matter, static analysis of the prompt template, checks on the resolved configuration, and advisories recorded while the configuration was built or loaded, plus adapter-specific warnings when the tracker adapter declares config validation (see [adapter-specific warning check values](#adapter-specific-warning-check-values)):
 
 **Front matter analysis:**
 
@@ -337,7 +337,19 @@ Eight warning classes across two analysis passes, four configuration checks, plu
 
 Unlike the two checks above them, the two usage checks read [`worker.ssh_hosts`](/reference/workflow-config/#worker) and resolve the disposition for a remote launch when the pool is non-empty. `copilot-cli` reports usage on a local launch and none over SSH, so a workflow that adds a host pool draws both warnings where the same file without one drew neither.
 
-All four configuration checks run for every agent kind the configuration can reach, including one named only by a [dispatch rule](/reference/workflow-config/#dispatch), and each kind reports its own warning.
+Every check in this group runs for every agent kind the configuration can reach, including one named only by a [dispatch rule](/reference/workflow-config/#dispatch), and each kind reports its own warning.
+
+**Recorded advisories:**
+
+- **Deprecated `ci_feedback` section** (`ci_feedback.deprecated`). The top-level `ci_feedback` block is present while `reactions.ci_failure` is also set, so `reactions.ci_failure` takes precedence and the `ci_feedback` block is ignored. Remove the `ci_feedback` block.
+- **Label-commands poll interval clamped** (`reactions.label_commands.poll_interval_ms.clamped`). [`reactions.label_commands.poll_interval_ms`](/reference/workflow-config/#reactionslabel_commands) is set below its floor of `30000`; the floor is used instead.
+- **Label-commands review branch missing** (`reactions.label_commands.review_branch_missing`). `reactions.label_commands` is active with a review label, but the prompt template has no `{{ if .label_review }}` branch, so a review dispatch posts no review.
+- **Label-commands fix branch missing** (`reactions.label_commands.fix_branch_missing`). `reactions.label_commands` is active with a fix label, but the prompt template has no `{{ if .label_fix }}` branch, so a fix dispatch runs the normal work prompt against a checkout that can push.
+- **Env file missing** (`env_file.missing`). The file named by [`--env-file`](#--env-file) or `SORTIE_ENV_FILE` does not exist; no values are read from it.
+- **Env override replaced a non-mapping section** (`env_override.section_replaced`). A [`SORTIE_*` override](/reference/environment/#configuration-overrides) targets a section that is not a YAML mapping; the section is replaced with one holding only the overridden settings.
+- **Deprecated agent kind** (`agent.kind.deprecated`). A reachable agent kind is deprecated; the message names its replacement. Fires for every agent kind the configuration can reach, including one named only by a dispatch rule, the same set the configuration-checks group above covers.
+
+Each of these is recomputed fresh every time the configuration is built. `sortie validate` and `sortie` [`--dry-run`](#--dry-run) report every currently-applicable advisory on every invocation, with no memory of an earlier run. The long-running process is the exception: its run log records an advisory once and again only after the condition has cleared and returned, kept in memory for the life of the process, so a restart logs it again immediately if the condition still holds. None of them affect `valid` or the exit code.
 
 #### Arguments
 
@@ -468,6 +480,13 @@ Warning diagnostics use a separate set of check values. They appear only in the 
 | `agent.kind.no_tool_channel` | The agent kind has no tool execution channel, so Sortie's tools are neither advertised in the first-turn prompt nor callable during the session. |
 | `agent.kind.no_usage_reporting` | `agent.max_tokens` is set against an agent kind that reports no token usage for the sessions this configuration produces, so the per-issue token ceiling has nothing to count against. |
 | `agent.kind.no_cost_estimate` | `token_rates` prices an agent kind that reports no token usage for the sessions this configuration produces, so no cost can be estimated for it. |
+| `ci_feedback.deprecated` | The top-level `ci_feedback` block is present while `reactions.ci_failure` is also set, so `reactions.ci_failure` takes precedence and the `ci_feedback` block is ignored. |
+| `reactions.label_commands.poll_interval_ms.clamped` | `reactions.label_commands.poll_interval_ms` is set below its floor of `30000`; the floor is used instead. |
+| `reactions.label_commands.review_branch_missing` | `reactions.label_commands` is active with a review label, but the prompt template has no `{{ if .label_review }}` branch, so a review dispatch posts no review. |
+| `reactions.label_commands.fix_branch_missing` | `reactions.label_commands` is active with a fix label, but the prompt template has no `{{ if .label_fix }}` branch, so a fix dispatch runs the normal work prompt against a checkout that can push. |
+| `env_file.missing` | The file named by [`--env-file`](#--env-file) or `SORTIE_ENV_FILE` does not exist; no values are read from it. |
+| `env_override.section_replaced` | A `SORTIE_*` override targets a section that is not a YAML mapping; the section is replaced with one holding only the overridden settings. |
+| `agent.kind.deprecated` | A reachable agent kind is deprecated; the message names its replacement. |
 
 #### Adapter-specific warning check values
 
