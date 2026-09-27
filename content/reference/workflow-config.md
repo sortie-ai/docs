@@ -520,7 +520,7 @@ Coding agent adapter, concurrency, timeouts, and retry behavior. These fields co
 
 | Field                            | Type    | Default         | Description                                                                           |
 | -------------------------------- | ------- | --------------- | ------------------------------------------------------------------------------------- |
-| `kind`                           | string  | `claude-code`   | Agent adapter identifier. Built-in adapters: `claude-code`, `copilot-cli`, `codex`, `opencode`, `kiro`, `agent-client-protocol` (a generic kind driving any runtime that speaks the [Agent Client Protocol](/reference/adapter-agent-client-protocol/), named by `command`), and `mock`, which simulates a session for local testing and launches no process. |
+| `kind`                           | string  | `claude-code`   | Agent adapter identifier. Built-in adapters: `claude-code`, `copilot-cli`, `codex`, `opencode`, `kiro` (deprecated in favor of `agent-client-protocol`; see [how to run Kiro CLI in ACP mode](/guides/run-kiro-cli-in-acp-mode/)), `agent-client-protocol` (a generic kind driving any runtime that speaks the [Agent Client Protocol](/reference/adapter-agent-client-protocol/), named by `command`), and `mock`, which simulates a session for local testing and launches no process. |
 | `command`                        | string  | adapter-defined | Command to launch the agent for adapters that run as a local subprocess (`claude-code`, `copilot-cli`, `codex`, `opencode`, `kiro`, `agent-client-protocol`). Adapters that do not start a local process ignore this field. For `agent-client-protocol` this field has no default and also carries the flag or subcommand that puts the named binary into protocol mode. When [`worker.ssh_hosts`](#worker) sends the agent to a remote host, the value reaches the remote shell unsplit, so shell syntax in it is interpreted there. Sortie waits for the agent it starts and talks to it, so a value ending in `&` detaches the agent and the session cannot work. |
 | `max_turns`                      | integer | `20`            | Maximum turns per worker session. The worker re-checks tracker state after each turn. |
 | `max_sessions`                   | integer | `0` (unlimited) | Maximum completed sessions per issue before the orchestrator stops retrying. Must be non-negative. The separate `max_consecutive_absences` governs the consecutive-absence ceiling below. It is no longer derived from this field. Reaching this ceiling also posts one comment on the issue naming the session budget and `agent.max_sessions` as the setting that raises it. |
@@ -1142,6 +1142,8 @@ opencode:
 ```
 
 ### `kiro`
+
+This kind is deprecated in favor of `agent-client-protocol`. See [how to run Kiro CLI in ACP mode](/guides/run-kiro-cli-in-acp-mode/).
 
 | Field | Type | Default | Description |
 |---|---|---|---|

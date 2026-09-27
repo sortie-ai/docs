@@ -6,7 +6,7 @@ date: 2026-09-09
 weight: 147
 url: /reference/agent-client-protocol-kiro/
 ---
-[Kiro CLI](https://kiro.dev/docs/cli/) reaches Sortie two ways. This page covers the generic [`agent-client-protocol`](/reference/adapter-agent-client-protocol/) kind, where `agent.command` names the `kiro-cli` binary together with `acp`, the subcommand that puts it into protocol mode. The other route is the native `kiro` kind, described on the [Kiro CLI adapter reference](/reference/adapter-kiro/#two-routes-to-this-runtime); that page also states what each route delivers and does not deliver relative to this one. Both kinds stay supported, and picking one over the other is a per-deployment decision, not a migration.
+[Kiro CLI](https://kiro.dev/docs/cli/) reaches Sortie two ways. This page covers the generic [`agent-client-protocol`](/reference/adapter-agent-client-protocol/) kind, where `agent.command` names the `kiro-cli` binary together with `acp`, the subcommand that puts it into protocol mode. The other route is the native `kiro` kind, described on the [Kiro CLI adapter reference](/reference/adapter-kiro/#two-routes-to-this-runtime); that kind is deprecated in favor of this one, so an operator moving off it lands here. See [how to run Kiro CLI in ACP mode](/guides/run-kiro-cli-in-acp-mode/) for the field-by-field conversion.
 
 Sample workflow: [`examples/WORKFLOW.agent-client-protocol.kiro.md`](https://github.com/sortie-ai/sortie/blob/main/examples/WORKFLOW.agent-client-protocol.kiro.md).
 
