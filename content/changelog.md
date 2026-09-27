@@ -9,6 +9,95 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.25.0] - 2026-09-27 { #1.25.0 }
+
+### Added
+
+- A run on the `agent-client-protocol` kind now reports token usage when its runtime is a Gemini CLI started on the machine running Sortie, so `agent.max_tokens` applies to it, its spend joins the token and cost totals, and it is no longer counted among the sessions whose usage was never recorded. Sortie reads the counts from the usage records Gemini CLI writes to disk rather than from the protocol, and falls back to the runtime's session journal when those records are unavailable; the figures cover input tokens, output tokens including reasoning, and cache reads. A turn whose spend was never fully reported, a cancelled turn above all, is now recorded as spend of an unknown amount: whatever figure did arrive still counts toward the totals, what that figure leaves out does not, and `used_tokens_complete` in the `cost_budget` tool reads `false`, so the issue's spend reads as a lower bound instead of passing for the whole of it as it did before. A session on a Gemini CLI build other than `0.59.0`, and a runtime started on a remote host through `worker.ssh_hosts`, stay unmeasured with `agent.max_tokens` inactive, because a figure is reported only for a build it was measured against.
+  ([#1057](https://github.com/sortie-ai/sortie/issues/1057))
+
+- Sortie now verifies the agent's credential before it starts work on an issue, on every agent kind, locally and on `worker.ssh_hosts`. A credential the agent cannot use stops the run before any work with an error naming the credential, and the run is retried. Stored logins now pass on `kiro` and `copilot-cli`, which previously required an API key or token variable. The check costs one short model request per run.
+  ([#1047](https://github.com/sortie-ai/sortie/issues/1047))
+
+- A new `agent.token_warning_percent` setting warns before `agent.max_tokens` stops a run: set it to a percentage of the ceiling, and a run that reaches it logs one warning and reports the condition through the `cost_budget` tool, so the agent can wrap up or hand off and the operator can raise the ceiling before the run is stopped. Leaving it unset changes nothing.
+  ([#1070](https://github.com/sortie-ai/sortie/issues/1070))
+
+- The `opencode` agent kind now works with OpenCode 2.x as well as 1.x: Sortie reads the installed version at the start of each session and drives whichever one is configured, stopping the run with an error naming the version when it is neither. On OpenCode 2.x, `opencode.pure` and an `opencode.variant` set without an `opencode.model` are refused the same way.
+  ([#960](https://github.com/sortie-ai/sortie/issues/960))
+
+- Tokens that `claude-code`, `copilot-cli`, and `opencode` write to the prompt cache now show separately on the dashboard, in the JSON API, in `sortie stats`, and in metrics, and can be priced with the new `token_rates` rate `cache_write_per_mtok`. ([#1181](https://github.com/sortie-ai/sortie/issues/1181))
+
+### Changed
+
+- Workflows that use the `copilot-cli` agent kind now need GitHub Copilot CLI 1.0.51 or later.
+  ([#1047](https://github.com/sortie-ai/sortie/issues/1047))
+
+- The comment posted when a session starts (`tracker.comments.on_dispatch`) now reads only "Sortie session started.", without the session and workspace lines that always read `pending`, the agent kind, or the attempt count. The comments posted when a session ends (`tracker.comments.on_completion`, `tracker.comments.on_failure`) no longer show the agent's session identifier, and the failure comment no longer quotes the error; it gives the duration and whether the issue will be retried, and the cause stays available in the log, the run history, and the dashboard.
+  ([#1125](https://github.com/sortie-ai/sortie/issues/1125))
+
+- A `token_rates` entry now needs both `input_per_mtok` and `output_per_mtok`: an agent whose entry lacks either one gets no cost estimate, and `sortie validate` warns about such an entry and about any rate name it does not recognize. ([#1181](https://github.com/sortie-ai/sortie/issues/1181))
+
+### Deprecated
+
+- The `kiro` agent kind is deprecated. Kiro CLI now runs through the `agent-client-protocol` kind with `kiro-cli acp -a`, which delivers Sortie's tools under a stored login. Workflows naming `kiro` keep working; each run and `sortie validate` warn once, naming `agent-client-protocol`. A later release removes the kind.
+  ([#1126](https://github.com/sortie-ai/sortie/issues/1126))
+
+### Fixed
+
+- A run that ends having reported no token usage, while `agent.max_tokens` is set, now says so in the log, naming the agent kind and the ceiling the run could not be held to. Before this, only an agent kind that declares up front that it never reports token usage drew a warning, so a kind that declares figures do arrive while the runtime it starts reports none left the ceiling doing nothing and said nothing about it. The dashboard no longer describes such a session as not having reported its tokens yet: once the point its agent reports at has passed with nothing counted, the session's Tokens row reads "not reported", and the footer counts the session among those running an agent that reports no token usage rather than among those still to report.
+  ([#1112](https://github.com/sortie-ai/sortie/issues/1112))
+
+- A `copilot-cli` session could resume another issue's conversation on the same host; it now always continues its own.
+  ([#1047](https://github.com/sortie-ai/sortie/issues/1047))
+
+- Kiro CLI on the `agent-client-protocol` kind no longer times out at startup when it signs in with an API key.
+  ([#1047](https://github.com/sortie-ai/sortie/issues/1047))
+
+- Runs that the `agent.max_tokens` ceiling did not stop are no longer reported as stopped by it. A run that finished, failed, stalled, or was cancelled by a tracker state change or shutdown keeps its real outcome in the run history, the `sortie_runs_stopped_by_budget_total` counter, the log, and the budget hold notice. A run whose final turn reaches the ceiling finishes normally, but if the ceiling cuts its self-review short or keeps it from starting, the run is recorded as stopped by the ceiling and its issue does not move to the handoff state.
+  ([#1101](https://github.com/sortie-ai/sortie/issues/1101))
+
+- Memory use of a long-running Sortie process no longer grows with every completed run.
+  ([#1158](https://github.com/sortie-ai/sortie/issues/1158))
+
+- During the self-review phase the `sortie_status` tool now includes the tokens the review and fix turns spend, where it previously kept reporting the last coding turn's figures, below the session's recorded total.
+  ([#1103](https://github.com/sortie-ai/sortie/issues/1103))
+
+- `notify_operator`'s `max_per_session` cap now limits a whole agent run on every agent kind; on `claude-code`, `copilot-cli`, and `opencode` it used to reset with every turn. A notification that reached at least one configured channel now counts against the limit even when another channel failed to receive it. When Sortie cannot keep the count, `notify_operator` now sends nothing and tells the agent so, instead of sending anyway; this also covers a `sortie mcp-server` started by hand, outside a Sortie run.
+  ([#1118](https://github.com/sortie-ai/sortie/issues/1118))
+
+- When the agent runtime reports a session ID other than the one a run started with, a continuation now resumes under the ID the runtime reported last, where it previously used the earlier one and could fail to rejoin the conversation the previous run left off in. The session ID recorded for the run and shown in its tracker comments now matches the one its operator notifications carry.
+  ([#1120](https://github.com/sortie-ai/sortie/issues/1120))
+
+- A workspace directory replaced by a symbolic link no longer redirects Sortie's workspace files, hooks, or agent launches to the link's target; the affected step now fails instead. A workspace directory removed before the agent starts now fails that dispatch attempt instead of being recreated empty.
+  ([#1121](https://github.com/sortie-ai/sortie/issues/1121))
+
+- A coding agent that exits before it responds, such as on a misspelled switch in `agent.command`, now fails with its exit status and the end of what it printed to standard error, instead of a lost connection, a bare exit code, or a credential problem. This covers every agent kind, both in the check Sortie runs before work starts and on every working turn. An agent that rejects its credential only by printing a message and exiting, as `copilot-cli` and `kiro` do, is now reported the same way, carrying that message, rather than as a credential problem. An agent whose program cannot start, such as a script whose interpreter is missing, is reported the same way too, except where the `copilot-cli` version check catches it first, and now waits out the retry backoff between runs instead of running again on every poll. Update an alert that matches on an exit code or on "produced no output" for a run that fails this way.
+  ([#1125](https://github.com/sortie-ai/sortie/issues/1125))
+
+- Credentials no longer appear in the log, the run history, the retry list, or the dashboard when an agent, a hook, or a verification command prints them. Every value Sortie knows to be a credential, from its environment, its configuration including the `.env` file, and the tool servers it hands an agent, now shows as `[redacted]`; one too short to hide is instead named in a warning.
+  ([#1125](https://github.com/sortie-ai/sortie/issues/1125))
+
+- On OpenCode's free models, a run whose `opencode.allowed_tools` or `opencode.denied_tools` denies the tools that tier requires was refused every time; the error now names the denied tool instead of carrying only the free tier's own message.
+  ([#960](https://github.com/sortie-ai/sortie/issues/960))
+
+- A tool call the `opencode` runtime refuses because `opencode.dangerously_skip_permissions` is `false` is now reported, where it previously went unnoticed.
+  ([#960](https://github.com/sortie-ai/sortie/issues/960))
+
+- An agent that prints only text Sortie cannot read on standard output, such as its usage text, before it exits is now reported like one that exits before it responds, with its exit status and the end of what it printed to standard error. This covers `claude-code`, `copilot-cli`, and `opencode`.
+  ([#960](https://github.com/sortie-ai/sortie/issues/960))
+
+- Configuration warnings (a deprecated `ci_feedback` section, a `label_commands` prompt template missing its branch or a poll interval below its minimum, a missing env file, an environment override replacing a section that is not a mapping) now appear once when they first apply instead of on every poll. `sortie validate` reports them as warnings instead of printing log lines. `sortie stats` and `sortie mcp-server` no longer print them.
+  ([#1126](https://github.com/sortie-ai/sortie/issues/1126))
+
+- Estimated costs on the dashboard, in the JSON API, and in `sortie stats` no longer charge tokens read from the prompt cache twice, which made them several times too high for sessions that use the cache heavily. `sortie stats` shows the corrected cost for past runs as well. ([#1181](https://github.com/sortie-ai/sortie/issues/1181))
+
+### Migrations
+
+- Add `unaccounted_turns INTEGER NOT NULL DEFAULT 0` to `run_history`, counting the run's turns that spent tokens no figure was proven to account for, whether no figure arrived at all or the one that did fell short of the turn. A pre-migration row reads back zero and so presents as fully accounted, but nothing measured it: before the upgrade a turn that spent tokens without reporting a figure was indistinguishable from one that cost nothing, and because `run_history` is an append-only record no later run can correct, that zero stays. A historical run's spend therefore reads as complete because nothing can now establish otherwise, not because it was verified.
+  ([#1057](https://github.com/sortie-ai/sortie/issues/1057))
+
+- Add `cache_write_tokens INTEGER NOT NULL DEFAULT 0` to `run_history`, `session_metadata`, and `aggregate_metrics`. ([#1181](https://github.com/sortie-ai/sortie/issues/1181))
+
 ## [1.24.1] - 2026-09-17 { #1.24.1 }
 
 ### Added
@@ -980,6 +1069,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - CI pipeline with `golangci-lint`, `gofmt` enforcement, and test execution via GitHub Actions.
 - Architecture Decision Records (ADR-0001 through ADR-0005).
 
+[1.25.0]: https://github.com/sortie-ai/sortie/compare/v1.24.1...v1.25.0
 [1.24.1]: https://github.com/sortie-ai/sortie/compare/v1.24.0...v1.24.1
 [1.24.0]: https://github.com/sortie-ai/sortie/compare/v1.23.0...v1.24.0
 [1.23.0]: https://github.com/sortie-ai/sortie/compare/v1.22.0...v1.22.0
