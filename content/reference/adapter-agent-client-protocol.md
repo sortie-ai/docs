@@ -89,8 +89,8 @@ Launches the subprocess, performs the `initialize` handshake, and creates or con
 
 1. Resolves the launch target: validates that the workspace path is a non-empty absolute path pointing to an existing directory, and resolves `command` from `PATH` with no default to fall back to. In SSH mode, resolves the local `ssh` binary instead.
 2. Parses the generated MCP configuration from the resolved configuration path on a local launch only; a remote launch holds no servers regardless of the path, because the protocol's stdio server declaration names an executable the remote host would have to resolve, and the configuration's environment block can carry tracker credentials that must not cross to a remote host. A server whose `enabled` field is present and `false` is dropped here.
-3. Starts the subprocess with the full parent process environment, places it in its own process group, and wires stdin, stdout, and stderr.
-4. Sends `initialize` with the pinned protocol version and no filesystem or terminal client capability. A response reporting any other protocol version ends the session, because the protocol defines no renegotiation and leaves the decision to disconnect to the client.
+3. Starts the subprocess with the full parent process environment, places it in its own process group, and wires stdin, stdout, and stderr. A local launch whose command line names a runtime Sortie ships a [measurement source](#token-accounting) for also carries that source's environment variables.
+4. Sends `initialize` with the pinned protocol version and no filesystem or terminal client capability. A response reporting any other protocol version ends the session, because the protocol defines no renegotiation and leaves the decision to disconnect to the client. A response that disagrees with the measurement source the start carried, or that names a runtime a source reads when the start carried none, stops the subprocess and repeats steps 3 and 4 before step 5; see [restart to settle the measurement source](#restart-to-settle-the-measurement-source).
 5. Renders the parsed MCP servers into the wire format `session/new` (or a continuation call) will carry, omitting any HTTP server when the handshake's `mcpCapabilities.http` is not `true`. A stdio server is never withheld this way; the protocol allows omitting a server type, not the whole channel.
 6. Resolves the session: `session/new` alone when no session ID from a previous run is supplied, or the handshake advertises no continuation method; otherwise the advertised route, confirmed and falling back to `session/new` within this same call when not confirmed. See [session resume mechanism](#session-resume-mechanism).
 7. Records the identifier to end through the protocol later, only when the handshake advertised a teardown method: a [credential-verification](/reference/workflow-config/#credential-verification) session records `session/delete` when the handshake advertises `sessionCapabilities.delete`, falling back to `session/close` when only that is advertised; every other session records `session/close` when advertised and nothing otherwise. See [session close](#session-close).
@@ -199,7 +199,12 @@ Two conditions precede a `stopReason` read at all: a protocol-level error on the
 
 Whether a session on this kind reports token usage depends on the runtime it launches and on where that runtime runs. The protocol carries no spend counter, so a figure can only come from a measurement source Sortie ships for one specific runtime and reads outside the wire. Where such a source applies, figures arrive when a turn ends and attribute to a model. Where none applies, the session reports nothing and `agent.turn_timeout_ms` is the bound that applies instead. For this kind's declaration beside every other kind's, see the [usage reporting table](/reference/workflow-config/#usage-reporting-by-agent-kind).
 
-A source supplies a figure only when two checks pass before a session even starts, plus a third that plays out during it. It has to claim the launch, and none does for a session running over SSH, because it reads output the runtime writes on the machine that ran it. The handshake has to name a build that source was measured against, so upgrading the runtime can end measurement with nothing else about the run changing. Either of those failing leaves the session unmeasured for the whole of its life, decided before a turn runs.
+A source supplies a figure only when two checks pass before the session is created, plus a third that plays out during it.
+
+- **Claim.** A source claims a launch only when the launch is local and `agent.command`, the program and every argument, names the runtime the source reads. A claim arms the runtime's environment variables and creates a temporary directory. No source claims a launch over SSH, because a source reads output the runtime writes on the machine that ran it.
+- **Handshake.** The `initialize` response's `agentInfo.name` has to be the name the source reads. The runtime's version is not part of this check: no build is refused for its version, and a record counts only when it carries every counter the source maps. A handshake that disagrees with the claim starts the runtime again, as [described below](#restart-to-settle-the-measurement-source).
+
+A session that leaves the first two checks without a confirmed source is unmeasured for the whole of its life, decided before a turn runs.
 
 The third check plays out on whichever turn's own wait for the source is the first to run to the source's own conclusion, and only when [`agent.read_timeout_ms`](#agent-section) gives that wait enough time to let the source answer at all: a turn whose own wait ends first, before the source has answered, ends unmeasured itself but leaves the source in place for the next turn, since the source was never actually asked and answered within that turn. Only a turn whose wait does let the source answer, and gets nothing back before any turn has had a figure out of it, drops the source for the rest of the session; a later turn then never gets its own chance to prove the source works. Once one turn has had a figure, the source stays for the session, and a later turn that gets nothing back costs that turn its own figure and nothing more. Which way any of this went is observable rather than inferred: the once-per-session capability notice names `token counts` exactly when no figure will arrive, described under [capability tracking](#capability-tracking); a drop that happens after that notice already went out is logged at `Warn` instead, per the same section. Sortie ships one such source today, for Gemini CLI.
 
@@ -214,6 +219,21 @@ What the dashboard shows for it depends on which way it went unmeasured, because
 A runtime may also attach its own vendor-namespaced token figure to a turn's result. Sortie reads that one only as a presence signal and a lower bound on the turn, never as the spend it records, because it leaves out cache-read and reasoning tokens. Its job is to let the adapter tell a figure that covered the whole turn from one that fell short. What a given runtime publishes there, and what that figure leaves out, is on that runtime's own page.
 
 Model reporting follows the same split. The protocol carries no model field the adapter reads, so a session no source measures reports no model name, while a measured one attributes its figures to the model its source names.
+
+### Restart to settle the measurement source
+
+The first start of the runtime carries the settings of every source that claimed the launch. When the handshake disagrees with that claim, Sortie stops the subprocess and runs `agent.command` again before the session is created, so the process the session runs on carries the settings of the source its handshake confirms and no other. Each restart logs one `Info` record with `component=clientprotocol-adapter` and `name`, the runtime name the handshake reported, empty when the response carried none.
+
+| Handshake result | What Sortie does | Log message |
+|---|---|---|
+| A source claimed the launch, and the handshake names no runtime that source reads | Starts again without that source's settings. The session is unmeasured. | `agent relaunched without usage settings meant for another runtime` |
+| No source claimed the launch, the launch is local, and the handshake names a runtime a source reads | Starts again with that source's settings. The session is measured. | `agent relaunched so its token usage can be measured: agent.command does not name the runtime it starts` |
+
+- A session start runs the runtime at most three times.
+- A remote launch is never claimed and never started again.
+- The temporary directory of a source that is no longer used is removed before the next start. The directory of the confirmed source is removed when the session ends.
+- Each start runs `agent.command` from the beginning, so a wrapper script runs once per start, and the session's process ID is the last start's. Workspace hooks do not run again.
+- Each stopped start ends through the same sequence as a session end; see [process shutdown](#process-shutdown). Only the last start produces the session, so the `agent implementation` record is still logged once per session.
 
 ---
 
@@ -265,11 +285,11 @@ Every session keeps a record of four capabilities this transport can deliver, ea
 | Capability | Starts at | Lowered when |
 |---|---|---|
 | Tool servers | Delivered, unless the launch is remote | An HTTP server is withheld because the handshake did not advertise `mcpCapabilities.http`. |
-| Token counts | Absent | Never lowered further; no per-turn token count reaches this adapter on any launch. See [token accounting](#token-accounting). |
+| Token counts | Absent, unless a measurement source claimed the launch | The source is dropped after a drain that produced no record. No per-turn token count reaches this adapter on the wire. See [token accounting](#token-accounting). |
 | Session continuation | Delivered | The handshake advertises neither `session/load` nor `session/resume`, or an attempted continuation call is not confirmed. See [session resume mechanism](#session-resume-mechanism). |
 | Agent version | Delivered | The handshake's `initialize` response carries no `agentInfo`. |
 
-The first time a turn starts, the adapter emits one `notification` naming every entry then in the gap state, in this fixed order. The token counts entry starts there unless a measurement source claimed the launch, so a session no source measures carries this notice on that entry alone and reads `this session started with a declared capability gap in: token counts`. A source that claims the launch and is then turned away by the handshake lowers the entry before the notice, which then reads the same way. A capability lowered afterward is logged at `Warn` instead of producing a second notice, so an unfamiliar line in the run log after that point is recognizable as a declared limit rather than as an unreported error.
+The first time a turn starts, the adapter emits one `notification` naming every entry then in the gap state, in this fixed order. The token counts entry starts there unless a measurement source claimed the launch, so a session no source measures carries this notice on that entry alone and reads `this session started with a declared capability gap in: token counts`. A source that claims the launch and is then turned away by the handshake has the launch started again without it, and the notice reads the same way. A capability lowered afterward is logged at `Warn` instead of producing a second notice, so an unfamiliar line in the run log after that point is recognizable as a declared limit rather than as an unreported error.
 
 ---
 
