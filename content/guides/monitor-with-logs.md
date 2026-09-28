@@ -142,6 +142,14 @@ time=2026-03-26T14:31:46.010+00:00 level=INFO msg="agent session id accepted" is
 
 The `session_id` field on this line, like on every other line for the run, still names the id from `agent session started`: it identifies the run in the logs and never changes, so the recipes below keep working against it. `accepted_session_id` is the new value, and it is what the run's tracker comment, its operator notifications, and a continuation retry's resume attempt carry from this point on. Copilot CLI's adapter is one example: it captures the session id from each turn's own result and reports it back as that turn's session id, so a runtime-side change can reach Sortie this way.
 
+On the `agent-client-protocol` kind, Sortie can start the runtime a second time before the session begins, to find out which runtime `agent.command` really starts. It logs why at `Info`, on the credential check and on the working session alike:
+
+```
+time=2026-03-26T14:30:03.300+00:00 level=INFO msg="agent relaunched so its token usage can be measured: agent.command does not name the runtime it starts" component=clientprotocol-adapter name=gemini-cli
+```
+
+This line means `agent.command` hides the runtime, as a wrapper script does, and Sortie found Gemini CLI behind it and started it again with token measurement switched on. Nothing is failing. To skip the extra start, name the runtime in `agent.command`; the [Gemini CLI reference](/reference/agent-client-protocol-gemini/#token-accounting-reads-local-files-and-its-in-turn-signal-understates) lists what counts as naming it. The other message, `agent relaunched without usage settings meant for another runtime`, means the command line names Gemini CLI but the runtime that answered is another one. Sortie started it again without Gemini's telemetry settings, and that session reports no token usage. See [restart to settle the measurement source](/reference/adapter-agent-client-protocol/#restart-to-settle-the-measurement-source).
+
 A session's agent kind can declare that it reports no token usage at all and then have its runtime send a usage figure anyway, contradicting its own declaration. Sortie discards the figure and logs it once per run, on the first occurrence:
 
 ```
@@ -322,7 +330,7 @@ The fourth fires once, at the end of a run that reported nothing although its ag
 time=2026-03-26T14:52:18.000+00:00 level=WARN msg="run reported no token usage, token ceiling could not bound it" issue_id=abc123 issue_identifier=MT-649 session_id=session-abc-004 agent_kind=agent-client-protocol usage_arrival=turn_end budget_tokens=50000
 ```
 
-This is the after-the-fact counterpart of the first record. Nothing warned at dispatch, because the kind declares that figures arrive; the runtime behind it then produced none, and the ceiling bounded nothing. `agent-client-protocol` is where you are most likely to meet it: a local session there is declared reporting before its runtime has said anything, and it delivers a figure only for a runtime Sortie ships a measurement source for, on a build that source recognizes. See [token accounting on that kind](/reference/adapter-agent-client-protocol/#token-accounting) for which way a given session went.
+This is the after-the-fact counterpart of the first record. Nothing warned at dispatch, because the kind declares that figures arrive; the runtime behind it then produced none, and the ceiling bounded nothing. `agent-client-protocol` is where you are most likely to meet it: a local session there is declared reporting before its runtime has said anything, and it delivers a figure only for a runtime Sortie ships a measurement source for. See [token accounting on that kind](/reference/adapter-agent-client-protocol/#token-accounting) for which way a given session went.
 
 ### Token warning threshold
 
