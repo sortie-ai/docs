@@ -41,7 +41,7 @@ Session state is deliberately opaque. The `Session` struct has an `Internal` fie
 
 The practical consequence: when the Copilot CLI adapter shipped, the orchestrator launched, monitored, and retried Copilot sessions using the exact same code paths it uses for Claude Code. No new retry logic. No new stall detection. No new reconciliation rules. The stall detector checks "time since last `AgentEvent`," and it doesn't know or care whether that event came from a Claude Code JSONL stream or a Copilot CLI JSONL stream.
 
-Today, the agent side already spans six materially different shapes:
+Today, the agent side already spans five materially different shapes:
 
 | Adapter | Native protocol | Session model |
 |---|---|---|
@@ -49,10 +49,9 @@ Today, the agent side already spans six materially different shapes:
 | Copilot CLI | CLI JSON stdout stream | One subprocess per turn |
 | Codex | JSON-RPC app server | One persistent subprocess across turns |
 | OpenCode CLI | Newline-delimited JSON envelopes plus a second subprocess for final usage recovery (`opencode export --sanitize` on OpenCode 1.x, `opencode session export --standalone --sanitize` on 2.x) | One subprocess per turn, plus one usage-recovery subprocess after each turn |
-| Kiro | Plain-text transcript on stdout, no structured output | One subprocess per turn |
 | Agent Client Protocol | Newline-delimited JSON-RPC 2.0 over stdio, a shared vendor-neutral protocol several runtimes implement | One persistent subprocess across turns |
 
-That spread is why the interface is organized around lifecycle and normalized events rather than around one CLI's flags or transport. Claude Code and Copilot CLI look similar from a distance, but Codex keeps a long-lived server process, OpenCode needs a second pass to recover authoritative token usage, and Kiro emits only a plain transcript and reports no token usage, so its budget is time-based. The Agent Client Protocol adapter is a different kind of entry in this table: it is one package that drives whichever runtime `agent.command` names, so it does not correspond to one vendor CLI the way the other five rows do, and a runtime reachable through it can also stay on a hand-written kind of its own, as Kiro does. The orchestrator still reacts to the same event vocabulary regardless.
+That spread is why the interface is organized around lifecycle and normalized events rather than around one CLI's flags or transport. Claude Code and Copilot CLI look similar from a distance, but Codex keeps a long-lived server process, and OpenCode needs a second pass to recover authoritative token usage. The Agent Client Protocol adapter is a different kind of entry in this table: it is one package that drives whichever runtime `agent.command` names, so it does not correspond to one vendor CLI the way the other four rows do. Kiro CLI is one such runtime, run in [ACP mode](/guides/run-kiro-cli-in-acp-mode/). The orchestrator still reacts to the same event vocabulary regardless.
 
 ## CI and SCM: the same pattern, extended
 
@@ -123,7 +122,7 @@ The design bet underlying all of this: the agent and tracker landscape will keep
 - [Copilot CLI adapter reference](/reference/adapter-copilot/) for agent integration details
 - [Codex adapter reference](/reference/adapter-codex/) for agent integration details
 - [OpenCode CLI adapter reference](/reference/adapter-opencode/) for agent integration details
-- [Kiro CLI adapter reference](/reference/adapter-kiro/) for agent integration details
+- [Kiro CLI on the Agent Client Protocol](/reference/agent-client-protocol-kiro/) for running Kiro CLI through the generic kind
 - [Agent Client Protocol adapter reference](/reference/adapter-agent-client-protocol/) for the generic, runtime-neutral kind
 - [Workflow file reference](/reference/workflow-config/) for `tracker.kind` and `agent.kind` configuration
 - [ADR-0003: Adapter-Based Integration](https://github.com/sortie-ai/sortie/blob/main/docs/decisions/0003-adapter-based-integration.md) for the full decision rationale
