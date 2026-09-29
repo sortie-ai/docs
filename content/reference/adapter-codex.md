@@ -25,7 +25,7 @@ These fields control the orchestrator's scheduling behavior. They are not passed
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `kind` | string | - | Must be `"codex"` to select this adapter. |
-| `command` | string | `codex app-server` | Path or name of the Codex binary with arguments. Resolved from `PATH` at session start. The first space-separated token is the binary name; remaining tokens are arguments. |
+| `command` | string or list | `codex app-server` | Path or name of the Codex binary with arguments. Resolved from `PATH` at session start. As a string, the first space-separated token is the binary name and the remaining tokens are arguments. Read only when `codex` is the default kind. A dispatch rule that routes to `codex` while another kind is the default launches `codex app-server`, not `agent.command`; the list form is described under [`agent.command`](/reference/workflow-config/#agent). |
 | `max_turns` | integer | `20` | Maximum Sortie turns per worker session. The orchestrator runs a turn up to this many times, re-checking tracker state after each turn. |
 | `max_sessions` | integer | `0` (unlimited) | Maximum completed worker sessions per issue before the orchestrator stops retrying. `0` disables the budget. |
 | `max_concurrent_agents` | integer | `10` | Global concurrency limit across all issues. |
@@ -343,7 +343,7 @@ The adapter uses these SSH options via the shared `sshutil` package:
 
 ### Shell quoting
 
-The workspace path and each per-turn argument are single-quoted with embedded single-quote escaping (`'\''`) before being placed in the remote command string. The configured agent command itself is not quoted this way. No credential is placed in that string; see [authentication](#authentication).
+The workspace path and each per-turn argument are single-quoted with embedded single-quote escaping (`'\''`) before being placed in the remote command string. A string agent command itself is not quoted this way; each element of a list command is single-quoted. No credential is placed in that string; see [authentication](#authentication).
 
 ### Exit codes
 

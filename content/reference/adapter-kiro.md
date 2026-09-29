@@ -42,7 +42,7 @@ These fields control the orchestrator's scheduling behavior. They are not passed
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `kind` | string | - | Must be `"kiro"` to select this adapter. |
-| `command` | string | `kiro-cli` | Path or name of the Kiro CLI binary. Resolved from `PATH` at session start. |
+| `command` | string or list | `kiro-cli` | Path or name of the Kiro CLI binary. Resolved from `PATH` at session start. A `kiro` route beside a different default kind ignores that kind's `agent.command` and starts `kiro-cli`. The list form is described under [`agent.command`](/reference/workflow-config/#agent). |
 | `max_turns` | integer | `20` | Maximum Sortie turns per worker session. The orchestrator runs a turn up to this many times, re-checking tracker state after each turn. |
 | `max_sessions` | integer | `0` (unlimited) | Maximum completed worker sessions per issue before the orchestrator stops retrying. `0` disables the budget. |
 | `max_concurrent_agents` | integer | `10` | Global concurrency limit across all issues. |
@@ -249,7 +249,7 @@ The adapter uses the shared `sshutil` transport defaults:
 
 ### Shell quoting
 
-The workspace path and the adapter-generated arguments are single-quoted with standard POSIX escaping before they are embedded in the remote shell command. The configured remote base command is treated as a pre-formed shell fragment; quoting inside `agent.command` is the operator's responsibility. The `KIRO_API_KEY` value is not part of that string.
+The workspace path and the adapter-generated arguments are single-quoted with standard POSIX escaping before they are embedded in the remote shell command. A string `agent.command` is treated as a pre-formed shell fragment, so quoting inside it is the operator's responsibility; each element of a list command is single-quoted. The `KIRO_API_KEY` value is not part of that string.
 
 ### Exit codes
 

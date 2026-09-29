@@ -106,6 +106,8 @@ When a rule's `agent` differs from the top-level `agent.kind`, give that kind it
 
 The shared `agent.*` settings (`max_turns`, `turn_timeout_ms`, `max_sessions`, concurrency caps) stay workflow-wide. Rules override the agent kind and the template only, not these budgets.
 
+`agent.command` is the one `agent` setting that follows the kind rather than the workflow: only the default kind reads it. In the example above `claude-code` is the default, so the `docs` rule starts Codex with its own default command, `codex app-server`, and never runs `claude`. A routed kind cannot take a custom command; to give a kind one, make it the default kind. `agent-client-protocol` has no default command, so a rule cannot route to it beside a different default kind; see [Troubleshooting](#troubleshooting).
+
 ## Match on type, priority, identifier, or assignee
 
 The `match` block accepts five keys. A rule matches when every key present in its block matches (AND across keys). Within a single key, a list matches when any entry matches (OR within a key).
@@ -187,7 +189,7 @@ A catch-all rule must be the last entry. A catch-all placed earlier makes the ru
 
 Sortie evaluates rules once, at the issue's first dispatch, and freezes the resolved `(agent, template)` for the life of the claim. Retries and reaction-driven continuations (CI failure, review comments) reuse the frozen selection so the agent keeps the same prompt and session thread across turns.
 
-A changed rule set from a WORKFLOW.md reload applies to future claims only. An issue already in flight keeps its original agent and template until its claim is released. For the dispatch and claim lifecycle, see the [state machine reference](/reference/state-machine/); for the architectural model, see [Architecture](/concepts/architecture/).
+A changed rule set from a WORKFLOW.md reload applies to future claims only. An issue already in flight keeps its original agent and template until its claim is released. A waiting retry keeps them too, unless the reload removed its agent kind or template; then it is routed afresh and starts a new session. See [dynamic reload](/reference/workflow-config/#dynamic-reload) for the details. For the dispatch and claim lifecycle, see the [state machine reference](/reference/state-machine/); for the architectural model, see [Architecture](/concepts/architecture/).
 
 ## Verify the rules
 
@@ -216,6 +218,8 @@ sortie --dry-run WORKFLOW.md
 **Validation rejects an unknown agent kind.** The `agent` value must name a registered adapter.
 
 **Validation rejects a routed kind with no settings block.** A rule with `agent: codex` and no `codex:` block fails `sortie validate` with a `dispatch.agent.missing_block` error, because a session the rule routes reads only that block. Add the block, even an empty one (`codex: {}`), to fix it. See [Declare every agent kind a rule references](#declare-every-agent-kind-a-rule-references).
+
+**Validation reports an `agent.command` error for a routed kind.** A rule routes to `agent-client-protocol` while another kind is the default. The message reads `dispatch.rules[0].agent selects agent kind "agent-client-protocol", which has no default command and launches agent.command only as the default agent kind`. Make `agent-client-protocol` the default kind with its own `agent.command`, or route the rule to a kind that has a default command.
 
 **A match key is ignored or rejected.** Unknown match keys are configuration errors, not warnings, so a typo like `lables:` fails `validate` instead of silently disabling the rule. Use only `labels`, `issue_type`, `priority`, `identifier`, and `assignee`.
 

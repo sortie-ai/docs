@@ -44,7 +44,7 @@ agent:
 
 `acp` is listed under `kiro-cli --help-all` only, not `kiro-cli --help`, which is worth knowing before concluding a build does not carry it. `-a` (`--trust-all-tools`) auto-approves every tool permission request; it is required for a working unattended run, not optional hardening, because dropping it restores asking for every tool and an unattended run has nobody to answer. Run the agent inside a hardened sandbox regardless. To pin a model, append `--model <id>` to `agent.command`, reading the account's live model set off `kiro-cli chat --list-models -f json`.
 
-Reaching `agent-client-protocol` only through a [dispatch rule](/reference/workflow-config/#dispatch) rather than through the top-level `agent.kind` needs its own top-level block even with nothing to configure in it: add an empty `agent-client-protocol: {}`.
+`agent-client-protocol` has no default command and reads `agent.command` only as the default kind, so a [dispatch rule](/reference/workflow-config/#dispatch) cannot route to it beside a different default kind: `sortie validate` reports an `agent.command` error. Make it the default kind instead, through `agent.kind` or `dispatch.default.agent`. Reaching it through `dispatch.default.agent` rather than through the top-level `agent.kind` needs its own top-level block even with nothing to configure in it: add an empty `agent-client-protocol: {}`.
 
 Validate before running anything else:
 
