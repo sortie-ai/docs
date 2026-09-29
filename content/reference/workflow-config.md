@@ -1061,7 +1061,7 @@ codex:
 
 ### `opencode`
 
-The adapter supports OpenCode 1.x and 2.x and detects which one `agent.command` names by querying its version at the start of each session, refusing a version it cannot read and any major other than 1 or 2. Several fields below map to a different CLI flag, environment variable, or configuration field depending on which major is detected; see the [OpenCode adapter reference](/reference/adapter-opencode/#opencode-extension-section) for the per-major mapping and [version detection](/reference/adapter-opencode/#version-detection) for the mechanism and every version-related refusal.
+The adapter supports OpenCode 1.x and 2.x, with 1.x [deprecated](/reference/adapter-opencode/#deprecation-of-opencode-1x), and detects which one `agent.command` names by querying its version at the start of each session, refusing a version it cannot read and any major other than 1 or 2. Several fields below map to a different CLI flag, environment variable, or configuration field depending on which major is detected; see the [OpenCode adapter reference](/reference/adapter-opencode/#opencode-extension-section) for the per-major mapping and [version detection](/reference/adapter-opencode/#version-detection) for the mechanism and every version-related refusal.
 
 | Field | Type | Default | Description |
 |---|---|---|---|

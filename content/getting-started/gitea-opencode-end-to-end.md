@@ -19,7 +19,7 @@ The pairing is deliberate. Gitea is self-hosted, and OpenCode can run against a 
     opencode --version
     ```
 
-    You should see a version string. Sortie resolves `opencode` from `PATH` at session start and reads this same version to detect whether it is driving OpenCode 1.x or 2.x, so this confirms the binary it will launch. Sortie supports both majors the same way; see the [OpenCode adapter reference](/reference/adapter-opencode/#version-detection) for what differs between them. To install it, follow the [OpenCode CLI docs](https://opencode.ai/docs/cli/).
+    You should see a version string. Sortie resolves `opencode` from `PATH` at session start and reads this same version to detect whether it is driving OpenCode 1.x or 2.x, so this confirms the binary it will launch. Sortie supports both majors, but support for 1.x is deprecated; see the [OpenCode adapter reference](/reference/adapter-opencode/#deprecation-of-opencode-1x) for what that means and for what differs between the majors. To install it, follow the [OpenCode CLI docs](https://opencode.ai/docs/cli/).
 
 - A locally served, OpenAI-compatible model, exposed to OpenCode as a custom provider in your `opencode.json`. OpenCode reads provider configuration from its own config, and a custom provider carries a `baseURL` pointing at your local endpoint. The [OpenCode configuration docs](https://opencode.ai/docs/config/) cover the provider schema. This tutorial calls that provider `local` and selects it through `opencode.model`. List what OpenCode has configured with:
 

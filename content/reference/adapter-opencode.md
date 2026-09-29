@@ -6,7 +6,7 @@ date: 2026-04-26
 weight: 130
 url: /reference/adapter-opencode/
 ---
-The OpenCode adapter connects Sortie to the [OpenCode CLI](https://opencode.ai/docs/cli/) via subprocess management. It supports both OpenCode 1.x and 2.x, detecting which one `agent.command` runs at the start of every session; see [version detection](#version-detection). It launches `opencode run --format json`, reads newline-delimited stdout envelopes, reads the runtime's permission warnings from stderr, and normalizes the stream into Sortie's own event vocabulary. Registered under kind `"opencode"`.
+The OpenCode adapter connects Sortie to the [OpenCode CLI](https://opencode.ai/docs/cli/) via subprocess management. It supports both OpenCode 1.x and 2.x, detecting which one `agent.command` runs at the start of every session; see [version detection](#version-detection). Support for OpenCode 1.x is deprecated; see [deprecation of OpenCode 1.x](#deprecation-of-opencode-1x). It launches `opencode run --format json`, reads newline-delimited stdout envelopes, reads the runtime's permission warnings from stderr, and normalizes the stream into Sortie's own event vocabulary. Registered under kind `"opencode"`.
 
 Each turn spawns a fresh subprocess. The adapter emits activity-visible events so the orchestrator stall watchdog can observe progress. Session start does run a version query to detect which OpenCode major it is driving (see [version detection](#version-detection)), but that query checks no credential and performs no authentication preflight. The CLI accepts no MCP configuration path, so on a local launch the adapter translates the generated configuration into OpenCode's own form and delivers it in the turn's environment; see [MCP](#mcp).
 
@@ -20,7 +20,7 @@ The adapter reads from two configuration sections in [WORKFLOW.md front matter](
 
 ### Version detection
 
-OpenCode ships two majors with incompatible launch surfaces: 1.x, installed with `npm install -g opencode-ai`, and 2.x, installed with `npm install -g @opencode/cli`. Session start runs the configured command with `--version`, bounded the same way the `export` and `models` auxiliary launches are (see `read_timeout_ms` below), and reads only the first non-empty line of the output. It scans that line's whitespace-separated fields, dropping one leading `v` from each, for the first one that matches a bare semantic version, and drives whichever contract that version's leading number selects for the rest of the session. A version on a later line is never found: if the first non-empty line carries no such field, or the output was truncated, detection fails. Detection runs once per session, over SSH when the launch is remote, and is never repeated or cached.
+OpenCode ships two majors with incompatible launch surfaces: 1.x, published on npm as `opencode-ai`, and 2.x, published as `@opencode/cli`. Session start runs the configured command with `--version`, bounded the same way the `export` and `models` auxiliary launches are (see `read_timeout_ms` below), and reads only the first non-empty line of the output. It scans that line's whitespace-separated fields, dropping one leading `v` from each, for the first one that matches a bare semantic version, and drives whichever contract that version's leading number selects for the rest of the session. A version on a later line is never found: if the first non-empty line carries no such field, or the output was truncated, detection fails. Detection runs once per session, over SSH when the launch is remote, and is never repeated or cached.
 
 | Leading version number | Contract |
 |---|---|
@@ -51,6 +51,24 @@ The two contracts differ in how the adapter delivers the workspace, the prompt, 
 | Tool policy, sharing, compaction | Separate `OPENCODE_*` environment variables | One inline configuration document in `OPENCODE_CONFIG_CONTENT` |
 | Tool servers | `OPENCODE_CONFIG_CONTENT`, keyed under `mcp` | The same inline document as the tool policy, keyed under `mcp` |
 | Process isolation | _(none)_ | `--standalone` on every invocation, so the launch never joins the shared background service another client started |
+
+#### Deprecation of OpenCode 1.x
+
+Support for OpenCode 1.x is deprecated, and a later Sortie release removes it. A session on 1.x keeps working unchanged. The only difference is one warning record.
+
+| Property | Value |
+|---|---|
+| Level | `WARN` |
+| Message | `support for OpenCode 1.x is deprecated and will be removed in a later Sortie release; install OpenCode 2.x, published on npm as @opencode/cli` |
+| Attribute `version` | The version the runtime reported, without a leading `v`, for example `1.18.33` |
+
+The record is written once per working session, right after detection reads a leading number of `1`. It is not written on 2.x, on any turn, or on a [credential-verification](/reference/workflow-config/#credential-verification) session, which runs the same version query immediately before the working session it precedes. Detection is never cached, so every working session on 1.x writes its own record. [`sortie validate`](/reference/cli/) does not report the deprecation, because it never runs `agent.command`.
+
+To move a workflow to 2.x:
+
+- Uninstall `opencode-ai`, then install `@opencode/cli`. `opencode-ai` ships only 1.x, and both packages provide the `opencode` command. Install `@opencode/cli@2` to stay on major 2, because Sortie refuses a later major (see the errors above).
+- Remove `opencode.pure`. 2.x has no equivalent and refuses the session.
+- Give every `opencode.variant` an `opencode.model` without a `#` suffix. 2.x folds the variant into the model name and refuses the session otherwise.
 
 See [the `opencode` extension section](#opencode-extension-section) for which fields apply to which major, [Session lifecycle](#session-lifecycle) for the full sequence, [Token accounting](#token-accounting) for the two export shapes, and [MCP](#mcp) for tool-server delivery.
 
@@ -503,7 +521,7 @@ Two more conditions fail the session with `response_error` when the merged confi
 - [OpenCode configuration reference](https://opencode.ai/docs/config/): `opencode.json` schema, provider auth store, and permission policy fields
 - [`anomalyco/opencode` on GitHub](https://github.com/anomalyco/opencode): source repository, releases, and issue tracker
 - [OpenCode permissions documentation](https://opencode.ai/docs/permissions/): semantics of the permission policy this adapter synthesizes
-- OpenCode 1.x installs from the `opencode-ai` npm package; OpenCode 2.x installs from `@opencode/cli`. See [version detection](#version-detection) for how the adapter tells them apart.
+- OpenCode 1.x installs from the `opencode-ai` npm package, and 2.x from `@opencode/cli`. See [version detection](#version-detection) for how the adapter tells them apart and [deprecation of OpenCode 1.x](#deprecation-of-opencode-1x) for the status of 1.x.
 
 ---
 
