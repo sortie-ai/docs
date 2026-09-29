@@ -95,14 +95,6 @@ dispatch:
   default:                              # Applied when no rule matches
     template: ./prompts/default.md      # agent omitted -> agent.kind
 
-# --- CI Feedback --------------------------------------------------
-ci_feedback:
-  kind: github                        # CI provider; absent = disabled
-  max_retries: 2                      # CI-fix attempts before escalation
-  max_log_lines: 50                   # Log lines from failing check; 0 = off
-  escalation: label                   # "label" or "comment"
-  escalation_label: needs-human       # Label for escalation
-
 # --- Reactions (post-PR feedback loops) ---------------------------
 reactions:
   review_comments:
@@ -713,64 +705,6 @@ dispatch:
 ```
 
 For setup procedures, match-type recipes, and `--dry-run` verification, see [how to configure dispatch rules](/guides/configure-dispatch-rules/).
-
----
-
-## `ci_feedback`
-
-CI feedback configuration. When activated, Sortie detects CI failures on agent-created branches and dispatches continuation runs with failure context injected into the agent prompt. When retries are exhausted, Sortie escalates to a human via label or comment.
-
-| Field              | Type    | Default                          | Description                                                                                                          |
-| ------------------ | ------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `kind`             | string  | _(absent; CI feedback disabled)_ | CI status provider adapter identifier (e.g., `"github"`). Absent or empty disables CI feedback entirely.            |
-| `max_retries`      | integer | `2`                              | Maximum CI-fix continuation dispatches per issue before escalation. Zero means escalate immediately on first CI failure. Must be non-negative. |
-| `max_log_lines`    | integer | `50`                             | Lines to fetch from the first failing check run's log. Positive: fetch up to N lines. Zero: disable log fetching. Must be non-negative. |
-| `escalation`       | string  | `"label"`                        | Action when `max_retries` is exceeded. Valid values: `"label"`, `"comment"`.                                         |
-| `escalation_label` | string  | `"needs-human"`                  | Label applied to the issue when `escalation` is `"label"`. Created on demand if the tracker does not already have it. Ignored when `escalation` is `"comment"`. |
-
-CI feedback follows the same activation pattern as other optional Sortie features. Presence of `kind` activates the feature; absence disables it. This is consistent with `worker.ssh_hosts` (absent = local mode). There is no `ci_feedback.enabled` boolean.
-
-Repository coordinates (owner, repo name, API token, endpoint) are not part of the `ci_feedback` section. They live in the adapter pass-through block that matches the CI provider kind. When `ci_feedback.kind: github`, the CI adapter reads credentials from the `github:` top-level section in [Extensions](#extensions). When `tracker.kind` and `ci_feedback.kind` match (the common single-platform case), both adapters share the same credentials from the tracker config. See [adapter pass-through configuration](#adapter-pass-through-configuration) for the extension block pattern.
-
-`watch_window_ms` is not a key of this block. A deployment configured through `ci_feedback` always gets its default; see the [`reactions.ci_failure` field table](/reference/reactions/#reactionsci_failure) for where it lives and what it does.
-
-`sortie validate` checks `ci_feedback` sub-keys against the known schema. Unknown sub-keys produce an advisory warning. Adapter-specific keys nested inside `ci_feedback:` (e.g., `ci_feedback.github.owner`) are flagged as unknown because `ci_feedback` does not use adapter pass-through. Place adapter-specific config in a top-level extension block instead.
-
-> [!NOTE]
-> Environment variable overrides for `ci_feedback` fields are not currently supported. All `ci_feedback` values must be set in WORKFLOW.md. This differs from `tracker` and `agent` sections, which support `SORTIE_TRACKER_*` and `SORTIE_AGENT_*` overrides respectively.
-
-### Escalation behavior
-
-| Escalation          | Behavior                                                                                                                                                |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `label` (default)   | Adds `escalation_label` (default `needs-human`) to the issue through the tracker adapter. The label is created on demand if the tracker does not already have it.  |
-| `comment`           | Posts a plain-text comment on the issue listing the number of CI-fix attempts, which checks failed, their conclusions, and details URLs.                 |
-
-Both escalation actions release the claim on the issue and cancel any pending retry. The issue will not be re-dispatched until its tracker state changes.
-
-### Dynamic reload
-
-`max_retries`, `escalation`, and `escalation_label` reload dynamically. Changes take effect on the next reconcile tick. `kind` and `max_log_lines` are read at startup and do not change at runtime because the CI provider is built once. Changing `kind` or `max_log_lines` requires a restart.
-
-**Minimal:**
-
-```yaml
-ci_feedback:
-  kind: github
-```
-
-**Full:**
-
-```yaml
-ci_feedback:
-  kind: github            # activates CI feedback; absent = disabled
-  max_retries: 2           # default 2; 0 = escalate immediately
-  max_log_lines: 50        # default 50; 0 = disable log fetching
-  escalation: label        # "label" or "comment"; default "label"
-  escalation_label: needs-human  # default "needs-human"
-```
-
-For operational guidance on CI feedback setup, hook scripts that produce `.sortie/scm.json`, and prompt template examples with `{{ .ci_failure }}`, see [how to configure CI feedback](/guides/configure-ci-feedback/).
 
 ---
 
@@ -1530,9 +1464,8 @@ Sortie watches `WORKFLOW.md` for filesystem changes and re-applies configuration
 | Prompt template                        | Future worker attempts.                |
 | `dispatch.rules`, `dispatch.default`   | Future claims. In-flight issues keep the agent and template frozen at first dispatch. A waiting retry keeps its recorded selection unless the configuration no longer reaches its kind or holds its template; see [dispatch dynamic reload](#dynamic-reload). |
 | Per-rule `dispatch` template files     | Read on WORKFLOW.md load and reload; a standalone edit applies on the next WORKFLOW.md change or dispatch. |
-| `ci_feedback.max_retries`              | Next reconcile tick.                   |
-| `ci_feedback.escalation`, `ci_feedback.escalation_label` | Next reconcile tick.   |
-| `ci_feedback.kind`, `ci_feedback.max_log_lines` | Requires restart.              |
+| `reactions.ci_failure.max_retries`, `reactions.ci_failure.escalation`, `reactions.ci_failure.escalation_label` | Next reconcile tick. |
+| `reactions.ci_failure.provider`, `reactions.ci_failure.max_log_lines` | Requires restart. The CI provider is built once at startup with its log limit, so a reload neither swaps the provider nor turns CI feedback on or off. The reload is not refused; the running provider stays in use. |
 | `reactions.ci_failure.watch_window_ms` | Next reconcile tick.                   |
 | `reactions.ci_failure.triage.*`        | Requires restart. The triage configuration is frozen when the orchestrator is built. |
 | `self_review.*`                        | Next dispatch. Running workers use the snapshot captured at review-phase entry. |
