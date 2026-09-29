@@ -17,7 +17,7 @@ Where an agent kind can reach them, Sortie registers its tools via MCP and adver
 
 ## Pick a kind that has the tools
 
-Not every agent kind can call Sortie's tools, and for two of them it depends on where the session runs. Decide this before you write a line of tool guidance into a prompt.
+Not every session can call Sortie's tools. For three agent kinds it depends on where the session runs, and for Kiro CLI in ACP mode on how it signs in. Decide this before you write a line of tool guidance into a prompt.
 
 | `agent.kind` | Local dispatch | Dispatch over SSH |
 |---|---|---|
@@ -25,8 +25,9 @@ Not every agent kind can call Sortie's tools, and for two of them it depends on 
 | `copilot-cli` | Tools available | Tools available |
 | `codex` | Tools available | No tools |
 | `opencode` | Tools available | No tools |
-| `kiro` | No tools | No tools |
 | `agent-client-protocol` | Tools available, subject to the runtime's own workspace-trust and approval configuration | No tools |
+
+Kiro CLI runs on `agent-client-protocol`, and there Sortie's tools arrive only under a stored device login; an API key starts sessions but delivers none. See [Kiro CLI on the Agent Client Protocol](/reference/agent-client-protocol-kiro/) for how to confirm which credential a run uses.
 
 A session with no tools is not told about them either: Sortie withholds the first-turn advertisement rather than name a tool the agent cannot call. Nothing fails. The agent simply works without them.
 

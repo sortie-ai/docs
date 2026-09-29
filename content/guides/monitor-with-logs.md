@@ -132,7 +132,7 @@ time=2026-03-26T14:30:03.425+00:00 level=INFO msg="no tool execution channel for
 time=2026-03-26T14:30:03.500+00:00 level=INFO msg="turn started" issue_id=abc123 issue_identifier=MT-649 turn_number=1 max_turns=5
 ```
 
-This is the line to look for when an agent never mentions Sortie's tools. `remote=true` means the session was dispatched to an SSH host, which is the whole reason on a `codex` or `opencode` session; on `kiro` the line appears with `remote=false` too. Nothing is failing: the agent was deliberately not told about tools it could not call. See [delivery by agent kind](/reference/agent-extensions/#delivery-by-agent-kind).
+This is the line to look for when an agent never mentions Sortie's tools. `remote=true` means the session was dispatched to an SSH host, which is the whole reason on a `codex`, `opencode` or `agent-client-protocol` session. Nothing is failing: the agent was deliberately not told about tools it could not call. See [delivery by agent kind](/reference/agent-extensions/#delivery-by-agent-kind).
 
 An agent runtime can also change its own session id after the session has already started. Sortie logs it the moment it happens:
 
@@ -310,7 +310,7 @@ Read `session_tokens` against `issue_tokens_completed` to see who spent the budg
 Four more records surround the check, all WARN, all gated on `agent.max_tokens` being set. Two fire at dispatch and describe what the ceiling can bound for the session about to start:
 
 ```
-time=2026-03-26T14:38:02.000+00:00 level=WARN msg="token ceiling cannot bound this run" issue_id=abc123 issue_identifier=MT-649 agent_kind=kiro usage_arrival=none budget_tokens=50000
+time=2026-03-26T14:38:02.000+00:00 level=WARN msg="token ceiling cannot bound this run" issue_id=abc123 issue_identifier=MT-649 agent_kind=copilot-cli usage_arrival=none budget_tokens=50000
 time=2026-03-26T14:39:14.000+00:00 level=WARN msg="prior token spend unknown, token ceiling bounds this session only" issue_id=def456 issue_identifier=MT-702 error="database is locked" budget_tokens=50000
 ```
 

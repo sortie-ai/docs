@@ -61,7 +61,7 @@ If you also have `agent.max_concurrent_agents` set, total concurrency is the low
 
 ## Give the remote agent its credentials
 
-`ssh` does not hand your shell's environment to the remote host, so an agent there starts with whatever that host holds. For the credential its own runtime reads, you need no configuration: every agent kind declares its credential variable names, and Sortie sends those from its own environment on each remote launch. A `claude-code` pool picks up the orchestrator's `ANTHROPIC_API_KEY`, a `copilot-cli` pool its `GH_TOKEN`, a `kiro` pool its `KIRO_API_KEY`. The [environment reference](/reference/environment/#variables-carried-to-a-remote-agent) has the full per-kind list.
+`ssh` does not hand your shell's environment to the remote host, so an agent there starts with whatever that host holds. For the credential its own runtime reads, you need no configuration: every agent kind declares its credential variable names, and Sortie sends those from its own environment on each remote launch. A `claude-code` pool picks up the orchestrator's `ANTHROPIC_API_KEY`, a `copilot-cli` pool its `GH_TOKEN`. An `agent-client-protocol` pool declares none, so its runtime reads the credential or login the remote host already holds, or a variable you name below. The [environment reference](/reference/environment/#variables-carried-to-a-remote-agent) has the full per-kind list.
 
 Anything else is opt-in. Name it under `ssh_pass_env`:
 

@@ -268,7 +268,7 @@ The workflow file you wrote here is nearly complete for production. To move from
 
 What happens next:
 
-- [Run the full cycle with Copilot CLI](/getting-started/github-copilot-end-to-end/) or [Kiro](/getting-started/github-kiro-end-to-end/) to swap in a real agent, set up workspace hooks, and push code to a branch.
+- [Run the full cycle with Copilot CLI](/getting-started/github-copilot-end-to-end/) or [Kiro CLI](/getting-started/github-kiro-end-to-end/) to swap in a real agent, set up workspace hooks, and push code to a branch.
 - [Write a prompt template](/guides/write-prompt-template/) to give the agent detailed instructions using issue fields, conditionals, and template functions.
 - Consult the [GitHub connection guide](/guides/connect-to-github/) for query filters, Enterprise Server setup, and advanced state configuration.
 - Browse the [WORKFLOW.md configuration reference](/reference/workflow-config/) for every available field and its default value.

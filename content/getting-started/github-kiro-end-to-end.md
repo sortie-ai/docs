@@ -6,10 +6,7 @@ author: Sortie AI
 date: 2026-05-29
 weight: 90
 ---
-In this tutorial, we will wire Sortie to GitHub Issues and the Kiro CLI, then watch the full cycle run without you touching it: Sortie picks up a labeled issue from GitHub, clones your repository, Kiro writes and commits the code, Sortie pushes the branch and opens a pull request, and the issue moves to its review state. This builds on the [GitHub integration tutorial](/getting-started/github-integration/) and adds three pieces: the Kiro CLI agent adapter, workspace hooks for git, and a prompt template. The tracker stays GitHub, exactly as it was in the [Copilot CLI tutorial](/getting-started/github-copilot-end-to-end/). Only the agent changes.
-
-> [!WARNING]
-> **The `kiro` agent kind this tutorial drives is deprecated.** Kiro CLI now runs through the generic `agent-client-protocol` kind instead. `sortie validate` below reports it, and the run log warns about it too; see [advisory warnings](/reference/cli/#advisory-warnings) for exactly how often each one fires. This tutorial still works as written; see [how to run Kiro CLI in ACP mode](/guides/run-kiro-cli-in-acp-mode/) when you are ready to switch a real deployment.
+In this tutorial, we will wire Sortie to GitHub Issues and Kiro CLI, then watch the full cycle run without you touching it: Sortie picks up a labeled issue from GitHub, clones your repository, Kiro CLI writes and commits the code, Sortie pushes the branch and opens a pull request, and the issue moves to its review state. This builds on the [GitHub integration tutorial](/getting-started/github-integration/) and adds three pieces: Kiro CLI as the agent, workspace hooks for git, and a prompt template. The tracker stays GitHub, exactly as it was in the [Copilot CLI tutorial](/getting-started/github-copilot-end-to-end/). Only the agent changes. If you already have a Sortie configuration for Kiro CLI that you want to update, see [how to run Kiro CLI in ACP mode](/guides/run-kiro-cli-in-acp-mode/) instead.
 
 ## Prerequisites
 
@@ -28,25 +25,20 @@ In this tutorial, we will wire Sortie to GitHub Issues and the Kiro CLI, then wa
 
     You should see a version string. If the command is not found, see the [Kiro CLI docs](https://kiro.dev/docs/cli/).
 
-- A valid `KIRO_API_KEY` on a Kiro Pro, Pro+, or Power subscription. The headless path that Sortie drives requires this tier. Export the key:
+- A Kiro CLI login stored on the machine that runs Sortie. A stored login is what lets Sortie's own tools reach the agent; an API key does not (the [Kiro CLI reference](/reference/agent-client-protocol-kiro/#which-login-delivers-sorties-tools) explains why). Make sure no API key is set in your shell, then sign in:
 
     ```bash
-    export KIRO_API_KEY="your-kiro-api-key"
+    unset KIRO_API_KEY
+    kiro-cli login
     ```
 
-    Confirm the CLI sees it, the first check Sortie runs before it starts work on an issue:
+    Kiro CLI walks you through signing in. Then confirm which account it uses:
 
     ```bash
     kiro-cli whoami
     ```
 
-    This confirms the CLI has a key to use, not that Kiro accepts it. Sortie's own check also sends one request through Kiro, which is what catches a rejected key before any work starts. Now list the models valid for your account, because the workflow pins one:
-
-    ```bash
-    kiro-cli chat --list-models --format json
-    ```
-
-    The response is a JSON object with a `models` array and a `default_model`; this tutorial uses `claude-sonnet-4.6`.
+    You should see how you signed in and your account, for example `Logged in with GitHub` followed by your email. If the login did not take, you see `Not logged in` and the command exits with status 1. Run `kiro-cli login` again and repeat the check before you go on.
 
 - A git repository on GitHub that you can push to. Test it:
 
@@ -85,7 +77,7 @@ mkdir sortie-kiro-e2e && cd sortie-kiro-e2e
 
 Create `WORKFLOW.md` with the configuration below. Replace `yourorg/yourrepo` with your repository in the three places it appears: the tracker project, the clone URL, and the pull-request target.
 
-```jinja {filename="WORKFLOW.md",hl_lines=["39-44","46-47"]}
+```jinja {filename="WORKFLOW.md",hl_lines=["40-41"]}
 ---
 tracker:
   kind: github
@@ -125,14 +117,12 @@ hooks:
   timeout_ms: 120000
 
 agent:
-  kind: kiro
-  command: kiro-cli
+  kind: agent-client-protocol
+  command: kiro-cli acp -a
   max_turns: 5
   turn_timeout_ms: 1800000
+  stall_timeout_ms: 300000
   max_concurrent_agents: 1
-
-kiro:
-  model: claude-sonnet-4.6
 ---
 
 You are a senior engineer working in this repository.
@@ -180,40 +170,31 @@ making changes. Do not repeat the same approach that failed.
 {{ end }}
 ```
 
-If you arrived from the Copilot tutorial, the tracker, polling, workspace, and hooks sections will look familiar. The Kiro-specific work sits in the highlighted `agent` and `kiro` blocks. Three things are worth a closer look.
+If you arrived from the Copilot tutorial, the tracker, polling, workspace, and hooks sections will look familiar. The Kiro-specific work sits in the highlighted `kind` and `command` lines.
 
-### Agent: Kiro CLI instead of Copilot
+### Agent: Kiro CLI in ACP mode
 
-`agent.kind: kiro` selects the Kiro CLI adapter, registered under the `kiro` kind. `agent.command: kiro-cli` is the binary Sortie launches, resolved from `PATH` at session start. Each turn runs one `kiro-cli chat --no-interactive` subprocess to completion.
+`agent.kind: agent-client-protocol` tells Sortie to launch whatever `agent.command` names, keep that process alive for the whole session, and send each turn to it. The kind has no default binary and no model or permission settings of its own, so the runtime and its options live in one string:
 
-`agent.turn_timeout_ms: 1800000` gives each turn 30 minutes, a wall-clock bound the orchestrator applies regardless of how much output the agent has produced.
+| Part of `agent.command` | Effect |
+|---|---|
+| `kiro-cli` | The Kiro CLI binary, found on your `PATH` at session start. |
+| `acp` | Starts Kiro CLI in ACP mode, the protocol interface Sortie drives, instead of its interactive chat. |
+| `-a` | Auto-approves every tool request. Without it, Kiro CLI asks before each tool call, and an unattended run has nobody to answer. |
 
-The `kiro:` block is the adapter-specific pass-through. If you came from the Copilot tutorial, here is the mapping:
+The file pins no model, so Kiro CLI uses your account's default. To pin one, add `--model <id>` to the same string, as the [Kiro CLI reference](/reference/agent-client-protocol-kiro/#installation-and-configuration) describes.
 
-| Setting | `copilot-cli:` block | `kiro:` block |
-|---|---|---|
-| Model | `model: gpt-4.1` | `model: claude-sonnet-4.6` |
-| Tool permissions | on by default | on by default; both trust keys left unset |
-| Inner step budget | `max_autopilot_continues: 50` | none; bounded by `turn_timeout_ms` |
+`agent.turn_timeout_ms: 1800000` gives each turn 30 minutes, and `agent.stall_timeout_ms: 300000` ends a turn that goes five minutes without an event. Both are wall-clock bounds the orchestrator applies whatever the agent is doing.
 
-One Kiro specific drives that block: the model must be pinned with `model:`, because Kiro's interactive `/model` switch does not exist in headless mode, and the adapter passes `--model` on every turn. Pin one of the names `--list-models` returned earlier.
+### Before you run it: what `-a` allows
 
-We set no tool-trust key. With neither `trust_all_tools` nor `trust_tools` present the adapter passes `--trust-all-tools`, so the agent runs every tool without a confirmation prompt, which a headless turn needs because no one is there to approve anything. A narrower allowlist is refused today: what `kiro-cli` does when it meets a tool it does not trust under `--no-interactive` has not been established, and the conservative assumption is that it waits for an approval that never arrives. Full trust means running this inside a hardened sandbox. The [Kiro adapter reference](/reference/adapter-kiro/#tool-trust-behavior) covers the trust posture and the `agent` selector the block also accepts.
+With `-a`, Kiro CLI runs any tool the model picks, its shell included, with your user account's permissions, and nobody reviews the call first. That is what lets an unattended run finish, so point this first run at a repository you can afford to lose, and put the agent in a hardened sandbox before you use this setup for real work. The [trust-and-posture section](/reference/agent-client-protocol-kiro/#the-trust-and-posture-switch) of the reference covers the narrower alternative.
 
 ### Authentication and budgeting
 
-Two credentials do two jobs, and they are unrelated. `SORTIE_GITHUB_TOKEN` is the tracker token from the GitHub integration tutorial; `KIRO_API_KEY` authenticates the Kiro CLI to its backend. Both must be set in the shell you launch Sortie from.
+Two credentials do two jobs, and they are unrelated. `SORTIE_GITHUB_TOKEN` is the tracker token from the GitHub integration tutorial, and Sortie reads it from the shell you launch it from. The Kiro CLI login is stored on your machine, and Sortie never reads it: the `kiro-cli` process signs itself in, as it did for your `whoami` check. Before it starts work on an issue, Sortie opens a short-lived session and sends one request through it, so a login that cannot answer stops the run early with an error in the log instead of a run that completes empty.
 
-| Variable | Consumed by | Purpose |
-|---|---|---|
-| `SORTIE_GITHUB_TOKEN` | Sortie tracker | Reads and transitions GitHub issues. Set in the GitHub integration tutorial. |
-| `KIRO_API_KEY` | Kiro CLI agent | Authenticates the agent. Requires a Kiro Pro, Pro+, or Power subscription. |
-
-Budgeting also works differently. The headless Kiro path reports no token counts, only an abstract credits figure, so Sortie emits no token-usage events and the dashboard's aggregate token total stays at zero. You do not have to read that zero as a clue: expand a running Kiro session on the dashboard and its `Usage reporting` field says it outright, `this session reports no token usage`, with a dash where the Model, API Requests, and Tokens figures would be. Budget enforcement is time-based: `agent.turn_timeout_ms` is the control, not a token cap. The [Kiro adapter reference](/reference/adapter-kiro/) covers the full accounting story.
-
-### Why your first run will not hang
-
-Headless Kiro handles a missing credential and an invalid one differently, and neither is friendly. With no credential at all, `kiro-cli chat` does not error; it drops into an interactive device-login flow and waits, which would hang an unattended run. With an invalid key it exits fast but quietly, producing an empty turn rather than a clear failure. Sortie closes both gaps before it starts work on an issue: it opens a short-lived session of its own, runs `kiro-cli whoami` in it, the check you ran in the prerequisites, and then sends one request through it, as it does for every agent. `whoami` catches a missing credential before `chat` can wait on a login, and the request catches a key Kiro rejects. A missing or unusable credential stops the run immediately with a clear error in the log, so your first run fails loudly and early instead of hanging or completing empty. See [credential verification](/reference/workflow-config/#credential-verification) for the mechanism every kind shares.
+Budgeting works differently from an agent that reports tokens. Sortie has no way to measure Kiro CLI's token use on this route, so the logs carry no token counts and the dashboard's token total stays at zero. Budget enforcement is time-based: `agent.turn_timeout_ms` is the control, not a token cap. The [Kiro CLI reference](/reference/agent-client-protocol-kiro/#token-accounting-has-no-source-on-this-route) has the details.
 
 ### Workspace and hooks
 
@@ -231,14 +212,7 @@ Check for syntax errors and misconfigured fields before running:
 sortie validate ./WORKFLOW.md
 ```
 
-Two advisory warnings are expected here:
-
-```
-warning: agent.kind.no_tool_channel: agent kind "kiro" has no tool execution channel: Sortie's tools are neither advertised nor callable for it
-warning: agent.kind.deprecated: agent kind "kiro" is deprecated and will be removed in a later release; use agent kind "agent-client-protocol" instead
-```
-
-Kiro's runtime disables MCP under the API-key credential this tutorial uses, so Sortie's own agent tools cannot reach the session and its first-turn prompt does not offer them. The agent still reads the issue, writes code, and pushes a branch, which is everything this walkthrough needs. The second warning is the deprecation notice covered above; see [how to run Kiro CLI in ACP mode](/guides/run-kiro-cli-in-acp-mode/) when this stops being a tutorial and becomes a real deployment. Two warnings leave the configuration valid: confirm with `echo $?`, which should print `0`. Anything printed with an `error:` prefix is a real problem to fix before running.
+No output means no errors and no warnings. Confirm with `echo $?`, which should print `0`. Anything printed with an `error:` prefix is a real problem to fix before running.
 
 ### Run Sortie
 
@@ -248,42 +222,43 @@ Start Sortie:
 sortie ./WORKFLOW.md
 ```
 
-You should see output similar to this (timestamps and IDs will differ, and the `tick completed` lines carry more fields than shown here):
+You should see output similar to this (timestamps and IDs will differ, a few startup lines are trimmed, and the `tick completed` lines carry more fields than shown here):
 
 ```
 level=INFO msg="sortie starting" version=0.x.x workflow_path=/home/you/sortie-kiro-e2e/WORKFLOW.md
-level=INFO msg="database path resolved" db_path=/home/you/sortie-kiro-e2e/.sortie.db
 level=INFO msg="http server listening" addr=127.0.0.1:7678
 level=INFO msg="sortie started"
-level=WARN msg="agent kind is deprecated and will be removed in a later release" agent_kind=kiro replacement_kind=agent-client-protocol
 level=INFO msg="tick completed" candidates=1 dispatched=1 ... running=1 retrying=0 ...
 level=INFO msg="running hook" issue_id=7 issue_identifier=7 hook=after_create workspace=…/workspaces/7
 level=INFO msg="running hook" issue_id=7 issue_identifier=7 hook=before_run workspace=…/workspaces/7
 level=INFO msg="workspace prepared" issue_id=7 issue_identifier=7 workspace=…/workspaces/7
 level=INFO msg="agent credential verified" issue_id=7 issue_identifier=7 duration_ms=…
 level=INFO msg="agent session started" issue_id=7 issue_identifier=7 session_id=…
-level=INFO msg="turn started" issue_id=7 issue_identifier=7 turn_number=1 max_turns=5
+level=INFO msg="turn started" issue_id=7 issue_identifier=7 session_id=… turn_number=1 max_turns=5
 ```
 
-The `agent credential verified` line is Sortie proving `KIRO_API_KEY` actually works, in a short-lived session of its own, before it starts the working session below it. The agent is now working. A Kiro session for this task usually finishes in 3 to 10 minutes, depending on repository size and the model; the 30-minute `turn_timeout_ms` is the backstop, not the expected duration. Kiro's stdout transcript appears in the log at `debug` level as the agent reads files and writes code.
+Notice that no `WARN` line appears. The `agent credential verified` line is Sortie proving the Kiro CLI login answers a request, in a short-lived session of its own, before it starts the working session below it. The agent is now working. A session for this task usually finishes in a few minutes, depending on repository size and the model; the 30-minute `turn_timeout_ms` is the backstop, not the expected duration.
 
-When the agent finishes a turn, you will see:
+When the agent finishes, you will see:
 
 ```
-level=INFO msg="turn completed" issue_id=7 issue_identifier=7 turn_number=1 max_turns=5
-level=INFO msg="running hook" issue_id=7 issue_identifier=7 hook=after_run workspace=…/workspaces/7
-level=INFO msg="worker exiting" issue_id=7 issue_identifier=7 exit_kind=normal turns_completed=1
-level=INFO msg="handoff transition succeeded, releasing claim" issue_id=7 issue_identifier=7 handoff_state=review
+level=INFO msg="turn completed" issue_id=7 issue_identifier=7 session_id=… turn_number=1 max_turns=5
+level=INFO msg="agent signaled status, exiting worker" issue_id=7 issue_identifier=7 session_id=… status=needs-human-review turns_completed=1
+level=INFO msg="running hook" issue_id=7 issue_identifier=7 session_id=… hook=after_run workspace=…/workspaces/7
+level=INFO msg="worker exiting" issue_id=7 issue_identifier=7 session_id=… exit_kind=normal turns_completed=1
+level=INFO msg="handoff transition succeeded, releasing claim" issue_id=7 issue_identifier=7 session_id=… handoff_state=review ...
 level=INFO msg="tick completed" candidates=0 dispatched=0 ... running=0 retrying=0 ...
 ```
+
+The `agent signaled status` line is the agent saying it is done: Sortie's first-turn prompt asks every agent to write `.sortie/status` when its work is ready for review, so Sortie ended the session after one turn. Had the agent skipped that step, you would see `issue state refreshed` and another turn, up to five.
 
 Here is the full lifecycle, step by step:
 
 1. Sortie polled GitHub and found issue #7 with the `backlog` label.
 2. `after_create` cloned the repository into `workspaces/7/`.
 3. `before_run` created the branch `sortie/7` from `origin/main`.
-4. Sortie verified the credential in a session of its own, then launched `kiro-cli chat --no-interactive` with your pinned model and tool allowlist.
-5. Kiro read the codebase, wrote the implementation, ran the test, and completed the turn.
+4. Sortie verified the login in a session of its own, then launched `kiro-cli acp -a` in the workspace and opened a protocol session.
+5. Kiro CLI read the codebase, wrote the implementation, ran the test, and completed the turn.
 6. `after_run` committed the change, pushed `sortie/7`, and opened the pull request.
 7. Sortie removed the `backlog` label, added `review`, and left the issue open with the PR attached.
 8. The next poll found zero candidates and went idle.
@@ -348,28 +323,28 @@ If the label did not change, check the Sortie logs for the transition error. The
 
 ### Check the dashboard
 
-Open `http://127.0.0.1:7678/` in a browser while Sortie is running, on Sortie's default port. You will see summary cards and a run history table with the completed session: its issue identifier, turn count, duration, and exit status. The aggregate token total reads zero, which is expected for Kiro, as the budgeting note above explains.
+The dashboard is served only while Sortie runs, so start it again with `sortie ./WORKFLOW.md` and open `http://127.0.0.1:7678/` in a browser, on Sortie's default port. You will see summary cards and a run history table with the completed session: its issue identifier, turn count, duration, and exit status. The Total Tokens card reads `0`, which is expected for Kiro CLI, as the budgeting note above explains.
 
 ### Troubleshooting
 
-**The run shows no token-usage numbers.** The logs carry no token counts and the dashboard's aggregate token total stays at zero. This is not an error, and you do not have to infer it from a zero: while the session is still running, expand its row on the dashboard and read the `Usage reporting` field, which states `this session reports no token usage`. The headless Kiro path reports only an abstract credits figure, never tokens, so Sortie cannot emit token usage. Budget is time-based, so tune `agent.turn_timeout_ms` rather than a token cap.
+**The run shows no token-usage numbers.** The logs carry no token counts and the dashboard's Total Tokens card stays at `0`. This is not an error. While a session is running, its expanded row on the dashboard reads `not reported yet` under Tokens until the first turn ends, then `not reported`. Budget is time-based, so tune `agent.turn_timeout_ms` rather than a token cap.
 
-**The run fails before any turn.** No `agent credential verified` line follows `agent session start`, and the error names one of two cases. With no key at all, you see `agent session start: agent: credential_unverified: the agent runtime reports no usable credential: whoami reports no signed-in account`. With a key Kiro rejects, you see `agent session start: agent: port_exit: the agent runtime exited before responding: exit status 0:` followed by what `kiro-cli chat` wrote to standard error, ending with Kiro's own message, such as `Access denied: The bearer token included in the request is invalid.` The key is missing, invalid, or the account lacks a Kiro Pro, Pro+, or Power subscription. `kiro-cli whoami` shows only whether a key is set, so confirm the key works with `kiro-cli chat --no-interactive "Reply OK"`: a working key gets an answer, and a rejected one prints the same message.
+**The run fails before any turn.** No `agent credential verified` line appears, and the error ends in what Kiro CLI printed before it exited, for example that you are not signed in. Run `kiro-cli login`, confirm it with `kiro-cli whoami`, and start Sortie from that same shell. Sortie retries the issue on its own once the login works.
 
-**A turn hits the turn timeout.** The turn ends at the `turn_timeout_ms` backstop, the worker reports a `turn_timeout` error, and the attempt is retried. The cause is a stuck turn. Credential verification prevents the no-credential device-login hang before any turn starts, so the usual culprit here is a bad model name or a genuinely long task. Verify both with `kiro-cli whoami` and `kiro-cli chat --list-models --format json`.
+**A turn hits the turn timeout.** The turn ends at the `turn_timeout_ms` backstop, the worker reports a `turn_timeout` error, and the attempt is retried. The cause is usually a genuinely long task or a stuck turn. Check that `kiro-cli whoami` still answers promptly, and raise `turn_timeout_ms` for a long task.
 
-For the full behavior matrix, including exit-code classification, output shape, and resume, see the [Kiro adapter reference](/reference/adapter-kiro/).
+For the full picture of what this route delivers and where it stops, see the [Kiro CLI reference](/reference/agent-client-protocol-kiro/).
 
 {{% /steps %}}
 
 ## What we built
 
-We ran the complete Sortie lifecycle with the Kiro CLI on GitHub Issues, from a labeled issue to an open pull request, with no manual intervention.
+We ran the complete Sortie lifecycle with Kiro CLI on GitHub Issues, from a labeled issue to an open pull request, with no manual intervention.
 
 - **Poll**: Sortie watched GitHub for issues labeled `backlog`.
 - **Clone**: The `after_create` hook cloned the repository into a per-issue workspace.
 - **Branch**: The `before_run` hook created a clean feature branch.
-- **Code**: Kiro read the codebase, wrote an implementation, and ran tests.
+- **Code**: Kiro CLI, driven in ACP mode, read the codebase, wrote an implementation, and ran tests.
 - **Push**: The `after_run` hook committed, pushed, and opened the pull request.
 - **Handoff**: Sortie moved the issue to its `review` state.
 
@@ -381,5 +356,5 @@ Where to go next:
 - [WORKFLOW.md configuration reference](/reference/workflow-config/): every field, every default, every constraint
 - [Monitor with logs](/guides/monitor-with-logs/): read the structured log output during long-running sessions
 - [Monitor with Prometheus](/guides/monitor-with-prometheus/): session counts and retry rates as time-series metrics
-- [Kiro CLI adapter reference](/reference/adapter-kiro/): configuration, headless output, credential verification, and time-based budgeting
+- [Kiro CLI on the Agent Client Protocol](/reference/agent-client-protocol-kiro/): launch command, credentials, trust posture, and limitations
 - [Scale agents with SSH](/guides/scale-agents-with-ssh/): remote execution for production workloads

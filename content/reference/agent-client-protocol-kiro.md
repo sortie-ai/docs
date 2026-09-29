@@ -1,12 +1,12 @@
 ---
 title: "Kiro CLI on the Agent Client Protocol"
-description: "Reference for running Kiro CLI on Sortie's generic agent-client-protocol kind: installation, the credential caveat that decides whether the route delivers Sortie's tools at all, the single trust-and-posture switch, and the runtime's own limitations on token accounting and session close."
+description: "Reference for running Kiro CLI under Sortie in ACP mode: the launch command, which login delivers Sortie's tools, the single trust-and-posture switch, model pinning, and the runtime's limits on token accounting and session close."
 author: Sortie AI
 date: 2026-09-09
 weight: 147
 url: /reference/agent-client-protocol-kiro/
 ---
-[Kiro CLI](https://kiro.dev/docs/cli/) reaches Sortie two ways. This page covers the generic [`agent-client-protocol`](/reference/adapter-agent-client-protocol/) kind, where `agent.command` names the `kiro-cli` binary together with `acp`, the subcommand that puts it into protocol mode. The other route is the native `kiro` kind, described on the [Kiro CLI adapter reference](/reference/adapter-kiro/#two-routes-to-this-runtime); that kind is deprecated in favor of this one, so an operator moving off it lands here. See [how to run Kiro CLI in ACP mode](/guides/run-kiro-cli-in-acp-mode/) for the field-by-field conversion.
+[Kiro CLI](https://kiro.dev/docs/cli/) runs under Sortie in ACP mode: the generic [`agent-client-protocol`](/reference/adapter-agent-client-protocol/) kind, where `agent.command` names the `kiro-cli` binary together with `acp`, the subcommand that puts it into protocol mode. To connect Kiro CLI step by step, or to update a configuration that still names `kind: kiro`, see [how to run Kiro CLI in ACP mode](/guides/run-kiro-cli-in-acp-mode/).
 
 Sample workflow: [`examples/WORKFLOW.agent-client-protocol.kiro.md`](https://github.com/sortie-ai/sortie/blob/main/examples/WORKFLOW.agent-client-protocol.kiro.md).
 
@@ -24,15 +24,15 @@ agent:
 
 The `acp` subcommand does not appear in `kiro-cli --help`. It is listed under `kiro-cli --help-all` only, which is worth knowing before concluding a build does not carry it.
 
-This kind has no model configuration key. The sample pins no model, so an unpinned run resolves whatever the credential defaults to, and a qualification measurement taken against one pinned model does not transfer to another. Unlike the runtime's native `chat` entry point under `--output-format stream-json`, where the same flag can fail silently and warn on standard error while the turn still runs on the default, `--model <id>` on the `acp` entry point does take effect, setting the model for the session the run starts. To pin one, add `--model <id>` to `agent.command`, and read the account's own model set off `kiro-cli chat --list-models -f json`, which the runtime serves from the account's own backend rather than from the binary.
+This kind has no model configuration key. The sample pins no model, so an unpinned run resolves whatever the credential defaults to, and a qualification measurement taken against one pinned model does not transfer to another. `--model <id>` on the `acp` entry point takes effect, setting the model for the session the run starts. To pin one, add `--model <id>` to `agent.command`, and read the account's own model set off `kiro-cli chat --list-models -f json`, which the runtime serves from the account's own backend rather than from the binary.
 
 ---
 
-## The credential caveat, and why it decides whether this route is worth taking
+## Which login delivers Sortie's tools
 
 This is the single most important fact on this page. Authenticating with `KIRO_API_KEY` starts sessions, runs turns, and continues sessions correctly, and silently carries none of Sortie's tools. The runtime asks its own backend for a governance profile before enabling MCP at all; that request fails for the one API key this route was measured with, so a session authenticated that way starts and runs normally while every declared tool server is dropped with no signal anywhere Sortie can see, on the wire or in Sortie's own output. Whether it fails for every API key, or only for keys on some plans, is unestablished. A stored device login does not hit that check: under a device login, the same request, model, and posture deliver and call the tool.
 
-Since reaching Sortie's own tools is the reason to prefer this route over the native `kiro` kind at all, a deployment that wants that has to authenticate with a stored device login, on the machine that runs Sortie, rather than with `KIRO_API_KEY`.
+A deployment that needs Sortie's own tools has to authenticate with a stored device login, on the machine that runs Sortie, rather than with `KIRO_API_KEY`.
 
 | Credential | Sessions and turns | Sortie's tools |
 |---|---|---|
@@ -43,13 +43,13 @@ The runtime's own log is the only place that states the cause when tools go miss
 
 ### Confirming which credential a run will actually use
 
-The [credential-verification step](/reference/workflow-config/#credential-verification) every worker attempt opens before its working session proves the credential answers a request at all, but it says nothing about which credential answered or whether that credential can reach Sortie's tools; see [authentication](/reference/adapter-agent-client-protocol/#authentication). Confirm the credential yourself before an unattended run, not after one silently loses its tools or hangs:
+The [credential-verification step](/reference/workflow-config/#credential-verification) every worker attempt opens before its working session proves the credential answers a request at all, but it says nothing about which credential answered or whether that credential can reach Sortie's tools; see [authentication](/reference/adapter-agent-client-protocol/#authentication). Confirm the credential yourself before an unattended run, not after one silently loses its tools:
 
 ```sh
 kiro-cli whoami
 ```
 
-This reports the authenticated account. A machine carrying no credential at all does not fail here: a headless invocation instead blocks on an interactive device-authorization flow, so checking this ahead of time catches a missing credential before an unattended run hangs on it rather than after.
+This reports the authenticated account. On a machine carrying no credential at all it prints `Not logged in` and exits with status 1, and a launch of `kiro-cli acp` there exits with status 1 before the handshake completes, printing `error: You are not logged in, please log in with kiro-cli login` on standard error. Checking ahead of time catches a missing credential before an unattended run.
 
 ---
 
@@ -73,6 +73,10 @@ No per-turn token count reaches Sortie on this route, and Sortie ships no measur
 
 This runtime's `initialize` handshake advertises an empty `sessionCapabilities` object, so `session/close` is never selected against it: a session here always ends through process termination, described in the [kind page's process shutdown section](/reference/adapter-agent-client-protocol/#process-shutdown). The short-lived [credential-verification](/reference/workflow-config/#credential-verification) session every worker attempt opens before the working one ends the same way, with nothing to call back and remove it; see [the kind page's session close section](/reference/adapter-agent-client-protocol/#session-close) for what that leaves behind on a runtime, this one included, that advertises neither method.
 
+### Sortie's tools are not delivered over SSH
+
+A launch over SSH parses no tool servers, so the session reaches none of Sortie's tools whichever credential the remote host holds; see [MCP](/reference/adapter-agent-client-protocol/#mcp) and [SSH remote execution](/reference/adapter-agent-client-protocol/#ssh-remote-execution) on the kind page.
+
 ### A large vendor-namespaced surface exists and is safely ignored
 
 The runtime announces available commands, subagent lists, MCP server initialization, and per-turn metadata under its own method prefix. These arrive as notifications rather than requests, so nothing answers them and nothing depends on them; Sortie records them as unrecognized and moves on. An unfamiliar line naming one of these methods in a debug log is expected, not a sign that something needs handling.
@@ -90,7 +94,7 @@ Every measurement behind this page's claims was taken on a non-Windows host. Whe
 ## Related pages
 
 - [Agent Client Protocol adapter reference](/reference/adapter-agent-client-protocol/): the runtime-neutral transport this page assumes
-- [Kiro CLI adapter reference](/reference/adapter-kiro/): the native `kiro` kind reaching the same runtime, and what each of the two routes delivers
+- [How to run Kiro CLI in ACP mode](/guides/run-kiro-cli-in-acp-mode/): connecting Kiro CLI, choosing the login, and updating an older configuration
 - [Gemini CLI on the Agent Client Protocol](/reference/agent-client-protocol-gemini/): a second runtime on the same route, with a different credential trade-off
 - [WORKFLOW.md configuration reference](/reference/workflow-config/): full `agent` schema
 - [Environment variables reference](/reference/environment/): how a runtime's own credential reaches its subprocess

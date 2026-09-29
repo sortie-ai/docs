@@ -1,7 +1,7 @@
 ---
 title: "How to Use Sortie in Docker"
 linkTitle: "Use Sortie in Docker"
-description: "Run Sortie in Docker: build the distroless image, compose Claude Code, Copilot, Codex, Kiro, or OpenCode agent images with COPY --from, and configure volumes, health checks, and process reaping."
+description: "Run Sortie in Docker: build the distroless image, compose Claude Code, Copilot, Codex, Kiro CLI, or OpenCode agent images with COPY --from, and configure volumes, health checks, and process reaping."
 author: Sortie AI
 date: 2026-04-26
 weight: 180
@@ -18,7 +18,7 @@ This guide supports two valid starting points:
 
 - Docker 20.10+ with BuildKit enabled
 - A working `WORKFLOW.md` tested locally ([quick start](/getting-started/quick-start/))
-- API credentials for your agent (for example, `ANTHROPIC_API_KEY` for Claude Code, `GITHUB_TOKEN` for Copilot, `CODEX_API_KEY` for Codex, `KIRO_API_KEY` for Kiro, or provider-specific OpenCode credentials such as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GOOGLE_API_KEY`)
+- API credentials for your agent (for example, `ANTHROPIC_API_KEY` for Claude Code, `GITHUB_TOKEN` for Copilot, `CODEX_API_KEY` for Codex, `KIRO_API_KEY` for Kiro CLI, or provider-specific OpenCode credentials such as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GOOGLE_API_KEY`)
 
 ## Use the maintained example Dockerfiles
 
@@ -97,7 +97,7 @@ Only the base image and the install step differ per agent, and how to install an
 |---|---|
 | Claude Code | Its permission bypass refuses to run as root, so the non-root user is required rather than a hardening choice. |
 | Codex | Ships as a self-contained binary and needs no language runtime, so a plain Debian base is enough. |
-| Kiro | Ships as a binary dynamically linked against glibc, so it needs a glibc base such as `debian:bookworm-slim` rather than a musl-based image like Alpine. |
+| Kiro CLI | Sortie drives it in [ACP mode](/guides/run-kiro-cli-in-acp-mode/). It ships as a binary dynamically linked against glibc, so it needs a glibc base such as `debian:bookworm-slim` rather than a musl-based image like Alpine. |
 | OpenCode | Authenticates per provider, so the image needs `git` and the run must forward the provider credentials your model selection uses. |
 
 ## Run the container
@@ -120,7 +120,7 @@ The container needs credentials for the **agent** (to run code) and the **tracke
 | Claude Code | `ANTHROPIC_API_KEY` |
 | Copilot | `GITHUB_TOKEN` (or `GH_TOKEN`, or `COPILOT_GITHUB_TOKEN`) |
 | Codex | `CODEX_API_KEY` |
-| Kiro | `KIRO_API_KEY` |
+| Kiro CLI | `KIRO_API_KEY`, which delivers none of Sortie's tools; a stored login does (see [Kiro CLI on the Agent Client Protocol](/reference/agent-client-protocol-kiro/)) |
 | OpenCode | Provider-specific variables such as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GOOGLE_API_KEY`. Vertex-backed runs typically also need `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CLOUD_PROJECT`, and `VERTEX_LOCATION`. |
 
 **Tracker credentials:**
@@ -189,7 +189,7 @@ docker run --rm --init \
     sortie-codex /home/sortie/WORKFLOW.md
 ```
 
-### Kiro with Jira
+### Kiro CLI with Jira
 
 ```sh
 docker run --rm --init \
@@ -394,7 +394,7 @@ docker inspect --format='{{.State.Health.Status}}' <container-id>
 
 **SQLite database locked:** Two containers are sharing the same database file. Each Sortie instance needs its own `.sortie.db`. Use separate named volumes or `--db` paths for each container.
 
-**Kiro fails with authentication errors:** Kiro requires `KIRO_API_KEY`, unless a `kiro-cli` login is already stored where the agent runs. Before it starts work on an issue, Sortie runs a `kiro-cli whoami` guard and one request in a session of its own, and rejects a missing, invalid, or expired credential immediately instead of letting headless chat hang on an interactive login prompt. `whoami` shows only that a key is set, so verify the key with `kiro-cli chat --no-interactive "Reply OK"` outside the container. This check runs the same way locally and over SSH: a container that dispatches over SSH carries `KIRO_API_KEY` from its own environment into the remote agent's environment, and the check runs against it there too, so a bad key on the remote host is caught before any work starts rather than surfacing as a failing turn.
+**Kiro CLI fails with authentication errors:** Kiro CLI reads `KIRO_API_KEY` or a stored login. A fresh container holds no stored login, so forward the key with `-e KIRO_API_KEY`. With no credential at all, the session fails at start with `You are not logged in, please log in with kiro-cli login` on standard error. A run authenticated with the key starts sessions and runs turns, but none of Sortie's tools reach the agent; [Kiro CLI on the Agent Client Protocol](/reference/agent-client-protocol-kiro/) explains how to confirm which credential a run uses and how to get the tools.
 
 **OpenCode fails with provider authentication errors:** Forward the provider variables that match the selected OpenCode model. For direct providers, this is typically `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GOOGLE_API_KEY`. Vertex-backed runs also need `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CLOUD_PROJECT`, and usually `VERTEX_LOCATION`. In SSH mode, OpenCode carries no provider credential of its own, so those variables must already exist on the remote host or be named under [`worker.ssh_pass_env`](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent).
 
@@ -407,7 +407,7 @@ The Dockerfiles in this guide are self-contained. Copy them into your project an
 | [`claude-code.Dockerfile`](https://github.com/sortie-ai/sortie/blob/main/examples/docker/claude-code.Dockerfile) | Claude Code | `node:24-slim` |
 | [`copilot.Dockerfile`](https://github.com/sortie-ai/sortie/blob/main/examples/docker/copilot.Dockerfile) | GitHub Copilot | `node:24-slim` |
 | [`codex.Dockerfile`](https://github.com/sortie-ai/sortie/blob/main/examples/docker/codex.Dockerfile) | Codex | `debian:bookworm-slim` |
-| [`kiro.Dockerfile`](https://github.com/sortie-ai/sortie/blob/main/examples/docker/kiro.Dockerfile) | Kiro | `debian:bookworm-slim` |
+| [`kiro.Dockerfile`](https://github.com/sortie-ai/sortie/blob/main/examples/docker/kiro.Dockerfile) | Kiro CLI | `debian:bookworm-slim` |
 | [`opencode.Dockerfile`](https://github.com/sortie-ai/sortie/blob/main/examples/docker/opencode.Dockerfile) | OpenCode | `node:24-slim` |
 
 If a section in this guide becomes outdated, check those files for the current recommended configuration.

@@ -7,7 +7,7 @@ date: 2026-05-29
 weight: 230
 url: /guides/write-custom-agent-adapter/
 ---
-This guide shows you how to write an agent adapter: the package that lets Sortie drive a coding-agent CLI it does not bundle. The orchestrator already drives several agents (Claude Code, Codex, Copilot CLI, OpenCode, and Kiro) through one Go interface, `domain.AgentAdapter`. A new agent is a new package behind that interface, additive only. You add code under `internal/agent/<kind>/` and register it; you change nothing in the orchestrator, the retry logic, or the state machine. By the end you will have a registered adapter, unit tests, an env-gated integration test, and a checklist for the rest of what ships with it.
+This guide shows you how to write an agent adapter: the package that lets Sortie drive a coding-agent CLI it does not bundle. The orchestrator already drives several agents (Claude Code, Codex, Copilot CLI, OpenCode, and any runtime that speaks the Agent Client Protocol) through one Go interface, `domain.AgentAdapter`. A new agent is a new package behind that interface, additive only. You add code under `internal/agent/<kind>/` and register it; you change nothing in the orchestrator, the retry logic, or the state machine. By the end you will have a registered adapter, unit tests, an env-gated integration test, and a checklist for the rest of what ships with it.
 
 {{< callout type="info" >}}
 Sortie takes no position on how your adapter is produced: by hand, by a hired developer, or by an AI agent are all fine. What matters is that the person who opens the pull request owns the result and is accountable for it conforming to the project's conventions, the spec, the tests, and the quality bar. "The agent decided this" is not an answer to a reviewer's question, and `make lint` and `make test` pass because you ran them and read the output, not because a tool reported success. This is the [AI-assisted contributions](https://github.com/sortie-ai/sortie/blob/main/CONTRIBUTING.md) stance in `CONTRIBUTING.md`, stated once.
@@ -17,7 +17,7 @@ Sortie takes no position on how your adapter is produced: by hand, by a hired de
 
 - A Go toolchain set up the project's way. See `CONTRIBUTING.md` and the `Makefile`; this guide verifies steps with `make test` and `go test`, so you do not need to memorize build flags.
 - Familiarity with the repository layout: `internal/domain` holds the contract, `internal/agent/` holds adapters and the shared `agentcore` machinery, and `internal/registry` wires adapters to kind strings.
-- The target agent's CLI behavior captured in a research note. Every adapter starts from one (see the `docs/*-adapter-notes.md` files, for example `docs/kiro-adapter-notes.md`): the launch command, the output shape, the exit-code and stderr semantics, the auth model, resume support, and whether it reports tokens.
+- The target agent's CLI behavior captured in a research note. Every adapter starts from one (see the `docs/*-adapter-notes.md` files, for example `docs/copilot-adapter-notes.md`): the launch command, the output shape, the exit-code and stderr semantics, the auth model, resume support, and whether it reports tokens.
 - The [agent adapter model concept](/concepts/adapter-model/) for the architecture overview.
 
 {{% steps %}}
@@ -53,7 +53,7 @@ The data flows like this. `StartSession` receives `StartSessionParams` (the work
 
 ### Choose your execution model
 
-Fork-per-turn is the default: one subprocess per turn, launched fresh, scanned while it runs, and reaped on its own exit. Claude Code, Copilot CLI, OpenCode, and Kiro all work this way. The shared skeleton in `internal/agent/agentcore` implements the lifecycle for you, and the rest of this guide uses it.
+Fork-per-turn is the default: one subprocess per turn, launched fresh, scanned while it runs, and reaped on its own exit. Claude Code, Copilot CLI, and OpenCode all work this way. The shared skeleton in `internal/agent/agentcore` implements the lifecycle for you, and the rest of this guide uses it.
 
 The exception is the persistent-subprocess model. Codex keeps one long-lived `codex app-server` process and talks to it over a JSON-RPC handshake across turns, instead of forking. Choose it only when the CLI requires a persistent server with a protocol handshake. This guide does not cover that model; read `internal/agent/codex/` and the [Codex adapter reference](/reference/adapter-codex/) if your agent needs it.
 
@@ -144,7 +144,7 @@ Declare the truth about what your adapter does today, not what the CLI could the
 | `UsageArrivalTurnEnd` | `UsageAttributionPerModel` or `UsageAttributionSessionTotal` | Emits at most one `token_usage` event per turn, and only after the turn's work is over. |
 | `UsageArrivalNone` | `UsageAttributionNone` | Never emits one. Every turn is unmeasured, token budgets are inert, and `agent.turn_timeout_ms` is the budget that remains. |
 
-`UsageArrivalNone` is enforced, not merely documented: the orchestrator discards a figure your runtime sends under this declaration rather than trusting it, exactly as the [usage reporting reference](/reference/workflow-config/#usage-reporting-by-agent-kind) describes for every kind. Nothing about that failure reaches your adapter's own return values or errors, so catch it yourself: drive a real turn through your fake runtime and check it with `agenttest.AssertUsageReporting` (see [Test the adapter](#test-the-adapter)), the same way the built-in `kiro` and `copilot-cli` packages do. A Warn log Sortie emits once per run, naming your kind (see [monitor with logs](/guides/monitor-with-logs/#agent-session)), is what's left to catch a runtime shape none of your own tests drove.
+`UsageArrivalNone` is enforced, not merely documented: the orchestrator discards a figure your runtime sends under this declaration rather than trusting it, exactly as the [usage reporting reference](/reference/workflow-config/#usage-reporting-by-agent-kind) describes for every kind. Nothing about that failure reaches your adapter's own return values or errors, so catch it yourself: drive a real turn through your fake runtime and check it with `agenttest.AssertUsageReporting` (see [Test the adapter](#test-the-adapter)), the same way the built-in `claude-code` and `copilot-cli` packages do. A Warn log Sortie emits once per run, naming your kind (see [monitor with logs](/guides/monitor-with-logs/#agent-session)), is what's left to catch a runtime shape none of your own tests drove.
 
 A kind declaring `UsageArrivalTurnEnd` reports through `agentcore.TurnEndUsage` instead of emitting the event or calling `agentcore.FinalizeTurn` yourself. Construct it with `agentcore.NewTurnEndUsage()` exactly once, directly in `StartSession`'s own method body outside every function literal, and store the pointer on your session state; return its `Snapshot()` from `GetUsage`. In `OnFinalize`, build an `*agentcore.RecoveredUsage{Run, Model}` when this turn settled a figure, or leave it `nil` when it settled nothing, and call `state.usage.Finalize(emit, logger, ev, sessionID, apiDurationMS, recovered)` in place of `agentcore.FinalizeTurn`: it emits the one `token_usage` event when `recovered` is non-nil, latches the run's measured verdict, and then calls `FinalizeTurn` itself for the turn's terminal event. `TestUsageDeclarationContractInvariant` in `agentcore` enforces this shape: it fails a `turn_end` package that calls `agentcore.FinalizeTurn` directly, references `domain.EventTokenUsage` directly, or constructs `agentcore.NewTurnEndUsage()` anywhere but that one place. Copilot CLI and OpenCode are the worked examples: both recover their figure from a read that only completes after the subprocess exits, and hand it to `Finalize` as `recovered`.
 
@@ -156,7 +156,7 @@ Add `UsageSessionRules` when a pass-through setting or the launch mode narrows t
 
 [`sortie validate`](/reference/cli/#validate) turns a `none` declaration into operator-facing warnings, `agent.kind.no_usage_reporting` when a workflow also sets `agent.max_tokens` and `agent.kind.no_cost_estimate` when it prices your kind in `token_rates`, so an operator learns the setting is inert instead of waiting for a ceiling that never arrives.
 
-`SessionResumeBlockedBy` is optional and reports which of *your* pass-through keys, under the pass-through Sortie hands it, stops your runtime continuing a session across separate agent launches. Return the operator-visible key name; return the empty string when the configuration resumes normally. Leave the field out entirely when your runtime has no such key at all. That is the safe answer, and it is what the built-in Codex, Copilot CLI, OpenCode, Kiro and mock kinds do.
+`SessionResumeBlockedBy` is optional and reports which of *your* pass-through keys, under the pass-through Sortie hands it, stops your runtime continuing a session across separate agent launches. Return the operator-visible key name; return the empty string when the configuration resumes normally. Leave the field out entirely when your runtime has no such key at all. That is the safe answer, and it is what the built-in Codex, Copilot CLI, OpenCode, Agent Client Protocol and mock kinds do.
 
 ```go {filename="acme.go"}
 SessionResumeBlockedBy: func(passthrough map[string]any) string {
@@ -184,7 +184,7 @@ func TestRegistered(t *testing.T) {
 
 ### Define the passthrough config
 
-The `<kind>` block in WORKFLOW.md arrives as the raw `map[string]any` passed to your constructor. Decode it into a typed struct with the `typeutil` coercion helpers, and validate it at construction time so misconfiguration fails before any turn runs. This example is the Kiro tool-trust config: a model pin and two mutually exclusive trust modes.
+The `<kind>` block in WORKFLOW.md arrives as the raw `map[string]any` passed to your constructor. Decode it into a typed struct with the `typeutil` coercion helpers, and validate it at construction time so misconfiguration fails before any turn runs. This example is an invented tool-trust config for `acme-cli`: a model pin and two mutually exclusive trust modes.
 
 ```go {filename="command.go"}
 type passthroughConfig struct {
@@ -194,8 +194,12 @@ type passthroughConfig struct {
 }
 
 func parsePassthroughConfig(config map[string]any) (passthroughConfig, error) {
+	model, fault := typeutil.StringField(config, "model")
+	if fault != nil {
+		return passthroughConfig{}, fault
+	}
 	pt := passthroughConfig{
-		Model:         typeutil.StringFrom(config, "model"),
+		Model:         model,
 		TrustAllTools: typeutil.BoolFrom(config, "trust_all_tools", false),
 		TrustTools:    slices.Clone(typeutil.ExtractStringSlice(config["trust_tools"])),
 	}
@@ -206,7 +210,7 @@ func parsePassthroughConfig(config map[string]any) (passthroughConfig, error) {
 }
 ```
 
-`StringFrom`, `BoolFrom`, and `ExtractStringSlice` read a key with a fallback and tolerate a missing or wrong-typed value by returning the zero value. Clone any slice you keep so a later mutation cannot reach back into the config map. Field-level validation belongs here: returning an error from the constructor surfaces through `sortie validate`, so an operator sees the problem before dispatch rather than as a failed session.
+`StringField` reports a wrong-typed value as a fault and treats a missing key as empty, while `BoolFrom` and `ExtractStringSlice` fall back to a default or the zero value for either. Clone any slice you keep so a later mutation cannot reach back into the config map. Field-level validation belongs here: returning an error from the constructor surfaces through `sortie validate`, so an operator sees the problem before dispatch rather than as a failed session.
 
 **Verify:** a table-driven test exercises the parse and the validation.
 
@@ -241,7 +245,7 @@ func (a *ACMEAdapter) StartSession(ctx context.Context, params domain.StartSessi
 
 `agentcore.ResolveLaunchTarget(params, "acme-cli")` returns a validated `LaunchTarget`. It checks the workspace path (this containment check is a security boundary, not a convenience), resolves the binary from the command the workflow gives your kind or your default, splits a multi-token command into `Command` plus `Args` (so `codex app-server` becomes `Args: ["app-server"]`), and picks local or SSH mode based on `params.SSHHost`. Store the returned target in your session state and pass a pointer to it into `NewForkPerTurnSession`, so per-turn mutations (such as a resume flag) are observed on later turns.
 
-Before your working session's first turn, `agentcore.VerifyCredential` opens a session of its own, with `params.CredentialVerification` set, sends one fixed request through it, and closes it again; see [credential verification](/reference/workflow-config/#credential-verification) for the mechanism. This is where a credential guard belongs: gate it on `params.CredentialVerification` rather than on local-versus-SSH, so it runs identically in both modes, and let a working session (`params.CredentialVerification` false) skip it entirely, because its own verification session already proved the credential moments before. Kiro is the worked example: its headless `chat` blocks on interactive login when no credential is present, so its guard runs a `whoami --format json` canary and decides on the runtime's own answer. The guard settles presence only, because `whoami` accepts a key Kiro's backend would reject. A rejected key needs no code from you: `chat` exits 0 with empty output, so the shared verification request fails with the early exit report and carries Kiro's own message. Guard only the wait your runtime would block on, and leave acceptance to that request. A failing exit whose output reports no signed-in account returns `agentcore.CredentialAbsentError(reason, cause)`, which carries `Kind: domain.ErrCredentialUnverified`; any other failing exit returns `agentcore.ExitedEarly(target, result).Report(stderr)`, the shared [early exit report](/reference/errors/#early-exit-report), so the runtime's own exit status and standard error reach the operator instead of a guess about the credential. Build the guard's own command with `target.AuxiliaryCommand`, which builds the right one for a local or an SSH launch from the same call and re-verifies the workspace path immediately before building it, returning `(nil, *domain.AgentError)` if that fails; check that error before looking at the command's exit status, and return it unchanged rather than reinterpreting it as a credential failure. Bound the wait with `agentcore.CredentialExchangeBound` (60 seconds), generous enough for a credential that has to refresh itself over the network. Do this after `ResolveLaunchTarget` succeeds, because the binary must be resolved first. The credential itself needs no code from you beyond the guard: your `CredentialEnv` declaration is what carries it to a remote host, and `LaunchTarget.SSHOptions` resolves each declared name from the orchestrator's environment when the launch is built.
+Before your working session's first turn, `agentcore.VerifyCredential` opens a session of its own, with `params.CredentialVerification` set, sends one fixed request through it, and closes it again; see [credential verification](/reference/workflow-config/#credential-verification) for the mechanism. That request is the credential check every adapter gets. Add a guard of your own only for a runtime that would block on an interactive login when no credential is present, because a blocked request never fails and so never reports anything. Gate the guard on `params.CredentialVerification` rather than on local-versus-SSH, so it runs identically in both modes, and let a working session (`params.CredentialVerification` false) skip it entirely, because its own verification session already proved the credential moments before. Guard only the wait your runtime would block on, and leave acceptance to the shared request. When the guard finds the credential absent, return a `*domain.AgentError` whose `Kind` is `domain.ErrCredentialUnverified`. When the guarded command exits on its own, return `agentcore.ExitedEarly(target, result).Report(stderr)`, the shared [early exit report](/reference/errors/#early-exit-report), so the runtime's own exit status and standard error reach the operator instead of a guess about the credential; the OpenCode adapter's version probe returns it the same way. Build the guard's own command with `target.AuxiliaryCommand`, which builds the right one for a local or an SSH launch from the same call and re-verifies the workspace path immediately before building it, returning `(nil, *domain.AgentError)` if that fails; check that error before looking at the command's exit status, and return it unchanged rather than reinterpreting it as a credential failure. Bound the wait with `agentcore.CredentialExchangeBound` (60 seconds), generous enough for a credential that has to refresh itself over the network. Do this after `ResolveLaunchTarget` succeeds, because the binary must be resolved first. The credential itself needs no code from you beyond the guard: your `CredentialEnv` declaration is what carries it to a remote host, and `LaunchTarget.SSHOptions` resolves each declared name from the orchestrator's environment when the launch is built.
 
 A guard you write yourself is only a shortcut for a runtime that would otherwise hang or fail silently. Every adapter gets a baseline check for free: `agentcore.VerifyCredential` already sends a real request and reports `credential_unverified` when the runtime cannot answer it, whether or not the adapter's own `StartSession` does anything extra. A runtime that exits before it answers keeps the early exit report the skeleton built, `port_exit`, rather than becoming `credential_unverified`.
 
@@ -324,11 +328,11 @@ Populate every counter the runtime exposes. `InputTokens` includes prompt-cache 
 
 #### Unstructured output
 
-When the CLI emits a plain transcript with no event stream and no token reporting (Kiro), `ParseLine` strips ANSI, captures the text into an `EventNotification` for observability, and reports no usage. There is no terminal line on stdout, so `ParseLine` always returns `(nil, nil)` and the outcome is decided later from the exit status and stderr.
+When the CLI emits a plain transcript with no event stream and no token reporting, `ParseLine` strips ANSI, captures the text into an `EventNotification` for observability, and reports no usage. There is no terminal line on stdout, so `ParseLine` always returns `(nil, nil)` and the outcome is decided later from the exit status and stderr.
 
 ```go
 ParseLine: func(line []byte, emit func(domain.AgentEvent), pid string) (any, error) {
-	text := stripANSI(string(line))
+	text := agentcore.SanitizeLine(string(line))
 	if strings.TrimSpace(text) != "" {
 		state.work.ObserveAssistantOutput()
 	}
@@ -369,18 +373,18 @@ These fields carry the evidence.
 
 The rule reads those fields in order and stops at the first match: a terminal report wins outright, then a missing process exit, then the early exit report, then a non-zero exit, then the work evidence. A positive report from the runtime is never second-guessed by counting output, and exit code zero is never a success signal on its own, so an adapter with nothing positive to report gets a failed turn. That holds for an adapter that declared no signal at all: it takes a row of its own, and a clean exit on that row is still a failed turn, because a kind with nothing to observe has produced no evidence either.
 
-For a structured agent, read `lastParsed` and set `Terminal` from the result line. For an unstructured agent, derive it from the exit status, stderr, and the observer. Kiro is the worked example, and its exit-0 case is ambiguous: the process exits 0 whether or not a turn actually ran. Its `RunTurn` opens each turn with `state.work = agentcore.NewWorkObserver(agentcore.WorkSignals{AssistantOutput: true})`, and the credits trailer on stderr is the runtime's own success report, ranking above whatever that observer saw.
+For a structured agent, read `lastParsed` and set `Terminal` from the result line. For an unstructured agent, derive it from the exit status, stderr, and the observer. Take a CLI whose exit-0 case is ambiguous: the process exits 0 whether or not a turn actually ran, and it prints a completion trailer on stderr when one did. The adapter opens each turn with `state.work = agentcore.NewWorkObserver(agentcore.WorkSignals{AssistantOutput: true})`, and the trailer is the runtime's own success report, ranking above whatever that observer saw.
 
-If you read `stderrLines` for evidence rather than only to hand it to the operator, test it for `procutil.AbandonedMarker` before you trust it. The slice carries that marker at the end when the drain could not finish inside its bound, which happens when a descendant of the agent inherited the standard-error handle and outlived it. Everything collected up to that point is real, but a transcript ending there proves nothing about what the runtime went on to write, so a marker you find should disqualify whatever positive signal you were looking for and leave the turn to the shared rule. Kiro applies exactly this test to its credits trailer. A signal that reports a failure survives the same cut, because a line you read is a line the runtime wrote.
+If you read `stderrLines` for evidence rather than only to hand it to the operator, test it for `procutil.AbandonedMarker` before you trust it. The slice carries that marker at the end when the drain could not finish inside its bound, which happens when a descendant of the agent inherited the standard-error handle and outlived it. Everything collected up to that point is real, but a transcript ending there proves nothing about what the runtime went on to write, so a marker you find should disqualify whatever positive signal you were looking for and leave the turn to the shared rule. Apply exactly this test to a completion trailer. A signal that reports a failure survives the same cut, because a line you read is a line the runtime wrote.
 
 ```go
 OnFinalize: func(emit func(domain.AgentEvent), _ any, exitCode int, stderrLines []string, earlyExit *domain.AgentError) (domain.TurnResult, *domain.AgentError) {
-	creditsSeen := classifyStderr(stderrLines)
+	trailerSeen := classifyStderr(stderrLines)
 
 	ev := agentcore.TurnEvidence{ExitObserved: true, ExitCode: exitCode, EarlyExit: earlyExit}
 	ev.Work, ev.WorkDetail = state.work.Report()
 
-	if exitCode == 0 && creditsSeen {
+	if exitCode == 0 && trailerSeen {
 		ev.Terminal = agentcore.TerminalSuccess
 		state.resumeRequested = true
 	}
@@ -390,16 +394,16 @@ OnFinalize: func(emit func(domain.AgentEvent), _ any, exitCode int, stderrLines 
 },
 ```
 
-The error kind is a control-flow decision, not a label. The orchestrator reads it to decide whether to retry. Here is what the rule produces for Kiro's cases.
+The error kind is a control-flow decision, not a label. The orchestrator reads it to decide whether to retry. Here is what the rule produces for the completion-trailer case above.
 
 | Evidence | `ExitReason` | Error kind | Retry behavior |
 |---|---|---|---|
-| exit 0, credits trailer on stderr | `EventTurnCompleted` | none | success |
-| exit 0, no credits trailer, a non-blank stdout line | `EventTurnCompleted` | none | success |
-| no credits trailer, no non-blank stdout line, any exit status | `EventTurnFailed` | `ErrPortExit`, the early exit report | retryable, exponential backoff |
+| exit 0, completion trailer on stderr | `EventTurnCompleted` | none | success |
+| exit 0, no trailer, a non-blank stdout line | `EventTurnCompleted` | none | success |
+| no trailer, no non-blank stdout line, any exit status | `EventTurnFailed` | `ErrPortExit`, the early exit report | retryable, exponential backoff |
 | non-zero exit after a non-blank stdout line | `EventTurnFailed` | `ErrPortExit` | retryable, exponential backoff |
 
-Only the first row comes from evidence Kiro sets itself. The others are what the shared rule assigns to a zero exit with work, to an exit before any output, and to a non-zero exit after output, and every adapter gets them for free. Kiro's working turns read no authentication signal of their own at all, exit 0 with empty output included: a rejected credential on a working turn lands in the shared early-exit row above, carrying the runtime's own stderr, because by the time a working turn runs, the [credential-verification step](/reference/workflow-config/#credential-verification) has already proved the credential once. The one failure kind shown here, `ErrPortExit`, is retryable. Other kinds are not: `ErrAgentNotFound`, `ErrInvalidWorkspaceCwd`, `ErrTurnInputRequired`, and `ErrTurnCancelled` are non-retryable, so the orchestrator releases the claim instead of scheduling another attempt. Choose the kind that reflects what the orchestrator should do next, and confirm its retry semantics in the [agent errors reference](/reference/errors/#agent-errors).
+Only the first row comes from evidence the adapter sets itself. The others are what the shared rule assigns to a zero exit with work, to an exit before any output, and to a non-zero exit after output, and every adapter gets them for free. Such an adapter's working turns read no authentication signal of their own at all, exit 0 with empty output included: a rejected credential on a working turn lands in the shared early-exit row above, carrying the runtime's own stderr, because by the time a working turn runs, the [credential-verification step](/reference/workflow-config/#credential-verification) has already proved the credential once. The one failure kind shown here, `ErrPortExit`, is retryable. Other kinds are not: `ErrAgentNotFound`, `ErrInvalidWorkspaceCwd`, `ErrTurnInputRequired`, and `ErrTurnCancelled` are non-retryable, so the orchestrator releases the claim instead of scheduling another attempt. Choose the kind that reflects what the orchestrator should do next, and confirm its retry semantics in the [agent errors reference](/reference/errors/#agent-errors).
 
 **Verify:** a table test feeds exit codes and stderr fixtures to your adapter and asserts both `ExitReason` and the error kind with `errors.As`. `dispositiontest.AssertDispositionContract` pins each case against the shared rule for you.
 
@@ -407,7 +411,7 @@ Only the first row comes from evidence Kiro sets itself. The others are what the
 
 `StartSessionParams.ResumeSessionID` carries the session id from a previous worker attempt for the same issue. An adapter that cannot resume ignores the field; the orchestrator still functions, and each turn starts fresh. If your CLI supports resume, choose the strategy that matches how it identifies sessions.
 
-A session-id-based resume fits a CLI that owns an addressable identifier. Claude Code generates a UUID, threads it through every turn, and passes `--resume <id>` when `ResumeSessionID` is set. A cwd-scoped resume fits a CLI whose headless session id is not enumerable. Kiro cannot name its session, so it adds a bare `--resume` flag that continues the most recent conversation in the workspace directory, and it sets that flag only after a turn has printed the credits trailer (the `resumeRequested` field flips to true in `OnFinalize`). Pick based on what your CLI exposes; both are valid.
+A session-id-based resume fits a CLI that owns an addressable identifier. Claude Code generates a UUID, threads it through every turn, and passes `--resume <id>` when `ResumeSessionID` is set. A cwd-scoped resume fits a CLI whose headless session id is not enumerable. Such a CLI cannot name its session, so the adapter adds a bare flag that continues the most recent conversation in the workspace directory, and sets it only after a turn the runtime itself reported complete (the `resumeRequested` field in the `OnFinalize` sketch above flips to true). Pick based on what your CLI exposes; both are valid.
 
 **Verify:** a test asserts that turn two of a resumed session includes your continuation flag and turn one does not.
 
@@ -415,11 +419,11 @@ A session-id-based resume fits a CLI that owns an addressable identifier. Claude
 
 Make the agent's capabilities and limitations visible to operators, because they change how a workflow must be configured.
 
-Token-usage emission is optional. If the CLI reports tokens while a turn is still in flight, drive an `agentcore.RunUsage` and emit `EventTokenUsage` as figures arrive. If your authoritative figure only settles after the turn's work is over, report it through `agentcore.TurnEndUsage` instead, covered under [Register the adapter](#register-the-adapter). If the CLI reports no tokens at all, leave `TurnResult.Usage` at the zero value, emit no `EventTokenUsage`, and the agent is budgeted by time only, through `agent.turn_timeout_ms`. Kiro is the worked example: its headless path reports an abstract credits figure, never token counts, so token budgets are inert and `agent.turn_timeout_ms` is the time-based budget that remains.
+Token-usage emission is optional. If the CLI reports tokens while a turn is still in flight, drive an `agentcore.RunUsage` and emit `EventTokenUsage` as figures arrive. If your authoritative figure only settles after the turn's work is over, report it through `agentcore.TurnEndUsage` instead, covered under [Register the adapter](#register-the-adapter). If the CLI reports no tokens at all, leave `TurnResult.Usage` at the zero value, emit no `EventTokenUsage`, and the agent is budgeted by time only, through `agent.turn_timeout_ms`. Token budgets are then inert, and `agent.turn_timeout_ms` is the time-based budget that remains.
 
 A third case cuts across both: the turn reached the model and you cannot prove your figures covered it. That happens when no figure came back for the turn at all, and it happens when one came back that fell short of the turn. Set `TurnResult.SpendUnaccounted` on either, and report whatever partial figure you do have in `Usage`, since a turn that produced nothing contributes no number and emits no `token_usage` event while a turn whose figure fell short reports and emits it as any measured turn does. It is graded per turn and does not latch, so a later turn your figures do cover reports `false` again, which is what separates it from `UsageMeasured`. The orchestrator sums it across the run and stores the count, and that count is what turns `used_tokens_complete` false on the `cost_budget` tool and adds `unaccounted_turns` to the token-ceiling log records.
 
-Tool permissions are surfaced through the passthrough config. Every run is unattended, so the default has to be a posture the runtime can carry through a turn without stopping to ask, and a pass-through value that reopens the interactive path is refused through the shared configuration-diagnostic channel rather than accepted. Kiro is the worked example again: it exposes a `trust_tools` allowlist and a mutually exclusive `trust_all_tools` switch, resolves to full trust when neither is set, and refuses any narrower posture, because what `kiro-cli` does when it meets an untrusted tool under `--no-interactive` is unestablished. Expose only the flags your CLI actually has, and declare a diagnostic for each one that could let the agent stop and wait.
+Tool permissions are surfaced through the passthrough config. Every run is unattended, so the default has to be a posture the runtime can carry through a turn without stopping to ask, and a pass-through value that reopens the interactive path is refused through the shared configuration-diagnostic channel rather than accepted. Claude Code is the worked example: with no `permission_mode` it passes `--dangerously-skip-permissions`, and `sortie validate` refuses any value other than `bypassPermissions` with a `claude-code.permission_mode.interactive` error, because a mode that asks for approval leaves an unattended run waiting on someone who is not there. Expose only the flags your CLI actually has, and declare a diagnostic for each one that could let the agent stop and wait.
 
 State these capabilities and limitations in three places so operators find them: the `UsageArrival` and `UsageAttribution` declaration on registration, which is the one every Sortie surface reads; the adapter package doc comment; and the agent's docs-site reference page. An operator who reads "this agent reports no token usage; budget it with `turn_timeout_ms`" before they deploy avoids a confusing first run.
 
@@ -490,7 +494,7 @@ func TestMain(m *testing.M) {
 }
 ```
 
-A test builds the fake and hands its path to the adapter the same way `internal/agent/kiro/kiro_test.go` does:
+A test builds the fake and hands its path to the adapter the same way `internal/agent/claude/claude_test.go` does:
 
 ```go
 dir := t.TempDir()
@@ -508,7 +512,7 @@ Reach for the built-in `agenttest.OutputScenario` instead, with no registration,
 
 This package's tests run on Windows in CI the same as every other package (`.github/workflows/ci.yml`), so a fixture built as a POSIX shell script breaks there; a fake runtime built with `agenttest.FakeRuntime` does not.
 
-Kiro's `chatScenario` in `internal/agent/kiro/kiro_test.go` is the fuller worked example: it answers a `whoami` credential canary one way and a `chat` turn another, from the same fake binary.
+The `sequentialOutputScenario` in `internal/agent/claude/claude_test.go` is the fuller worked example: it returns one output on its first invocation and another on every later one, from the same fake binary.
 
 The integration test runs against the real CLI and stays gated behind an environment variable. Put it in the external `acme_test` package, blank-import your adapter so `init()` registration runs, and guard it with `SORTIE_ACME_TEST=1` plus the credential. Name the test so it contains `Integration`, which is how the release pipeline selects it with `-run 'Integration'`. Use no build tag: the env guard alone makes it skip cleanly when the variable is absent, so a normal `make test` never runs or fails it.
 
@@ -539,7 +543,7 @@ func TestACMEAdapter_Integration(t *testing.T) {
 }
 ```
 
-This matches `internal/agent/kiro/integration_test.go`; read it for the full StartSession-RunTurn-assert body.
+`internal/agent/claude/integration_test.go` has the full StartSession-RunTurn-assert body.
 
 **Verify:** unit tests pass, and the integration test skips when its env var is unset.
 
@@ -610,7 +614,7 @@ These steps need repository access an outside contributor does not have. Make th
 
 - [Contributing](https://github.com/sortie-ai/sortie/blob/main/CONTRIBUTING.md): how to contribute to the project
 - [Agent adapter model](/concepts/adapter-model/): why Sortie uses adapter interfaces and how the registry wires them
-- [Kiro CLI adapter reference](/reference/adapter-kiro/): the unstructured, time-budgeted worked example
+- [Claude Code adapter reference](/reference/adapter-claude-code/): the structured, incrementally metered worked example
 - [Claude Code adapter reference](/reference/adapter-claude-code/): the structured-output worked example
 - [Copilot CLI adapter reference](/reference/adapter-copilot/): a fork-per-turn adapter that emits `session_started` before the scan loop
 - [OpenCode adapter reference](/reference/adapter-opencode/): a structured adapter that recovers token usage with a second command
