@@ -121,7 +121,6 @@ A value that parses successfully can still be rejected by configuration validati
 | `agent.max_concurrent_agents_by_state` | Complex map structure (`{"in progress": 3, "to do": 1}`) |
 | `tracker.api_version` | No override variable exists; set directly in WORKFLOW.md or via `$VAR` indirection |
 | `tracker.handoff_evidence` | No override variable exists; set directly in WORKFLOW.md. Unlike most of its neighbors in the `tracker` section, it does not resolve `$VAR` references either. |
-| `ci_feedback.*` | No override variables exist; must be set in WORKFLOW.md |
 | `self_review.*` | No override variables exist; verification commands are security-sensitive and must come from version-controlled WORKFLOW.md |
 | `reactions.*` (including `reactions.label_commands`) | No override variables exist; reaction configuration must come from WORKFLOW.md |
 | `dispatch.*` | No override variables exist; rule definitions and template paths must come from WORKFLOW.md |
@@ -351,7 +350,7 @@ Three expansion modes exist. The mode depends on the field.
 | `workspace.root` | Path | `~/workspace/sortie` | `/home/deploy/workspace/sortie` |
 | `db_path` | Path | `$SORTIE_DB_DIR/sortie.db` | `/var/lib/sortie/sortie.db` |
 
-Fields in the core schema outside this table (`agent.kind`, `agent.max_turns`, hook scripts, `ci_feedback`, `self_review`, `reactions`, and `dispatch`) are treated as literal strings with no expansion.
+Fields in the core schema outside this table (`agent.kind`, `agent.max_turns`, hook scripts, `self_review`, `reactions`, and `dispatch`) are treated as literal strings with no expansion.
 
 [Adapter pass-through blocks](/reference/workflow-config/#adapter-pass-through-configuration) (`claude-code`, `worker`, `github`, and similar top-level blocks named after a `kind`) and each [`notifications`](/reference/workflow-config/#notifications) entry are the exception: every string leaf in those blocks is resolved with the same anywhere-in-string semantics, independently of the table above.
 

@@ -99,7 +99,7 @@ Every reaction kind shares these four fields.
 Keys other than these four are kind-specific and listed under each kind below.
 
 > [!NOTE]
-> Environment variable overrides for `reactions` fields are not supported. Reaction configuration comes from `WORKFLOW.md`, and it is captured once when the orchestrator starts. A dynamic reload does not rebuild it: changing any field of any kind, or adding or removing a kind's block, takes effect only on the next restart. The one exception is `ci_failure`, which is folded into the CI feedback configuration and re-read on every tick. Two of its fields sit outside that exception and still need a restart: `max_log_lines`, because the CI provider configuration is fixed at process start, and the `triage` block, which every kind that offers it freezes at process start.
+> Environment variable overrides for `reactions` fields are not supported. Reaction configuration comes from `WORKFLOW.md`, and it is captured once when the orchestrator starts. A dynamic reload does not rebuild it: changing any field of any kind, or adding or removing a kind's block, takes effect only on the next restart. The one exception is `ci_failure`, which is folded into the CI feedback configuration and re-read on every tick. Three things sit outside that exception and still need a restart: `provider`, which selects the CI provider built at process start (a reload leaves the running provider in use, and neither adds nor removes CI feedback), `max_log_lines`, because the CI provider is constructed with it, and the `triage` block, which every kind that offers it freezes at process start.
 
 ---
 
@@ -243,7 +243,7 @@ Two consequences follow, each restated under the kind it affects. `merge_conflic
 
 ### `reactions.ci_failure`
 
-Polls CI status for Sortie-created branches and dispatches a continuation turn when CI fails. This kind supersedes the deprecated top-level `ci_feedback` block; when both are present, `reactions.ci_failure` takes precedence and Sortie records a `ci_feedback.deprecated` [advisory warning](/reference/cli/#advisory-warnings). The run log prints it once and again only after the block disappears and returns; `sortie validate` reports it fresh on every run.
+Polls CI status for Sortie-created branches and dispatches a continuation turn when CI fails.
 
 **Fields** (beyond the common fields):
 

@@ -29,7 +29,7 @@ reactions:
 
 There is no `enabled` flag. Presence of `provider` activates the feature; absence disables it.
 
-An older `ci_feedback` top-level block (with a `kind` field instead of `provider`) still works on its own, with no warning. It is deprecated only in the sense that `reactions.ci_failure` supersedes it: when both are present, `reactions.ci_failure` wins, the `ci_feedback` block is ignored, and Sortie records that as an advisory warning, both in the run log and from `sortie validate` (see the [CLI reference](/reference/cli/#advisory-warnings) for how often each one reports it). Write new WORKFLOW.md files against `reactions.ci_failure` directly.
+A WORKFLOW.md that still has a top-level `ci_feedback` block, even an empty one, is refused: Sortie does not start and `sortie validate` reports an error. Move the block under `reactions` as `ci_failure` and rename `kind` to `provider`; the other settings keep their names. If `reactions.ci_failure` is already set, delete `ci_feedback` and do not copy its values across. A running Sortie that reloads such a file keeps its previous settings until you fix it.
 
 Once activated, Sortie hooks into the worker exit path. After each normal worker exit where the agent pushed code and the workspace's `.sortie/scm.json` carries a pull request number, an owner, a repository, and a branch, the orchestrator records a pending CI watch for that pull request. On each reconcile tick, it resolves the pull request's current head and polls CI status for that head. Three common outcomes:
 
@@ -342,7 +342,7 @@ A healthy CI feedback setup shows `sortie_ci_status_checks_total{result="passing
 
 ## Configuration reference
 
-For the full `reactions.ci_failure` field list, including `watch_window_ms` and its reload behavior, see the [reactions reference](/reference/reactions/#reactionsci_failure). The deprecated `ci_feedback` block (a `kind` field instead of `provider`, no `watch_window_ms`) is documented in the [workflow config reference](/reference/workflow-config/) for existing WORKFLOW.md files that have not migrated yet.
+For the full `reactions.ci_failure` field list, including `watch_window_ms` and its reload behavior, see the [reactions reference](/reference/reactions/#reactionsci_failure).
 
 ## Related guides
 

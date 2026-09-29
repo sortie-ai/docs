@@ -305,7 +305,7 @@ The pipeline checks:
 
 The pipeline does **not** check:
 
-- **Value ranges**, for most fields. `agent.max_sessions`, `agent.max_tokens`, `agent.token_warning_percent`, `agent.max_consecutive_absences`, `agent.turn_timeout_ms`, `agent.stop_grace_ms`, `workspace.retention_days`, `ci_feedback.max_retries`, `ci_feedback.max_log_lines`, the `self_review` integer fields, `reactions.*.max_retries`, and the `reactions.ci_failure` integer fields are checked and reject an out-of-range value as a configuration error. Negative values for `polling.interval_ms` or other timeout fields are accepted. Zero replaces with a built-in default for `polling.interval_ms` and `agent.read_timeout_ms`; for `agent.stall_timeout_ms` zero is kept and disables stall detection. `agent.turn_timeout_ms` and `agent.stop_grace_ms` must be positive; any other value is rejected rather than replaced.
+- **Value ranges**, for most fields. `agent.max_sessions`, `agent.max_tokens`, `agent.token_warning_percent`, `agent.max_consecutive_absences`, `agent.turn_timeout_ms`, `agent.stop_grace_ms`, `workspace.retention_days`, the `self_review` integer fields, `reactions.*.max_retries`, and the `reactions.ci_failure` integer fields are checked and reject an out-of-range value as a configuration error. Negative values for `polling.interval_ms` or other timeout fields are accepted. Zero replaces with a built-in default for `polling.interval_ms` and `agent.read_timeout_ms`; for `agent.stall_timeout_ms` zero is kept and disables stall detection. `agent.turn_timeout_ms` and `agent.stop_grace_ms` must be positive; any other value is rejected rather than replaced.
 - **Format constraints.** `tracker.endpoint` is not checked for valid URL syntax. Path fields are not checked for existence (except `workspace.root`).
 
 #### Advisory warnings
@@ -316,7 +316,7 @@ Beyond the error-level checks above, `validate` runs static analysis on the fron
 
 **Front matter analysis:**
 
-- **Unknown top-level keys** (`unknown_key`). A top-level YAML key that is not a core section (`tracker`, `polling`, `workspace`, `hooks`, `agent`, `db_path`, `ci_feedback`, `self_review`, `reactions`, `dispatch`, `notifications`), not a recognized extension (`server`, `logging`, `worker`), and not the adapter pass-through block matching the configured `tracker.kind` or `agent.kind`. Catches typos like `trackers:` instead of `tracker:`.
+- **Unknown top-level keys** (`unknown_key`). A top-level YAML key that is not a core section (`tracker`, `polling`, `workspace`, `hooks`, `agent`, `db_path`, `self_review`, `reactions`, `dispatch`, `notifications`), not a recognized extension (`server`, `logging`, `worker`), and not the adapter pass-through block matching the configured `tracker.kind` or `agent.kind`. Catches typos like `trackers:` instead of `tracker:`.
 - **Unknown sub-keys** (`unknown_sub_key`). A key inside a known section that does not match any defined field. For example, `tracker.typo_endpoint` or `hooks.before_launch`. Sub-objects named after the section's adapter kind are exempt (e.g., `tracker.jira` when `tracker.kind` is `jira`).
 - **Type mismatches** (`type_mismatch`). A value whose YAML type does not match the expected type for a field. For example, `hooks.timeout_ms: "not-a-number"` or `tracker.kind: 123`. Also covers semantic issues: a non-positive `hooks.timeout_ms` that falls back to the default, and non-numeric or non-positive entries in `agent.max_concurrent_agents_by_state` that are silently ignored at runtime.
 - **Ineffective token warning threshold** (`ineffective_setting`). `agent.token_warning_percent` is set above `0` while `agent.max_tokens` is `0`, so the threshold derives from a ceiling that is not in force and never fires. Raise `agent.max_tokens` above `0`, or leave `token_warning_percent` unset.
@@ -341,7 +341,6 @@ Every check in this group runs for every agent kind the configuration can reach,
 
 **Recorded advisories:**
 
-- **Deprecated `ci_feedback` section** (`ci_feedback.deprecated`). The top-level `ci_feedback` block is present while `reactions.ci_failure` is also set, so `reactions.ci_failure` takes precedence and the `ci_feedback` block is ignored. Remove the `ci_feedback` block.
 - **Label-commands poll interval clamped** (`reactions.label_commands.poll_interval_ms.clamped`). [`reactions.label_commands.poll_interval_ms`](/reference/workflow-config/#reactionslabel_commands) is set below its floor of `30000`; the floor is used instead.
 - **Label-commands review branch missing** (`reactions.label_commands.review_branch_missing`). `reactions.label_commands` is active with a review label, but the prompt template has no `{{ if .label_review }}` branch, so a review dispatch posts no review.
 - **Label-commands fix branch missing** (`reactions.label_commands.fix_branch_missing`). `reactions.label_commands` is active with a fix label, but the prompt template has no `{{ if .label_fix }}` branch, so a fix dispatch runs the normal work prompt against a checkout that can push.
@@ -447,7 +446,7 @@ The `check` field in JSON output and the prefix in text output use these values:
 | `reactions.merge_completion` | Invalid `reactions.merge_completion` block: a missing or colliding `target_state`, a required `tracker` field left unset, or a `poll_interval_ms` below the floor. |
 | `reactions.scm_provider_conflict` | Two active SCM reactions name different providers. |
 | `scm_adapter` | The single provider named by the active SCM reactions has no registered SCM adapter. |
-| `ci_provider` | The resolved CI feedback kind has no registered CI provider. |
+| `ci_provider` | `reactions.ci_failure.provider` names a provider that has no CI status support registered. |
 | `template_parse` | Go template syntax error in the prompt body. |
 | `tracker.kind` | Missing `tracker.kind` field. |
 | `tracker.api_key` | Missing or empty API key after environment variable expansion. |
@@ -482,7 +481,6 @@ Warning diagnostics use a separate set of check values. They appear only in the 
 | `agent.kind.no_tool_channel` | The agent kind has no tool execution channel, so Sortie's tools are neither advertised in the first-turn prompt nor callable during the session. |
 | `agent.kind.no_usage_reporting` | `agent.max_tokens` is set against an agent kind that reports no token usage for the sessions this configuration produces, so the per-issue token ceiling has nothing to count against. |
 | `agent.kind.no_cost_estimate` | `token_rates` prices an agent kind that reports no token usage for the sessions this configuration produces, so no cost can be estimated for it. |
-| `ci_feedback.deprecated` | The top-level `ci_feedback` block is present while `reactions.ci_failure` is also set, so `reactions.ci_failure` takes precedence and the `ci_feedback` block is ignored. |
 | `reactions.label_commands.poll_interval_ms.clamped` | `reactions.label_commands.poll_interval_ms` is set below its floor of `30000`; the floor is used instead. |
 | `reactions.label_commands.review_branch_missing` | `reactions.label_commands` is active with a review label, but the prompt template has no `{{ if .label_review }}` branch, so a review dispatch posts no review. |
 | `reactions.label_commands.fix_branch_missing` | `reactions.label_commands` is active with a fix label, but the prompt template has no `{{ if .label_fix }}` branch, so a fix dispatch runs the normal work prompt against a checkout that can push. |
