@@ -61,7 +61,7 @@ These fields control the orchestrator's scheduling behavior. They are not passed
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `kind` | string | - | Must be `"opencode"` to select this adapter. |
-| `command` | string | `opencode` | Path or name of the OpenCode binary. Resolved from `PATH` at session start. |
+| `command` | string or list | `opencode` | Path or name of the OpenCode binary. Resolved from `PATH` at session start. `agent.command` reaches this kind only when it is the default kind; a rule-routed `opencode` session beside another default kind runs `opencode` itself. See [`agent.command`](/reference/workflow-config/#agent) for the list form. |
 | `max_turns` | integer | `20` | Maximum Sortie turns per worker session. The orchestrator runs a turn up to this many times, re-checking tracker state after each turn. |
 | `max_sessions` | integer | `0` (unlimited) | Maximum completed sessions per issue before the orchestrator stops retrying. `0` disables the budget. |
 | `max_concurrent_agents` | integer | `10` | Global concurrency limit across all issues. |
@@ -432,7 +432,7 @@ The adapter uses the shared `sshutil` transport defaults:
 
 ### Shell quoting
 
-The workspace path and the adapter-generated OpenCode arguments are single-quoted with standard POSIX escaping before they are embedded in the remote shell command. The configured remote base command itself is treated as a pre-formed shell fragment. Quoting inside `agent.command` is the operator's responsibility. Environment-variable values are not part of that command string.
+The workspace path and the adapter-generated OpenCode arguments are single-quoted with standard POSIX escaping before they are embedded in the remote shell command. A string `agent.command` is treated as a pre-formed shell fragment, so quoting inside it is the operator's responsibility; each element of a list command is single-quoted. Environment-variable values are not part of that command string.
 
 ### Exit codes
 

@@ -27,7 +27,7 @@ These fields control the orchestrator's scheduling behavior. They are not passed
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `kind` | string | - | Must be `"copilot-cli"` to select this adapter. |
-| `command` | string | `copilot` | Path or name of the Copilot CLI binary, resolved from `PATH` at session start. |
+| `command` | string or list | `copilot` | Path or name of the Copilot CLI binary, resolved from `PATH` at session start. Only the default kind reads `agent.command`, so a rule-routed `copilot-cli` session beside a different default kind runs `copilot`, whatever `agent.command` holds. See [`agent.command`](/reference/workflow-config/#agent) for the list form. |
 | `max_turns` | integer | `20` | Maximum Sortie turns per worker session. The orchestrator runs up to this many turns, re-checking tracker state after each one. |
 | `max_sessions` | integer | `0` (unlimited) | Maximum completed worker sessions per issue before the orchestrator stops retrying. `0` disables the budget. |
 | `max_concurrent_agents` | integer | `10` | Global concurrency limit across all issues. |
@@ -317,7 +317,7 @@ The adapter uses these SSH options:
 
 ### Shell quoting
 
-The workspace path and each per-turn CLI argument are single-quoted with embedded single-quote escaping (the standard POSIX `'\''` pattern) before being placed in the remote command string. This prevents injection when SSH passes the remote command through the remote shell. The configured agent command itself is not quoted this way, since it may legitimately be more than one shell token.
+The workspace path and each per-turn CLI argument are single-quoted with embedded single-quote escaping (the standard POSIX `'\''` pattern) before being placed in the remote command string. This prevents injection when SSH passes the remote command through the remote shell. A string agent command itself is not quoted this way, since it may legitimately be more than one shell token; each element of a list command is single-quoted.
 
 ### Exit codes
 

@@ -70,7 +70,7 @@ A real env var always beats a `.env` value for the same key. Both beat whatever 
 | Env var | Overrides | Type |
 |---|---|---|
 | `SORTIE_AGENT_KIND` | [`agent.kind`](/reference/workflow-config/#agent) | string |
-| `SORTIE_AGENT_COMMAND` | [`agent.command`](/reference/workflow-config/#agent) | string |
+| `SORTIE_AGENT_COMMAND` | [`agent.command`](/reference/workflow-config/#agent) | string (sets the string form and replaces a list written in the file) |
 | `SORTIE_AGENT_TURN_TIMEOUT_MS` | [`agent.turn_timeout_ms`](/reference/workflow-config/#agent) | int |
 | `SORTIE_AGENT_READ_TIMEOUT_MS` | [`agent.read_timeout_ms`](/reference/workflow-config/#agent) | int |
 | `SORTIE_AGENT_STALL_TIMEOUT_MS` | [`agent.stall_timeout_ms`](/reference/workflow-config/#agent) | int |

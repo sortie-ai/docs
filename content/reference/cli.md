@@ -295,7 +295,7 @@ The pipeline checks:
 - Template static analysis: dot-context misuse inside `{{ range }}` / `{{ with }}`, unknown top-level variables, and unknown sub-fields of known variables (advisory warnings).
 - `tracker.kind` is present and maps to a registered adapter.
 - `agent.kind` maps to a registered adapter. Defaults to `claude-code` when absent.
-- Fields required by the selected adapter: `tracker.api_key`, `tracker.project`, `agent.command`.
+- Fields required by the selected adapters: `tracker.api_key`, `tracker.project`, and `agent.command` for an agent kind that has no default command, such as `agent-client-protocol`.
 - At least one of `tracker.active_states` or `tracker.terminal_states` is non-empty.
 - Adapter-specific config validation. When the registered tracker adapter declares its own config validation, the pipeline invokes it with the extracted tracker config fields. Adapter validation runs after the generic preflight checks and can produce both errors (block validity) and warnings (advisory). The Jira, GitHub, GitLab, Gitea, and Linear adapters each declare one; the `file` adapter does not. Each adapter reference page lists that adapter's checks, for example [GitHub adapter validation](/reference/adapter-github/#validate-time-checks).
 - Settings block presence (`dispatch.agent.missing_block`), for every agent kind a `dispatch.default.agent` or a `dispatch.rules[i].agent` names, when that kind is registered and differs from the top-level `agent.kind`. The kind must carry its own top-level block in the front matter, or the workflow is refused, naming the selector that introduced the kind and the block it expects. An empty block (`codex: {}` or a bare `codex:` key) is enough. Skipped for a kind Sortie does not recognize as a registered adapter, since that is already reported separately as `agent_adapter`.
@@ -453,7 +453,7 @@ The `check` field in JSON output and the prefix in text output use these values:
 | `tracker.project` | Missing `tracker.project` when required by the adapter. |
 | `tracker_adapter` | Unknown tracker adapter kind. |
 | `agent.kind` | Missing `agent.kind` field. |
-| `agent.command` | Missing `agent.command` when required by the adapter. |
+| `agent.command` | A reachable agent kind launches a process but would run nothing: the default kind has no `agent.command` and no default command, or a `dispatch` rule routes to a kind with no default command that is not the default kind. The message names the selector. |
 | `agent_adapter` | Unknown agent adapter kind. |
 | `tracker.project.format` | `tracker.project` is non-empty but not in `owner/repo` format (GitHub adapter). |
 | `dispatch.agent.missing_block` | A `dispatch.default.agent` or `dispatch.rules[i].agent` names a registered kind, other than `agent.kind`, with no top-level settings block in the front matter. |
