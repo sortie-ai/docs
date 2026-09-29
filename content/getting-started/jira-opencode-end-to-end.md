@@ -13,14 +13,14 @@ In this tutorial, we will connect Sortie to Jira and the OpenCode CLI, then watc
 ## Prerequisites
 
 - [Jira integration tutorial](/getting-started/jira-integration/) completed: Sortie connects to your Jira project, and the environment variables `SORTIE_JIRA_ENDPOINT` and `SORTIE_JIRA_API_KEY` are set
-- OpenCode CLI installed on your machine:
+- OpenCode 2.x installed on your machine. If `opencode-ai` is already installed, run `npm uninstall -g opencode-ai` first. Both packages provide the `opencode` command, so keep only one of them installed.
 
     ```bash
-    npm install -g opencode-ai
+    npm install -g @opencode/cli@2
     opencode --version
     ```
 
-    You should see a version string. Sortie resolves `opencode` from `PATH` at session start and reads this same version to detect whether it is driving OpenCode 1.x or 2.x, so this confirms the binary it will launch. This tutorial installs 1.x; Sortie supports 2.x (`npm install -g @opencode/cli`) the same way, with no workflow change beyond what the [OpenCode adapter reference](/reference/adapter-opencode/#version-detection) lists as major-specific. If the command is not found, follow the [OpenCode CLI docs](https://opencode.ai/docs/cli/).
+    You should see a version string. Sortie resolves `opencode` from `PATH` at session start and reads this same version to detect whether it is driving OpenCode 1.x or 2.x, so this confirms the binary it will launch. This tutorial installs OpenCode 2.x. Sortie still runs 1.x, but support for it is deprecated; see [deprecation of OpenCode 1.x](/reference/adapter-opencode/#deprecation-of-opencode-1x). If the command is not found, follow the [OpenCode CLI docs](https://opencode.ai/docs/cli/).
 
 - `ANTHROPIC_API_KEY` set in your environment:
 
