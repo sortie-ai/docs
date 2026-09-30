@@ -56,7 +56,7 @@
       {{- with hugo.Data.github.stars -}}
         {{- /* Same thousands formatting the removed script did:
                (n/1000).toFixed(1) + "k". */ -}}
-        <span class="hx:text-xs hx:opacity-70">{{ if ge . 1000 }}{{ printf "%.1fk" (div (float .) 1000) }}{{ else }}{{ . }}{{ end }}</span>
+        <span class="hx:text-xs github-star-count">{{ if ge . 1000 }}{{ printf "%.1fk" (div (float .) 1000) }}{{ else }}{{ . }}{{ end }}</span>
       {{- end -}}
       <span class="hx:sr-only">GitHub</span>
     </a>
