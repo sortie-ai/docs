@@ -119,10 +119,10 @@
 
   // ---------------------------------------------------------------------------
   // Site search tracking
-  // Hextra v0.12.1 renders <input class="hextra-search-input" ...> inside
-  // <div class="hextra-search-wrapper"> in layouts/_partials/search.html
-  // <dialog id="search-dialog">. We attach a debounced listener alongside the
-  // theme's own oninput handler — both coexist without interference.
+  // Hextra v0.13 renders a single <input class="hextra-search-input"> inside
+  // <dialog id="hextra-search-dialog"> (components/search-dialog.html) on every
+  // page, so it exists before the dialog is first opened. We attach a debounced
+  // listener alongside the theme's own input handler; both coexist.
   // Fires only after 500 ms of inactivity and at least 3 characters to avoid
   // sending every intermediate keystroke.
   // ---------------------------------------------------------------------------

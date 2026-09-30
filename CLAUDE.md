@@ -65,7 +65,7 @@ This repository is the source of [docs.sortie-ai.com](https://docs.sortie-ai.com
 | Component | Value |
 |---|---|
 | Static site generator | Hugo ≥ 0.146.0, **extended** edition |
-| Theme | Hextra v0.12.2, pulled as a Hugo Module (see `go.mod`) |
+| Theme | Hextra v0.13.0, pulled as a Hugo Module (see `go.mod`) |
 | Build output | `public/` (`publishDir` in `hugo.toml`) |
 | Hosting | **Cloudflare Workers static assets** — not Cloudflare Pages |
 | Deploy command | `npx wrangler deploy` — not `wrangler pages deploy` |

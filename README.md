@@ -24,7 +24,7 @@ For a full overview, see the [product documentation](https://docs.sortie-ai.com)
 | Component | Details |
 |---|---|
 | **Static site generator** | [Hugo](https://gohugo.io/) ≥ 0.164.0 (extended) |
-| **Theme** | [Hextra](https://imfing.github.io/hextra/) v0.12.1 (Tailwind CSS, FlexSearch) |
+| **Theme** | [Hextra](https://imfing.github.io/hextra/) v0.13.0 (Tailwind CSS, FlexSearch) |
 | **Markdown renderer** | Goldmark with KaTeX math support |
 | **Deployment** | [Cloudflare Workers](https://developers.cloudflare.com/workers/) (static assets via Wrangler) |
 | **Analytics** | Google Analytics GA4 with GDPR-compliant cookie consent |
