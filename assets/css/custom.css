@@ -58,6 +58,12 @@ pre.mermaid .edgeLabel .label-container,
   stroke: none !important;
 }
 
+/* Navbar GitHub star count. Hextra ships precompiled CSS, so a utility such
+   as hx:opacity-70 that no theme template uses never reaches the page. */
+.github-star-count {
+  opacity: 0.7;
+}
+
 /* ─── Page Feedback Widget ─────────────────────────────────────── */
 .page-feedback {
   display: flex;
