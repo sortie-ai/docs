@@ -3,6 +3,6 @@
   {{- $mermaid := . | fingerprint -}}
   <script defer src="{{ $mermaid.RelPermalink }}" integrity="{{ $mermaid.Data.Integrity }}"></script>
 {{- else -}}
-  {{- errorf "scripts/mermaid.html: assets/%s is missing. It is committed to this repository; see the provenance comment in this file." $mermaidPath -}}
+  {{- errorf "scripts/mermaid.html: assets/%s is missing. It is committed to this repository, vendored from https://cdn.jsdelivr.net/npm/mermaid@11.16.1/dist/mermaid.min.js; restore it from git." $mermaidPath -}}
 {{- end -}}
 <script defer src="/js/mermaid-init.js"></script>

@@ -10,13 +10,13 @@
   {{- $ccCss := . | fingerprint -}}
   <link rel="stylesheet" href="{{ $ccCss.RelPermalink }}" integrity="{{ $ccCss.Data.Integrity }}" />
 {{- else -}}
-  {{- errorf "custom/head-end.html: assets/%s is missing. It is committed to this repository; see the provenance comment in this file." $ccCssPath -}}
+  {{- errorf "custom/head-end.html: assets/%s is missing. It is committed to this repository, vendored from the dist/ directory of orestbida/cookieconsent v3.1.0; restore it from git." $ccCssPath -}}
 {{- end -}}
 {{- with resources.Get $ccJsPath -}}
   {{- $ccJs := . | fingerprint -}}
   <script defer src="{{ $ccJs.RelPermalink }}" integrity="{{ $ccJs.Data.Integrity }}"></script>
 {{- else -}}
-  {{- errorf "custom/head-end.html: assets/%s is missing. It is committed to this repository; see the provenance comment in this file." $ccJsPath -}}
+  {{- errorf "custom/head-end.html: assets/%s is missing. It is committed to this repository, vendored from the dist/ directory of orestbida/cookieconsent v3.1.0; restore it from git." $ccJsPath -}}
 {{- end -}}
 
 {{- /* cookieconsent local override styles */ -}}

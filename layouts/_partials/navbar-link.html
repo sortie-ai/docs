@@ -53,7 +53,7 @@
     <li role="none" class="hextra-nav-menu-item hx:flex hx:flex-col">
       <a
         href="{{ $link }}"
-        {{ if $external }}target="_blank" rel="noopener"{{ end }}{{/* REL: upstream writes noreferrer; see the header comment. */}}
+        {{ if $external }}target="_blank" rel="noopener"{{ end }}{{/* noopener, not upstream's noreferrer, so external clicks keep their Referer. */}}
         role="menuitem"
         class="hx:text-gray-600 hx:hover:text-gray-800 hx:dark:text-gray-400 hx:dark:hover:text-gray-200 hx:relative hx:cursor-pointer hx:whitespace-nowrap hx:rounded-sm hx:py-1.5 hx:transition-colors hx:ltr:pl-3 hx:ltr:pr-9 hx:rtl:pr-3 hx:rtl:pl-9 hx:flex hx:items-center hx:gap-1 hx:hover:bg-gray-100 hx:dark:hover:bg-neutral-800"
       >
@@ -73,7 +73,7 @@
 <a
   title="{{ or (T $item.Identifier) $item.Name | safeHTML }}"{{/* FIX: upstream reads .Identifier/.Name off the partial's dict, which has neither. */}}
   href="{{ $link }}"
-  {{ if $external }}target="_blank" rel="noopener"{{ end }}{{/* REL: upstream writes noreferrer; see the header comment. */}}
+  {{ if $external }}target="_blank" rel="noopener"{{ end }}{{/* noopener, not upstream's noreferrer, so external clicks keep their Referer. */}}
   class="hx:text-sm hx:contrast-more:text-gray-700 hx:contrast-more:dark:text-gray-100 hx:relative hx:-ml-2 hx:hidden hx:whitespace-nowrap hx:p-2 hx:md:inline-flex hx:items-center hx:gap-1 {{ $activeClass }}"
 >
   {{- if $icon -}}

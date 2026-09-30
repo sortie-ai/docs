@@ -313,7 +313,7 @@
     <a
       class="{{ $linkClass }}"
       href="{{ .link }}"
-      {{ if $external }}target="_blank" rel="noopener"{{ end }}{{/* REL: upstream writes noreferrer; see the header comment. */}}
+      {{ if $external }}target="_blank" rel="noopener"{{ end }}{{/* noopener, not upstream's noreferrer, so external clicks keep their Referer. */}}
     >
       <span class="hx:min-w-0 [word-break:break-word]">{{- .title -}}</span>
     </a>
