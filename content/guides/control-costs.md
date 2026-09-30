@@ -141,7 +141,7 @@ A conservative starting point: set the global cap to `2`. You can always raise i
 
 If your adapter supports model selection, this is the bluntest cost lever. Cheaper models burn fewer dollars per token, and most routine code tasks (bug fixes, small features, test generation) don't need the most expensive option.
 
-For the Claude Code adapter, `model` and `effort` live in the extension block:
+`model` and `effort` live in the extension block of your agent kind. The `claude-code`, `codex`, `copilot-cli`, and `opencode` kinds all read `effort` under that name:
 
 ```yaml
 # Claude Code adapter example
@@ -150,7 +150,9 @@ claude-code:
   effort: medium
 ```
 
-A cheaper model and a lower effort setting are the two bluntest levers you have, and they cost nothing to change. Both are pass-through keys: Sortie forwards the value and does not interpret it, so which models exist, which effort levels each one accepts, and what they cost are the provider's to publish. Check the provider's own model and pricing pages before choosing, because both change often.
+A cheaper model and a lower effort setting are the two bluntest levers you have, and they cost nothing to change. Both are pass-through keys: Sortie forwards the value and does not interpret it, so which models exist, which effort levels each one accepts, and what they cost are the provider's to publish. Check the provider's own model and pricing pages before choosing, because both change often. Leave `effort` out and the agent runs at its own default level.
+
+On `agent-client-protocol`, `effort` has no effect, and `sortie validate` warns when you set it. Put the runtime's own reasoning option in `agent.command` instead. See the [reasoning effort reference](/reference/workflow-config/#adapter-pass-through-configuration) for how each kind reads the key.
 
 Model pricing changes frequently. Check your provider's pricing page before making model decisions.
 

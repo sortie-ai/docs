@@ -242,7 +242,7 @@ Path fields (`workspace.root`, `db_path`) still receive `~` expansion even when 
 
 ## Agent runtime variables
 
-Agent adapters spawn subprocesses that inherit the **full** parent process environment. Sortie validates none of these variables: they pass straight through, and if one is missing, the agent subprocess fails, not Sortie. `COPILOT_HOME` is the one Sortie reads for itself, to locate a file the runtime writes.
+Agent adapters spawn subprocesses that inherit the parent process environment, less the few variables an adapter manages itself, which its reference page names. Sortie validates none of these variables: they pass straight through, and if one is missing, the agent subprocess fails, not Sortie. `COPILOT_HOME` is the one Sortie reads for itself, to locate a file the runtime writes.
 
 That inheritance belongs to a local launch. An agent Sortie starts on a remote host through [`worker.ssh_hosts`](/reference/workflow-config/#worker) gets the remote host's environment, plus the bounded set described under [variables carried to a remote agent](#variables-carried-to-a-remote-agent).
 
@@ -257,6 +257,7 @@ That inheritance belongs to a local launch. An agent Sortie starts on a remote h
 | `ANTHROPIC_VERTEX_PROJECT_ID` | `claude-code` adapter (Google Vertex AI) | GCP project ID. Required when `CLAUDE_CODE_USE_VERTEX=1`. |
 | `CLOUD_ML_REGION` | `claude-code` adapter (Google Vertex AI) | GCP region. Required when `CLAUDE_CODE_USE_VERTEX=1`. |
 | `ANTHROPIC_BASE_URL` | `claude-code` adapter (proxy) | Override the Anthropic API base URL. Use for LiteLLM, custom gateways, or corporate proxies. |
+| `CLAUDE_CODE_EFFORT_LEVEL` | `claude-code` adapter (optional) | Sets Claude Code's effort level. Ignored while [`claude-code.effort`](/reference/adapter-claude-code/#reasoning-effort) is set: Sortie then withholds it from every launch, local and remote. It keeps its effect while `effort` is unset. |
 | `COPILOT_GITHUB_TOKEN` | `copilot-cli` adapter | GitHub token dedicated to Copilot CLI. Highest priority among the three token variables the CLI checks. |
 | `GH_TOKEN` | `copilot-cli` adapter | GitHub token shared with the `gh` CLI. Second priority for Copilot CLI authentication. Also used by many GitHub tooling integrations. |
 | `GITHUB_TOKEN` | `copilot-cli` adapter | GitHub token common in CI environments. Third priority for Copilot CLI authentication. |

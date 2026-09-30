@@ -202,7 +202,7 @@ The **`agent`** section configures the orchestrator's scheduling behavior:
 The `codex:` section is adapter-specific pass-through configuration forwarded to the app-server. Four fields are set here:
 
 - `model: o3` selects the OpenAI model. Replace this with your preferred model.
-- `effort: medium` controls the reasoning effort level. Options are `low`, `medium`, and `high`. Higher effort produces more thorough work at the cost of more tokens and time.
+- `effort: medium` controls the reasoning effort level. Common values are `low`, `medium`, and `high`; the names a model accepts depend on the model. Higher effort produces more thorough work at the cost of more tokens and time.
 - `approval_policy: never` tells the app-server to ask for nothing before running a command or applying an edit, which is what an unattended run needs. It is also the default, so leaving the line out gives you the same behavior. Codex accepts two other values, `untrusted` and `on-request`, and Sortie refuses both: they let the app-server stop and ask, nobody is watching an unattended run, and Sortie reports the contradiction before the run rather than during it. If the app-server asks anyway, the adapter refuses the request instead of leaving it waiting. The [Codex adapter reference](/reference/adapter-codex/#approval-policy-and-sandbox) covers both.
 - `thread_sandbox: workspaceWrite` restricts file writes to the workspace directory and disables network access by default. The adapter sets `writableRoots` to the workspace path automatically.
 
