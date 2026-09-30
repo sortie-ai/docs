@@ -1,0 +1,4 @@
+{{- /* Hextra calls this hook from list layouts too; the widget belongs on content pages only. */ -}}
+{{- if .IsPage -}}
+  {{ partial "feedback.html" . }}
+{{- end -}}
