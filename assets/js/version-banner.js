@@ -80,12 +80,22 @@
   /**
    * Updates the --hextra-banner-height CSS variable that Hextra's sidebar CSS
    * uses to calculate its fixed top position:
-   *   padding-top: calc(var(--navbar-height) + var(--hextra-banner-height))
+   *   padding-top: calc(var(--hextra-navbar-height) + var(--hextra-banner-height))
    * We set it to the banner's actual rendered height when visible, 0px when hidden.
+   *
+   * Also mirrors Hextra's data-hextra-banner attribute, which its own banner
+   * scripts set and ours replace. On mobile the banner is sticky and taller
+   * than the 3.5rem navbar; Hextra's navbar.css keys on this attribute to
+   * stretch the navbar background over it, so no strip of banner shows below
+   * the navbar while scrolling.
    */
   function setBannerHeight(banner) {
-    var height = banner.hasAttribute("hidden") ? "0px" : banner.offsetHeight + "px";
-    document.documentElement.style.setProperty("--hextra-banner-height", height);
+    var hidden = banner.hasAttribute("hidden");
+    document.documentElement.style.setProperty(
+      "--hextra-banner-height",
+      hidden ? "0px" : banner.offsetHeight + "px",
+    );
+    document.documentElement.dataset.hextraBanner = hidden ? "hidden" : "visible";
   }
 
   // ---------------------------------------------------------------------------
