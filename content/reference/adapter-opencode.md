@@ -39,8 +39,8 @@ OpenCode ships two majors with incompatible launch surfaces: 1.x, published on n
 | The command's output carries no version Sortie can read | `agent_not_found` | `the configured OpenCode command reported no version Sortie can read: <line or "no output">` |
 | The reported major is neither `1` nor `2` | `agent_not_found` | `OpenCode <version> is not supported; install a 1.x or 2.x release` |
 | `opencode.pure` is `true`, detected major is 2.x | `agent_not_found` | `opencode.pure is not supported by OpenCode 2.x; remove it or install a 1.x release` |
-| `opencode.variant` is set without `opencode.model`, detected major is 2.x | `agent_not_found` | `opencode.variant needs opencode.model on OpenCode 2.x; set opencode.model or remove opencode.variant` |
-| `opencode.model` already carries a `#`-separated suffix and `opencode.variant` is also set, detected major is 2.x | `agent_not_found` | `opencode.model already names a variant after #; remove that suffix or remove opencode.variant` |
+| `opencode.effort` or `opencode.variant` is set without `opencode.model`, detected major is 2.x | `agent_not_found` | `opencode.<key> needs opencode.model on OpenCode 2.x; set opencode.model or remove opencode.<key>`, with `<key>` the one that is set, `effort` or `variant` |
+| `opencode.model` already carries a `#`-separated suffix and `opencode.effort` or `opencode.variant` is also set, detected major is 2.x | `agent_not_found` | `opencode.model already names a variant after #; remove that suffix or remove opencode.<key>` |
 
 The two contracts differ in how the adapter delivers the workspace, the prompt, the tool policy, and process isolation:
 
@@ -68,7 +68,7 @@ To move a workflow to 2.x:
 
 - Uninstall `opencode-ai`, then install `@opencode/cli`. `opencode-ai` ships only 1.x, and both packages provide the `opencode` command. Install `@opencode/cli@2` to stay on major 2, because Sortie refuses a later major (see the errors above).
 - Remove `opencode.pure`. 2.x has no equivalent and refuses the session.
-- Give every `opencode.variant` an `opencode.model` without a `#` suffix. 2.x folds the variant into the model name and refuses the session otherwise.
+- Give every `opencode.effort` or `opencode.variant` an `opencode.model` without a `#` suffix. 2.x folds the level into the model name and refuses the session otherwise.
 
 See [the `opencode` extension section](#opencode-extension-section) for which fields apply to which major, [Session lifecycle](#session-lifecycle) for the full sequence, [Token accounting](#token-accounting) for the two export shapes, and [MCP](#mcp) for tool-server delivery.
 
@@ -109,9 +109,10 @@ These fields are adapter-specific. On OpenCode 1.x, some map to managed `OPENCOD
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `model` | string | _(CLI default)_ | Value forwarded to `--model` on both majors. On 2.x, a non-empty `variant` is appended after a `#`. |
+| `model` | string | _(CLI default)_ | Value forwarded to `--model` on both majors. On 2.x, a non-empty `effort` or `variant` is appended after a `#`. |
 | `agent` | string | _(none)_ | OpenCode agent name forwarded to `--agent` on both majors. |
-| `variant` | string | _(none)_ | On 1.x, forwarded to `--variant`. On 2.x, folded into `model` as a `#`-separated suffix; setting it without `model`, or with a `model` that already carries a `#`, fails session start on 2.x. |
+| `effort` | string | _(none)_ | Reasoning level, carried on every turn, credential verification included, in OpenCode's one model-variant slot. See [adapter pass-through configuration](/reference/workflow-config/#adapter-pass-through-configuration) for how an unset value is read. On 1.x, forwarded to `--variant`. On 2.x, folded into `model` as a `#`-separated suffix; the same two 2.x refusals apply as for `variant`. Setting it together with `variant` is an error; see [validate-time checks](#validate-time-checks). |
+| `variant` | string | _(none)_ | Fills the same slot as `effort`, and setting both is an error. On 1.x, forwarded to `--variant`. On 2.x, folded into `model` as a `#`-separated suffix; setting it without `model`, or with a `model` that already carries a `#`, fails session start on 2.x. |
 | `thinking` | boolean | `false` | Adds `--thinking` on both majors. |
 | `pure` | boolean | `false` | Adds `--pure` on 1.x. OpenCode 2.x accepts no equivalent switch, so `true` fails session start on that major; see [version detection](#version-detection). |
 | `dangerously_skip_permissions` | boolean | `true` | Adds `--dangerously-skip-permissions` on both majors when `true`. When `false`, the runtime refuses every permissioned tool call instead of performing it, and OpenCode 2.x also ends the turn at the first refusal; see [validate-time checks](#validate-time-checks). |
@@ -125,7 +126,7 @@ The adapter always adds `run --format json --dir <workspace> -- <prompt>` on 1.x
 ```yaml
 opencode:
   model: <provider>/<model-id>
-  variant: high
+  effort: high
   dangerously_skip_permissions: true
   disable_autocompact: true
   allowed_tools:
@@ -215,8 +216,9 @@ When `agent.kind` is `opencode`, the [`sortie validate`](/reference/cli/#validat
 | Check | Condition | Message |
 |---|---|---|
 | `opencode.allowed_tools.overlap` | `allowed_tools` and `denied_tools` name at least one of the same keys | `allowed_tools and denied_tools overlap: <keys>` |
+| `opencode.effort.conflict` | `effort` and `variant` are both set to a non-empty value | `opencode.effort and opencode.variant both set the model variant; set one of them` |
 
-Building the adapter reports the overlap with the same message, so the two paths can never disagree.
+Building the adapter reports each of these with the same message, so the two paths can never disagree.
 
 ### Warnings
 

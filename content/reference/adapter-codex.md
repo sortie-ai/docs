@@ -52,7 +52,7 @@ These fields are adapter-specific. Most map to a JSON-RPC parameter on `thread/s
 | Field | JSON-RPC param | Type | Default | Description |
 |---|---|---|---|---|
 | `model` | `model` (thread/start, turn/start) | string | _(CLI default)_ | LLM model identifier, forwarded unchanged. See `codex --help` on your installed version for the accepted values. |
-| `effort` | `effort` (turn/start) | string | _(CLI default)_ | Reasoning effort level, forwarded unchanged. See `codex --help` on your installed version for the accepted values. |
+| `effort` | `effort` (turn/start) | string | _(CLI default)_ | Reasoning effort level, sent on every turn and forwarded unchanged. The accepted names depend on the model. See [adapter pass-through configuration](/reference/workflow-config/#adapter-pass-through-configuration) for how an unset value is read. |
 | `approval_policy` | `approvalPolicy` (thread/start) | string | `never` | When the app-server asks for a decision before running a command or applying an edit. `never` is the only value Sortie accepts; which policies Codex itself offers is Codex's to document. See [approval policy and sandbox](#approval-policy-and-sandbox). |
 | `thread_sandbox` | `sandbox` (thread/start) | string | `workspaceWrite` | Sandbox mode for the thread. The adapter rewrites the four camelCase spellings it recognizes (`readOnly`, `workspaceWrite`, `dangerFullAccess`, `externalSandbox`) into the kebab-case forms `thread/start` expects, and forwards any other value untouched. See [approval policy and sandbox](#approval-policy-and-sandbox). |
 | `turn_sandbox_policy` | `sandboxPolicy` (turn/start) | map | _(see below)_ | Per-turn sandbox policy override, merged key-by-key on top of the adapter's default policy and able to replace any key in it. Setting it also makes the adapter send `sandboxPolicy` on every turn rather than only the first. |
@@ -159,7 +159,7 @@ A handshake step whose elapsed `read_timeout_ms` bound fails the session reports
 
 Sends a `turn/start` JSON-RPC request on the existing thread and reads event notifications until `turn/completed`.
 
-1. Builds `turn/start` params with `threadId`, input (prompt as text), `cwd`, and optionally `sandboxPolicy`, `model`, and `effort`.
+1. Builds `turn/start` params with `threadId`, input (prompt as text), `cwd`, and optionally `sandboxPolicy`, `model`, and `effort`, the last whenever `codex.effort` is set.
 2. Sends the request and waits for the matching response.
 3. Waits for event notifications from the app-server or for the turn to be cancelled, whichever happens first.
 4. Dispatches notifications by method name (see [event stream](#event-stream)).

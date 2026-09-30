@@ -61,6 +61,8 @@ agent-client-protocol:
   mcp_config: ./mcp-servers.json
 ```
 
+The block carries no reasoning level: the kind reads no `effort` key, and one set here has no effect and draws the `agent.effort.not_forwarded` warning. Write the runtime's own reasoning option in `agent.command` instead, with the value that runtime accepts; Sortie checks neither.
+
 The block itself is never forwarded to the runtime; only `mcp_config` is checked, to reject the wrong YAML type before any session starts. What actually reaches a session is the resolved MCP configuration path, prepared by the worker the same way it is for every other kind.
 
 ---

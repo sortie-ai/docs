@@ -56,7 +56,7 @@ These fields are adapter-specific, and each maps to a Claude Code CLI flag. `per
 | `fallback_model` | `--fallback-model` | string | _(none)_ | Alternate model identifier, forwarded unchanged. See [Fallback model scope](#fallback-model-scope). |
 | `max_turns` | `--max-turns` | integer | _(CLI default)_ | Claude Code's internal agentic turn budget per invocation. Forwarded only when greater than `0`. |
 | `max_budget_usd` | `--max-budget-usd` | number | _(none)_ | Cost cap in USD, forwarded only when greater than `0`. The adapter spawns one CLI invocation per turn, so the flag reaches the CLI once per turn with the same value. What the CLI does with it is Claude Code's to document. |
-| `effort` | `--effort` | string | _(CLI default)_ | Inference effort level, forwarded to the CLI unvalidated. See `claude --help` for the accepted values on your installed version. |
+| `effort` | `--effort` | string | _(CLI default)_ | Inference effort level, forwarded to the CLI on every turn and unvalidated by Sortie. See `claude --help` for the accepted values on your installed version, and [Reasoning effort](#reasoning-effort) for the interaction with `CLAUDE_CODE_EFFORT_LEVEL`. |
 | `allowed_tools` | `--allowedTools` | string | _(none)_ | Tool allowlist, forwarded verbatim as a single argument. Sortie neither parses nor validates the value. |
 | `disallowed_tools` | `--disallowedTools` | string | _(none)_ | Tool denylist, forwarded verbatim as a single argument. Sortie neither parses nor validates the value. |
 | `system_prompt` | `--append-system-prompt` | string | _(none)_ | Additional text appended to Claude Code's system prompt. |
@@ -93,6 +93,14 @@ Setting `claude-code.max_turns` too low causes Claude Code to exit mid-task. Set
 The adapter forwards `fallback_model` to `--fallback-model` unchanged and does not validate or interpret it. The value may name a single model or a comma-separated list. Which failure classes Claude Code treats as fallback-eligible, and any limit on how many models a chain may name, are the CLI's own behavior; see the [external references](#external-references) for where to look it up.
 
 Whatever the CLI decides applies only within the current invocation. The adapter spawns one CLI invocation per turn, and each turn starts that invocation with the configured primary model.
+
+### Reasoning effort
+
+The meaning of an unset, empty, and non-string `effort` is set out under [adapter pass-through configuration](/reference/workflow-config/#adapter-pass-through-configuration). This section covers what is specific to Claude Code.
+
+Claude Code lets the `CLAUDE_CODE_EFFORT_LEVEL` environment variable outrank `--effort`. While `claude-code.effort` is set, every launch of the session withholds that variable, locally and over SSH: a local launch removes it from the subprocess environment, and a remote launch neither carries it nor lets the remote shell pass on the host's own value. While `effort` is unset, the variable keeps its effect.
+
+When Claude Code does not recognize the `--effort` value, it runs at the model's default level and writes a standard-error line starting `Warning: Unknown --effort value`. On a turn that otherwise succeeds, the adapter logs the first such line once per session at `WARN`, with the message `reasoning level not applied by the agent` and the attributes `agent_kind`, `effort`, and `line`.
 
 ### Sortie's own tools and the `mcp_config` field
 
@@ -173,7 +181,7 @@ Validates the workspace path and resolves the agent binary. No subprocess is spa
 Spawns a Claude Code subprocess, reads JSONL events from stdout, and delivers them to the orchestrator as they arrive.
 
 1. Builds the CLI argument list from session state and pass-through configuration.
-2. Spawns the subprocess in the workspace path, with the full parent process environment, and with the shutdown behavior described under [process shutdown](#process-shutdown).
+2. Spawns the subprocess in the workspace path, with the parent process environment (less `CLAUDE_CODE_EFFORT_LEVEL` while `effort` is set, see [Reasoning effort](#reasoning-effort)), and with the shutdown behavior described under [process shutdown](#process-shutdown).
 3. Reads stdout one line at a time (64 KB initial buffer, 10 MB maximum line length); stderr is drained separately.
 4. Parses each line as JSON. A line that fails to parse becomes a `malformed` event, and reading continues.
 5. Reaps the subprocess as soon as it exits and terminates its process group. This does not cut short output collection, since the adapter still holds both pipe ends open. After the reap, stdout and then stderr each get a fixed five seconds to finish, so a descendant process that inherited an output handle and outlived the agent cannot hold the turn open. Stderr is re-emitted at WARN level on any failing turn.
@@ -301,7 +309,7 @@ When the worker configuration includes `ssh_hosts`, the adapter launches Claude 
 
 1. Session start resolves the local `ssh` binary from `PATH`. The agent command is stored for remote execution rather than resolved locally.
 2. Each turn builds an SSH command that wraps the remote Claude Code invocation.
-3. The remote shell enters the workspace, exports the [environment variables the launch carries](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent), and only then runs the configured command with that turn's arguments. Each step is chained on the success of the one before it, so the agent never starts in the wrong directory or without the variables it was to receive. The workspace path and each argument are individually single-quoted; the agent command is inserted as configured, unquoted, so a multi-token or env-prefixed command (e.g. `FOO=bar claude`) still runs as intended.
+3. The remote shell enters the workspace, exports the [environment variables the launch carries](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent), unsets `CLAUDE_CODE_EFFORT_LEVEL` when `claude-code.effort` is set, and only then runs the configured command with that turn's arguments. Each step is chained on the success of the one before it, so the agent never starts in the wrong directory or without the variables it was to receive. The workspace path and each argument are individually single-quoted; the agent command is inserted as configured, unquoted, so a multi-token or env-prefixed command (e.g. `FOO=bar claude`) still runs as intended.
 4. This kind declares `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY`, and `CLAUDE_CODE_OAUTH_TOKEN` as its credential variables, so a remote launch carries whichever of them Sortie's own environment sets. A carried value overrides whatever the host holds under the same name.
 
 ### SSH options
@@ -328,7 +336,7 @@ SSH exit code `255` indicates a connection failure (refused, timeout, unreachabl
 
 ## Authentication
 
-Sortie does not manage Claude Code's API credentials. The adapter spawns the subprocess with the full parent process environment, and Claude Code reads its authentication variables directly.
+Sortie does not manage Claude Code's API credentials. The adapter spawns the subprocess with the parent process environment, apart from the effort variable described under [Reasoning effort](#reasoning-effort), and Claude Code reads its authentication variables directly.
 
 The adapter runs no credential preflight and reads no credential variable for itself: starting a session succeeds whether or not the environment can authenticate the CLI. Which variables authenticate a given backend (Anthropic's API, a cloud vendor's hosted models, or a gateway in front of either) is Claude Code's to document; see the [external references](#external-references) and the [environment variables reference](/reference/environment/#agent-runtime-variables).
 

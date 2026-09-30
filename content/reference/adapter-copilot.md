@@ -54,6 +54,7 @@ These fields are adapter-specific, and each maps to a Copilot CLI flag. The orch
 | Field | CLI flag | Type | Default | Description |
 |---|---|---|---|---|
 | `model` | `--model` | string | _(CLI default)_ | LLM model identifier, forwarded unchanged. See `copilot --help` on your installed version for the accepted values. |
+| `effort` | `--reasoning-effort` | string | _(CLI default)_ | Reasoning level, passed on every turn, credential verification included, and forwarded unchanged. See `copilot --help` on your installed version for the accepted values, and [adapter pass-through configuration](/reference/workflow-config/#adapter-pass-through-configuration) for how an unset value is read. |
 | `max_autopilot_continues` | `--max-autopilot-continues` | integer | `50` | Maximum autopilot continuation steps within a single turn. |
 | `agent` | `--agent` | string | _(none)_ | Agent persona to use. |
 | `allowed_tools` | `--allow-tool` | string | _(none)_ | Tool to allow explicitly. |
@@ -68,6 +69,7 @@ These fields are adapter-specific, and each maps to a Copilot CLI flag. The orch
 ```yaml
 copilot-cli:
   model: <model-id>
+  effort: high
   max_autopilot_continues: 100
   agent: coding-agent
   mcp_config: ./mcp-servers.json
