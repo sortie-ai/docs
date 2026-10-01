@@ -25,7 +25,7 @@ Note what the definition does not say. The SQLite database is not an external de
 
 A Tier 2 tool reaches an external service over the network using credentials the orchestrator manages. The moment a call leaves the host, the failure universe expands: transport failures, authentication errors, rate limits. Sortie answers with per-tool timeouts, so a slow endpoint cannot stall a turn indefinitely. The structured error envelope with machine-readable error kinds is not a Tier 2 feature; every tool returns it. What grows with Tier 2 is the failure universe the envelope must describe: its kind sets cover transport, auth, rate-limit, and input failures, where Tier 1's single failure family (local state missing or unreadable) needs only a small closed set.
 
-Two built-in tools live here. `tracker_api` reads and writes the configured issue tracker with the orchestrator's credentials, scoped to the configured project; Sortie registers it only when a valid tracker configuration with credentials and a project is present. `notify_operator` posts real-time notifications to operator-configured channels; Sortie registers it only when the `notifications` list configures at least one backend. The exact schemas and error kinds live in the [agent extensions reference](/reference/agent-extensions/).
+Two built-in tools live here. `tracker_api` reads and writes the configured issue tracker with the orchestrator's credentials, scoped to the configured project; Sortie registers it only when a valid tracker configuration with credentials and a project is present. `notify_operator` posts real-time notifications to operator-configured channels; Sortie registers it only when at least one `notifications` entry receives the agent's messages. The exact schemas and error kinds live in the [agent extensions reference](/reference/agent-extensions/).
 
 ## The design philosophy
 
@@ -33,7 +33,7 @@ Six decisions shape the tool subsystem, and the tiers make each one legible.
 
 **Least privilege, read-only by default.** Tier 1 is read-only by construction: the database connection is opened read-only at the driver level, and the state file is only ever read. The tools that can change the world, a tracker transition or a notification to a human, are exactly the ones gated behind explicit operator configuration. An agent in a minimal session can inspect its own situation and nothing else.
 
-**A tool is registered only when its dependencies are present.** No workspace path, no `sortie_status`; no tracker project, no `tracker_api`; no notification backend, no `notify_operator`. The sidecar derives this decision from the same workflow file and session environment the main process uses, so its `tools/list` and the orchestrator's prompt advertisement are built from one decision rather than two.
+**A tool is registered only when its dependencies are present.** No workspace path, no `sortie_status`; no tracker project, no `tracker_api`; no notifications entry that receives agent messages, no `notify_operator`. The sidecar derives this decision from the same workflow file and session environment the main process uses, so its `tools/list` and the orchestrator's prompt advertisement are built from one decision rather than two.
 
 **Absence degrades, invalidity fails fast.** These are different situations and Sortie treats them differently. An *absent* dependency degrades silently: the tool is not registered, and the session runs with a smaller tool set. An *invalid* configuration of a present dependency fails fast: a notification backend with an unknown kind, or a secret that resolves to the empty string, is a fatal MCP server startup error, never a partial registration. The split keeps registration honest at both ends: a dependency that is missing yields no tool, and a dependency that is present but misconfigured yields no session.
 
@@ -53,7 +53,7 @@ Tools are one half of a larger model. They form the request-response data plane 
 | `workspace_history` | 1 | Reports the issue's prior run attempts from the `run_history` table. | `SORTIE_DB_PATH` and `SORTIE_ISSUE_ID` are set and the database opens read-only. |
 | `cost_budget` | 1 | Reports cumulative per-issue token spend against the configured budget. | Same gate as `workspace_history`; `SORTIE_DISPATCH_ID` adds the running session's spend. |
 | `tracker_api` | 2 | Reads and writes the configured issue tracker, scoped to the configured project. | A valid tracker configuration with credentials and a project is present. |
-| `notify_operator` | 2 | Posts a real-time notification to operator-configured channels, which are an [adapter family](/concepts/adapter-model/) of their own. | The `notifications` list configures at least one backend. |
+| `notify_operator` | 2 | Posts a real-time notification to operator-configured channels, which are an [adapter family](/concepts/adapter-model/) of their own. | At least one `notifications` entry receives `agent.message`. |
 
 Input schemas, response formats, and error kinds for each tool live in the [agent extensions reference](/reference/agent-extensions/).
 

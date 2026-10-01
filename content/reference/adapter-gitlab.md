@@ -412,6 +412,8 @@ The first two are prevented by the adapter's own validation: the [`query_filter`
 
 ### Write-path guards
 
+A comment that carries the agent's [stop statement](/reference/agent-extensions/#stop-statement) is the stop text, a blank line, and the statement in a fenced Markdown code block. The fence is backticks, at least three and one more than the longest run of backticks in the statement, so nothing inside the statement can close it. The two guards below apply to every comment Sortie posts, this one included.
+
 | Guard | Behavior |
 |---|---|
 | Comment created with no returned ID | Treated as a failure with `tracker_payload_error`. GitLab returns no note when the body was consumed entirely as quick actions, and reporting that as success would lose the comment silently. |
@@ -660,7 +662,7 @@ Most of what separates these three is their own API surface, which each vendor d
 - [GitLab REST API](https://docs.gitlab.com/api/rest/): base URL, pagination, and request conventions
 - [REST API authentication](https://docs.gitlab.com/api/rest/authentication/): how the token is presented and which token types are accepted
 - [Issues API](https://docs.gitlab.com/api/issues/): the issue surface this adapter reads and writes, including its filter parameters
-- [Notes API](https://docs.gitlab.com/api/notes/): the comment surface behind `tracker.comments`
+- [Notes API](https://docs.gitlab.com/api/notes/): the comment surface behind the comments Sortie posts
 - [Merge requests API](https://docs.gitlab.com/api/merge_requests/): the surface behind the SCM role
 - [Personal access tokens](https://docs.gitlab.com/user/profile/personal_access_tokens/): creating a token and what each scope covers
 

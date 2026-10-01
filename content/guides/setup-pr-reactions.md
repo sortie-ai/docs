@@ -51,10 +51,10 @@ Every kind shares four fields:
 |---|---|---|
 | `provider` | _(required)_ | SCM or CI adapter that activates the kind. Absent or empty disables it. |
 | `max_retries` | `2` | Fix or merge attempts per issue before escalation. Must be non-negative. |
-| `escalation` | `"label"` | Action taken when the kind hands the issue to a person: `"label"` or `"comment"`. |
+| `escalation` | `"label"` | Action taken when the kind hands the issue to a person: `"label"`, `"none"`, or the deprecated `"comment"`. |
 | `escalation_label` | `"needs-human"` | Label applied to the issue when `escalation` is `"label"`. Created on demand if the tracker does not already have it. |
 
-When a kind exhausts its budget, Sortie applies the escalation action and releases its claim on the issue. A [triage command](/guides/triage-reactions-before-dispatch/) can also ask for the escalation directly, before any budget is spent. With `label`, it adds `escalation_label` to the tracker issue. With `comment`, it posts a plain-text comment naming the PR, the attempt count, and the outstanding signal. Create the label in advance if you use label escalation:
+When a kind exhausts its budget, Sortie applies the escalation action and releases its claim on the issue. A [triage command](/guides/triage-reactions-before-dispatch/) can also ask for the escalation directly, before any budget is spent. With `label`, it adds `escalation_label` to the tracker issue. With `none`, it adds no label. Either way the escalation emits an `escalation.<kind>` event, and a `tracker_comment` entry that lists it posts a plain-text comment naming the PR, the attempt count, and the outstanding signal; see [how to route notifications](/guides/route-notifications/). The deprecated `comment` value posts that comment without an entry. Create the label in advance if you use label escalation:
 
 ```bash
 gh label create needs-human --repo myorg/myrepo --color "D93F0B"
@@ -184,7 +184,7 @@ A classic `repo` token covers both. Those names are GitHub's: Gitea has one coar
 
 ### A conservative opt-in
 
-Pair `auto_merge` with `review_comments` so reviewer feedback routes back to the agent before the PR is eligible to merge, and use `comment` escalation so a stuck merge leaves a visible trail on the issue:
+Pair `auto_merge` with `review_comments` so reviewer feedback routes back to the agent before the PR is eligible to merge, and have a stuck merge leave a visible trail on the issue as a comment instead of a label:
 
 ```yaml
 reactions:
@@ -196,9 +196,15 @@ reactions:
     require_ci: true          # hold until CI is green
     delete_branch: true
     max_retries: 2            # merge attempts before escalation
-    escalation: comment       # post a tracker comment when exhausted
+    escalation: none          # no label; the comment comes from the entry below
     poll_interval_ms: 60000   # 60s between precondition checks
+
+notifications:
+  - kind: tracker_comment
+    events: [escalation.auto_merge, auto_merge.merged]
 ```
+
+Listing `auto_merge.merged` keeps the comment Sortie posts after a successful merge, which an explicit `tracker_comment` entry otherwise ends.
 
 This relies on a branch-protection rule (above) to supply the human approval gate. With the rule in place, the sequence is: agent opens the PR, a reviewer requests changes (routed back through `review_comments`), the reviewer approves, CI goes green, and auto-merge merges and deletes the branch.
 

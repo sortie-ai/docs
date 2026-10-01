@@ -13,7 +13,7 @@ The second channel is the **`.sortie/status` file**: a one-line file the agent w
 
 These two channels are independent. They use different transports, operate at different times, serve different purposes, and fail in different ways. The rest of this document explains why that independence is the point.
 
-There is also a third path, aimed elsewhere: the **`notify_operator` tool** sends a real-time notification to a human operator through channels the operator configured, such as a Slack webhook. It is a tool call by transport, but its audience is a person, not the orchestrator. The two channels to the orchestrator are still two; this one leaves the loop entirely.
+There is also a third path, aimed elsewhere: the **`notify_operator` tool** sends a real-time notification to a human operator through channels the operator configured, such as a Slack webhook. It is a tool call by transport, but its audience is a person, not the orchestrator. The two channels to the orchestrator are still two; this one leaves the loop entirely. The same `notifications` list also carries messages that come from Sortie itself, such as a failed session, but those are not the agent talking.
 
 ## Both channels in one session
 
@@ -26,6 +26,8 @@ blocked
 ```
 
 The turn completes. Sortie reads the file, sees `blocked`, and stops scheduling retries for PROJ-42. The issue sits, marked with a label, until a human resolves the dependency.
+
+The agent can also say why. Lines after the first one in the file are a stop statement, and Sortie can publish it with the stop: in a comment on the issue, in Slack, or to a webhook, depending on which events the operator routed where. A bare `blocked` tells the orchestrator what to do. The statement tells the person who finds the parked issue what they need to do.
 
 The first action was data access: the agent needed information to decide. The second was a control signal: the agent communicated a decision. Data flowed through MCP. The signal flowed through the filesystem. Different transports, different times, different purposes.
 
@@ -91,9 +93,9 @@ Before each new dispatch, Sortie deletes any existing `.sortie/status` file. Sta
 
 The two channels above terminate at the orchestrator. The `notify_operator` tool is different: it rides the data plane's transport, an MCP tool call into the `sortie mcp-server` sidecar, but the destination is outside the orchestration loop. The sidecar posts the notification to channels the operator configured in WORKFLOW.md, such as a Slack incoming webhook or a generic HTTP endpoint. The audience is a human.
 
-Orchestration does not react. A notification suppresses no retry, performs no tracker transition, releases no claim. Sortie treats it as what it is: a message to a person who may act on it. The tool also exists only when the operator configured at least one notification backend; with none configured, it is not registered and the agent never sees it.
+Orchestration does not react. A notification suppresses no retry, performs no tracker transition, releases no claim. Sortie treats it as what it is: a message to a person who may act on it. The agent supplies the content and never chooses where it goes: the operator's configuration decides which destinations receive agent messages, and none of them is the tracker issue. The tool exists only when at least one notifications entry receives agent messages; otherwise it is not registered and the agent never sees it.
 
-Because it shares the MCP transport, it shares the data plane's failure mode: a crashed sidecar takes notifications down with the tools. An agent that is blocked should therefore do both, in this order: call `notify_operator` so a human hears about it now, then write `.sortie/status` so the retries actually stop. The file survives an MCP crash, and it is the only signal the orchestrator acts on. See the [agent extensions reference](/reference/agent-extensions/) for the tool schema and delivery behavior.
+Because it shares the MCP transport, it shares the data plane's failure mode: a crashed sidecar takes notifications down with the tools. An agent that is blocked should therefore do both, in this order: call `notify_operator` so a human hears about it now, then write `.sortie/status` so the retries actually stop. The file survives an MCP crash, and it is the only signal the orchestrator acts on. See the [agent extensions reference](/reference/agent-extensions/) for the tool schema and delivery behavior, and [how to route Sortie's events](/guides/route-notifications/) for choosing what each destination receives.
 
 ## Defense in depth
 
@@ -118,7 +120,7 @@ If you're writing workflow prompts or building a custom agent, the decision fram
 | Review prior run outcomes | `workspace_history` tool | You need history to avoid repeating mistakes |
 | Escalate a decision to a human mid-session | `notify_operator` tool | The human needs to know now; the orchestrator does not act on it |
 | Report progress on a long task | `notify_operator` tool | Fire-and-forget to a configured channel |
-| Signal "I'm blocked" | `.sortie/status` file | Parks the issue with a label; one-way advisory, survives MCP failure |
+| Signal "I'm blocked" | `.sortie/status` file | Parks the issue with a label; one-way advisory, survives MCP failure. Lines after the value can say why |
 | Signal "ready for review" | `.sortie/status` file | Same file, but runs self-review first, then triggers [handoff transition](/reference/agent-extensions/) when configured |
 | Signal "nothing needed changing" | `.sortie/status` file | Same file, runs self-review first (which can retract the claim), then targets `tracker.no_change_state` where configured instead of the ordinary handoff state |
 
