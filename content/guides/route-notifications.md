@@ -22,7 +22,10 @@ Add a `tracker_comment` entry and list the events you want as comments:
 ```yaml
 notifications:
   - kind: tracker_comment
-    events: [session.completed, session.stopped, session.failed]
+    events:
+      - session.completed
+      - session.stopped
+      - session.failed
 ```
 
 The three events cover every worker exit. Soft stops (`blocked`, `needs-human-review`, `no-change-needed`) are `session.stopped`, not `session.completed`, so an entry that lists only `session.completed` misses them. Add `session.started` for a comment when Sortie claims the issue.
@@ -56,10 +59,17 @@ Add a `slack` entry. List `agent.message` to keep the agent's own `notify_operat
 notifications:
   - kind: slack
     webhook_url: $SORTIE_SLACK_WEBHOOK_URL
-    events: [agent.message, session.stopped, session.failed, escalation.ci_failure, budget.held]
+    events:
+      - agent.message
+      - session.stopped
+      - session.failed
+      - escalation.ci_failure
+      - budget.held
 ```
 
 Each message reads `[WARNING] PROJ-42: session.failed`, followed by the same text the issue comment carries. Slack messages include the agent's stop reason with `&`, `<`, and `>` escaped, so it cannot ping anyone.
+
+The agent's own `notify_operator` messages are capped per agent run, and `max_per_session` on an entry that lists `agent.message` changes that cap. See [the `notifications` reference](/reference/workflow-config/#notifications) for the exact rules.
 
 ## Send events to a webhook
 
@@ -69,7 +79,11 @@ Add a `webhook` entry for a system that archives or reacts to events:
 notifications:
   - kind: webhook
     url: $SORTIE_OPS_WEBHOOK_URL
-    events: [session.started, session.completed, session.stopped, session.failed]
+    events:
+      - session.started
+      - session.completed
+      - session.stopped
+      - session.failed
 ```
 
 Branch on the `event_type` key of each JSON payload. The stop reason, when there is one, arrives in `agent_text`. Payloads for `agent.message` carry neither key, so an endpoint that only handles agent messages keeps working. For the full payload, see [what Slack and webhook receive](/reference/workflow-config/#what-slack-and-webhook-receive).
@@ -81,13 +95,27 @@ One event can go to several destinations, and each destination picks its own eve
 ```yaml
 notifications:
   - kind: tracker_comment
-    events: [session.completed, session.stopped, session.failed]
+    events:
+      - session.completed
+      - session.stopped
+      - session.failed
+
   - kind: slack
     webhook_url: $SORTIE_SLACK_WEBHOOK_URL
-    events: [agent.message, session.stopped, session.failed, escalation.ci_failure, budget.held]
+    events:
+      - agent.message
+      - session.stopped
+      - session.failed
+      - escalation.ci_failure
+      - budget.held
+
   - kind: webhook
     url: $SORTIE_OPS_WEBHOOK_URL
-    events: [session.started, session.completed, session.stopped, session.failed]
+    events:
+      - session.started
+      - session.completed
+      - session.stopped
+      - session.failed
 ```
 
 Here `agent.message` reaches Slack only, because only that entry lists it. The agent's messages never reach the issue, and `agent.message` is rejected on a `tracker_comment` entry. The agent gets the `notify_operator` tool only when some entry lists `agent.message`.
@@ -106,7 +134,8 @@ reactions:
 
 notifications:
   - kind: tracker_comment
-    events: [escalation.ci_failure]
+    events:
+      - escalation.ci_failure
 ```
 
 `escalation: none` skips the label. Keep `escalation: label` and list the event to get both. Every escalation emits its event whatever `escalation` says, so a Slack or webhook entry can list it too.
@@ -181,10 +210,17 @@ reactions:
 
 notifications:
   - kind: tracker_comment
-    events: [session.completed, session.stopped, session.failed, escalation.ci_failure, budget.held]
+    events:
+      - session.completed
+      - session.stopped
+      - session.failed
+      - escalation.ci_failure
+      - budget.held
+
   - kind: slack
     webhook_url: $SORTIE_SLACK_WEBHOOK_URL
-    events: [agent.message]
+    events:
+      - agent.message
 ```
 
 You can migrate in two steps. While both forms are present, an event listed in both is still delivered once to each destination, so keeping `on_completion: true` next to `session.completed` gives one comment, not two.
