@@ -249,7 +249,7 @@ Polls CI status for Sortie-created branches and dispatches a continuation turn w
 
 | Field              | Type    | Default      | Description                                                       |
 | ------------------ | ------- | ------------ | ----------------------------------------------------------------- |
-| `max_log_lines`     | integer | `50`         | Maximum CI log tail lines injected into the prompt. `0` disables log injection. |
+| `max_log_lines`     | integer | `50`         | Maximum number of log lines in the CI failure excerpt injected into the prompt. The `[sortie]` lines described under the excerpt format below are not counted, so the excerpt holds at most this value plus three lines. `0` disables log injection. |
 | `watch_window_ms`   | integer | `86400000`   | Milliseconds the watch keeps following a pull request since its last recorded head change (twenty-four hours by default). Must be non-negative and must not exceed `9223372036854` (about 292 years). `0` removes the bound. |
 
 **Activation:** active when `provider` names a registered CI status provider and an SCM adapter is also configured. `provider` must match the provider named by every other active SCM reaction; a mismatch fails startup and is reported by `sortie validate` under the `reactions.scm_provider_conflict` check. The agent or an `after_run` hook must write `pr_number` (positive integer), `owner`, `repo`, and `branch` (all non-empty) to `.sortie/scm.json` in the workspace; all four are required, and a workspace whose metadata names a branch but no pull request seeds no CI watch. The orchestrator resolves the pull request's head live through the SCM adapter on every due pass rather than reading a ref once when the pending entry is recorded.
@@ -268,6 +268,21 @@ reactions:
     escalation: label
     escalation_label: needs-human
 ```
+
+**Excerpt format:** `.ci_failure.log_excerpt` holds the output of the failing step of the first failing check. When Sortie cannot find that step, it holds the end of the job log instead. An excerpt built from a job log opens with one `[sortie]` line that says which case applies. The step name in the first two forms is the step's name on GitHub and the runner stage's name on GitLab.
+
+| Opening line | Case |
+| --- | --- |
+| `[sortie] Output of the failing step "<name>"; output from the rest of the job is left out.` | The step was found. |
+| `[sortie] Output of the failing step "<name>", mixed with output from steps that ran at the same time; output from the rest of the job is left out.` | The step was found, and other steps ran at the same time, so their lines are interleaved. |
+| `[sortie] The failing step could not be located, so these are the last lines of the job log.` | The step was not found. |
+| `[sortie] The failing step could not be located and the job log was not read to its end, so these are the last lines that were read.` | The step was not found and the read stopped before the end of the log. |
+
+A found step longer than `max_log_lines` shows its opening lines, which carry the command the step ran, followed by its last lines. The opening lines take at most one fifth of `max_log_lines`, rounded down. Each span left out is replaced by `[sortie] N lines omitted.` (`[sortie] 1 line omitted.` for a single line), so the excerpt holds at most two such lines. A step without opening lines, such as one that ran at the same time as others, shows one omission line followed by its last lines.
+
+Every line is cleaned before it is counted. Escape sequences and control characters are removed, trailing spaces and tabs are trimmed, and a line left empty is dropped. A line longer than 4096 bytes as the forge delivers it is cut and ends with `[sortie: line cut]`. Sortie reads at most 16 MiB of a log.
+
+A Gitea excerpt is the status description and has no `[sortie]` line. How each provider finds the failing step is described in the [GitHub](/reference/adapter-github/#ci-status-provider), [GitLab](/reference/adapter-gitlab/#ci-status-provider), and [Gitea](/reference/adapter-gitea/#ci-status-provider) adapter references. See [Configure CI feedback](/guides/configure-ci-feedback/#what-the-agent-sees) for an example of what the agent receives.
 
 ### `reactions.review_comments`
 

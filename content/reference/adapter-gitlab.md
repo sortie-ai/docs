@@ -543,7 +543,15 @@ Each status entry's `status` and `allow_failure` fields decide its check conclus
 
 An allowed-to-fail job therefore never turns the aggregate red and is never counted as failing. A `canceled` job is a different kind of non-failing: it withholds a passing verdict without turning the aggregate red either, holding it at `pending` instead. The aggregate status and failing count come from the same shared rule the GitHub and Gitea providers use, the same rule the [merge gate](#pipeline-status) now folds a `manual` head pipeline's job set through, so the two readers agree on a `manual` verdict. They still differ on a stale head pipeline: the merge gate reads the SHA embedded on the merge request response and can hold at `pending` on one, the shape covered under [stale head pipeline](#stale-head-pipeline), while this provider resolves the commit it was asked about for itself and is never exposed to that staleness.
 
-On a failing verdict, the log excerpt is the sanitized tail of the first failing job's trace, capped by the `max_log_lines` budget; a `max_log_lines` of zero or less disables it. GitLab ignores the `Range` header on the trace route, so a trace larger than 1 MiB yields the tail of that first megabyte rather than the true tail. `.ci_failure.ref` always echoes the input ref, never the resolved SHA.
+On a failing verdict, the log excerpt is built from the trace of the first failing job (`GET /projects/{id}/jobs/{job_id}/trace`); a `max_log_lines` of zero or less disables it. The [excerpt format](/reference/reactions/#reactionsci_failure) is shared by every provider.
+
+The runner wraps each stage of a job in section markers. The excerpt is the output of the last runner stage that started before the first post-script stage, which is the stage in which the job stopped. That is `step_script` for a job whose script failed, and an earlier stage such as `get_sources` for a job that failed before its script ran. The post-script stages are `after_script`, the cache archive, the artifact uploads, and `cleanup_file_variables`. Collapsible sections that the job's own script writes are never anchors. The opening note names the stage, and the output ends at the stage's end marker or where the first post-script stage starts.
+
+Each line loses the runner's timestamp and stream prefix and the section markers. The opening lines of a long stage are the last group of consecutive `$ ` command lines the runner printed in it.
+
+The excerpt is the end of the trace, with the matching note, when the trace holds no section markers, when a stage that runs only after a successful script (the cache archive or the artifact upload on success) starts after the anchor, or when the read of the trace stops before the stage is complete.
+
+`.ci_failure.ref` always echoes the input ref, never the resolved SHA.
 
 ### The write surface
 
