@@ -976,13 +976,15 @@ Each entry accepts three typed fields:
 | `events`          | list of strings | `[agent.message]` for `webhook` and `slack`; _(required)_ for `tracker_comment` | The event types the entry receives. Each name must come from the [catalog](#event-catalog), none may repeat, and there is no wildcard. A `webhook` or `slack` entry that omits the key receives `agent.message` only, which is deprecated. A `tracker_comment` entry must write the key; `[]` means only the comments that deprecated settings enable. |
 | `max_per_session` | integer         | `20`         | Cap on the agent's own `notify_operator` calls for the whole agent run. `0` selects the default (`20`); it never means unlimited. Must be non-negative. It has no effect on an entry that does not receive `agent.message`, and a `tracker_comment` entry rejects it. |
 
-Every other key in a `webhook` or `slack` entry passes through to the backend untyped, with `$VAR` and `${VAR}` references resolved on string values, the same mechanism as [adapter pass-through configuration](#adapter-pass-through-configuration). Per-backend required fields:
+Every other key in a `webhook` or `slack` entry has `$VAR` and `${VAR}` references resolved on string values, the same mechanism as [adapter pass-through configuration](#adapter-pass-through-configuration). Per-backend fields:
 
 | `kind`    | Field         | Description                                                               |
 | --------- | ------------- | -------------------------------------------------------------------------- |
 | `webhook` | `url`         | Endpoint that receives an HTTP POST of the notification as a JSON object. |
 | `slack`   | `webhook_url` | Slack incoming webhook URL that receives a Slack-shaped JSON body.        |
 | `tracker_comment` | _(none)_ | Takes only `kind` and `events`. Any other key is rejected. |
+
+The URL is the only setting a `webhook` or `slack` backend has. There is no key for headers, authentication, a Slack channel, or a timeout, and every send is a JSON POST with a fixed 10-second timeout. A key a backend does not read is ignored without an error, and `sortie validate` reports no warning for it, so a misspelled or unsupported key has no effect. A credential for the endpoint has to be part of the URL: a user and password written into it, such as `https://user:password@host/path`, are sent as HTTP Basic authentication. Sortie registers every endpoint URL as a secret and masks it in logs; see [secrets and credential handling](/concepts/security/#secrets-and-credential-handling).
 
 When more than one entry receives `agent.message` and sets `max_per_session`, the effective cap is the maximum non-zero value across those entries, falling back to `20` when every one is `0` or unset. The cap applies to the whole agent run: every turn and every tool server process the run spawns share one count. A retry or a continuation of a resumed session starts a new run and a new count. Events Sortie produces never count against the cap, and an agent that has used its cap never suppresses one. See the [agent extensions reference](/reference/agent-extensions/#notify_operator) for how calls are counted and what happens when the count cannot be established.
 
