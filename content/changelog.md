@@ -9,6 +9,57 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.26.0] - 2026-10-01 { #1.26.0 }
+
+### Added
+
+- The command that starts your agent (`agent.command`) can now also be written as a list with one part per line, so a program path or an agent name that contains a space reaches the agent intact. ([#1168](https://github.com/sortie-ai/sortie/issues/1168))
+
+- The `copilot-cli` and `opencode` agent kinds now take an `effort` setting that sets the agent's reasoning level on every turn, as `claude-code` and `codex` already do, and an unset `effort` leaves the agent's default level. ([#1182](https://github.com/sortie-ai/sortie/issues/1182))
+
+- `sortie validate` and the run log now warn when `effort` is set for an agent kind that passes no reasoning level on, such as `agent-client-protocol`, whose users write the agent's own reasoning option in `agent.command`. ([#1182](https://github.com/sortie-ai/sortie/issues/1182))
+
+- A dispatch rule can now carry a settings block for the agent kind it runs, such as a `model` and `effort` for routine issues and another pair for hard ones, laid over that kind's top-level settings. Run history records the configured and the reported model of every run, the dashboard shows them for a running session, and `sortie stats` breaks runs down by configured model. ([#1191](https://github.com/sortie-ai/sortie/issues/1191))
+
+- `sortie validate` now checks a dispatch rule's settings as it checks the agent kind's own block, and warns when a rule changes the model but keeps an `effort` level inherited from the top-level settings. ([#1191](https://github.com/sortie-ai/sortie/issues/1191))
+
+- A dispatch rule can now route an issue by a phrase in its title, such as `[docs]` or `WIP:`, with `match.title`. ([#1195](https://github.com/sortie-ai/sortie/issues/1195))
+
+- Slack and webhook entries in `notifications` can now receive Sortie's own events, such as a failed session or a reaction escalation, each entry naming the events it wants in `events`, and a new `tracker_comment` entry chooses which events Sortie comments on in the issue, with `escalation: none` turning off a reaction's label. ([#1201](https://github.com/sortie-ai/sortie/issues/1201))
+
+- When an agent stops on `blocked`, `needs-human-review`, or `no-change-needed`, the reason it writes on the lines after the status in `.sortie/status` now appears in Sortie's comment on the issue as literal text, with secrets Sortie knows masked, and in Slack and webhook notifications of the stop; agents are now asked to give one. ([#1201](https://github.com/sortie-ai/sortie/issues/1201))
+
+### Changed
+
+- The command that starts your agent (`agent.command`) now defaults to the agent's standard program, such as `claude` for `claude-code`, so it can be left out for every agent kind except `agent-client-protocol`. ([#1168](https://github.com/sortie-ai/sortie/issues/1168))
+
+- A set `claude-code.effort` now takes precedence over a `CLAUDE_CODE_EFFORT_LEVEL` variable in Sortie's environment or on an SSH worker host, that variable keeps its effect while `effort` is unset, and a level Claude Code does not recognize now logs a warning. ([#1182](https://github.com/sortie-ai/sortie/issues/1182))
+
+- An edit to an agent kind's settings block, such as `claude-code` or `opencode`, now applies from the next attempt without a restart, while a running session keeps the settings it started with. ([#1191](https://github.com/sortie-ai/sortie/issues/1191))
+
+### Deprecated
+
+- Running the `opencode` agent kind on OpenCode 1.x is deprecated, and a later release removes it: runs on 1.x keep working and each logs a warning naming the installed version. OpenCode 2.x is published on npm as `@opencode/cli`, while `opencode-ai` ships only 1.x, so uninstall `opencode-ai` before installing `@opencode/cli`, and before switching remove `opencode.pure` and give any `opencode.effort` or `opencode.variant` an `opencode.model` without a `#` suffix, or 2.x refuses the session. The OpenCode Docker example now installs 2.x. ([#1178](https://github.com/sortie-ai/sortie/issues/1178))
+- `tracker.comments` and the environment variables that set it, a reaction's `escalation: comment`, and a `notifications` entry without `events` are deprecated, as is relying on the auto-merge success and budget-hold comments while no `tracker_comment` entry exists: each keeps working and logs a deprecation warning, also shown by `sortie validate`, that names its replacement. ([#1201](https://github.com/sortie-ai/sortie/issues/1201))
+
+### Removed
+
+- The `kiro` agent kind is removed, and Kiro CLI now runs only through the `agent-client-protocol` kind. A workflow that still names `kiro` and trusts every tool, which is the default, keeps running without an edit: it is converted when loaded, and `sortie validate` and each run warn once with the `kiro-cli acp -a` invocation to write in `agent.command` under `agent-client-protocol`, which ends the warning; the conversion is temporary and a later release removes it. A workflow that limits which tools Kiro may use, with `kiro.trust_all_tools: false` or a `kiro.trust_tools` list, fails to load until it is moved to `agent-client-protocol`, and the error says how. Sessions now start `kiro-cli acp -a` instead of `kiro-cli chat` and receive Sortie's tools on a local launch under a stored login, but not under `KIRO_API_KEY` or on `worker.ssh_hosts`, `kiro.mcp_config` is not carried over, and new runs are recorded under `agent-client-protocol` in run history, the dashboard, and `sortie stats` while earlier `kiro` rows stay. ([#1169](https://github.com/sortie-ai/sortie/issues/1169))
+- The deprecated `ci_feedback` section of `WORKFLOW.md` is removed, and the CI feedback loop is configured only under `reactions.ci_failure`. A workflow that still contains `ci_feedback`, even an empty one, no longer starts and fails `sortie validate`, while a running Sortie keeps its current settings until the file is fixed. Move the section under `reactions` as `ci_failure` with `kind` renamed `provider`, or delete `ci_feedback` if `reactions.ci_failure` is already set. ([#1183](https://github.com/sortie-ai/sortie/issues/1183))
+
+### Fixed
+
+- Workflows that run Gemini CLI through the `agent-client-protocol` agent kind now report token usage on current Gemini CLI releases, not only on 0.59.0, so `agent.max_tokens` applies to them and their spend counts in the token and cost totals. Token usage for these workflows needs Gemini CLI 0.59.0 or later. ([#1189](https://github.com/sortie-ai/sortie/issues/1189))
+- Workflows that run an agent other than Gemini CLI through the `agent-client-protocol` agent kind no longer start with Gemini CLI's telemetry settings in their environment or an unused temporary directory left behind. An agent whose command line does not show which runtime it starts, or names Gemini CLI while starting a different runtime, is now started a second time before its session begins, so a Gemini CLI started through a wrapper script still reports token usage. ([#1198](https://github.com/sortie-ai/sortie/issues/1198))
+- An agent kind selected by a dispatch rule now starts its own program instead of the `agent.command` written for the default agent kind, and `sortie validate` now refuses a route to a kind that needs a program to start but has none. ([#1168](https://github.com/sortie-ai/sortie/issues/1168))
+- A retry that is waiting when the workflow changes now continues on the agent kind and prompt the workflow selects afterwards, instead of starting another agent kind's command, failing on a prompt that was removed, or being dropped. ([#1168](https://github.com/sortie-ai/sortie/issues/1168))
+- A notification from an agent that never reached you no longer counts toward the limit on how many notifications an agent can send, so its later notifications still get through. ([#1163](https://github.com/sortie-ai/sortie/issues/1163))
+- A `copilot-cli` turn that fails on an error from its model provider now reports the provider's message as the failure reason, instead of a generic non-zero exit message. ([#1205](https://github.com/sortie-ai/sortie/issues/1205))
+- A local `opencode` turn no longer spends tokens on a session title, so the token usage reported for it covers every model request the turn makes. ([#1205](https://github.com/sortie-ai/sortie/issues/1205))
+- On GitHub and GitLab, the CI log the agent receives after a failed check now shows the step that failed, from the command it ran to its error, instead of the last lines of the whole job, which artifact uploads and cleanup steps could fill. When that step cannot be found the excerpt is still the end of the job log and its first line says so, and logs up to 16 MiB are now read in full instead of only their first 1 MiB. On Gitea, the CI failure excerpt built from the commit status description now drops blank lines and control characters and cuts very long lines. ([#1221](https://github.com/sortie-ai/sortie/issues/1221))
+
+- A scheduled retry no longer waits for a later recovery pass when the process pauses while arming its timer. ([#1231](https://github.com/sortie-ai/sortie/pull/1231))
+
 ## [1.25.0] - 2026-09-27 { #1.25.0 }
 
 ### Added
@@ -1069,6 +1120,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - CI pipeline with `golangci-lint`, `gofmt` enforcement, and test execution via GitHub Actions.
 - Architecture Decision Records (ADR-0001 through ADR-0005).
 
+[1.26.0]: https://github.com/sortie-ai/sortie/compare/v1.25.0...v1.26.0
 [1.25.0]: https://github.com/sortie-ai/sortie/compare/v1.24.1...v1.25.0
 [1.24.1]: https://github.com/sortie-ai/sortie/compare/v1.24.0...v1.24.1
 [1.24.0]: https://github.com/sortie-ai/sortie/compare/v1.23.0...v1.24.0
