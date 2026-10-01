@@ -76,12 +76,23 @@ Each kind owns its own pending entry, fingerprint row, and attempt counter. A su
 
 ### Escalation actions
 
-An escalation fires when a kind exhausts its budget, when a [triage command](#triage-command) answers `escalate`, and when `merge_completion` gives up on a merge whose commit identifier never arrives. The orchestrator applies one escalation action:
+An escalation fires when a kind exhausts its budget, when a [triage command](#triage-command) answers `escalate`, and when `merge_completion` gives up on a merge whose commit identifier never arrives. The `escalation` field chooses the action Sortie takes on the issue:
 
 - `label` (default): adds `escalation_label` (default `needs-human`) to the tracker issue.
-- `comment`: posts a plain-text tracker comment naming the PR, the attempt count, and the outstanding signal.
+- `none`: applies no label and posts no comment of its own.
+- `comment` (deprecated): posts a plain-text tracker comment naming the PR, the attempt count, and the outstanding signal. A deprecation warning names the replacement, `escalation: none` plus a subscription to the event.
 
-The action runs asynchronously with a 30-second timeout. A failed escalation is logged and counted but does not block cleanup. CI escalation outcomes are recorded by the `sortie_ci_escalations_total` counter; see the [Prometheus metrics reference](/reference/prometheus-metrics/).
+Whatever the value, the escalation also emits one event: `escalation.ci_failure`, `escalation.review_comments`, `escalation.bot_review`, `escalation.merge_conflicts`, `escalation.auto_merge`, or `escalation.merge_completion`. Each entry in [`notifications`](/reference/workflow-config/#notifications) that lists the event receives it, so Slack or a webhook can hear about an escalation whether the reaction labels or not. A `tracker_comment` entry that lists the event posts the comment on the issue. To get a comment and no label, write `escalation: none` and list the event on a `tracker_comment` entry. To get both, keep `escalation: label` and list the event.
+
+| `escalation` | Label | Comment on the issue |
+|---|---|---|
+| `label` (default) | Applied. | None, unless a `tracker_comment` entry lists the event. |
+| `none` | None. | None, unless a `tracker_comment` entry lists the event. |
+| `comment` (deprecated) | None. | Posted. |
+
+A reaction block that omits `escalation` resolves to `label`, `auto_merge` included, and draws no warning. A comment on the issue, from `escalation: comment` or from a subscription, is posted each time the escalation fires, while a label is applied idempotently.
+
+The action runs asynchronously with a 30-second timeout. A failed escalation is logged and counted but does not block cleanup. Escalation outcomes are recorded by the per-kind escalation counters, such as `sortie_ci_escalations_total`; see the [Prometheus metrics reference](/reference/prometheus-metrics/).
 
 ---
 
@@ -93,7 +104,7 @@ Every reaction kind shares these four fields.
 | ------------------ | ------- | ------------- | ----------------------------------------------------------------------------------------------- |
 | `provider`         | string  | _(required)_  | SCM or CI adapter kind that activates the reaction: `github`, `gitea`, or `gitlab`. Must match a registered adapter. Absent or empty disables the kind, and all other fields in the sub-object are ignored. |
 | `max_retries`      | integer | `2`           | Fix continuation dispatches per issue before escalation. Must be non-negative.                  |
-| `escalation`       | string  | `label`       | Action taken when the kind hands the subject to a person, either because the budget is spent or because a [triage command](#triage-command) answered `escalate`. One of `label` or `comment`. |
+| `escalation`       | string  | `label`       | Action taken when the kind hands the subject to a person, either because the budget is spent or because a [triage command](#triage-command) answered `escalate`. One of `label`, `none`, or the deprecated `comment`. See [escalation actions](#escalation-actions). |
 | `escalation_label` | string  | `needs-human` | Label applied to the tracker issue when `escalation` is `label`.                                |
 
 Keys other than these four are kind-specific and listed under each kind below.
@@ -186,7 +197,7 @@ The command writes one JSON object to the path in `SORTIE_REACTION_RESULT`. The 
 | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | `handled`        | The command resolved the subject. Sortie marks the reaction fingerprint dispatched and keeps watching, spending no attempt, scheduling no continuation, and writing nothing to the tracker. |
 | `dispatch-agent` | The reaction proceeds to the continuation turn it would have scheduled anyway. Every counter, fingerprint, and entry is left as it would have been with no `triage` block. |
-| `escalate`       | Sortie applies the kind's configured `escalation` immediately, with no attempt spent. The `comment` action posts copy naming the triage command as the reason rather than an exhausted budget. |
+| `escalate`       | Sortie applies the kind's configured `escalation` immediately, with no attempt spent. A comment on the issue, from `escalation: comment` or from a `tracker_comment` subscription to the escalation event, carries copy naming the triage command as the reason rather than an exhausted budget. |
 
 A `handled` answer marks the subject dispatched in the same durable row the reaction's own deduplication uses, so the reaction takes no further action on it until the fingerprint moves. Within the episode, a pass that recomputes an already-answered fingerprint replays the stored answer instead of running the command again, and a replayed `escalate` posts no second escalation.
 
@@ -345,7 +356,7 @@ Polls comments authored by automated review tools (linters, static analyzers, se
 
 **Cross-kind isolation:** `bot_review` and `review_comments` never interfere on the same PR. Each owns its own pending entry, fingerprint row, and attempt counter.
 
-**Escalation:** fires when the attempt counter reaches `max_continuation_turns`. The action is `label` (default) or `comment`, with `escalation_label` defaulting to `needs-human`. Cleanup is scoped to the `bot-review` kind and does not release the issue claim, so the reaction re-arms and can escalate again if bot comments recur on a long-lived PR. For that reason `escalation: comment` can accumulate repeated comments; prefer `label`. This differs from `ci_failure` and `review_comments`, whose escalation releases the claim and stops.
+**Escalation:** fires when the attempt counter reaches `max_continuation_turns`. The action is `label` (default), `none`, or the deprecated `comment`, with `escalation_label` defaulting to `needs-human`. Cleanup is scoped to the `bot-review` kind and does not release the issue claim, so the reaction re-arms and can escalate again if bot comments recur on a long-lived PR. For that reason a comment on the issue, whether from `escalation: comment` or from a `tracker_comment` subscription to `escalation.bot_review`, can accumulate repeated comments; prefer `label`. This differs from `ci_failure` and `review_comments`, whose escalation releases the claim and stops.
 
 Bot-review checks and escalations are recorded by the `sortie_bot_review_checks_total{result}` and `sortie_bot_review_escalations_total{action}` counters when the HTTP server is enabled; see the [Prometheus metrics reference](/reference/prometheus-metrics/).
 
@@ -393,7 +404,7 @@ Two common fields take kind-specific defaults here. `max_retries` defaults to `1
 
 **Cross-kind isolation:** merge-conflict detection runs independently of every other reaction kind. Each owns its own pending entry, fingerprint row, and attempt counter.
 
-**Escalation:** fires when the episode's attempt count exceeds `max_retries`. The action is `label` (default) or `comment`, with `escalation_label` defaulting to `needs-human`. Cleanup is scoped to the `merge-conflict` kind, removing its pending entry, fingerprint, and attempt counter; it does not release the issue claim, and other reaction kinds on the same issue are preserved.
+**Escalation:** fires when the episode's attempt count exceeds `max_retries`. The action is `label` (default), `none`, or the deprecated `comment`, with `escalation_label` defaulting to `needs-human`. Cleanup is scoped to the `merge-conflict` kind, removing its pending entry, fingerprint, and attempt counter; it does not release the issue claim, and other reaction kinds on the same issue are preserved.
 
 Merge-conflict checks and escalations are recorded by the `sortie_merge_conflict_checks_total{result}` and `sortie_merge_conflict_escalations_total{action}` counters when the HTTP server is enabled; see the [Prometheus metrics reference](/reference/prometheus-metrics/).
 
@@ -456,7 +467,7 @@ reactions:
     require_ci: true          # never merge on failing or pending CI
     delete_branch: true       # remove the head branch after a successful merge
     max_retries: 2            # merge attempts before escalation
-    escalation: comment       # post a tracker comment when attempts are exhausted
+    escalation: none          # no label; a tracker_comment entry listing escalation.auto_merge posts the comment
     poll_interval_ms: 60000   # 60s between precondition checks
 ```
 
@@ -493,9 +504,9 @@ No validator catches the mistake that matters most. Naming an abandonment state 
 
 **Merge reported with no commit identifier:** a forge that reports the pull request merged while supplying no merge commit identifier does not latch the row above, and the entry that observes it is not polled indefinitely. The first tick that sees this condition on a given pull request starts a fixed 30-minute grace period, which is not configurable and which `max_retries` does not bound. The condition is recorded as a second row in `reaction_fingerprints`, under the kind `merge-completion-missing-sha`, holding the normalized `owner/repo#number` identity and the time that identity was first seen in this state. Re-seeing the same pull request preserves both values; a different pull request replaces them and starts a fresh observation. During the grace period the entry re-enqueues under exponential backoff floored at `poll_interval_ms`, and each tick logs a warning naming the repository, the pull request, how long it has waited, and the grace period it is waiting against. The row is persisted, so a restart does not restart the clock.
 
-Expiry is evaluated on the first tick at or after the deadline. If a real identifier arrives before then, the normal latch and transition run unchanged, and the observation row is cleared once that transition is latched. If the identifier is still absent, the pending entry is dropped, the permanent stop is logged at `error` level, and the configured escalation is applied. No transition is attempted and no merge fingerprint is written for this condition, so the issue stays in the handoff state until a person moves it. The `comment` posture names the repository, the pull request, the elapsed wait, the reason, and the configured target state; the `label` posture adds `escalation_label` instead, and the stop log carries the same identifying and manual-action context under either posture.
+Expiry is evaluated on the first tick at or after the deadline. If a real identifier arrives before then, the normal latch and transition run unchanged, and the observation row is cleared once that transition is latched. If the identifier is still absent, the pending entry is dropped, the permanent stop is logged at `error` level, and the configured escalation is applied. No transition is attempted and no merge fingerprint is written for this condition, so the issue stays in the handoff state until a person moves it. A comment on the issue, from the deprecated `comment` posture or from a `tracker_comment` subscription to `escalation.merge_completion`, names the repository, the pull request, the elapsed wait, the reason, and the configured target state; the `label` posture adds `escalation_label` instead, and the stop log carries the same identifying and manual-action context under every posture.
 
-Delivery is recorded only after both the tracker write and the follow-up write that marks it delivered succeed, and the two share one 30-second deadline. A failure in either leaves the observation recorded as undelivered, and neither failure reopens the stopped entry: a later pending entry for the same issue, from a subsequent worker exit or from startup recovery, retries delivery once and stops again without restarting the grace period or the polling loop. When only the marker write failed, the notification already reached the tracker, so that retry delivers a second time. `label` repeats harmlessly, because re-applying a present label is a no-op; `comment` posts a duplicate comment. Once delivery is marked, a later entry stops without repeating the signal. The observation row is also cleared whenever the issue is missing from the tracker's state response, is already terminal, or has left the handoff state, and when the pull request is gone from the forge.
+Delivery is recorded only after both the tracker write and the follow-up write that marks it delivered succeed, and the two share one 30-second deadline. The tracker write is the label under `label`, and the comment on the issue under `comment` or under `none` with a `tracker_comment` subscription to the event. Under `none` with no such subscription there is no tracker write to confirm, so delivery is recorded at once. A Slack or webhook send never confirms delivery and never blocks it, so it never suppresses the retry of a failed tracker write. A failure in either leaves the observation recorded as undelivered, and neither failure reopens the stopped entry: a later pending entry for the same issue, from a subsequent worker exit or from startup recovery, retries delivery once and stops again without restarting the grace period or the polling loop. When only the marker write failed, the notification already reached the tracker, so that retry delivers a second time. `label` repeats harmlessly, because re-applying a present label is a no-op; a comment posts a duplicate. Once delivery is marked, a later entry stops without repeating the signal. The observation row is also cleared whenever the issue is missing from the tracker's state response, is already terminal, or has left the handoff state, and when the pull request is gone from the forge.
 
 **No expiry:** the pending entry carries no time-to-live. `review_comments`, `bot_review`, `merge_conflicts`, and `auto_merge` each bound their entry with `watch_window_ms`, defaulting to thirty minutes, and `ci_failure` bounds its own with the same field, defaulting instead to twenty-four hours, because each waits on a signal that either arrives shortly after the agent finishes or does not arrive at all. A merge waits on human review for an unbounded time, so this kind takes the same posture as the label commands and carries no expiry. The entry is bounded another way: it stops being re-enqueued once the issue leaves the configured handoff state, and it is dropped outright when the issue is already terminal, when the issue is missing from the tracker's state response, or when the pull request is gone from the forge. One post-merge condition carries a clock of its own: a pull request reported merged with no commit identifier stops the entry after 30 minutes, as described above.
 
@@ -510,7 +521,7 @@ Delivery is recorded only after both the tracker write and the follow-up write t
 
 The retry bound is a strict over-limit comparison against a per-issue counter scoped to this kind. The counter is incremented after every transition call regardless of outcome, so the attempt count an operator reads in a `comment` escalation is truthful even on the two paths that escalate immediately.
 
-**Escalation:** the two postures are the ones the sibling kinds already use. `label` (default) adds `escalation_label` (default `needs-human`) to the tracker issue. `comment` posts a plain-text comment naming the number of attempts, the target state, the pull request number, and the repository. The same two postures serve the missing-identifier stop above, where the comment names the elapsed wait and the manual follow-up rather than an attempt count. Both run asynchronously with a 30-second timeout, so a slow tracker does not block the reconcile tick, and an escalation that itself fails is logged without reopening the entry. On any escalation the pending entry and the attempt counter are cleared while the fingerprint row is deliberately left undispatched. That residue works in your favor: a later reconcile of the same merge commit, driven by a fresh pending entry from a subsequent worker exit, retries the transition instead of treating the escalated attempt as final.
+**Escalation:** the postures are the ones the sibling kinds already use. `label` (default) adds `escalation_label` (default `needs-human`) to the tracker issue. `none` applies no label. The comment, from the deprecated `comment` or from a `tracker_comment` subscription to `escalation.merge_completion`, is plain text naming the number of attempts, the target state, the pull request number, and the repository. The same postures serve the missing-identifier stop above, where the comment names the elapsed wait and the manual follow-up rather than an attempt count. Both run asynchronously with a 30-second timeout, so a slow tracker does not block the reconcile tick, and an escalation that itself fails is logged without reopening the entry. On any escalation the pending entry and the attempt counter are cleared while the fingerprint row is deliberately left undispatched. That residue works in your favor: a later reconcile of the same merge commit, driven by a fresh pending entry from a subsequent worker exit, retries the transition instead of treating the escalated attempt as final.
 
 **Restart to apply:** this block, `target_state` included, is captured once at startup and is not rebuilt on a dynamic reload. A change to any field here, or to either tracker prerequisite, takes effect only on the next restart. `sortie validate` runs the same startup path, so its offline verdict cannot diverge from what a restart would produce. If `tracker.terminal_states` is edited while the process runs so that the captured `target_state` is no longer a member of it, the reaction logs one warning naming both values, suppresses repeats while the condition persists, and keeps transitioning issues to the frozen target; the terminal workspace sweep meanwhile stops collecting the workspaces of the issues this reaction closes, until the two agree again. A restart rejects that same configuration offline before the process starts.
 
@@ -528,7 +539,7 @@ reactions:
     target_state: done        # required; a member of tracker.terminal_states
     poll_interval_ms: 60000   # 60s between merge-state polls; minimum 30000
     max_retries: 2            # retryable transition attempts before escalation
-    escalation: label         # "label" or "comment"
+    escalation: label         # "label", "none", or deprecated "comment"
     escalation_label: needs-human
 ```
 
@@ -543,7 +554,7 @@ Rules marked **startup only** are not reachable by `sortie validate`. They are e
 - Reaction kind keys must match `[a-z][a-z0-9_-]*`. Invalid keys are rejected with a configuration error.
 - `max_retries` must be non-negative for all kinds.
 - `watch_window_ms` must be non-negative and must not exceed `9223372036854` (about 292 years) for `ci_failure`, `review_comments`, `bot_review`, `merge_conflicts`, and `auto_merge`.
-- `escalation` must be `label` or `comment` for all kinds.
+- `escalation` must be `label`, `none`, or `comment` for all kinds. `comment` is deprecated.
 - `poll_interval_ms` must be at least `30000` for `review_comments`. **Startup only.**
 - `poll_interval_ms` must be at least `30000` for `auto_merge`.
 - `debounce_ms` must be non-negative, and `max_continuation_turns` must be positive, for `review_comments`. **Startup only.**

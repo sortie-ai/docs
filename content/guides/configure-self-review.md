@@ -212,10 +212,10 @@ tracker:
   terminal_states: [done, wontfix]
   handoff_state: review
   in_progress_state: in-progress
-  comments:
-    on_dispatch: true
-    on_completion: true
-    on_failure: true
+
+notifications:
+  - kind: tracker_comment
+    events: [session.started, session.completed, session.stopped, session.failed, budget.held]
 
 agent:
   kind: claude-code

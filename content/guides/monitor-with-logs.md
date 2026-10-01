@@ -279,13 +279,21 @@ time=2026-03-26T14:32:00.200+00:00 level=INFO msg="dispatch comment posted" issu
 time=2026-03-26T14:35:21.600+00:00 level=INFO msg="tracker comment posted" issue_id=abc123 issue_identifier=MT-649 lifecycle=completion
 ```
 
-When [`tracker.comments`](/reference/workflow-config/) flags are enabled, Sortie posts audit comments on the tracker issue at dispatch, completion, or failure. INFO means the comment was delivered. If the comment API call fails:
+When a [`tracker_comment` entry](/reference/workflow-config/#the-tracker_comment-destination) lists the session events, Sortie posts audit comments on the tracker issue at dispatch, completion, or failure. INFO means the comment was delivered. If the comment API call fails:
 
 ```
 time=2026-03-26T14:35:21.600+00:00 level=WARN msg="tracker comment failed" issue_id=abc123 issue_identifier=MT-649 lifecycle=completion error="tracker: tracker_auth_error: POST /rest/api/3/issue/abc123/comment: 403"
 ```
 
 The WARN means the comment failed but the session lifecycle is unaffected. Check API token permissions if persistent.
+
+A send to a Slack or webhook entry that fails logs a separate WARN, which names the event and the entry:
+
+```
+time=2026-03-26T14:35:21.600+00:00 level=WARN msg="notification delivery failed" event_type=session.failed destination=notifications[1] notifier_kind=slack error="..."
+```
+
+The delivery does not affect the session lifecycle and is not retried. Successful sends log at DEBUG as `notification delivered`.
 
 ### Errors and retries
 

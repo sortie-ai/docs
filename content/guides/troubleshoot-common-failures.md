@@ -243,7 +243,7 @@ The API token is wrong, expired, or lacks required permissions. Sortie does not 
 
     That is the pairing Sortie sends for a key in `email:token` form. A Data Center personal access token carries no colon and goes out as a bearer credential instead.
 
-3. If you use `handoff_state`, `in_progress_state`, or `tracker.comments`, the token needs to be able to write to issues, not only read them.
+3. If you use `handoff_state`, `in_progress_state`, or a `tracker_comment` notifications entry, the token needs to be able to write to issues, not only read them.
 
 ## Sortie won't start: endpoint is rejected
 

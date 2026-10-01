@@ -75,7 +75,7 @@ When log fetching is disabled, the agent still receives structured failure data 
 reactions:
   ci_failure:
     provider: github
-    escalation: label              # "label" (default) or "comment"
+    escalation: label              # "label" (default) or "none"
     escalation_label: needs-human  # default "needs-human"
 ```
 
@@ -84,11 +84,26 @@ When CI-fix retries are exhausted, Sortie escalates. Two strategies are availabl
 | Strategy | Behavior |
 |---|---|
 | `label` (default) | Adds `escalation_label` (default `needs-human`) to the issue. The Gitea and GitLab adapters create the label on demand if the tracker does not already have it; on GitHub, the label must already exist. |
-| `comment` | Posts a comment on the issue with failure details: how many CI-fix attempts were made, which checks failed, and links to their detail pages. |
+| `none` | Adds no label. |
 
 Both strategies release the claim on the issue and cancel any pending retry. The issue won't be re-dispatched until its tracker state changes.
 
-`escalation_label` only applies when `escalation` is `label`. If you use `comment` escalation, you don't need this field. Create the label in advance with `gh`:
+Every escalation also emits the `escalation.ci_failure` event. To get a comment on the issue with failure details (how many CI-fix attempts were made, which checks failed, and links to their detail pages), list the event in a `tracker_comment` entry. The same event can go to Slack or a webhook:
+
+```yaml
+reactions:
+  ci_failure:
+    provider: github
+    escalation: none
+
+notifications:
+  - kind: tracker_comment
+    events: [escalation.ci_failure]
+```
+
+The older `escalation: comment` still works but is deprecated. See [how to route notifications](/guides/route-notifications/) for the full set of events.
+
+`escalation_label` only applies when `escalation` is `label`. Create the label in advance with `gh`:
 
 ```bash
 gh label create needs-human --repo myorg/myrepo --color "D93F0B"
@@ -230,10 +245,10 @@ tracker:
   terminal_states: [done, wontfix]
   handoff_state: review
   in_progress_state: in-progress
-  comments:
-    on_dispatch: true
-    on_completion: true
-    on_failure: true
+
+notifications:
+  - kind: tracker_comment
+    events: [session.started, session.completed, session.stopped, session.failed, budget.held]
 
 agent:
   kind: claude-code
@@ -355,7 +370,7 @@ Three CI-related metrics are available when the HTTP server is running (default 
 | Metric | Labels | Description |
 |---|---|---|
 | `sortie_ci_status_checks_total` | `result` (`passing`, `pending`, `failing`, `error`) | CI status poll outcomes. |
-| `sortie_ci_escalations_total` | `action` (`label`, `comment`, `error`) | Escalation actions taken. |
+| `sortie_ci_escalations_total` | `action` (`label`, `comment`, `none`, `error`) | Escalation actions taken. |
 | `sortie_retries_total` | `trigger` (`ci_fix`) | CI-fix dispatches scheduled. |
 
 A healthy CI feedback setup shows `sortie_ci_status_checks_total{result="passing"}` incrementing on every poll for as long as the watch continues, since a passing result keeps the pull request under watch rather than ending it. Expect occasional `failing` bumps that correlate with `sortie_retries_total{trigger="ci_fix"}` increments. Persistent `error` results on the status check metric indicate a token or permissions problem. For the full metrics catalog, see [Prometheus metrics reference](/reference/prometheus-metrics/).

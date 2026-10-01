@@ -58,12 +58,12 @@ reactions:
 
 | Field | Default | Description |
 |---|---|---|
-| `escalation` | `"label"` | Action when the retry budget is exhausted: `"label"` or `"comment"`. |
+| `escalation` | `"label"` | Action when the retry budget is exhausted: `"label"`, `"none"`, or the deprecated `"comment"`. |
 | `escalation_label` | `"needs-human"` | Label applied when `escalation` is `"label"`. Created on demand if the tracker does not already have it. |
 
 The retry budget for this kind is `max_continuation_turns`, configured below, not `max_retries`: `review_comments` accepts `max_retries` for schema consistency with the other reaction kinds but does not consume it, so setting it here has no effect. `max_continuation_turns` counts continuation turns triggered specifically by review comments, independent of the agent's `max_sessions` budget and CI feedback's retry counter. If the agent addresses all comments within this budget, the loop ends. If not, Sortie escalates and releases its claim.
 
-With strategy `label`, Sortie adds the configured label to the issue. With `comment`, it posts a comment noting how many turns were attempted and that remaining comments need human attention. Both strategies cancel any pending retry and release the claim.
+With `label`, Sortie adds the configured label to the issue. With `none`, it adds no label. Every escalation emits the `escalation.review_comments` event, and a `tracker_comment` entry that lists it posts a comment noting how many turns were attempted and that remaining comments need human attention; see [how to route notifications](/guides/route-notifications/). The deprecated `comment` value posts that comment without an entry. Every strategy cancels any pending retry and releases the claim.
 
 Create the label in advance if using label escalation:
 
@@ -171,10 +171,10 @@ tracker:
   terminal_states: [done, wontfix]
   handoff_state: review
   in_progress_state: in-progress
-  comments:
-    on_dispatch: true
-    on_completion: true
-    on_failure: true
+
+notifications:
+  - kind: tracker_comment
+    events: [session.started, session.completed, session.stopped, session.failed, budget.held]
 
 agent:
   kind: claude-code

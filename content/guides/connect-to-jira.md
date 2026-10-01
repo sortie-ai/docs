@@ -160,18 +160,15 @@ Three constraints:
 
 ## Enable tracker comments
 
-Sortie can post comments on Jira issues at session lifecycle points (dispatch, completion, and failure). This creates a visible audit trail in the ticket without leaving Jira:
+Sortie can post comments on Jira issues at session lifecycle points (dispatch, completion, and failure). This creates a visible audit trail in the ticket without leaving Jira. Add a `tracker_comment` entry to `notifications` and list the events you want:
 
 ```yaml
-tracker:
-  # ... existing fields ...
-  comments:
-    on_dispatch: true
-    on_completion: true
-    on_failure: true
+notifications:
+  - kind: tracker_comment
+    events: [session.started, session.completed, session.stopped, session.failed]
 ```
 
-Each flag is independent. Enable only the events you care about. All default to `false`.
+List only the events you care about. Nothing is posted by default. To send the same events to Slack or a webhook, or to move off the deprecated `tracker.comments` flags, see [how to route notifications](/guides/route-notifications/).
 
 Comment failures are non-fatal. Sortie logs a warning and continues. The API token needs the same write access as `handoff_state`.
 

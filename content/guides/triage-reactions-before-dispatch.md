@@ -101,7 +101,7 @@ else
 fi
 ```
 
-An `escalate` answer applies the kind's configured `escalation` right away. With `escalation: label` the issue gets `needs-human`. With `escalation: comment` Sortie posts a comment saying the triage command asked for a person, and names the ref. Either way no retry budget is spent, so the reaction has not burned an attempt on a failure it could not have fixed.
+An `escalate` answer applies the kind's configured `escalation` right away. With `escalation: label` the issue gets `needs-human`. A comment on the issue, from a `tracker_comment` entry that lists the `escalation.<kind>` event or from the deprecated `escalation: comment`, says the triage command asked for a person and names the ref. Either way no retry budget is spent, so the reaction has not burned an attempt on a failure it could not have fixed.
 
 Make the script executable, commit it, and restart Sortie so the new block is read:
 

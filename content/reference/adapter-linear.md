@@ -165,6 +165,8 @@ The nested `labels` and `inverseRelations` connections are capped at the first 2
 
 Linear returns comments newest-first. The adapter re-sorts them ascending by creation time before returning.
 
+When Sortie writes a comment that carries the agent's [stop statement](/reference/agent-extensions/#stop-statement), the body is the stop text, a blank line, and the statement in a fenced Markdown code block. The fence is backticks, at least three and one more than the longest run of backticks in the statement.
+
 ### Blocker extraction
 
 `.issue.blocked_by` is derived from the issue's `inverseRelations`. When issue A blocks issue B, the relation appears in B's `inverseRelations` as `{ type: "blocks", issue: A }`. For each node whose `type` equals `"blocks"` (compared case-insensitively after trimming), a blocker entry is produced:

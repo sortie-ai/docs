@@ -145,7 +145,7 @@ This closes the loop. The agent moves the issue forward without human interventi
 
 ## Guide the agent to escalate and report progress
 
-When a `notifications` backend is configured in WORKFLOW.md, agents can call `notify_operator` to reach a human on a real-time channel without ending the session:
+When a `notifications` entry in WORKFLOW.md lists `agent.message` in its `events`, agents can call `notify_operator` to reach a human on a real-time channel without ending the session:
 
 ```plaintext
 If the notify_operator tool is available: when you hit a decision you
@@ -156,7 +156,7 @@ with severity "info" and category "progress" at meaningful milestones.
 Do not notify on every turn.
 ```
 
-The conditional phrasing matters: the tool is registered only when the operator configured a notification backend, so an unconditional instruction confuses agents in setups without one. The cap matters too: notifications are capped per agent run (default 20), shared across every turn of that run, and calls past the cap return `rate_limited` errors, so instruct meaningful moments rather than a running commentary.
+The conditional phrasing matters: the tool is registered only when some entry receives `agent.message`, so an unconditional instruction confuses agents in setups without one. The cap matters too: notifications are capped per agent run (default 20), shared across every turn of that run, and calls past the cap return `rate_limited` errors, so instruct meaningful moments rather than a running commentary.
 
 A notification does not stop the session or the retry loop. An agent that is genuinely blocked must still write `.sortie/status`. The right order is notify first, then write the file, so the human hears about the blocker and the orchestrator stops retrying.
 
@@ -185,7 +185,24 @@ DO NOT write this file during normal productive work.
 
 Sortie auto-injects similar instructions on the first turn, so including your own version is harmless. Custom instructions are useful when you want to be more specific (for example, listing the exact conditions that count as "blocked" in your project).
 
-The orchestrator reads `.sortie/status` after each turn. Unrecognized values are silently ignored, so only `blocked`, `needs-human-review`, and `no-change-needed` have any effect. For background on why this is a file rather than a tool call, see [agent communication model](/concepts/orchestration/).
+The orchestrator reads `.sortie/status` after each turn. Unrecognized values are silently ignored, so only `blocked`, `needs-human-review`, and `no-change-needed` have any effect. For background on why this is a file rather than a tool call, see [agent communication model](/concepts/agent-communication/).
+
+### Ask for a reason
+
+The first line of the file is the value. Lines after it are a stop statement that Sortie can publish with the stop, so the person who finds the parked issue learns what the agent needs. Sortie's own first-turn text already asks for one. Add project-specific wording when you want it to be more useful:
+
+```plaintext
+When you signal blocked, write the reason after the value: the one thing
+you need from a person, as a question they can answer in a sentence. When
+you signal needs-human-review, say what the reviewer should check first.
+Write for the people who read the issue. Name files by their path in the
+repository. Never put credentials or tokens in the file, and keep the
+whole file under 1024 bytes.
+
+    mkdir -p .sortie && printf '%s\n' "blocked" "Which invoice delete should the API expose: soft or hard?" > .sortie/status
+```
+
+The reason reaches a destination only when that destination lists `session.stopped` in its `events`. To put it on the issue, add a `tracker_comment` entry; see [how to route notifications](/guides/route-notifications/). Sortie masks the secrets it knows and shows the text as literal text, but it can only mask values it knows about.
 
 ## Combine tools in a complete workflow
 
@@ -205,6 +222,7 @@ agent:
 notifications:
   - kind: slack
     webhook_url: $SORTIE_SLACK_WEBHOOK_URL
+    events: [agent.message]
 ---
 
 You are a senior engineer. Your work is tracked by Sortie.
@@ -267,9 +285,9 @@ ambiguous requirements, or a dependency on another issue:
 
 1. Call notify_operator with severity "critical" and category "blocked",
    describing what you need.
-2. Write the status file:
+2. Write the status file, with your reason on the second line:
 
-    mkdir -p .sortie && echo "blocked" > .sortie/status
+    mkdir -p .sortie && printf '%s\n' "blocked" "<what you need>" > .sortie/status
 
 Do not write this file during normal productive work.
 ```

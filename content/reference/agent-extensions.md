@@ -26,6 +26,8 @@ The agent-to-orchestrator advisory signal. This is not a tool: it's an out-of-ba
 mkdir -p .sortie && echo "blocked" > .sortie/status
 ```
 
+To say why, write the reason on the lines after the value. See [stop statement](#stop-statement).
+
 ### Recognized values
 
 | Value | Meaning |
@@ -69,12 +71,30 @@ A parked issue is released by one of three gestures: the tracker state changes t
 
 The full interaction between `.sortie/status` and `tracker.handoff_state` is documented in the [A2O protocol specification](https://github.com/sortie-ai/sortie/blob/main/docs/agent-to-orchestrator-protocol.md).
 
+### Stop statement
+
+The first line of `.sortie/status` is the value. Every line after it is an optional **stop statement**: the agent's reason for stopping. A file with one line has no statement and behaves as described above.
+
+```sh
+mkdir -p .sortie && printf '%s\n' "blocked" "The ticket asks for both soft and hard delete of invoices." "Which one should the API expose?" > .sortie/status
+```
+
+| Aspect | Behavior |
+|---|---|
+| Applies to | `blocked`, `needs-human-review`, and `no-change-needed`. Sortie takes the statement from the read that produced the signal, after a coding turn or inside the self-review phase. A `no-change-needed` declaration that self-review retracts takes its statement with it. |
+| Read bound | The first 1024 bytes of the file, the value line included. A longer file is cut there, and the published statement ends with `…`. |
+| Cleanup before publishing | Line endings become line feeds. Control characters other than tab and line feed are removed. Invalid UTF-8 is replaced with U+FFFD. Secrets Sortie knows are masked as `[redacted]`, including a trailing fragment of one that the read bound cut. Surrounding whitespace is trimmed, and a result longer than 1024 characters is cut there and ends with `…`. A statement that is empty after this is not published, and the stop is reported without it. |
+| Where it appears | On the `session.stopped` event only. The tracker comment shows it in a literal block after the stop text, Slack shows it after the message with `&`, `<`, and `>` escaped, and the webhook carries it under `agent_text`. See [what Slack and webhook receive](/reference/workflow-config/#what-slack-and-webhook-receive). |
+| Who sees it | A destination receives it only when its `events` list names `session.stopped`, or, for the tracker comment, when the deprecated `tracker.comments.on_completion` is `true`. With neither, the statement goes nowhere. |
+
+The statement is the agent's own text, written for people who read the issue. Sortie masks only the secrets it knows, so the agent must not write credentials into it. The tracker comment never carries the agent kind, the session ID, or error text, but the statement can carry anything the agent writes. See [the security model](/concepts/security/#what-reaches-a-tracker-comment).
+
 ### Edge cases
 
 | Condition | Behavior |
 |---|---|
 | File absent | Normal behavior: continue and retry as configured. |
-| Unrecognized value | Ignored. Warning logged. Normal behavior continues. |
+| Unrecognized value | Ignored. Warning logged. Normal behavior continues. Lines after it are not read as a statement. |
 | Read error | Treated as absent. Warning logged. Never fails the worker run. |
 | Workspace directory, `.sortie/`, or `status` is a symbolic link, the wrong entry type, or was swapped while Sortie opened it | Rejected. Treated as absent. Warning logged. |
 
@@ -96,9 +116,20 @@ complete and awaiting review. Use "no-change-needed" when the requested outcome
 already held before you started and you made no change to reach it. Do not write
 "no-change-needed" if you performed any work. Do not write this file during normal
 productive work.
+
+Give your reason on the lines after the value: for "blocked", what you need from a
+person; for "no-change-needed", why nothing had to change; for
+"needs-human-review", what the reviewer should check. For example:
+
+    mkdir -p .sortie && printf '%s\n' "blocked" "The ticket asks for both soft and hard delete of invoices." "Which one should the API expose?" > .sortie/status
+
+Sortie may publish the reason in its comment on the issue and in operator
+notifications, so write it for the people who read the issue, name files by their
+path in the repository, never include credentials or other secrets, and keep the
+whole file under 1024 bytes.
 ```
 
-Continuation turns do not repeat the instructions. You can include your own instructions in prompt templates too. Duplicates are harmless.
+The last paragraph asks for a reason but does not require one: a file with a value alone is valid. Continuation turns do not repeat the instructions. You can include your own instructions in prompt templates too. Duplicates are harmless.
 
 During the self-review phase, a second injected instruction supersedes this one for the duration of the phase: it tells the agent to report through `.sortie/review_verdict.json` instead, that writing `needs-human-review` to `.sortie/status` there neither ends the phase nor substitutes for a verdict, and that `blocked` still ends the phase. This second instruction names only those two values; it says nothing about `no-change-needed`. In the loop itself, though, only `blocked` is read for anything: any other value written during the phase, `no-change-needed` included, is inert there the same way an in-phase `needs-human-review` is.
 
@@ -728,9 +759,9 @@ The failure shape is the same structured envelope every built-in tool uses.
 
 ## `notify_operator`
 
-Real-time notification to the operator's configured channels. The agent calls this tool to escalate a decision it should not make alone, report progress on a long task, or flag a blocker, without terminating the session. Sending a notification changes nothing in orchestration: no retry suppression, no tracker transition, no claim release. To tell the orchestrator to stop, the agent writes `.sortie/status`; see the [agent communication model](/concepts/agent-communication/) for how the two surfaces relate.
+Real-time notification to the operator's configured channels, the entries in `notifications` that receive the `agent.message` event. The agent calls this tool to escalate a decision it should not make alone, report progress on a long task, or flag a blocker, without terminating the session. Sending a notification changes nothing in orchestration: no retry suppression, no tracker transition, no claim release. To tell the orchestrator to stop, the agent writes `.sortie/status`; see the [agent communication model](/concepts/agent-communication/) for how the two surfaces relate.
 
-`notify_operator` is a **Tier 2** tool: it makes outbound HTTP POST calls to operator-configured endpoints. Sortie registers the tool only when the `notifications` list in [WORKFLOW.md](/reference/workflow-config/#notifications) configures at least one backend (`webhook` or `slack`); an empty or absent list leaves the tool unregistered, so the agent is never offered a tool it cannot use. An invalid backend (unknown kind, missing endpoint URL, a secret that resolved to the empty string) is a fatal MCP server startup error, never a partial registration.
+`notify_operator` is a **Tier 2** tool: it makes outbound HTTP POST calls to operator-configured endpoints. Sortie registers the tool only when at least one entry in the `notifications` list in [WORKFLOW.md](/reference/workflow-config/#notifications) receives `agent.message`. A `webhook` or `slack` entry with no `events` key receives it by default, which is deprecated. A list that is empty, absent, or holds only entries for other events leaves the tool unregistered, so the agent is never offered a tool whose messages reach no destination. An invalid entry among those that receive `agent.message` (unknown kind, missing endpoint URL, a secret that resolved to the empty string) is a fatal MCP server startup error, never a partial registration. A `tracker_comment` entry never receives `agent.message`: messages from the agent do not reach the issue.
 
 ### Input schema
 
@@ -751,9 +782,9 @@ Each accepted call produces one notification with two layers. The agent supplies
 
 `dispatch_id` and `session_id` come from different places and change on different schedules. `dispatch_id` arrives once, in the tool server's own environment (`SORTIE_DISPATCH_ID`), and stays fixed for every notification sent by that dispatch, including every retry and continuation of a resumed session. `session_id` is not an environment variable: the worker writes the session id it has accepted from the agent runtime into a `.sortie/dispatch.json` record, and the tool re-reads that record on every call, accepting the value only when the record's `dispatch_id` matches its own. Until the worker has accepted a session id, `session_id` is empty; an agent kind whose runtime never reports one leaves it empty for the whole dispatch. A record left behind by a different dispatch is rejected the same way a missing record is, so a tool server process that outlives its own dispatch never reports a session id that belongs to someone else.
 
-Delivery goes to every configured backend in configuration order and stops at the first backend that fails, which yields a `send_failed` error. Partial delivery across backends is not reported in this version. Each backend call carries a 10-second timeout, so a slow endpoint cannot stall the turn indefinitely.
+Delivery goes to every entry that receives `agent.message`, in configuration order, and stops at the first one that fails, which yields a `send_failed` error. Partial delivery across backends is not reported in this version. Each backend call carries a 10-second timeout, so a slow endpoint cannot stall the turn indefinitely.
 
-Calls are capped per agent run (dispatch), not per `sortie mcp-server` process. The effective cap is the highest non-zero `max_per_session` across the configured backends, falling back to 20 when every entry is `0` or unset; `0` selects the default, never unlimited. Every turn and every tool server process the run spawns share one count, which Sortie keeps as files under the workspace's `.sortie/notification_slots/` directory rather than in a process's memory, so a runtime that starts a fresh tool server process for each turn still shares the run's count across every process it starts. A retry or a continuation of a resumed session mints a new dispatch ID, so it starts a new run and a new count; a `session_id` change on its own does not.
+Calls are capped per agent run (dispatch), not per `sortie mcp-server` process. The effective cap is the highest non-zero `max_per_session` across the entries that receive `agent.message`, falling back to 20 when every one is `0` or unset; `0` selects the default, never unlimited. Every turn and every tool server process the run spawns share one count, which Sortie keeps as files under the workspace's `.sortie/notification_slots/` directory rather than in a process's memory, so a runtime that starts a fresh tool server process for each turn still shares the run's count across every process it starts. A retry or a continuation of a resumed session mints a new dispatch ID, so it starts a new run and a new count; a `session_id` change on its own does not.
 
 A call counts once at least one backend has accepted the notification. If the first configured backend fails, nothing was delivered and the call does not consume the cap; if a later backend then fails after an earlier one succeeded, the call still counts even though delivery was partial. A call past the cap returns `rate_limited` and sends nothing. When the count cannot be established, the tool returns `state_unavailable` and sends nothing; see the error kinds table below for the exact conditions. This also covers a `sortie mcp-server` started by hand outside a dispatch: with no workspace path or dispatch ID in its environment, every `notify_operator` call it receives returns `state_unavailable`.
 
@@ -791,6 +822,8 @@ The `slack` backend posts a Slack incoming-webhook body whose `text` field rende
 
 The Slack rendering carries only the message. The envelope (issue key, dispatch ID, session ID) does not appear in the Slack text.
 
+An `agent.message` payload carries exactly the keys above. The same backends also receive events Sortie produces, which add `event_type` and `agent_text` to the webhook payload; see [what Slack and webhook receive](/reference/workflow-config/#what-slack-and-webhook-receive).
+
 ### Response envelope
 
 **Success:**
@@ -805,7 +838,7 @@ The Slack rendering carries only the message. The envelope (issue key, dispatch 
 }
 ```
 
-`data.delivered` is the number of backends that accepted the notification; on success it equals the number of configured backends.
+`data.delivered` is the number of backends that accepted the notification; on success it equals the number of entries that receive `agent.message`.
 
 **Failure:**
 
@@ -859,7 +892,7 @@ You have access to Sortie tools via MCP. Use them to:
 - Check your remaining turns with the sortie_status tool
 - Review prior run history with the workspace_history tool
 - Check cumulative token spend and remaining budget with the cost_budget tool
-- Escalate a decision to a human or report progress with the notify_operator tool (when notifications are configured)
+- Escalate a decision to a human or report progress with the notify_operator tool (when a notifications entry receives agent.message)
 - Transition the issue when done with the tracker_api tool (transition_issue operation)
 ```
 

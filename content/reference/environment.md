@@ -48,9 +48,11 @@ A real env var always beats a `.env` value for the same key. Both beat whatever 
 | `SORTIE_TRACKER_HANDOFF_STATE` | [`tracker.handoff_state`](/reference/workflow-config/#tracker) | string |
 | `SORTIE_TRACKER_NO_CHANGE_STATE` | [`tracker.no_change_state`](/reference/workflow-config/#tracker) | string |
 | `SORTIE_TRACKER_IN_PROGRESS_STATE` | [`tracker.in_progress_state`](/reference/workflow-config/#tracker) | string |
-| `SORTIE_TRACKER_COMMENTS_ON_DISPATCH` | [`tracker.comments.on_dispatch`](/reference/workflow-config/#tracker-comments) | bool (`true`/`false`/`1`/`0`) |
-| `SORTIE_TRACKER_COMMENTS_ON_COMPLETION` | [`tracker.comments.on_completion`](/reference/workflow-config/#tracker-comments) | bool |
-| `SORTIE_TRACKER_COMMENTS_ON_FAILURE` | [`tracker.comments.on_failure`](/reference/workflow-config/#tracker-comments) | bool |
+| `SORTIE_TRACKER_COMMENTS_ON_DISPATCH` | [`tracker.comments.on_dispatch`](/reference/workflow-config/#tracker-comments) | bool (`true`/`false`/`1`/`0`). Deprecated |
+| `SORTIE_TRACKER_COMMENTS_ON_COMPLETION` | [`tracker.comments.on_completion`](/reference/workflow-config/#tracker-comments) | bool. Deprecated |
+| `SORTIE_TRACKER_COMMENTS_ON_FAILURE` | [`tracker.comments.on_failure`](/reference/workflow-config/#tracker-comments) | bool. Deprecated |
+
+The three `SORTIE_TRACKER_COMMENTS_*` variables are deprecated with the keys they set. A value that resolves to `true` draws the same warning as the key, which names the [`tracker_comment` replacement](/reference/workflow-config/#deprecated-forms).
 
 ### Polling variables
 

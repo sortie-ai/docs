@@ -157,18 +157,15 @@ tracker:
 
 ## Enable tracker comments
 
-Sortie can post comments on issues at session lifecycle points:
+Sortie can post comments on issues at session lifecycle points. Add a `tracker_comment` entry to `notifications` and list the events you want:
 
 ```yaml
-tracker:
-  # ... existing fields ...
-  comments:
-    on_dispatch: true
-    on_completion: true
-    on_failure: true
+notifications:
+  - kind: tracker_comment
+    events: [session.started, session.completed, session.stopped, session.failed]
 ```
 
-Each flag is independent. All default to `false`. Comments are posted as Markdown. No conversion is needed, unlike Jira's Atlassian Document Format.
+List only the events you care about. Nothing is posted by default. See [how to route notifications](/guides/route-notifications/) for Slack, webhooks, and moving off the deprecated `tracker.comments` flags. Comments are posted as Markdown. No conversion is needed, unlike Jira's Atlassian Document Format.
 
 Comment failures are non-fatal. Sortie logs a warning and continues.
 
