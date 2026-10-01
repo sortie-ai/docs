@@ -31,6 +31,8 @@ Agent adapters follow the same principle but face a different challenge. Tracker
 
 The `AgentAdapter` interface has three methods, organized around session lifecycle: `StartSession` launches or connects to an agent process in a workspace directory. `RunTurn` executes one prompt turn, delivering every event synchronously through a callback as the turn runs. `StopSession` terminates the process cleanly.
 
+An agent adapter holds no configuration of its own. It is constructed once with no arguments, and each session receives its kind's settings block in `StartSession`, so an edited block or a [dispatch rule](/reference/workflow-config/#dispatch) that gives one issue its own settings reaches the next session without a second adapter instance.
+
 The orchestrator calls those same three methods twice per worker attempt, not once. Before the working session, it drives a second, short-lived one: `StartSession` with `CredentialVerification` set on the params, one `RunTurn` sending a fixed prompt, then `StopSession`. This is a shared orchestrator-level wrapper, not a fourth interface method: an adapter gets it for free, and only has to notice the flag if its runtime needs to behave differently on that one session (no tools, no continuation record, a cleanup call if the runtime offers one). A cheaper check, `StartSession` succeeding or an environment variable being non-empty, would not prove the runtime's backend actually accepts the credential; running the real request is the one check that works the same way regardless of what a given adapter's own protocol looks like.
 
 The harder problem is event normalization. Claude Code streams JSONL with dozens of message types (tool calls, approvals, errors, token usage, system notifications), each with its own structure. A future HTTP-based agent adapter might use Server-Sent Events with a completely different schema. The adapter normalizes everything into `AgentEvent`, a single type with an `EventType`, `TokenUsage`, `ToolName`, `Message`, and a handful of other fields. The orchestrator reacts to `turn_completed`, `turn_failed`, `token_usage` without knowing which agent produced them or what the native event format looked like.
@@ -89,9 +91,9 @@ An RPC-based plugin model (think HashiCorp's `go-plugin` over gRPC) was also con
 
 ## The registry: wiring adapters at startup
 
-The bridge between configuration and adapter instances is the registry: a typed map from `kind` strings to constructor functions. Each adapter package registers itself as it loads, and the startup code in `cmd/` resolves the configured `tracker.kind` and `agent.kind` to concrete adapter instances every time the workflow config is loaded.
+The bridge between configuration and adapter instances is the registry: a typed map from `kind` strings to constructor functions. Each adapter package registers itself as it loads, and the startup code in `cmd/` resolves the configured `tracker.kind` and `agent.kind` to concrete adapter instances once, at startup.
 
-This means adapter selection is a configuration decision, not a code decision. Your WORKFLOW.md says `tracker.kind: github` and Sortie instantiates the GitHub Issues adapter. Change it to `tracker.kind: jira` and the next reload instantiates Jira without a restart. The orchestrator's behavior (scheduling, retry, reconciliation) stays identical because it only interacts with the interface.
+This means adapter selection is a configuration decision, not a code decision. Your WORKFLOW.md says `tracker.kind: github` and Sortie instantiates the GitHub Issues adapter. Change it to `tracker.kind: jira` and the next start instantiates Jira. The orchestrator's behavior (scheduling, retry, reconciliation) stays identical because it only interacts with the interface.
 
 ## What this means for your adoption decision
 

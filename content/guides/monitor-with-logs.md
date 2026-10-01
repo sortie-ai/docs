@@ -95,6 +95,40 @@ time=2026-03-26T14:30:01.305+00:00 level=INFO msg="tick completed" candidates=2 
 
 This is the heartbeat. It fires every poll interval and tells you how many issues were found (`candidates`), how many were dispatched this tick (`dispatched`), how many agents are active (`running`), and how many issues are awaiting retry (`retrying`). When `candidates=0 dispatched=0`, Sortie is idle.
 
+### Dispatch and agent settings
+
+```
+time=2026-03-26T14:30:02.100+00:00 level=INFO msg="issue dispatched" issue_id=abc123 issue_identifier=MT-649 agent_kind=claude-code rule_name=bugfix model=claude-sonnet-4-5 effort=medium
+```
+
+This is the line to look for when you want to know which model an issue was given. `agent_kind` and `rule_name` are the selection Sortie made for the issue, and `model` and `effort` are the settings the session starts with: the agent kind's top-level block with the matching [dispatch rule's](/guides/configure-dispatch-rules/) block laid over it. An empty `rule_name` means no rule routed the issue. An empty `model` or `effort` means nothing is configured, so the runtime uses its own default. These are the configured values. The model the runtime reports running can differ, and is on the [dashboard](/reference/dashboard/#running-sessions-table) and in the [state API](/reference/http-api/#configured-and-reported-model).
+
+A retry logs the same four fields, beside the attempt number:
+
+```
+time=2026-03-26T14:35:42.150+00:00 level=INFO msg="retried issue dispatched" issue_id=abc123 issue_identifier=MT-649 attempt=2 agent_kind=claude-code rule_name=bugfix model=claude-sonnet-4-5 effort=medium
+```
+
+Sortie resolves the settings again at the start of every attempt, so an edit to `WORKFLOW.md` reaches a retry. If `model` or `effort` differs from the first line, the workflow changed in between.
+
+A retry keeps the dispatch rule its issue was first routed to. If that rule is gone, or no longer carries a settings block for the agent kind, the retry still runs and says so once:
+
+```
+time=2026-03-26T14:35:42.140+00:00 level=INFO msg="rule settings no longer present, attempt runs on the kind's top-level settings" issue_id=abc123 issue_identifier=MT-649 rule_name=bugfix agent_kind=claude-code
+```
+
+Nothing is failing. The attempt runs on the top-level block, so the `retried issue dispatched` line that follows may show a different `model` than the first attempt. If you removed the block on purpose, there is nothing to do. If not, restore it; the next attempt picks it up.
+
+When the settings an attempt resolves fail a check that is an error, the attempt starts no session. A retry is rescheduled with backoff and keeps its claim and its session:
+
+```
+time=2026-03-26T14:35:42.160+00:00 level=ERROR msg="retry agent settings refused" issue_id=abc123 issue_identifier=MT-649 error="dispatch preflight failed: claude-code.permission_mode is set to a value that lets the agent stop and ask for approval, and an unattended run has no one to answer; only \"bypassPermissions\" is supported" rule_name=bugfix agent_kind=claude-code check=claude-code.permission_mode.interactive diagnostic="claude-code.permission_mode is set to a value that lets the agent stop and ask for approval, and an unattended run has no one to answer; only \"bypassPermissions\" is supported" attempt=3 delay_ms=40000
+```
+
+`check` names the first check that failed and `diagnostic` is its message; `error` lists every failed check. `sortie validate` and the per-tick preflight apply the same checks, but a retry never passes through that preflight, so a reload that introduced the bad block surfaces here first. Fix the `agent_kind` settings the check names, in the rule `rule_name` or in the top-level block. The next retry resolves the corrected settings; `attempt` and `delay_ms` say which try that is and how long Sortie waits for it.
+
+A first dispatch gets the same check under the message `agent settings refused`, without `attempt`, `delay_ms`, or the issue fields. The per-tick preflight runs immediately before and normally stops a bad block first, so you will mostly see it as [`dispatch preflight failed`](#dispatch-preflight-failures). When it does fire, Sortie skips that issue for the tick, counts the dispatch as an error in `sortie_dispatches_total`, and tries again on the next poll.
+
 ### Workspace preparation
 
 ```
@@ -396,6 +430,18 @@ Watch dispatches in real time:
 tail -f sortie.log | grep 'tick completed'
 ```
 
+See which model and effort each dispatch started with, first attempts and retries together:
+
+```bash
+grep 'issue dispatched' sortie.log
+```
+
+Find attempts refused over their agent settings:
+
+```bash
+grep 'agent settings refused' sortie.log
+```
+
 Find tool call failures:
 
 ```bash
@@ -469,6 +515,12 @@ Watch dispatches in real time:
 
 ```bash
 tail -f sortie.log | jq 'select(.msg == "tick completed")'
+```
+
+List the model and effort each dispatch started with:
+
+```bash
+jq 'select(.msg | endswith("issue dispatched")) | {issue: .issue_identifier, attempt, rule_name, model, effort}' sortie.log
 ```
 
 Find tool call failures with duration:

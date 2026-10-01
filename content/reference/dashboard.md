@@ -121,15 +121,18 @@ Lists every agent session that is actively executing. Sorted by start time (olde
 |---|---|
 | **Workflow** | Name of the WORKFLOW.md file that dispatched this session. Shows an em dash when unavailable. |
 | **Host** | SSH host where the agent is running. This field appears only when at least one session uses an SSH host. Shows `local` for sessions running on the same machine as Sortie. |
+| **Rule** | Name of the [dispatch rule](/reference/workflow-config/#dispatch) that routed this session. Shows an em dash when no rule routed it. |
+| **Configured model** | The `model` this attempt's resolved settings carry: what Sortie asked the agent to run. Reads `runtime default` when none is configured. |
+| **Configured effort** | The `effort` this attempt's resolved settings carry. Reads `runtime default` when none is configured. |
 | **Usage reporting** | When this session's token figures arrive and what they attribute to, stated once for the four fields below. Reads `figures arrive during each turn` or `figures arrive when a turn ends`, followed by `, per model` or `, as a session total`; `this session reports no token usage` for a kind that produces no figure at all; `not declared` for a custom adapter that declared neither. The [usage reporting table](/reference/workflow-config/#usage-reporting-by-agent-kind) states the value each built-in kind declares. |
-| **Model** | LLM model name reported by the agent. Reads `not reported yet` when the session attributes figures per model but has not named one, `not attributed to a model` when its figures are session-level totals, and an em dash when the session reports no usage. |
+| **Reported model** | LLM model name the runtime reported running, which can differ from **Configured model**; [configured and reported model](/reference/http-api/#configured-and-reported-model) explains the difference. Reads `not reported yet` when the session attributes figures per model but has not named one, `not attributed to a model` when its figures are session-level totals, and an em dash when the session reports no usage. |
 | **API Requests** | Number of LLM API requests the agent has made. A count appears when this session's figures arrive during each turn and either one has already arrived or no turn has begun, so a `0` here is a measurement rather than a blank. When the breakdown names two or more models, the count carries the split in parentheses, ordered by model name: `12 (model-a: 5, model-b: 7)`. Reads `not reported yet` when figures arrive during each turn but the session's first turn has begun with nothing counted, which is what both a session waiting on its first figure and a runtime that declared per-request figures but delivers none look like from the event stream. Reads `not measured` when figures arrive at turn end instead, because that count settles at most once per turn rather than once per request, and an em dash when the session reports no usage. |
 | **Tokens** | Total tokens consumed by this session. Nonzero cache counts appear in parentheses, for example `12,450 (8,200 cache read, 900 cache write)`. Reads `not reported yet` while the session has reported nothing and a figure can still arrive, which is distinct from a reported `0`; `not reported` once the moment its kind reports at has passed with nothing counted, so the row stops promising a figure that is no longer coming; and an em dash when the session reports no usage at all. A figure that leaves out the turn still in flight carries the suffix `, excludes the turn in progress`. |
 | **Est. Cost** | Estimated cost for this session based on configured [token rates](/reference/workflow-config/#token_rates). Shows an em dash when `token_rates` is absent, when no rate is configured for this session's agent adapter kind, when that entry lacks an input or output rate, when its **Tokens** field is unmeasured, or when the session reports no usage. Carries the same `, excludes the turn in progress` suffix as **Tokens**. |
 | **Tool Time** | Percentage of elapsed wall-clock time the agent spent in tool calls. Shows `N/A` until the session has both elapsed time and recorded tool time. |
 | **API Time** | Percentage of elapsed wall-clock time the agent spent waiting for LLM API responses. Shows `N/A` until both elapsed time and API time are recorded. |
 
-Every built-in agent kind declares its usage reporting. A [custom adapter](/guides/write-custom-agent-adapter/) that declares neither field leaves its sessions undeclared: **Usage reporting** reads `not declared`, **Model** shows an em dash, **API Requests** reads `not measured`, and **Tokens** carries the suffix `, usage reporting not declared`.
+Every built-in agent kind declares its usage reporting. A [custom adapter](/guides/write-custom-agent-adapter/) that declares neither field leaves its sessions undeclared: **Usage reporting** reads `not declared`, **Reported model** shows an em dash, **API Requests** reads `not measured`, and **Tokens** carries the suffix `, usage reporting not declared`.
 
 When no sessions are running, the table is replaced with a centered "No running sessions" message.
 
@@ -187,6 +190,8 @@ Lists recently completed session attempts, both successful and failed. Shows the
 | **Turns** | Number of agent turns completed in this session. A turn is one prompt–response cycle. |
 | **Workflow** | WORKFLOW.md file used for this run. Shows an em dash when unavailable. |
 | **Error** | Error message, if the attempt failed. Shows an em dash for successful attempts. Displayed at full width without truncation. |
+
+The table does not show the model a run used. Completed runs keep their [model and effort](/reference/http-api/#model-and-effort-of-a-completed-run), and `sortie stats` [groups runs by configured model](/reference/cli/#configured-model-breakdown).
 
 ## Footer
 

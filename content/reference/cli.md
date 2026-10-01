@@ -298,9 +298,10 @@ The pipeline checks:
 - Fields required by the selected adapters: `tracker.api_key`, `tracker.project`, and `agent.command` for an agent kind that has no default command, such as `agent-client-protocol`.
 - At least one of `tracker.active_states` or `tracker.terminal_states` is non-empty.
 - Adapter-specific config validation. When the registered tracker adapter declares its own config validation, the pipeline invokes it with the extracted tracker config fields. Adapter validation runs after the generic preflight checks and can produce both errors (block validity) and warnings (advisory). The Jira, GitHub, GitLab, Gitea, and Linear adapters each declare one; the `file` adapter does not. Each adapter reference page lists that adapter's checks, for example [GitHub adapter validation](/reference/adapter-github/#validate-time-checks).
-- Settings block presence (`dispatch.agent.missing_block`), for every agent kind a `dispatch.default.agent` or a `dispatch.rules[i].agent` names, when that kind is registered and differs from the top-level `agent.kind`. The kind must carry its own top-level block in the front matter, or the workflow is refused, naming the selector that introduced the kind and the block it expects. An empty block (`codex: {}` or a bare `codex:` key) is enough. Skipped for a kind Sortie does not recognize as a registered adapter, since that is already reported separately as `agent_adapter`.
+- Settings block presence (`dispatch.agent.missing_block`), for every agent kind a `dispatch.default.agent` or a `dispatch.rules[i].agent` names, when that kind is registered and differs from the top-level `agent.kind`. The kind must carry its own top-level block in the front matter, or the workflow is refused, naming the selector that introduced the kind and the block it expects. An empty block (`codex: {}` or a bare `codex:` key) is enough. A kind whose every selector is a rule that carries the kind's own settings block needs no top-level block, so the check does not fire for it. Skipped for a kind Sortie does not recognize as a registered adapter, since that is already reported separately as `agent_adapter`.
 - Session-resume refusal (`agent.kind.session_resume`), for every agent kind the configuration can reach. An adapter declares which of its own pass-through keys stops it resuming a session across separate agent launches; when the configuration sets that key to the blocking value, the workflow is refused. Sortie re-dispatches an issue carrying its earlier session after a retry, a continuation, a stall, or a restart, so every resumed turn would fail. The check reads the adapter's declaration and that adapter's own pass-through block, and no core setting; it runs offline with no network access and no subprocess launch. `claude-code.session_persistence` set to `false` is the only key any built-in adapter declares.
-- Agent-adapter config validation, for every agent kind the configuration can reach: the default `agent.kind`, the kind a [dispatch default](/reference/workflow-config/#dispatch) names, and the kind each dispatch rule selects. A registered kind the configuration never names is skipped, because reporting a fault in a block no run reads would be noise. These checks cover the pass-through values that would let the agent stop and wait for a person, and they run offline with no network access and no subprocess launch. The Codex, Claude Code, Copilot CLI, and OpenCode adapters each declare them: see [Codex](/reference/adapter-codex/#validate-time-checks), [Claude Code](/reference/adapter-claude-code/#validate-time-checks), [Copilot CLI](/reference/adapter-copilot/#validate-time-checks), and [OpenCode](/reference/adapter-opencode/#validate-time-checks).
+- Dispatch rule settings blocks: the structural checks on `dispatch.rules` that fail the load (a block for a kind the rule does not run, a block that is not a mapping or writes `command` or a timeout, a missing or reserved rule `name`) and the [`match.title`](/reference/workflow-config/#title-phrases) checks, reported as `config.dispatch.rules[<i>]...` fields.
+- Agent-adapter config validation, for every agent kind the configuration can reach: the default `agent.kind`, the kind a [dispatch default](/reference/workflow-config/#dispatch) names, and the kind each dispatch rule selects. Every rule that carries a settings block is also checked on its resolved block, the top-level block of its kind with the rule's block laid over it, and each message opens with `dispatch rule "<name>" (dispatch.rules[<i>].<kind>): `. A rule's block therefore draws the same errors and warnings a top-level block would. A registered kind the configuration never names is skipped, because reporting a fault in a block no run reads would be noise. These checks cover the pass-through values that would let the agent stop and wait for a person, and they run offline with no network access and no subprocess launch. The Codex, Claude Code, Copilot CLI, and OpenCode adapters each declare them: see [Codex](/reference/adapter-codex/#validate-time-checks), [Claude Code](/reference/adapter-claude-code/#validate-time-checks), [Copilot CLI](/reference/adapter-copilot/#validate-time-checks), and [OpenCode](/reference/adapter-opencode/#validate-time-checks).
 - Workspace root directory exists (or can be created) and is writable.
 
 The pipeline does **not** check:
@@ -347,7 +348,8 @@ Every check in this group runs for every agent kind the configuration can reach,
 - **Env file missing** (`env_file.missing`). The file named by [`--env-file`](#--env-file) or `SORTIE_ENV_FILE` does not exist; no values are read from it.
 - **Env override replaced a non-mapping section** (`env_override.section_replaced`). A [`SORTIE_*` override](/reference/environment/#configuration-overrides) targets a section that is not a YAML mapping; the section is replaced with one holding only the overridden settings.
 - **Deprecated agent kind** (`agent.kind.deprecated`). A reachable agent kind is registered as deprecated: it still runs unchanged, and the message names the kind that replaces it and says a later release removes it. One warning per deprecated kind, for every kind named by `agent.kind`, `dispatch.default.agent`, or a `dispatch.rules[i].agent`. Move the workflow to the replacement kind to end it. A kind a release has removed draws the next warning instead.
-- **Effort on a kind that passes none** (`agent.effort.not_forwarded`). A reachable agent kind whose adapter passes no reasoning level to its agent, such as `agent-client-protocol` or `mock`, has a non-empty `effort`, or an `effort` of another type, in its settings block, so the setting has no effect. One warning per such kind, for every kind named by `agent.kind`, `dispatch.default.agent`, or a `dispatch.rules[i].agent`. For `agent-client-protocol`, write the runtime's own reasoning option in `agent.command`; see [reasoning effort](/reference/workflow-config/#adapter-pass-through-configuration).
+- **Effort on a kind that passes none** (`agent.effort.not_forwarded`). A reachable agent kind whose adapter passes no reasoning level to its agent, such as `agent-client-protocol` or `mock`, has a non-empty `effort`, or an `effort` of another type, in its settings block, so the setting has no effect. One warning per such kind, for every kind named by `agent.kind`, `dispatch.default.agent`, or a `dispatch.rules[i].agent`, and one more per dispatch rule of such a kind whose resolved block carries an `effort`, written in the rule or inherited, with the message opening `dispatch rule "<name>" (dispatch.rules[<i>].<kind>): `. For `agent-client-protocol`, write the runtime's own reasoning option in `agent.command`; see [reasoning effort](/reference/workflow-config/#adapter-pass-through-configuration).
+- **Rule changes the model and keeps an inherited effort** (`agent.effort.inherited`). A [dispatch rule](/reference/workflow-config/#rule-settings-blocks) writes `model` in its settings block, does not write `effort`, and inherits a non-empty `effort` from the top-level block of its kind. Level names depend on the model, so the inherited level may not exist for the rule's model. The message reads `dispatch rule "<name>" (dispatch.rules[<i>].<kind>) sets model and inherits effort "<level>" from the top-level <kind> block; level names depend on the model, so write effort in the rule to choose the level for its model, or effort: null to clear it`. One warning per such rule.
 - **Removed agent kind** (`agent.kind.retired`). The workflow names an agent kind a release has removed, in `agent.kind`, `dispatch.default.agent`, or a `dispatch.rules[i].agent`, so Sortie converted the configuration onto the kind that replaces it when it loaded. One warning per removed kind names the replacement, the fields that named the removed kind, the command the converted sessions launch, and any setting of the removed kind's block that was not carried over. The conversion is temporary and a later release removes it. Ending the warning means naming the replacement kind in the workflow file; see [Removed agent kinds](/reference/workflow-config/#removed-agent-kinds). A configuration the conversion cannot honor fails with a `config.<field>` error instead; see [conversion errors](/reference/errors/#startup-and-configuration-errors).
 - **Invalid token rate entry** (`token_rates`). The block or an entry has the wrong type, an entry uses an empty kind or unknown key, a rate is invalid, or an entry lacks `input_per_mtok` or `output_per_mtok`. The warning names the rejected value or incomplete entry; the workflow remains valid.
 
@@ -437,7 +439,7 @@ The `check` field in JSON output and the prefix in text output use these values:
 |---|---|
 | `workflow_load` | Workflow file missing, unreadable, or unparseable YAML. |
 | `workflow_front_matter` | Front matter is not a YAML map. |
-| `config.<field>` | Configuration field type or value error (e.g., `config.polling.interval_ms`, `config.tracker.handoff_state`, `config.tracker.handoff_evidence`). A removed agent kind whose settings cannot be converted reports under the removed kind's own field, such as `config.kiro.trust_tools`; see [conversion errors](/reference/errors/#startup-and-configuration-errors). |
+| `config.<field>` | Configuration field type or value error (e.g., `config.polling.interval_ms`, `config.tracker.handoff_state`, `config.tracker.handoff_evidence`, `config.dispatch.rules[0].match.title`, `config.dispatch.rules[0].opencode`). A removed agent kind whose settings cannot be converted reports under the removed kind's own field, such as `config.kiro.trust_tools`; see [conversion errors](/reference/errors/#startup-and-configuration-errors). |
 | `config.workspace.retention_days` | Workspace retention window is not an integer, is negative, or is non-zero but below the accepted minimum. |
 | `config.agent.turn_timeout_ms` | The per-turn timeout is not a positive integer. |
 | `reactions.review_comments` | Invalid `reactions.review_comments` block. |
@@ -457,7 +459,7 @@ The `check` field in JSON output and the prefix in text output use these values:
 | `agent.command` | A reachable agent kind launches a process but would run nothing: the default kind has no `agent.command` and no default command, or a `dispatch` rule routes to a kind with no default command that is not the default kind. The message names the selector. |
 | `agent_adapter` | Unknown agent adapter kind. |
 | `tracker.project.format` | `tracker.project` is non-empty but not in `owner/repo` format (GitHub adapter). |
-| `dispatch.agent.missing_block` | A `dispatch.default.agent` or `dispatch.rules[i].agent` names a registered kind, other than `agent.kind`, with no top-level settings block in the front matter. |
+| `dispatch.agent.missing_block` | A `dispatch.default.agent` or `dispatch.rules[i].agent` names a registered kind, other than `agent.kind`, with no top-level settings block in the front matter, and at least one selector of that kind is not a rule carrying its own settings block. |
 | `agent.kind.session_resume` | An agent kind's pass-through block sets a key the adapter declares as blocking session resume across separate agent launches. |
 | `workspace.root_writable` | Workspace root directory does not exist and cannot be created, or is not writable. |
 | `args` | Invalid command-line arguments (too many positional args). |
@@ -474,7 +476,7 @@ Warning diagnostics use a separate set of check values. They appear only in the 
 | `unknown_sub_key` | Unrecognized key inside a known section (e.g., `tracker.typo_endpoint`). Adapter pass-through sub-objects matching the configured `kind` are exempt. |
 | `type_mismatch` | Value type does not match the expected type for the field (e.g., string where integer is expected). Also covers semantic issues: non-positive `hooks.timeout_ms`, non-numeric or non-positive values in `agent.max_concurrent_agents_by_state`. An out-of-range integer never produces this warning; see [Validation scope](#validation-scope) for what checks it instead. |
 | `ineffective_setting` | `agent.token_warning_percent` is set above `0` while `agent.max_tokens` is `0`, so the token warning threshold derives from a ceiling that is not in force. |
-| `unresolved_extension_var` | A `$VAR` or `${VAR}` reference inside an extension field (an adapter pass-through block, or `server`, `logging`, `worker`) whose named environment variable is unset or empty. |
+| `unresolved_extension_var` | A `$VAR` or `${VAR}` reference inside an extension field (an adapter pass-through block, a dispatch rule's settings block, or `server`, `logging`, `worker`) whose named environment variable is unset or empty. |
 | `dot_context` | Reference to a top-level data key (`.issue`, `.attempt`, `.run`) inside a `{{ range }}` or `{{ with }}` block where dot is the current element, not root data. Use `$` prefix to fix. |
 | `unknown_var` | Top-level template variable not in the data contract. Valid variables: `.issue`, `.attempt`, `.run`. |
 | `unknown_field` | Sub-field of a known top-level variable that does not exist in the domain schema (e.g., `.issue.nonexistent`, `.run.foo`). |
@@ -488,7 +490,8 @@ Warning diagnostics use a separate set of check values. They appear only in the 
 | `env_file.missing` | The file named by [`--env-file`](#--env-file) or `SORTIE_ENV_FILE` does not exist; no values are read from it. |
 | `env_override.section_replaced` | A `SORTIE_*` override targets a section that is not a YAML mapping; the section is replaced with one holding only the overridden settings. |
 | `agent.kind.deprecated` | A reachable agent kind is deprecated: it still runs, and the message names its replacement. |
-| `agent.effort.not_forwarded` | A reachable agent kind that passes no reasoning level to its agent has `effort` set in its settings block, so the setting has no effect. |
+| `agent.effort.not_forwarded` | A reachable agent kind that passes no reasoning level to its agent has `effort` set in its settings block, or a dispatch rule of that kind resolves one, so the setting has no effect. |
+| `agent.effort.inherited` | A dispatch rule writes `model`, does not write `effort`, and inherits a non-empty `effort` from the top-level block of its kind. |
 | `agent.kind.retired` | The workflow names an agent kind a release has removed, and its configuration was converted onto the replacement kind. The message names both kinds and the launch command; the conversion is temporary. |
 | `token_rates` | A `token_rates` value is malformed, incomplete, or contains an unrecognized key. The invalid part is ignored or the incomplete entry prices nothing. |
 
@@ -512,7 +515,7 @@ For details on each check, see [GitHub adapter validate-time checks](/reference/
 
 ### `stats`
 
-Reports how past runs went and what they cost. Sortie appends one row to `run_history` each time an agent session finishes; `stats` reads that history back over a time range and aggregates it into run counts, success rate, duration percentiles, turns, token sums, and derived cost, broken down by outcome, by coding agent, by dispatch rule, and by prompt template. The database is opened read-only, so the command is safe to run while the orchestrator is working, and it makes no network call.
+Reports how past runs went and what they cost. Sortie appends one row to `run_history` each time an agent session finishes; `stats` reads that history back over a time range and aggregates it into run counts, success rate, duration percentiles, turns, token sums, and derived cost, broken down by outcome, by coding agent, by dispatch rule, by prompt template, and by configured model. The database is opened read-only, so the command is safe to run while the orchestrator is working, and it makes no network call.
 
 ```
 sortie stats [--format text|json] [--since value] [--until value] [workflow-path]
@@ -583,15 +586,17 @@ Which figures a report can carry depends on the database it reads, not on the ve
 | Tokens | `input_tokens`, `output_tokens`, `total_tokens`, `cache_read_tokens` | Token sums and every derived cost figure. `cache_write_tokens`, when present, adds the cache-write sum without changing the tier. |
 | Token measurement | `tokens_measured` | Which runs the coding agent could measure, and so which ones the token and cost figures cover |
 
-**`base`**: at least one group is missing. The report falls back to run counts, the outcome breakdown, the coding-agent breakdown, and durations. Turns, tokens, cost, the dispatch-rule breakdown, the prompt-template breakdown, and the self-review section are all left out.
+A sixth group sits outside the tier: `configured_model`, `configured_effort`, and `reported_model`. Only the configured-model breakdown depends on it, so a database without it is still `full`. See [configured model breakdown](#configured-model-breakdown).
+
+**`base`**: at least one group is missing. The report falls back to run counts, the outcome breakdown, the coding-agent breakdown, and durations. Turns, tokens, cost, the dispatch-rule breakdown, the prompt-template breakdown, the configured-model breakdown, and the self-review section are all left out.
 
 The tier is all-or-nothing by design. A database carrying four of the five groups still reports `base`, and the report then drops the groups it does carry along with the ones it never recorded. The warning names both lists so the two are not confused:
 
 ```
-warning: this database was written before sortie recorded dispatch-rule routing, tokens and cost, which runs the coding agent could measure. The report falls back to run counts and durations, so it also leaves out turns, self-review results, which this database does carry. Run sortie once with this workflow to get the full report.
+warning: this database was written before sortie recorded dispatch-rule routing, tokens and cost, which runs the coding agent could measure, the model each run was configured with. The report falls back to run counts and durations, so it also leaves out turns, self-review results, which this database does carry. Run sortie once with this workflow to get the full report.
 ```
 
-A degraded report is still a report: the warning goes to stderr in text mode and into `warnings` in JSON, and the exit code is `0`. In JSON, `by_rule` and `by_template` are empty arrays, `self_review` is `null`, and every figure the tier cannot supply is `null` rather than `0`. A null means the database never recorded that figure, not that the figure measured zero.
+A degraded report is still a report: the warning goes to stderr in text mode and into `warnings` in JSON, and the exit code is `0`. In JSON, `by_rule`, `by_template`, and `by_model` are empty arrays, `self_review` is `null`, and every figure the tier cannot supply is `null` rather than `0`. A null means the database never recorded that figure, not that the figure measured zero.
 
 The remedy is to run the orchestrator once with this workflow. Startup applies the pending migrations, and runs recorded from then on carry the full set. `stats` cannot do this itself; its read-only connection cannot apply a migration.
 
@@ -603,9 +608,27 @@ When `run_history` is absent altogether, or missing any of `status`, `agent_adap
 sortie stats: run_history table not found or missing base columns
 ```
 
+#### Configured model breakdown
+
+The `by configured model` table (`by_model` in JSON) groups runs by the `model` their resolved settings carried when they started, the value a [dispatch rule](/reference/workflow-config/#dispatch) can set per issue. It is not the model the runtime reported running; the two can differ, and [how the two differ](/reference/http-api/#configured-and-reported-model) is explained with the running session fields. `stats` groups by the configured value only.
+
+- A run that configured no model, so the runtime used its own default, is grouped under `<none>`. So is every run recorded before Sortie stored the configured model, and every `ci_failed` run, which records no model.
+- Cost is priced at the rate of the run's coding agent, as in every other breakdown. `token_rates` has no per-model entry, so two models of one agent kind are priced alike.
+- The table follows the prompt-template table in text output.
+
+On a `full` database written before Sortie recorded the configured model, the report carries no breakdown: `by_model` is `[]`, never `null`, the text report omits the table, and `warnings` carries this message. The exit code is `0`.
+
+```
+warning: this database was written before sortie recorded the model each run was configured with, so the report leaves out the breakdown by configured model. Run sortie once with this workflow to add it.
+```
+
+Running the orchestrator once applies the migration. Runs recorded before it stay under `<none>`.
+
+On a `base` database the group is named in the degraded-schema warning shown under [schema tiers](#schema-tiers) instead, and `by_model` is `[]` as well.
+
 #### Output formats
 
-Both formats carry the same figures. Breakdown rows are sorted by descending run count, with ties broken by ascending name. A run that recorded no dispatch rule or prompt template appears under the sentinel name `<none>`, which also covers an empty agent adapter. Rounding is fixed so repeated runs over the same data produce identical output: rates and shares to four decimals, cost and mean turns to two, mean duration to one.
+Both formats carry the same figures. Breakdown rows are sorted by descending run count, with ties broken by ascending name. A run that recorded no dispatch rule, prompt template, or configured model appears under the sentinel name `<none>`, which also covers an empty agent adapter. Rounding is fixed so repeated runs over the same data produce identical output: rates and shares to four decimals, cost and mean turns to two, mean duration to one.
 
 The summary's duration and mean-turn figures cover **succeeded runs only**, so they describe the work that landed rather than the volume attempted. Token sums, and every cost figure derived from them, cover **measured runs only**: a run whose coding agent reported no token usage records that fact and is left out of those figures instead of counting as a run that spent nothing. A run counts as succeeded when its status is exactly `succeeded`. Cost is never stored; it is derived at report time from the token counts and the configured rates. See [control agent costs](/guides/control-costs/#monitor-spending) for where this fits among the other cost surfaces.
 
@@ -646,11 +669,18 @@ by prompt template
   <none>             5     3          60.0%         6m 0s   9m 40s  6m 4s   4.8    426,100       $3.95
   prompts/bugfix.md  4     4          100.0%        2m 30s  2m 49s  2m 35s  2.5    172,800       $2.54
 
+by configured model
+  MODEL              RUNS  SUCCEEDED  SUCCESS RATE  P50     P95     MEAN    TURNS  TOTAL TOKENS  COST
+  claude-sonnet-4-5  4     4          100.0%        2m 30s  2m 49s  2m 35s  2.5    172,800       $2.54
+  claude-opus-4-5    2     1          50.0%         7m 12s  9m 40s  8m 26s  5.0    215,600       $3.18
+  gpt-5-codex        2     2          100.0%        3m 20s  4m 10s  3m 45s  4.0    150,500       $0.55
+  <none>             1     0          0.0%          6m 0s   6m 0s   6m 0s   6.0    60,000        $0.22
+
 self review
   runs reviewed 6   iterate 1   pass 5   hit iteration cap 1   mean iterations 1.50
 ```
 
-The outcome table shows `SHARE`, a group's runs over total runs. Every other breakdown shows `SUCCEEDED` and `SUCCESS RATE`, a group's succeeded runs over its own. On the `base` tier the `TURNS`, `TOTAL TOKENS`, and `COST` columns are absent entirely, and the dispatch-rule, prompt-template, and self-review sections do not appear.
+The outcome table shows `SHARE`, a group's runs over total runs. Every other breakdown shows `SUCCEEDED` and `SUCCESS RATE`, a group's succeeded runs over its own. On the `base` tier the `TURNS`, `TOTAL TOKENS`, and `COST` columns are absent entirely, and the dispatch-rule, prompt-template, configured-model, and self-review sections do not appear.
 
 The `covering:` line is prose rather than a sentinel. It reads `every run on record` when neither bound was given, `<since> onward` with only `--since`, `the start of the record until <until>` with only `--until`, and `<since> until <until>` with both.
 
@@ -699,6 +729,7 @@ Envelope:
 | `by_adapter` | array of object | Breakdown by coding agent. |
 | `by_rule` | array of object | Breakdown by dispatch rule. Empty array on the `base` tier. |
 | `by_template` | array of object | Breakdown by prompt template. Empty array on the `base` tier. |
+| `by_model` | array of object | Breakdown by configured model. Empty array on the `base` tier and on a `full` database that predates the configured-model columns. See [configured model breakdown](#configured-model-breakdown). |
 | `self_review` | object or null | Self-review aggregation. `null` on the `base` tier, meaning the results were not read, not that no review ran. |
 
 `summary`:
@@ -718,11 +749,11 @@ Envelope:
 | `cost_unpriced_runs` | integer | Runs left out of the cost figures because `token_rates` has no complete entry for their coding agent. An entry is complete only when it sets both input and output rates. |
 | `tokens_unmeasured_runs` | integer | Runs left out of the token and cost figures because the coding agent behind them reported no token usage. `0` on the `base` tier, where the distinction was never recorded. |
 
-Each element of `by_status`, `by_adapter`, `by_rule`, and `by_template`:
+Each element of `by_status`, `by_adapter`, `by_rule`, `by_template`, and `by_model`:
 
 | Field | Type | Description |
 |---|---|---|
-| `name` | string | The group: an outcome, an agent adapter kind, a dispatch rule name, or a template identifier. A run that recorded none carries the sentinel `<none>`. Runs keep the agent kind they were recorded under, so a removed kind stays a group of its own next to the kind that replaced it. |
+| `name` | string | The group: an outcome, an agent adapter kind, a dispatch rule name, a template identifier, or a configured model. A run that recorded none carries the sentinel `<none>`. Runs keep the agent kind they were recorded under, so a removed kind stays a group of its own next to the kind that replaced it. |
 | `runs` | integer | Runs in this group. |
 | `succeeded` | integer | Succeeded runs in this group. In `by_status` this is structural rather than informative: the `succeeded` row necessarily reports it equal to `runs`. |
 | `success_rate` | number | `succeeded` over this group's `runs`. |
@@ -845,6 +876,21 @@ A worked example, expanded for readability and trimmed to one row per breakdown.
   "by_template": [
     {
       "name": "prompts/bugfix.md",
+      "runs": 4,
+      "succeeded": 4,
+      "success_rate": 1,
+      "share": 0.4444,
+      "duration_seconds": {"p50": 150, "p95": 169, "mean": 155, "samples": 4},
+      "mean_turns": 2.5,
+      "tokens": {"input": 145100, "output": 27700, "total": 172800, "cache_read": 56360, "cache_write": 8100},
+      "cost_usd": 2.54,
+      "cost_per_succeeded_run_usd": 0.64,
+      "tokens_unmeasured_runs": 0
+    }
+  ],
+  "by_model": [
+    {
+      "name": "claude-sonnet-4-5",
       "runs": 4,
       "succeeded": 4,
       "success_rate": 1,
