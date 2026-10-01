@@ -154,6 +154,8 @@ A cheaper model and a lower effort setting are the two bluntest levers you have,
 
 On `agent-client-protocol`, `effort` has no effect, and `sortie validate` warns when you set it. Put the runtime's own reasoning option in `agent.command` instead. See the [reasoning effort reference](/reference/workflow-config/#adapter-pass-through-configuration) for how each kind reads the key.
 
+If your issues mix routine and hard work, a dispatch rule can give each group its own model and effort level; see [Route issues to a cheaper or a stronger model](/guides/configure-dispatch-rules/#route-issues-to-a-cheaper-or-a-stronger-model).
+
 Model pricing changes frequently. Check your provider's pricing page before making model decisions.
 
 ## Putting it all together

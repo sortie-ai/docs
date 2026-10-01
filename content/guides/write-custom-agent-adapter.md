@@ -28,7 +28,7 @@ The contract is `domain.AgentAdapter` in `internal/domain/agent.go`. It has exac
 
 | Method | What it must do | When the orchestrator calls it |
 |---|---|---|
-| `StartSession(ctx, params) (Session, error)` | Validate the workspace, resolve the binary, build per-session state, return an opaque `Session`. For fork-per-turn agents, start no long-lived process here. | Once per issue session, before the first turn. |
+| `StartSession(ctx, params) (Session, error)` | Parse `params.Settings`, validate the workspace, resolve the binary, build per-session state, return an opaque `Session`. For fork-per-turn agents, start no long-lived process here. | Once per issue session, before the first turn. |
 | `RunTurn(ctx, session, params) (TurnResult, error)` | Execute one turn for `params.Prompt`, deliver events through `params.OnEvent`, return the outcome. | Once per turn; continuation turns reuse the same `Session`. |
 | `StopSession(ctx, session) error` | Terminate cleanly and release resources. Safe to call after a failed `RunTurn`. | Exactly once per session, after the last turn. |
 
@@ -47,7 +47,7 @@ The orchestrator reacts to a normalized event vocabulary, not to your CLI's nati
 | `tool_result` | `EventToolResult` | A tool call completed. Carries `ToolName` and `ToolDurationMS`. |
 | `malformed` | `EventMalformed` | An unparseable line from the agent. |
 
-The data flows like this. `StartSession` receives `StartSessionParams` (the workspace path, an `AgentConfig`, an optional `ResumeSessionID`, SSH fields, and an MCP config path) and returns a `Session` whose `Internal any` field carries your adapter state opaquely. `RunTurn` receives that `Session` plus `RunTurnParams` (the rendered `Prompt`, the `Issue`, and the `OnEvent` callback) and returns a `TurnResult` (`SessionID`, `ExitReason`, `Usage`, `UsageMeasured`, `SpendUnaccounted`). The orchestrator copies `SessionID` and token deltas out of the events and the result; it never reads `Session.Internal`. A non-empty `SessionID`, whether from a `session_started` event or from `TurnResult`, replaces whatever session id the orchestrator has accepted so far, for this run's dispatch record, its exit result, and what a continuation retry resumes under. Report the id your runtime would continue the session under as of the end of that turn, never one it has already moved past: Copilot CLI's adapter, for example, captures the session id off a turn's own result and returns it as that turn's `TurnResult.SessionID`, so a runtime-assigned change reaches the orchestrator without any extra event. Set `UsageMeasured` only once the runtime has reported a usage figure for the session: a `false` value with zero `Usage` records the spend as unknown rather than as nothing, which is what keeps a token budget from silently treating an unmeasurable agent as free.
+The data flows like this. `StartSession` receives `StartSessionParams` (the workspace path, an `AgentConfig`, the kind's resolved `Settings` block, an optional `ResumeSessionID`, SSH fields, and an MCP config path) and returns a `Session` whose `Internal any` field carries your adapter state opaquely. `RunTurn` receives that `Session` plus `RunTurnParams` (the rendered `Prompt`, the `Issue`, and the `OnEvent` callback) and returns a `TurnResult` (`SessionID`, `ExitReason`, `Usage`, `UsageMeasured`, `SpendUnaccounted`). The orchestrator copies `SessionID` and token deltas out of the events and the result; it never reads `Session.Internal`. A non-empty `SessionID`, whether from a `session_started` event or from `TurnResult`, replaces whatever session id the orchestrator has accepted so far, for this run's dispatch record, its exit result, and what a continuation retry resumes under. Report the id your runtime would continue the session under as of the end of that turn, never one it has already moved past: Copilot CLI's adapter, for example, captures the session id off a turn's own result and returns it as that turn's `TurnResult.SessionID`, so a runtime-assigned change reaches the orchestrator without any extra event. Set `UsageMeasured` only once the runtime has reported a usage figure for the session: a `false` value with zero `Usage` records the spend as unknown rather than as nothing, which is what keeps a token budget from silently treating an unmeasurable agent as free.
 
 **Verify:** you can state, for your agent, which `AgentEventType` values its output maps to and when each one fires during a turn.
 
@@ -88,7 +88,7 @@ Generic naming applies everywhere in core, but this package is where the kind st
 
 ### Register the adapter
 
-Registration runs from `init()` and binds your kind string to a constructor. Use `RegisterWithMeta` so you can declare that the agent needs a launch command, what your adapter does with the MCP configuration Sortie generates for its own tools, when your runtime's token figures arrive and what they attribute to, and whether any of your own pass-through keys stops the agent resuming a session.
+Registration runs from `init()` and binds your kind string to a constructor that takes no arguments. Use `RegisterWithMeta` so you can declare that the agent needs a launch command, what your adapter does with the MCP configuration Sortie generates for its own tools, when your runtime's token figures arrive and what they attribute to, and whether any of your own pass-through keys stops the agent resuming a session.
 
 ```go {filename="acme.go"}
 package acme
@@ -113,21 +113,19 @@ func init() {
 // Compile-time interface satisfaction check.
 var _ domain.AgentAdapter = (*ACMEAdapter)(nil)
 
-// NewACMEAdapter creates an adapter from the raw "acme" config sub-object.
-func NewACMEAdapter(config map[string]any) (domain.AgentAdapter, error) {
-	pt, err := parsePassthroughConfig(config)
-	if err != nil {
-		return nil, err
-	}
-	return &ACMEAdapter{passthrough: pt}, nil
+// ACMEAdapter holds no settings: each session reads its own.
+type ACMEAdapter struct{}
+
+func NewACMEAdapter() (domain.AgentAdapter, error) {
+	return &ACMEAdapter{}, nil
 }
 ```
 
-The kind string `"acme"` is the exact value an operator writes in `agent.kind` in WORKFLOW.md. Registry lookup is exact-match and case-sensitive, so `acme` and `Acme` are different agents. `RequiresCommand: true` tells the orchestrator preflight to reject a workflow that selects this agent when it would launch no command. `DefaultCommand` is what the agent launches when the workflow gives it none, so it must be the same program you pass to `ResolveLaunchTarget` below; leave it out and preflight requires an `agent.command`, which only the default kind reads. The `var _ domain.AgentAdapter = (*ACMEAdapter)(nil)` line is a compile-time assertion: if your type stops satisfying the interface, the build fails here with a clear message. The constructor signature is fixed: `func(config map[string]any) (domain.AgentAdapter, error)`, where `config` is the raw map from your WORKFLOW.md extension block.
+The kind string `"acme"` is the exact value an operator writes in `agent.kind` in WORKFLOW.md. Registry lookup is exact-match and case-sensitive, so `acme` and `Acme` are different agents. `RequiresCommand: true` tells the orchestrator preflight to reject a workflow that selects this agent when it would launch no command. `DefaultCommand` is what the agent launches when the workflow gives it none, so it must be the same program you pass to `ResolveLaunchTarget` below; leave it out and preflight requires an `agent.command`, which only the default kind reads. The `var _ domain.AgentAdapter = (*ACMEAdapter)(nil)` line is a compile-time assertion: if your type stops satisfying the interface, the build fails here with a clear message. The constructor signature is fixed: `registry.AgentConstructor`, `func() (domain.AgentAdapter, error)`. It takes no settings and your adapter type holds none, because one adapter instance serves every session of its kind, and a [dispatch rule](/reference/workflow-config/#dispatch) can give one issue its own settings block. Settings reach your code per session, through `StartSessionParams.Settings`, covered in the next step.
 
 `CredentialEnv` names the environment variables your runtime reads as the credential for its default provider, in the order a remote launch should carry them. Sortie carries those names from its own environment into a session it starts over SSH, so an operator does not have to place the credential on every build host. Declare it even when the answer is none: `registry.DeclareCredentialEnv()` with no arguments says the kind reads no credential variable, which is a different statement from leaving the field unset. Leaving it unset fails a completeness test that walks every registered kind, so CI does not go green. Each name must be a valid environment variable name, must not repeat, and must not be one the SSH carrier reserves for itself.
 
-`EffortForwarding` declares what your adapter does with the `effort` key of its own settings block. If it delivers the level to the runtime, declare `registry.EffortForwarded`, read the key through `registry.EffortSetting`, and add a test that calls `agenttest.AssertEffortForwarding`. If it does not, declare `registry.EffortNotForwarded` and read the key nowhere in the package, so neither `registry.EffortSetting` nor `registry.EffortKey` appears in a non-test file; a workflow that sets `effort` for the kind then draws the `agent.effort.not_forwarded` warning. Leaving the field unset, a forwarding kind without that test, and a not-forwarded package that reads the key each fail the completeness test in `cmd/sortie`.
+`EffortForwarding` declares what your adapter does with the `effort` key of its own settings block. If it delivers the level to the runtime on every turn of every session it starts, the credential-verification session and the first turn of a resumed session included, declare `registry.EffortForwarded`, read the key through `registry.EffortSetting` from the session's settings, and add a test that calls `agenttest.AssertEffortForwarding`. If it does not, declare `registry.EffortNotForwarded` and read the key nowhere in the package, so neither `registry.EffortSetting` nor `registry.EffortKey` appears in a non-test file; a workflow that sets `effort` for the kind then draws the `agent.effort.not_forwarded` warning. Leaving the field unset, a forwarding kind without that test, and a not-forwarded package that reads the key each fail the completeness test in `cmd/sortie`.
 
 `MCPInjection` declares what your adapter does with the MCP configuration the worker generates for Sortie's own tools. Three values name a delivery, and the zero value names an adapter that has declared nothing:
 
@@ -170,7 +168,7 @@ SessionResumeBlockedBy: func(passthrough map[string]any) string {
 },
 ```
 
-Declare it if the key exists, because Sortie re-dispatches an issue carrying its earlier session after a retry, a continuation, a stall, or a restart, and without the declaration a workflow that sets such a key validates cleanly and then fails on every resumed turn. With it declared, [`sortie validate`](/reference/cli/#validate) and startup preflight refuse the workflow with an `agent.kind.session_resume` error naming your key. The check is generic: the message text and severity belong to Sortie, and your declaration supplies only the key. Read the value with the same helper and default your own constructor uses, so the verdict cannot disagree with the launch your adapter would actually build, and do not modify the map you are handed.
+Declare it if the key exists, because Sortie re-dispatches an issue carrying its earlier session after a retry, a continuation, a stall, or a restart, and without the declaration a workflow that sets such a key validates cleanly and then fails on every resumed turn. With it declared, [`sortie validate`](/reference/cli/#validate) and startup preflight refuse the workflow with an `agent.kind.session_resume` error naming your key. The check is generic: the message text and severity belong to Sortie, and your declaration supplies only the key. Read the value with the same helper and default your own settings parser uses, so the verdict cannot disagree with the launch your adapter would actually build, and do not modify the map you are handed.
 
 `MCPInjectionTranslated` is `local only` for a reason worth knowing before you pick it, and the reason is not the one people expect. Per-turn arguments do cross an SSH launch: `sshutil.BuildSSHLaunch` shell-quotes each one onto the remote command string, and the remote agent receives them. That string is itself an argument of the local `ssh` process, so anything you put in it, per-turn arguments included, lands on an argument list every other user of the orchestrator host can read. `LaunchTarget.Args`, the initial-argument slot a translating adapter would otherwise use, is empty in SSH mode for the same reason it has nothing to hold: the local command is `ssh`, not your agent. An adapter that translates onto the command line therefore delivers nothing on a remote launch. `SSHOptions` does give you a second route, the launch's standard input, which carries environment variables without exposing them; whether your runtime can read the translated form from there is a question about that runtime, and none of the built-in translating kinds delivers it that way today.
 
@@ -187,7 +185,7 @@ func TestRegistered(t *testing.T) {
 
 ### Define the passthrough config
 
-The `<kind>` block in WORKFLOW.md arrives as the raw `map[string]any` passed to your constructor. Decode it into a typed struct with the `typeutil` coercion helpers, and validate it at construction time so misconfiguration fails before any turn runs. This example is an invented tool-trust config for `acme-cli`: a model pin and two mutually exclusive trust modes.
+The `<kind>` block in WORKFLOW.md arrives as the raw `map[string]any` in `StartSessionParams.Settings`. It is read-only, and `nil` reads as an empty block. Decode it into a typed struct with the `typeutil` coercion helpers inside `StartSession`, before anything launches, so misconfiguration fails before any turn runs. This example is an invented tool-trust config for `acme-cli`: a model pin and two mutually exclusive trust modes.
 
 ```go {filename="command.go"}
 type passthroughConfig struct {
@@ -196,15 +194,15 @@ type passthroughConfig struct {
 	TrustTools    []string
 }
 
-func parsePassthroughConfig(config map[string]any) (passthroughConfig, error) {
-	model, fault := typeutil.StringField(config, "model")
+func parsePassthroughConfig(settings map[string]any) (passthroughConfig, error) {
+	model, fault := registry.ModelSetting(settings)
 	if fault != nil {
 		return passthroughConfig{}, fault
 	}
 	pt := passthroughConfig{
 		Model:         model,
-		TrustAllTools: typeutil.BoolFrom(config, "trust_all_tools", false),
-		TrustTools:    slices.Clone(typeutil.ExtractStringSlice(config["trust_tools"])),
+		TrustAllTools: typeutil.BoolFrom(settings, "trust_all_tools", false),
+		TrustTools:    slices.Clone(typeutil.ExtractStringSlice(settings["trust_tools"])),
 	}
 	if pt.TrustAllTools && len(pt.TrustTools) > 0 {
 		return passthroughConfig{}, fmt.Errorf("trust_all_tools and trust_tools are mutually exclusive")
@@ -213,7 +211,11 @@ func parsePassthroughConfig(config map[string]any) (passthroughConfig, error) {
 }
 ```
 
-`StringField` reports a wrong-typed value as a fault and treats a missing key as empty, while `BoolFrom` and `ExtractStringSlice` fall back to a default or the zero value for either. Clone any slice you keep so a later mutation cannot reach back into the config map. Field-level validation belongs here: returning an error from the constructor surfaces through `sortie validate`, so an operator sees the problem before dispatch rather than as a failed session.
+`registry.ModelSetting` reads `model` the way `registry.EffortSetting` reads `effort`: a missing, null, or empty value is `""`, and any non-string value is a `*typeutil.TypeFault`. `BoolFrom` and `ExtractStringSlice` fall back to a default or the zero value for a missing or wrong-typed key. Clone any slice you keep so a later mutation cannot reach back into the settings map, and never write to the map itself.
+
+Keep the parsed struct in the session's own state, and put nothing parsed from settings on the adapter type. The same adapter instance starts every session of its kind, and the next session may carry a different block, either because a dispatch rule names its own settings for that issue or because an operator edited the block, which applies from the next attempt without a restart. State on the adapter would leak one session's settings into another.
+
+Report a block you cannot parse by returning `agentcore.SettingsError(err.Error(), err)` from `StartSession`. It builds an `agent_not_found` `*domain.AgentError` that carries the message and wraps the cause. `agentcore` lives under `internal/`, so this guide assumes what the rest of it does: your package sits inside the Sortie module. Offline validation is separate. Declare `ValidateAgentConfig` in `registry.AgentMeta`, a `func(registry.AgentConfigFields) []registry.ValidationDiag` that [`sortie validate`](/reference/cli/#validate) and preflight run against the settings block, so an operator sees the problem before dispatch. Share the parsing code between the validator and `StartSession` so both report the same text for the same fault.
 
 **Verify:** a table-driven test exercises the parse and the validation.
 
@@ -223,10 +225,15 @@ make test PKG=./internal/agent/acme/...
 
 ### Resolve the launch target and start the session
 
-`StartSession` does setup, not execution. Resolve the launch target, run any credential preflight, build your session state, wire the hooks, and construct the fork-per-turn session. Start no subprocess.
+`StartSession` does setup, not execution. Parse the session's settings, resolve the launch target, run any credential preflight, build your session state, wire the hooks, and construct the fork-per-turn session. Start no subprocess.
 
 ```go {filename="acme.go"}
 func (a *ACMEAdapter) StartSession(ctx context.Context, params domain.StartSessionParams) (domain.Session, error) {
+	pt, err := parsePassthroughConfig(params.Settings)
+	if err != nil {
+		return domain.Session{}, agentcore.SettingsError(err.Error(), err)
+	}
+
 	target, agentErr := agentcore.ResolveLaunchTarget(params, "acme-cli")
 	if agentErr != nil {
 		return domain.Session{}, agentErr
@@ -238,7 +245,7 @@ func (a *ACMEAdapter) StartSession(ctx context.Context, params domain.StartSessi
 		}
 	}
 
-	state := &sessionState{target: target, agentConfig: params.AgentConfig, sessionID: params.ResumeSessionID}
+	state := &sessionState{target: target, passthrough: pt, agentConfig: params.AgentConfig, sessionID: params.ResumeSessionID}
 	hooks := agentcore.ForkPerTurnHooks{ /* BuildArgs, ParseLine, GetUsage, GetSessionID, OnFinalize */ }
 	state.forkSession = agentcore.NewForkPerTurnSession(&state.target, hooks, state.logger())
 
@@ -250,7 +257,7 @@ func (a *ACMEAdapter) StartSession(ctx context.Context, params domain.StartSessi
 
 When your runtime lets an environment variable outrank the reasoning level you deliver, as Claude Code does with `CLAUDE_CODE_EFFORT_LEVEL`, set `target.WithheldEnv` to that variable's name right after `ResolveLaunchTarget` returns, whenever the level is set. A local launch then runs without the variable, and a remote launch neither carries it nor lets the remote shell pass it on.
 
-Before your working session's first turn, `agentcore.VerifyCredential` opens a session of its own, with `params.CredentialVerification` set, sends one fixed request through it, and closes it again; see [credential verification](/reference/workflow-config/#credential-verification) for the mechanism. That request is the credential check every adapter gets. Add a guard of your own only for a runtime that would block on an interactive login when no credential is present, because a blocked request never fails and so never reports anything. Gate the guard on `params.CredentialVerification` rather than on local-versus-SSH, so it runs identically in both modes, and let a working session (`params.CredentialVerification` false) skip it entirely, because its own verification session already proved the credential moments before. Guard only the wait your runtime would block on, and leave acceptance to the shared request. When the guard finds the credential absent, return a `*domain.AgentError` whose `Kind` is `domain.ErrCredentialUnverified`. When the guarded command exits on its own, return `agentcore.ExitedEarly(target, result).Report(stderr)`, the shared [early exit report](/reference/errors/#early-exit-report), so the runtime's own exit status and standard error reach the operator instead of a guess about the credential; the OpenCode adapter's version probe returns it the same way. Build the guard's own command with `target.AuxiliaryCommand`, which builds the right one for a local or an SSH launch from the same call and re-verifies the workspace path immediately before building it, returning `(nil, *domain.AgentError)` if that fails; check that error before looking at the command's exit status, and return it unchanged rather than reinterpreting it as a credential failure. Bound the wait with `agentcore.CredentialExchangeBound` (60 seconds), generous enough for a credential that has to refresh itself over the network. Do this after `ResolveLaunchTarget` succeeds, because the binary must be resolved first. The credential itself needs no code from you beyond the guard: your `CredentialEnv` declaration is what carries it to a remote host, and `LaunchTarget.SSHOptions` resolves each declared name from the orchestrator's environment when the launch is built.
+Before your working session's first turn, `agentcore.VerifyCredential` opens a session of its own, through the same adapter and with the same `Settings` block as the working session, with `params.CredentialVerification` set, sends one fixed request through it, and closes it again; see [credential verification](/reference/workflow-config/#credential-verification) for the mechanism. That request is the credential check every adapter gets. Add a guard of your own only for a runtime that would block on an interactive login when no credential is present, because a blocked request never fails and so never reports anything. Gate the guard on `params.CredentialVerification` rather than on local-versus-SSH, so it runs identically in both modes, and let a working session (`params.CredentialVerification` false) skip it entirely, because its own verification session already proved the credential moments before. Guard only the wait your runtime would block on, and leave acceptance to the shared request. When the guard finds the credential absent, return a `*domain.AgentError` whose `Kind` is `domain.ErrCredentialUnverified`. When the guarded command exits on its own, return `agentcore.ExitedEarly(target, result).Report(stderr)`, the shared [early exit report](/reference/errors/#early-exit-report), so the runtime's own exit status and standard error reach the operator instead of a guess about the credential; the OpenCode adapter's version probe returns it the same way. Build the guard's own command with `target.AuxiliaryCommand`, which builds the right one for a local or an SSH launch from the same call and re-verifies the workspace path immediately before building it, returning `(nil, *domain.AgentError)` if that fails; check that error before looking at the command's exit status, and return it unchanged rather than reinterpreting it as a credential failure. Bound the wait with `agentcore.CredentialExchangeBound` (60 seconds), generous enough for a credential that has to refresh itself over the network. Do this after `ResolveLaunchTarget` succeeds, because the binary must be resolved first. The credential itself needs no code from you beyond the guard: your `CredentialEnv` declaration is what carries it to a remote host, and `LaunchTarget.SSHOptions` resolves each declared name from the orchestrator's environment when the launch is built.
 
 A guard you write yourself is only a shortcut for a runtime that would otherwise hang or fail silently. Every adapter gets a baseline check for free: `agentcore.VerifyCredential` already sends a real request and reports `credential_unverified` when the runtime cannot answer it, whether or not the adapter's own `StartSession` does anything extra. A runtime that exits before it answers keeps the early exit report the skeleton built, `port_exit`, rather than becoming `credential_unverified`.
 
@@ -282,7 +289,7 @@ The hook in `StartSession` wraps this helper:
 
 ```go
 BuildArgs: func(turn int, prompt string) []string {
-	return buildArgs(state, turn, prompt, a.passthrough)
+	return buildArgs(state, turn, prompt, state.passthrough)
 },
 ```
 
@@ -440,7 +447,7 @@ Write unit tests with the project's conventions: table-driven, `t.Parallel()` at
 
 - `command_test.go` asserts `buildArgs` output across config permutations (model set or not, trust modes, resume on or off).
 - `parse_test.go` asserts parsing and classification: JSONL decode against `testdata/` fixtures for a structured agent, ANSI stripping and stderr classification for an unstructured one.
-- `acme_test.go` covers session and turn behavior against a fake `acme-cli`, built with `agenttest.FakeRuntime`, and proves your registered usage-reporting declaration with `agenttest.AssertUsageReporting` against the events and result a real turn produced. For an arrival of `UsageArrivalNone`, that call fails unless the turn emitted no `token_usage` event, no event carrying a non-zero usage figure, and a result with `UsageMeasured` false.
+- `acme_test.go` starts two sessions from one adapter with different `Settings` blocks and asserts each keeps its own, and covers session and turn behavior against a fake `acme-cli`, built with `agenttest.FakeRuntime`, and proves your registered usage-reporting declaration with `agenttest.AssertUsageReporting` against the events and result a real turn produced. For an arrival of `UsageArrivalNone`, that call fails unless the turn emitted no `token_usage` event, no event carrying a non-zero usage figure, and a result with `UsageMeasured` false.
 - A test calling `credentialtest.AssertCredentialVerification` (`internal/agent/agenttest/credentialtest`) against your adapter, with cases driving it through `agentcore.VerifyCredential`. This one is not optional once you register a kind: `TestEveryAgentKindHasCredentialVerificationCoverage`, in `cmd/sortie`, fails the whole build for every kind `registry.Agents` lists that has no test file anywhere in its own package calling that function, your new kind included. Give it at least one case wanting `WantVerified` and one wanting `WantUnverified`, and add a `WantSSHConnectionFailed` case too if your kind's registration sets `RequiresCommand`.
 
 ```go {filename="command_test.go"}
@@ -592,6 +599,8 @@ These steps need repository access an outside contributor does not have. Make th
 **Putting `<agent>_*` names or CLI flags in core packages.** The kind string and the flags live in your package. Core code uses generic `agent_*` and `session_*` vocabulary.
 
 **Adding a dependency or anything that needs CGo.** `modernc.org/sqlite` is the only SQLite driver, the binary is statically linked, and tests use the standard library. A new third-party dependency needs prior discussion.
+
+**Storing parsed settings on the adapter type.** The adapter is constructed once and starts every session of its kind, so a field set in one `StartSession` is visible to the next. Parse `params.Settings` in `StartSession` and keep the result in the session's state.
 
 **Retaining or calling `OnEvent` after `RunTurn` returns.** The callback is valid only during the turn. Emit while the turn runs; do not stash the function for later.
 

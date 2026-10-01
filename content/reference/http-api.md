@@ -176,6 +176,16 @@ Example `review_metadata` for a session that passed on the second iteration:
 sqlite3 .sortie.db "SELECT review_metadata FROM run_history WHERE review_metadata IS NOT NULL ORDER BY started_at DESC LIMIT 1" | python3 -m json.tool
 ```
 
+#### Model and effort of a completed run
+
+Each completed run also stores the settings it ran with, in three text columns of `run_history`: `configured_model` and `configured_effort` (what the attempt was asked to run) and `reported_model` (what the runtime reported running). [Configured and reported model](#configured-and-reported-model) explains how to read the pair. The dashboard table and the JSON endpoints do not show these columns, so query them directly:
+
+```sh
+sqlite3 .sortie.db "SELECT identifier, configured_model, configured_effort, reported_model FROM run_history ORDER BY started_at DESC LIMIT 5"
+```
+
+An unset value is an empty string, not `NULL`. All three columns are empty on runs recorded before Sortie stored them and on `ci_failed` rows. [`sortie stats`](/reference/cli/#configured-model-breakdown) aggregates the configured model; it does not read `reported_model` or `configured_effort`.
+
 ---
 
 ## GET /api/v1/state: System state
@@ -216,6 +226,9 @@ curl http://localhost:7678/api/v1/state
         "cache_write_tokens": 1200
       },
       "model_name": "<model-id-reported-by-the-agent>",
+      "rule_name": "bugfix",
+      "configured_model": "claude-sonnet-4-5",
+      "configured_effort": "medium",
       "api_request_count": 12,
       "requests_by_model": {
         "<model-id-reported-by-the-agent>": 12
@@ -279,7 +292,10 @@ curl http://localhost:7678/api/v1/state
 | `tokens` | Nested object with `input_tokens`, `output_tokens`, `total_tokens`, `cache_read_tokens`, and `cache_write_tokens` for this session. `total_tokens` is `input_tokens + output_tokens`; both cache counters are disjoint subsets of `input_tokens`, never additions to it. Each member is an integer or `null`, and all five are `null` together exactly when `tokens_measured` is `false`. |
 | `tokens_measured` | `false` until the coding agent reports token usage for this session, including before the first turn begins; that is what makes the members of `tokens` `null` rather than `0`. `true` once any usage figure has been reported. Stays `false` for the life of a session whose `usage_arrival` is `"none"`, whatever its runtime sends. |
 | `workspace_path` | Absolute filesystem path to the issue's workspace directory. |
-| `model_name` | LLM model in use. Omitted when unknown, and when `usage_arrival` is `"none"`. |
+| `model_name` | LLM model the runtime reported running. Omitted when unknown, and when `usage_arrival` is `"none"`. It can differ from `configured_model`; see [configured and reported model](#configured-and-reported-model). |
+| `rule_name` | Name of the [dispatch rule](/reference/workflow-config/#dispatch) that routed this session. Omitted when no rule routed it. |
+| `configured_model` | The `model` this attempt's resolved settings carry, the model Sortie asked the agent to run. Omitted when none is configured, which leaves the choice to the runtime's own default. |
+| `configured_effort` | The `effort` this attempt's resolved settings carry. Omitted when none is configured. |
 | `api_request_count` | Count of LLM API requests, one per `token_usage` event received during this session. Integer or `null`, and `null` exactly when `api_requests_measured` is `false`. |
 | `requests_by_model` | Breakdown of API requests per model. Omitted when `api_requests_measured` is `false`, when `usage_attribution` is anything other than `"per_model"`, or when the breakdown is empty. |
 | `tool_time_percent` | Percentage of elapsed wall-clock time spent in tool execution. `null` when not yet computed. |
@@ -307,6 +323,14 @@ The same row on a session that has measured nothing, showing only the fields tha
 ```
 
 `model_name` and `requests_by_model` are absent from that row rather than empty. A `null` figure is the absence of a measurement, not a measurement of zero: a consumer aggregating figures across rows must skip a `null` rather than add it as `0`.
+
+#### Configured and reported model
+
+A running row carries two answers to "which model is this?". `configured_model` and `configured_effort` are what the attempt was asked to run. Sortie resolves them when the attempt starts: the agent kind's top-level block with the matching dispatch rule's block laid over it. They stay fixed for the session, and the next attempt of the same issue resolves them again from the workflow in force at that moment, so a retry after an edit to `WORKFLOW.md` can show different values. `model_name` is what the runtime reported running, taken from its token usage events.
+
+Nothing compares the two, and a reported model never replaces a configured one. They differ legitimately: a routing alias in `configured_model` resolves to a dated model name in `model_name`, and a runtime can fall back to another model when the configured one is unavailable. A mismatch is therefore not a fault by itself. Read `model_name` as what ran and `configured_model` as what the workflow asked for. The cost and quality of the work belong to the model that ran.
+
+The dashboard shows the same values as **Configured model**, **Configured effort**, and **Reported model**. Completed runs keep all three; see [run history entries](#run-history-entries).
 
 **`budget_exhausted[]` entries:** Issues held out of dispatch by a per-issue budget ceiling ([`agent.max_sessions`](/reference/workflow-config/#agent) or [`agent.max_tokens`](/reference/workflow-config/#agent)).
 
@@ -382,6 +406,9 @@ curl http://localhost:7678/api/v1/MT-649
       "cache_write_tokens": 1200
     },
     "model_name": "<model-id-reported-by-the-agent>",
+    "rule_name": "bugfix",
+    "configured_model": "claude-sonnet-4-5",
+    "configured_effort": "medium",
     "api_request_count": 12,
     "requests_by_model": {
       "<model-id-reported-by-the-agent>": 12

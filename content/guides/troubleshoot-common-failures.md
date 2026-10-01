@@ -360,6 +360,8 @@ Sortie is polling but finds nothing to dispatch.
 
 6. **A per-issue budget ceiling was reached.** An issue held by `agent.max_sessions` or `agent.max_tokens` stays in its active tracker state and is skipped on every poll. Check `GET /api/v1/{identifier}` for `status: "budget_exhausted"`, the dashboard's [Budget blocked table](/reference/dashboard/#budget-blocked-table), or grep your logs for `blocking re-dispatch`. Sortie also posts one comment on the issue naming the ceiling that stopped it, and that comment counts the issue's sessions the token ceiling stopped in flight, if any. See [how to control agent costs](/guides/control-costs/).
 
+7. **A retry keeps being rescheduled with `retry agent settings refused`.** The retry queue shows that text as the issue's error. The settings the retry would run with, a [dispatch rule's](/guides/configure-dispatch-rules/) block laid over the agent kind's block, fail a check that is an error, usually after an edit to `WORKFLOW.md`. Run `sortie validate` to see the same check, then fix the settings and the next retry starts. The `check` and `diagnostic` fields of the log record name the failure; see [dispatch and agent settings](/guides/monitor-with-logs/#dispatch-and-agent-settings).
+
 ## Sortie won't start at all
 
 ```
