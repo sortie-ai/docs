@@ -351,7 +351,15 @@ The CI status provider drives the [`ci_failure` reaction](/reference/reactions/#
 
 Two of the conclusion mappings are Sortie's own policy rather than a pass-through of GitHub's check-run conclusion: a run reporting `action_required` maps to failing, because the agent cannot perform the manual UI action a check like this is waiting on, and a run reporting `stale` maps to pending, because the check run that superseded it carries the conclusion that actually matters. Every other recognized conclusion maps to its direct domain equivalent; an unrecognized value maps to pending.
 
-On a failing verdict, the provider fetches a log excerpt only for a failing run whose `app.slug` is `github-actions`: a failing run from a third-party GitHub App check has no log to fetch through this route. GitHub Actions creates one check run per workflow job, so the check run ID doubles as the job ID for the Actions job-logs route. The excerpt is the sanitized tail of that job's log, stripped of ANSI escapes and per-line timestamps and capped by the `max_log_lines` budget; a `max_log_lines` of zero omits it.
+On a failing verdict, the provider fetches a log excerpt only for a failing run whose `app.slug` is `github-actions`: a failing run from a third-party GitHub App check has no log to fetch through this route. GitHub Actions creates one check run per workflow job, so the check run ID doubles as the job ID for the Actions job-logs route. The excerpt is the output of the job's failing step, built from two reads: the job (`GET /repos/{owner}/{repo}/actions/jobs/{job_id}`) for its step list, then the job log. A `max_log_lines` of zero omits it. The [excerpt format](/reference/reactions/#reactionsci_failure) is shared by every provider.
+
+The failing step is the first step, by step number, that ran and concluded `failure` or `timed_out`. When none did, it is the first step that concluded `cancelled`, which is where a job that timed out or was cancelled spent its time. A skipped step is never chosen, and neither is a step that failed under `continue-on-error`, because GitHub reports it as successful.
+
+The job log carries no step names, so the step is cut out of it by the step's start and completion times. Its output begins at the step's header line (`##[group]Run ...`, `Post job cleanup.`, or the line a background-step control step prints) and ends at the last `##[error]` line the step wrote. The first step that ran prints no header and begins at its start time. Output that later steps wrote in the same second, such as an `if: failure()` upload or the post-job cleanup, stays out. Each line keeps its text and loses its leading timestamp.
+
+A step whose time span overlaps another step's, as with background and `parallel:` steps, begins at its start time, has no header lines, and keeps the lines the other steps wrote in the meantime; the opening note says so.
+
+The excerpt is the end of the job log, with the matching note, when the job's step list cannot be read, no step failed or was cancelled, the step's output holds no `##[error]` line, or the read of the log stops before the step is complete. A failed read of the log itself yields no excerpt, and a warning is logged.
 
 ### SCM write operations
 

@@ -254,7 +254,7 @@ reactions:
       - reviewdog
   ci_failure:
     provider: gitlab
-    max_log_lines: 50       # tail of the first failing job's trace
+    max_log_lines: 50       # log lines from the failing stage of the first failing job
   merge_conflicts:
     provider: gitlab
   auto_merge:

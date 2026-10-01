@@ -1419,7 +1419,7 @@ Available only on the first turn of a CI-fix continuation dispatch. `nil` on nor
 | ------------------------ | --------------- | ------------------------------------------------------------------------------------------------- |
 | `.ci_failure.status`     | string          | Always `"failing"` when present.                                                                  |
 | `.ci_failure.check_runs` | list of objects | Individual check runs. Each has `.name` (string), `.status` (string), `.conclusion` (string), `.details_url` (string). |
-| `.ci_failure.log_excerpt` | string         | Truncated log from the first failing check. Empty when log fetching is disabled or logs are unavailable. |
+| `.ci_failure.log_excerpt` | string         | Output of the failing step of the first failing check, or the end of its job log when that step cannot be found. A log-derived excerpt opens with a `[sortie]` line; see the [excerpt format](/reference/reactions/#reactionsci_failure). Empty when log fetching is disabled or logs are unavailable. |
 | `.ci_failure.failing_count` | integer      | Number of checks with a failure conclusion.                                                       |
 | `.ci_failure.ref`        | string          | The git ref (branch or SHA) that was checked.                                                     |
 

@@ -63,9 +63,11 @@ reactions:
     max_log_lines: 50  # default 50; 0 = disable
 ```
 
-`max_log_lines` controls how many lines from the first failing check run's log Sortie fetches and includes in the failure context. Default: 50. Set to 0 to disable log fetching.
+`max_log_lines` sets how many log lines of the first failing check run go into the failure context. Default: 50. Set to 0 to disable log fetching.
 
-When log fetching is disabled, the agent still receives structured failure data (which checks failed, their names, statuses, and details URLs). It won't receive the raw log output. Disabling is useful when CI logs contain sensitive data you don't want entering agent prompts, or when you're operating at scale and want to reduce API calls. Each failing check costs one additional API request for log fetching.
+The lines come from the step that failed, not from the end of the whole job. A step longer than the limit shows the command it ran and its last lines, with `[sortie]` lines marking what was left out. Raise the limit when the failures in your pipeline need more output than the last lines of a step to diagnose. Lower it to keep prompts small. The `[sortie]` lines do not count toward the limit.
+
+When log fetching is disabled, the agent still receives structured failure data (which checks failed, their names, statuses, and details URLs). It won't receive the raw log output. Disabling is useful when CI logs contain sensitive data you don't want entering agent prompts, or when you're operating at scale and want to reduce API calls. On GitHub, each failing check costs two additional API requests: one for the job's step list and one for its log.
 
 ## Choose an escalation strategy
 
@@ -145,7 +147,7 @@ The `ci_failure` object contains:
 |---|---|---|
 | `status` | string | Always `"failing"` in this context. |
 | `check_runs` | list | Individual check runs with `name`, `status`, `conclusion`, `details_url`. |
-| `log_excerpt` | string | Truncated log from the first failing check. Empty when log fetching is disabled. |
+| `log_excerpt` | string | Output of the failing step of the first failing check, or the end of its job log when that step cannot be found. Empty when log fetching is disabled. |
 | `failing_count` | integer | Number of failing checks. |
 | `ref` | string | The git ref (branch or SHA) that was checked. |
 
@@ -173,6 +175,24 @@ Diagnose the failure, fix the code, and push.
 Do not modify CI configuration.
 {{ end }}
 ````
+
+On GitHub, the excerpt for a failing test step looks like this, with the step's last lines shortened here:
+
+```
+[sortie] Output of the failing step "Run tests"; output from the rest of the job is left out.
+##[group]Run go test -count=1 ./...
+go test -count=1 ./...
+shell: /usr/bin/bash -e {0}
+##[endgroup]
+[sortie] 212 lines omitted.
+--- FAIL: TestReconcile (0.02s)
+    reconcile_test.go:88: got 2 running entries, want 1
+FAIL
+FAIL	example.com/app/internal/orchestrator	1.204s
+##[error]Process completed with exit code 1.
+```
+
+The first line tells the agent whether it reads the failing step or only the end of the job log. The [excerpt format reference](/reference/reactions/#reactionsci_failure) lists every form of that line. Your template can print the excerpt as it is.
 
 The failure context is injected on the first turn of the CI-fix dispatch only. It persists in the agent's conversation history from turn 1, so subsequent turns within the same session don't need it repeated.
 
@@ -300,7 +320,7 @@ reactions:
     max_log_lines: 0
 ```
 
-The agent still receives check run names, conclusions, and details URLs. Log fetching requires one additional API call per failing check; disabling it saves those requests. Useful when operating under rate limits or when your CI logs are too verbose to be helpful in a prompt.
+The agent still receives check run names, conclusions, and details URLs. On GitHub, log fetching costs two additional API requests per failing check; disabling it saves those requests. Useful when operating under rate limits or when your CI logs are too verbose to be helpful in a prompt.
 
 ## Verify CI feedback
 
