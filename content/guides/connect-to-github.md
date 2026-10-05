@@ -18,7 +18,7 @@ This guide configures Sortie to poll issues from a GitHub repository, dispatch a
 
 ## Create a personal access token
 
-Sortie needs a token that can read and write issues and labels on the repository you configure. A classic token scoped to the repository works, and so does a fine-grained token granted issue read and write plus repository metadata read. GitHub documents how to create either and what each scope covers; see [managing personal access tokens](https://docs.github.com/en/authentication/keeping-your-account-secure/managing-your-personal-access-tokens).
+Sortie needs a token that can read and write issues and labels on the repository you configure. A classic token scoped to the repository works, and so does a fine-grained token granted issue read and write plus repository metadata read. GitHub documents how to create either and what each scope covers; see [managing personal access tokens](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens).
 
 Nothing else is required for the tracker. Auto-merge and branch cleanup need a token that can also write to the repository.
 
