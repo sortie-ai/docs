@@ -223,7 +223,7 @@ order: look up an unfinished issue from this schedule, stop if one exists, and
 otherwise create the next one. Building rules, choosing a trigger, and wiring
 actions together in Jira's automation UI is Atlassian's own interface to
 document; see its [automation
-overview](https://support.atlassian.com/cloud-automation/docs/) for how to
+overview](https://support.atlassian.com/cloud-automation/docs/get-started-with-jira-automation/) for how to
 create a rule and add actions. What follows is the shape this rule needs to
 have so it produces an issue Sortie will actually pick up.
 
