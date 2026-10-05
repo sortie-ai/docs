@@ -53,8 +53,11 @@ jobs:
           echo "$PWD" >> "$GITHUB_PATH"
 
       - name: Build site
-        run: hugo --environment production --minify --destination "$RUNNER_TEMP/site"
+        run: npm run build
 
+      # package.json cannot carry comments, so the reasons for the lint:links
+      # flags live here.
+      #
       # Markdown mirrors and llms*.txt are left out: their /<page>.md links are
       # answered by Cloudflare, not by a file in the build. The Grafana download
       # is a Cloudflare redirect to the sortie repository. The ChatGPT and
@@ -64,14 +67,6 @@ jobs:
       # Retries are off: a retried 429 from github.com rate-limits every
       # request queued behind it.
       - name: Check links and anchors
-        working-directory: ${{ runner.temp }}/site
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          lychee --no-progress --include-fragments --max-retries 0 \
-            --root-dir "$PWD" --index-files index.html \
-            --remap "https://docs\.sortie-ai\.com/(.*) file://$PWD/\$1" \
-            --exclude '^file://.*/downloads/grafana-dashboard\.json$' \
-            --exclude '^https://chatgpt\.com/' \
-            --exclude '^https://github\.com/sortie-ai/docs/edit/' \
-            '**/*.html'
+        run: npm run lint:links

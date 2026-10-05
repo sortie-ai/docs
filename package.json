@@ -10,7 +10,8 @@
     "unshallow": "git fetch --unshallow || true",
     "prebuild": "npm run unshallow",
     "build": "hugo --environment production --gc --logLevel info --minify --cleanDestinationDir --printPathWarnings --printMemoryUsage",
-    "server": "hugo server --environment development --logLevel info --buildDrafts --buildFuture --ignoreCache --disableFastRender"
+    "server": "hugo server --environment development --logLevel info --buildDrafts --buildFuture --ignoreCache --disableFastRender",
+    "lint:links": "cd public && lychee --no-progress --include-fragments --max-retries 0 --root-dir \"$PWD\" --index-files index.html --remap \"https://docs\\.sortie-ai\\.com/(.*) file://$PWD/\\$1\" --exclude '^file://.*/downloads/grafana-dashboard\\.json$' --exclude '^https://chatgpt\\.com/' --exclude '^https://github\\.com/sortie-ai/docs/edit/' '**/*.html'"
   },
   "devDependencies": {
     "wrangler": "^4.77.0"
