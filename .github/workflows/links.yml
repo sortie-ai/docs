@@ -1,0 +1,77 @@
+# yaml-language-server: $schema=https://www.schemastore.org/github-workflow.json
+name: Links
+
+# Content links are site paths such as /reference/cli/ that resolve only after
+# Hugo applies each page's url, so the check runs on the built site.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  HUGO_VERSION: 0.164.0
+  HUGO_SHA256: fea17b8c076f950bb2e9f9486667bdaa29422883888d509d63931c73e8a9b3a4
+  LYCHEE_VERSION: 0.24.2
+  LYCHEE_SHA256: 1f4e0ef7f6554a6ed33dd7ac144fb2e1bbed98598e7af973042fc5cd43951c9a
+
+jobs:
+  links:
+    name: Links
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Hugo Modules fetch the theme through the Go toolchain.
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Install Hugo and lychee
+        working-directory: ${{ runner.temp }}
+        run: |
+          hugo=hugo_extended_${HUGO_VERSION}_linux-amd64.tar.gz
+          lychee=lychee-x86_64-unknown-linux-gnu.tar.gz
+          curl -fsSLO "https://github.com/gohugoio/hugo/releases/download/v${HUGO_VERSION}/${hugo}"
+          curl -fsSLO "https://github.com/lycheeverse/lychee/releases/download/lychee-v${LYCHEE_VERSION}/${lychee}"
+          printf '%s  %s\n' "$HUGO_SHA256" "$hugo" "$LYCHEE_SHA256" "$lychee" | sha256sum -c -
+          tar -xzf "$hugo" hugo
+          tar -xzf "$lychee" --strip-components=1 lychee-x86_64-unknown-linux-gnu/lychee
+          echo "$PWD" >> "$GITHUB_PATH"
+
+      - name: Build site
+        run: hugo --environment production --minify --destination "$RUNNER_TEMP/site"
+
+      # Markdown mirrors and llms*.txt are left out: their /<page>.md links are
+      # answered by Cloudflare, not by a file in the build. The Grafana download
+      # is a Cloudflare redirect to the sortie repository. The ChatGPT and
+      # "Edit this page" links come from hugo.toml on every page; neither
+      # answers a bot.
+      #
+      # Retries are off: a retried 429 from github.com rate-limits every
+      # request queued behind it.
+      - name: Check links and anchors
+        working-directory: ${{ runner.temp }}/site
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          lychee --no-progress --include-fragments --max-retries 0 \
+            --root-dir "$PWD" --index-files index.html \
+            --remap "https://docs\.sortie-ai\.com/(.*) file://$PWD/\$1" \
+            --exclude '^file://.*/downloads/grafana-dashboard\.json$' \
+            --exclude '^https://chatgpt\.com/' \
+            --exclude '^https://github\.com/sortie-ai/docs/edit/' \
+            '**/*.html'
