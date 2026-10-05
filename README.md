@@ -80,6 +80,22 @@ The generated static site in `public/` is deployed to Cloudflare Workers via Wra
 npx wrangler deploy
 ```
 
+### Check Links
+
+Every pull request runs the Links workflow, which builds the site and checks its links and anchors. To run the same check locally, build the site and run [lychee](https://github.com/lycheeverse/lychee) over it:
+
+```bash
+hugo --environment production --minify
+cd public
+lychee --include-fragments --max-retries 0 \
+  --root-dir "$PWD" --index-files index.html \
+  --remap "https://docs\.sortie-ai\.com/(.*) file://$PWD/\$1" \
+  --exclude '^file://.*/downloads/grafana-dashboard\.json$' \
+  --exclude '^https://chatgpt\.com/' \
+  --exclude '^https://github\.com/sortie-ai/docs/edit/' \
+  '**/*.html'
+```
+
 ## Contributing
 
 We welcome contributions from the community - whether it's fixing a typo, improving a guide, or adding new content.
