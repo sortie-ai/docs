@@ -293,7 +293,7 @@ Safe to call when no subprocess is active.
 
 ## Process shutdown
 
-Before start, the subprocess is isolated in its own process group. A graceful process-group signal is armed for cancellation, bounded by `stop_grace_ms`. On Unix, graceful shutdown is `SIGTERM` and force kill is `SIGKILL` to the process group. On Windows, graceful shutdown is `CTRL_BREAK_EVENT` to the process group, and the subprocess is assigned to a Job Object with `KILL_ON_JOB_CLOSE` so force termination kills the full descendant tree. The subprocess starts suspended and is resumed only after that assignment succeeds, so nothing it spawns can run before the job takes effect; this covers the `opencode export` and `opencode models` auxiliary launches described below, not only turns. A failed assignment logs WARN `process group assignment failed` and the launch runs without a job; a failed resume logs WARN `process resume failed` and reports `response_error`.
+Before start, the subprocess is isolated in its own process group. A graceful process-group signal is armed for cancellation, bounded by `stop_grace_ms`. On Unix, graceful shutdown is `SIGTERM` and force kill is `SIGKILL` to the process group. On Windows, graceful shutdown is `CTRL_BREAK_EVENT` to the process group, and the subprocess is assigned to a Job Object with `KILL_ON_JOB_CLOSE` so force termination kills the full descendant tree. The subprocess starts suspended and is resumed only after that assignment succeeds, so nothing it spawns can run before the job takes effect; this covers the `opencode export` and `opencode models` auxiliary launches described below, not only turns. A failed assignment logs WARN `process group assignment failed` and the launch runs without a job; a failed resume logs WARN `process resume failed` and reports `response_error`, unless the turn's cancellation had already begun, in which case the turn ends as `turn_cancelled`.
 
 Shutdown is turn-scoped, not session-scoped. Session stop performs an explicit graceful-to-force sequence. Turn cancellation is stricter: when the turn is cancelled, the graceful signal fires immediately, and the adapter's cancellation path also force-kills the process group during teardown if the process is still alive. After the subprocess exits, the adapter performs a best-effort group kill to clean up surviving children.
 
@@ -372,11 +372,11 @@ An error kind is absent only on a `turn_completed` outcome; every other outcome 
 | No JSON envelope arrived within `read_timeout_ms` of launch | `turn_failed` | `response_timeout` | Message is `timed out waiting for first opencode json event`. The subprocess is killed and its stderr re-emitted at WARN level. |
 | A JSON envelope carried a `sessionID` other than the one already adopted | `turn_failed` | `response_error` | Message is `session id mismatch: expected "...", got "..."`. The turn is aborted rather than reconciled. |
 | Stdout `error` envelope observed, whatever the process exit status | `turn_failed` | `turn_failed` | Structured logical failure, authoritative over the exit code. Message is the envelope's own detail; see [masked failures](#masked-failures). On OpenCode's hosted free tier, a refusal naming a denied `bash` or `read` tool gains a trailing clause naming the setting that denied it; see [free-tier refusals](#free-tier-refusals). |
-| Turn cancelled, or the session stopped | `turn_cancelled` | `turn_cancelled` | Message is `turn cancelled`. Cancellation outranks the process-exit classification. |
+| Turn cancelled, or the session stopped, while the subprocess was still running | `turn_cancelled` | `turn_cancelled` | Message is `turn cancelled`. Cancellation outranks the process-exit classification. A subprocess that had already exited on its own is classified by its own exit status instead, however long the wait for its output ran. |
 | No `error` envelope, and the process exited before writing a line the adapter decodes as a JSON envelope, whatever its exit status | `turn_failed` | `port_exit` | The [early exit report](/reference/errors/#early-exit-report): `the agent runtime exited before responding: exit status N`, followed by the end of the process's stderr. A stdout line the adapter cannot decode as an envelope does not count as a response, even if the process later exits `0`. |
 | No `error` envelope, exit `0`, at least one `text`, `reasoning`, or `tool_use` part parsed | `turn_completed` | _(none)_ | Normal completion. |
 | No `error` envelope, exit `0`, output written but no such part parsed | `turn_failed` | `turn_failed` | The model produced nothing this turn. Message is `agent exited without producing output: no message from the agent and no tool call`. |
-| No `error` envelope, non-zero exit after writing output | `turn_failed` | `port_exit` | Process-level failure. Message is `exit code N`. |
+| No `error` envelope, non-zero exit after writing output | `turn_failed` | `port_exit` | Process-level failure. Message is `exit code N`; when a signal Sortie did not send ended the process, the error text also names the signal, for example `signal: killed`. |
 
 The adapter never trusts exit code `0` as sufficient proof of success. A terminal stdout `error` envelope is authoritative.
 
@@ -401,7 +401,7 @@ If reading stdout encounters an error while the turn is still active, the adapte
 3. Re-emits collected stderr lines at WARN level.
 4. Emits `turn_failed` with message `stdout read error` and reports an error of kind `response_error`.
 
-If reading fails while the turn is already being cancelled or stopped, the turn ends as `turn_cancelled` instead: stderr is not re-emitted, but the process is still killed and usage is still recovered the same way.
+If a cancellation or stop had already begun when the adapter killed the process, the turn ends as `turn_cancelled` instead: stderr is not re-emitted, but the process is still killed and usage is still recovered the same way.
 
 ### Stall detection
 
