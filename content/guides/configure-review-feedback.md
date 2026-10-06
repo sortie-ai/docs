@@ -61,7 +61,7 @@ reactions:
 | `escalation` | `"label"` | Action when the retry budget is exhausted: `"label"`, `"none"`, or the deprecated `"comment"`. |
 | `escalation_label` | `"needs-human"` | Label applied when `escalation` is `"label"`. Created on demand if the tracker does not already have it. |
 
-The retry budget for this kind is `max_continuation_turns`, configured below, not `max_retries`: `review_comments` accepts `max_retries` for schema consistency with the other reaction kinds but does not consume it, so setting it here has no effect. `max_continuation_turns` counts continuation turns triggered specifically by review comments, independent of the agent's `max_sessions` budget and CI feedback's retry counter. If the agent addresses all comments within this budget, the loop ends. If not, Sortie escalates and releases its claim.
+The retry budget for this kind is `max_continuation_turns`, configured below, not `max_retries`: `review_comments` accepts `max_retries` for schema consistency with the other reaction kinds but does not consume it, so setting it here has no effect. `max_continuation_turns` counts continuation turns triggered specifically by review comments, independent of the agent's `max_sessions` budget and CI feedback's retry counter. If the agent addresses all comments within this budget, the loop ends. If a new comment arrives after the budget is spent, Sortie escalates and releases its claim. Comments the last turn already carried do not escalate on their own.
 
 With `label`, Sortie adds the configured label to the issue. With `none`, it adds no label. Every escalation emits the `escalation.review_comments` event, and a `tracker_comment` entry that lists it posts a comment noting how many turns were attempted and that remaining comments need human attention; see [how to route notifications](/guides/route-notifications/). The deprecated `comment` value posts that comment without an entry. Every strategy cancels any pending retry and releases the claim.
 
@@ -92,7 +92,7 @@ Debounce prevents premature dispatch while a reviewer is still commenting. A rev
 
 `poll_interval_ms` throttles how often Sortie hits the GitHub Reviews API per tracked PR. The 2-minute default balances responsiveness and API rate budget. If you're tracking many PRs, consider raising it. The minimum is 30 seconds.
 
-`max_continuation_turns` prevents infinite reviewer-agent ping-pong. When the cap is hit, Sortie escalates and a human takes over.
+`max_continuation_turns` prevents infinite reviewer-agent ping-pong. Once the cap is spent, the next new comment makes Sortie escalate and a human takes over. If the last turn resolved the comments, nothing escalates. See [retry budgets](/reference/reactions/#retry-budgets) for the exact rule.
 
 ## How the review loop works
 
@@ -105,7 +105,7 @@ Debounce prevents premature dispatch while a reviewer is still commenting. A rev
 7. Sortie dispatches a continuation turn with the review comments as structured prompt context.
 8. The agent addresses the comments, commits, and pushes fixes.
 9. If the reviewer approves, polling stops on the next state change. If the reviewer requests more changes, the cycle repeats from step 3, up to `max_continuation_turns`.
-10. If the turn cap is reached, Sortie escalates and releases the claim.
+10. If the turn cap is spent and a new comment arrives, Sortie escalates and releases the claim.
 
 ## What the agent sees
 
@@ -311,8 +311,11 @@ grep "review comments within debounce window" sortie.log
 # Fingerprint already dispatched: deduplication working
 grep "review comments already dispatched for this fingerprint" sortie.log
 
-# Turn cap exhausted, escalation triggered
+# Turn cap spent and a new comment arrived, escalation triggered
 grep "review fix continuation turns exhausted" sortie.log
+
+# Turn cap spent, no new comment, nothing escalated (debug level)
+grep "review continuation turns exhausted, no new comment" sortie.log
 ```
 
 ### Dashboard and status API
