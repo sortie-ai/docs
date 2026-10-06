@@ -18,8 +18,6 @@ concurrency:
 env:
   HUGO_VERSION: 0.164.0
   HUGO_SHA256: fea17b8c076f950bb2e9f9486667bdaa29422883888d509d63931c73e8a9b3a4
-  LYCHEE_VERSION: 0.24.2
-  LYCHEE_SHA256: 1f4e0ef7f6554a6ed33dd7ac144fb2e1bbed98598e7af973042fc5cd43951c9a
 
 jobs:
   links:
@@ -40,17 +38,17 @@ jobs:
           go-version-file: go.mod
           cache: false
 
-      - name: Install Hugo and lychee
+      - name: Install Hugo
         working-directory: ${{ runner.temp }}
         run: |
           hugo=hugo_extended_${HUGO_VERSION}_linux-amd64.tar.gz
-          lychee=lychee-x86_64-unknown-linux-gnu.tar.gz
           curl -fsSLO "https://github.com/gohugoio/hugo/releases/download/v${HUGO_VERSION}/${hugo}"
-          curl -fsSLO "https://github.com/lycheeverse/lychee/releases/download/lychee-v${LYCHEE_VERSION}/${lychee}"
-          printf '%s  %s\n' "$HUGO_SHA256" "$hugo" "$LYCHEE_SHA256" "$lychee" | sha256sum -c -
+          printf '%s  %s\n' "$HUGO_SHA256" "$hugo" | sha256sum -c -
           tar -xzf "$hugo" hugo
-          tar -xzf "$lychee" --strip-components=1 lychee-x86_64-unknown-linux-gnu/lychee
           echo "$PWD" >> "$GITHUB_PATH"
+
+      - name: Install lychee
+        uses: sortie-ai/shared-workflows/.github/actions/setup-lychee@12099056fde09c3b1ef701128316e9fb883eba90 # v1.1.0
 
       - name: Build site
         run: npm run build
