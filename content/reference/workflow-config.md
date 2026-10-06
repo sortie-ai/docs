@@ -886,7 +886,7 @@ reactions:
     watch_window_ms: 1800000            # optional; shown at its default (30 min)
 ```
 
-When a review-fix continuation dispatches, the prompt receives a `review_comments` template variable: a list of maps with keys `id`, `file`, `start_line`, `end_line`, `reviewer`, `body`. Templates should guard with `{{ if .review_comments }}`. See the [`.review_comments`](#review_comments) template variable reference below for the full schema, and [how to write a prompt template](/guides/write-prompt-template/) for syntax.
+When a review-fix continuation dispatches, the prompt receives a `review_comments` template variable: a list of maps with keys `id`, `file`, `start_line`, `end_line`, `reviewer`, `body`. Templates should guard with `{{ if .review_comments }}`. The variable is also set on the first turn of a new run of an issue that already has a pull request, when the pull request holds comments no earlier run was given; see [comments already given](/reference/reactions/#comments-already-given). See the [`.review_comments`](#review_comments) template variable reference below for the full schema, and [how to write a prompt template](/guides/write-prompt-template/) for syntax.
 
 For operational guidance on setting up review feedback, see [how to configure PR review feedback](/guides/configure-review-feedback/).
 
@@ -1507,7 +1507,7 @@ worker:
 
 The markdown body after the closing `---` is a Go `text/template` rendered per issue. The template engine runs in strict mode (`missingkey=error`): referencing an undefined variable or function fails rendering immediately.
 
-The template receives three core top-level variables on every render, `.issue`, `.attempt`, and `.run`, plus six reaction continuation variables that are `nil` except on the first turn of the matching reaction-triggered dispatch: `.ci_failure`, `.review_comments`, `.bot_review_comments`, `.merge_conflict`, `.label_review`, and `.label_fix`. Every continuation variable defaults to `nil` so a template referencing it renders under `missingkey=error` even when the corresponding reaction is never configured.
+The template receives three core top-level variables on every render, `.issue`, `.attempt`, and `.run`, plus six reaction continuation variables that are `nil` except on the first turn of the matching reaction-triggered dispatch (`.review_comments` and `.bot_review_comments` are also set on the first turn of a new run, as described under each): `.ci_failure`, `.review_comments`, `.bot_review_comments`, `.merge_conflict`, `.label_review`, and `.label_fix`. Every continuation variable defaults to `nil` so a template referencing it renders under `missingkey=error` even when the corresponding reaction is never configured.
 
 ### `.issue`
 
@@ -1560,7 +1560,7 @@ Available only on the first turn of a CI-fix continuation dispatch. `nil` on nor
 
 ### `.review_comments`
 
-Available only on the first turn of a review-fix continuation dispatch. `nil` on normal dispatches and non-review retries.
+Set on the first turn of a review-fix continuation dispatch, and on the first turn of a new run of an issue whose pull request holds review comments no earlier run was given, under the conditions in [comments already given](/reference/reactions/#comments-already-given). `nil` on every other turn.
 
 A list of maps, one per actionable review comment. Outdated comments (referring to code modified by a subsequent push) are excluded.
 
@@ -1588,7 +1588,7 @@ A list of maps, one per actionable review comment. Outdated comments (referring 
 
 ### `.bot_review_comments`
 
-Available only on the first turn of a bot-review-fix continuation dispatch, triggered by [`reactions.bot_review`](/reference/reactions/#reactionsbot_review). `nil` on normal dispatches and non-bot-review retries.
+Set on the first turn of a bot-review-fix continuation dispatch, triggered by [`reactions.bot_review`](/reference/reactions/#reactionsbot_review), and on the first turn of a new run of an issue whose pull request holds bot comments no earlier run was given, under the same conditions as `.review_comments`. `nil` on every other turn.
 
 Same per-element shape as [`.review_comments`](#review_comments): a list of maps with `.id`, `.file`, `.start_line`, `.end_line`, `.reviewer` (the bot's login), and `.body`.
 

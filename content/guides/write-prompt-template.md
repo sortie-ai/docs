@@ -59,7 +59,7 @@ For the complete field list with every type and nil/empty distinction, see the [
 
 Two other top-level variables are available on every render alongside `.issue`: `.attempt` (`0` on the first try, `>= 1` on retry) and `.run` (`.run.turn_number`, `.run.max_turns`, `.run.is_continuation`). See the [`.attempt` and `.run` reference](/reference/workflow-config/#attempt) for the full field list.
 
-Reaction dispatches add one more top-level variable each, carrying the context that triggered them. They are `nil` on an ordinary dispatch, so `{{ if .ci_failure }}` is safe to write in a template that also serves primary runs. See [configure CI feedback](/guides/configure-ci-feedback/) and [configure review feedback](/guides/configure-review-feedback/) for their fields.
+Reaction dispatches add one more top-level variable each, carrying the context that triggered them. They are `nil` on an ordinary dispatch, so `{{ if .ci_failure }}` is safe to write in a template that also serves primary runs. See [configure CI feedback](/guides/configure-ci-feedback/) and [configure review feedback](/guides/configure-review-feedback/) for their fields. `.review_comments` and `.bot_review_comments` are also set on the first turn of a new run of an issue whose pull request holds comments no earlier run was given, so write each as an added block that leaves the rest of the prompt unchanged; see [give a new run its pending review comments](/guides/configure-review-feedback/#give-a-new-run-its-pending-review-comments).
 
 {{< callout type="info" >}}
 **What counts as falsy in `{{ if }}`**
