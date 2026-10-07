@@ -501,7 +501,7 @@ Coding agent adapter, concurrency, timeouts, and retry behavior. These fields co
 
 | Field                            | Type    | Default         | Description                                                                           |
 | -------------------------------- | ------- | --------------- | ------------------------------------------------------------------------------------- |
-| `kind`                           | string  | `claude-code`   | Agent adapter identifier. Built-in adapters: `claude-code`, `copilot-cli`, `codex`, `opencode`, `agent-client-protocol` (a generic kind driving any runtime that speaks the [Agent Client Protocol](/reference/adapter-agent-client-protocol/), named by `command`), and `mock`, which simulates a session for local testing and launches no process. A name that a release has removed is converted at load instead of refused; see [Removed agent kinds](#removed-agent-kinds). |
+| `kind`                           | string  | `claude-code`   | Agent adapter identifier. Built-in adapters: `claude-code`, `copilot-cli`, `codex`, `opencode`, `agent-client-protocol` (a generic kind driving any runtime that speaks the [Agent Client Protocol](/reference/adapter-agent-client-protocol/), named by `command`), and `mock`, which simulates a session for local testing and launches no process. |
 | `command`                        | string or list of strings | the kind's default command | Command that launches the agent, read for the default kind only: `dispatch.default.agent` when set, otherwise `agent.kind`. It applies to kinds that run a local subprocess (`claude-code`, `copilot-cli`, `codex`, `opencode`, `agent-client-protocol`). Every one of them except `agent-client-protocol` has a default command (`claude`, `copilot`, `codex app-server`, `opencode`), so `command` can be left out; `agent-client-protocol` has none and requires it, and it also carries the flag or subcommand that puts the named binary into protocol mode. A kind that a [`dispatch` rule](#dispatch) selects, and that is not the default kind, never reads this field and launches its own default command. Adapters that do not start a local process ignore this field. Written as a string, the value is split on whitespace into an argument vector on a local launch and run without a shell, so shell syntax is not interpreted and `~` and `$VAR` are not expanded. When [`worker.ssh_hosts`](#worker) sends the agent to a remote host, the string reaches the remote shell unsplit, so shell syntax in it is interpreted there. Sortie waits for the agent it starts and talks to it, so a string ending in `&` detaches the agent and the session cannot work. Written as a list, element zero is the program and each later element is one argument, passed exactly as written: a local launch neither splits nor expands it, and over SSH each element reaches the remote shell as one word. Use the list form when the program path or an argument contains a space. A list must not be empty, and every element must be a non-empty string. [`SORTIE_AGENT_COMMAND`](/reference/environment/#agent-variables) sets the string form and replaces a list written in the file. |
 | `max_turns`                      | integer | `20`            | Maximum turns per worker session. The worker re-checks tracker state after each turn. |
 | `max_sessions`                   | integer | `0` (unlimited) | Maximum completed sessions per issue before the orchestrator stops retrying. Must be non-negative. The separate `max_consecutive_absences` governs the consecutive-absence ceiling below. It is no longer derived from this field. Reaching this ceiling also posts one comment on the issue naming the session budget and `agent.max_sessions` as the setting that raises it. |
@@ -517,22 +517,6 @@ Coding agent adapter, concurrency, timeouts, and retry behavior. These fields co
 | `max_retry_backoff_ms`           | integer | `300000` (5m)   | Maximum delay cap for exponential backoff on retries.                                 |
 
 `max_concurrent_agents`, `max_concurrent_agents_by_state`, `max_retry_backoff_ms`, `max_sessions`, `max_tokens`, `token_warning_percent`, and `max_consecutive_absences` reload dynamically without restart; a reloaded `max_tokens` reaches the sessions already running from the next poll tick onward, and applies at the next retry evaluation. A reloaded `token_warning_percent` reaches the event loop the same way: a run already in flight that has not yet warned is evaluated against the new threshold from its next usage figure, and a run dispatched after the reload starts under it. All other fields apply to future dispatches only, except where the per-field Dynamic reload table at the end of this document states a finer-grained answer.
-
-### Removed agent kinds
-
-A release can remove an agent kind and name the kind that replaces it. A workflow that still names a removed kind does not fail as an unknown adapter. Sortie converts it when the configuration loads, in `agent.kind`, `dispatch.default.agent`, and every `dispatch.rules[i].agent`, and reports one warning per removed kind: the [`agent.kind.retired` check](/reference/cli/#advisory-warnings) in `sortie validate`, and a log record, written once per process, at run time. The `sortie validate` message carries the command the converted sessions launch and the settings the conversion did not carry; the log record carries only the removed kind and the kind that replaced it.
-
-The conversion happens in memory. Sortie never rewrites `WORKFLOW.md`, and the warning stays until the file names the replacement kind itself. It is temporary: a later release removes it.
-
-The removed kind's own top-level block is dropped, and the replacement kind's block is created empty when the file has none, so a [`dispatch.agent.missing_block`](#adapter-pass-through-configuration) check finds it. A block key the conversion cannot carry is listed in the warning and otherwise ignored. A value the conversion cannot honor stops the load with a configuration error; see [conversion errors](/reference/errors/#startup-and-configuration-errors).
-
-Each removed kind and its replacement:
-
-| Removed kind | Converted to | What the conversion reads from a `kiro:` block |
-|---|---|---|
-| `kiro` | `agent-client-protocol`, launching `kiro-cli acp -a` | `model` and `agent`, as `--model` and `--agent` arguments. `trust_all_tools` and `trust_tools` are consumed without a launch argument: full trust converts, and any narrower setting stops the load. Every other key, `mcp_config` included, is not carried. |
-
-For the steps that move a `kiro` workflow onto `agent-client-protocol` for good, and the field-by-field mapping, see [how to run Kiro CLI in ACP mode](/guides/run-kiro-cli-in-acp-mode/).
 
 ### Credential verification
 
@@ -602,7 +586,7 @@ Each entry in `rules` accepts:
 | ---------- | ------ | ------------ | ------------------------------------------------------------------------------------------------------------ |
 | `name`     | string | _(absent)_   | Rule identifier recorded in logs, in run history, and in the dispatch rule-match metric. Must match `^[a-z][a-z0-9_-]*$` when set, and must be unique. Required when the rule carries a settings block, and then must not be `default`. Unnamed rules report as `<none>`. |
 | `match`    | map    | _(absent)_   | Predicate block. An absent or empty `match` matches every issue (catch-all).                                 |
-| `agent`    | string | _(fallback)_ | Agent kind for matching issues. Must name a registered adapter; a removed kind is converted instead, see [Removed agent kinds](#removed-agent-kinds). Falls through to `default.agent`, then `agent.kind`. |
+| `agent`    | string | _(fallback)_ | Agent kind for matching issues. Must name a registered adapter. Falls through to `default.agent`, then `agent.kind`. |
 | `template` | string | _(fallback)_ | Prompt template path, relative to the WORKFLOW.md directory. Falls through to `default.template`, then the body template. |
 | `<kind>`   | map    | _(absent)_   | Settings block for the agent kind the rule runs, written under that kind's name, for example `claude-code:`. Holds the keys the kind's top-level block accepts. See [Rule settings blocks](#rule-settings-blocks). |
 
@@ -704,7 +688,7 @@ The block an attempt runs with is the top-level block of the rule's kind with th
 - A kind with no top-level block inherits nothing; the rule's block is the whole block.
 - The rule's block is laid only over the top-level block of its own kind.
 
-An adapter applies its defaults after the overlay, so no key is defaulted or coerced before it. `$VAR` and `${VAR}` references in a rule's block resolve as they do in a top-level block, and Sortie redacts their values under the same rules; an unset variable draws the `unresolved_extension_var` warning, with the field named `dispatch.rules[<i>].<kind>.<key>`. A [removed agent kind](#removed-agent-kinds) named by a rule converts together with that rule's block, and the load fails when the rule's block would change the command the replacement kind launches, because a rule cannot set a command.
+An adapter applies its defaults after the overlay, so no key is defaulted or coerced before it. `$VAR` and `${VAR}` references in a rule's block resolve as they do in a top-level block, and Sortie redacts their values under the same rules; an unset variable draws the `unresolved_extension_var` warning, with the field named `dispatch.rules[<i>].<kind>.<key>`.
 
 A rule's block cannot write `kind`, `command`, `turn_timeout_ms`, `read_timeout_ms`, `stall_timeout_ms`, or `stop_grace_ms`. Sortie derives them from the [`agent`](#agent) section, which stays workflow-wide, so writing one in a rule would read as an override that does not happen. For the same reason a rule cannot override `agent.max_tokens`, `agent.max_sessions`, `agent.max_consecutive_absences`, the concurrency and backoff limits, or `agent.max_turns`: every rule an issue passes through shares them.
 
@@ -717,7 +701,7 @@ Errors fail the load, so `sortie validate` exits non-zero and Sortie does not st
 - `dispatch` is not a mapping, `dispatch.rules` is not a sequence, or `dispatch.default` is not a mapping; a rule is not a mapping or carries none of `match`, `agent`, `template`, or a settings block.
 - A rule `name` does not match `^[a-z][a-z0-9_-]*$`, or two rules share a `name`.
 - A catch-all rule (absent or empty `match`) precedes another rule, reported as `unreachable_rules`. A catch-all must be the last entry.
-- A `rule.agent` or `default.agent` names an unregistered adapter kind. A removed kind is not one: it converts, and draws the [`agent.kind.retired`](/reference/cli/#advisory-warnings) warning.
+- A `rule.agent` or `default.agent` names an unregistered adapter kind.
 - A `match` key is not one of `labels`, `issue_type`, `priority`, `identifier`, `assignee`, or `title`.
 - A `labels` or `identifier` glob is malformed.
 - A `priority` predicate carries no operator or more than one.

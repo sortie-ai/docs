@@ -314,7 +314,7 @@ Every agent kind declares the environment variables its runtime reads as the cre
 | `copilot-cli` | `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN` |
 | `codex` | None. The login travels as a protocol message instead, so `CODEX_API_KEY` never reaches the remote agent's environment. |
 | `opencode` | None. Provider credentials are OpenCode's own to resolve. Sortie's managed `OPENCODE_*` settings do reach a remote session, on the same delivery path but under neither worker field's control. |
-| `agent-client-protocol` | None. The kind names no default runtime, so it has no fixed credential to declare. A workflow converted from the removed `kiro` kind is the exception: its remote launch carries `KIRO_API_KEY` until the workflow names `agent-client-protocol` itself and lists the variable under `worker.ssh_pass_env`. |
+| `agent-client-protocol` | None. The kind names no default runtime, so it has no fixed credential to declare. |
 
 A variable carried this way overrides the value or login the remote host already holds. If Sortie's own environment sets one of these names for an unrelated purpose, `GITHUB_TOKEN` for the tracker while your `copilot-cli` hosts sign in on their own, name it under [`worker.ssh_disallow_pass_env`](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent) to keep the host's login in effect.
 
