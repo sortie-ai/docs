@@ -1269,16 +1269,15 @@ codex:
 
 ### `opencode`
 
-The adapter supports OpenCode 1.x and 2.x, with 1.x [deprecated](/reference/adapter-opencode/#deprecation-of-opencode-1x), and detects which one `agent.command` names by querying its version at the start of each session, refusing a version it cannot read and any major other than 1 or 2. Several fields below map to a different CLI flag, environment variable, or configuration field depending on which major is detected; see the [OpenCode adapter reference](/reference/adapter-opencode/#opencode-extension-section) for the per-major mapping and [version detection](/reference/adapter-opencode/#version-detection) for the mechanism and every version-related refusal.
+The adapter runs OpenCode 2.x. It queries the version `agent.command` reports at the start of each session and refuses one it cannot read or one that is not 2.x; see the [version check](/reference/adapter-opencode/#version-check) for every refusal and [settings refused at session start](/reference/adapter-opencode/#settings-refused-at-session-start) for the configuration it rejects.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `model` | string | _(CLI default)_ | Model identifier in `provider/model` form. |
 | `agent` | string | _(none)_ | OpenCode agent name, passed through unchanged. |
-| `effort` | string | _(none)_ | Reasoning level; see [reasoning effort](#adapter-pass-through-configuration). It fills OpenCode's model-variant slot, so some combinations with `model` are refused on OpenCode 2.x; see the [OpenCode adapter reference](/reference/adapter-opencode/#version-detection). Setting it together with `variant` is an error. |
-| `variant` | string | _(none)_ | Reasoning variant. Fills the same slot as `effort`; setting both fails under `opencode.effort.conflict`. Some combinations with `model` are refused on OpenCode 2.x; see the [OpenCode adapter reference](/reference/adapter-opencode/#version-detection). |
+| `effort` | string | _(none)_ | Reasoning level; see [reasoning effort](#adapter-pass-through-configuration). It fills OpenCode's model-variant slot, so it needs a `model` without a `#` suffix of its own; see [settings refused at session start](/reference/adapter-opencode/#settings-refused-at-session-start). Setting it together with `variant` is an error. |
+| `variant` | string | _(none)_ | Reasoning variant. Fills the same slot as `effort`; setting both fails under `opencode.effort.conflict`. It needs a `model` without a `#` suffix of its own; see [settings refused at session start](/reference/adapter-opencode/#settings-refused-at-session-start). |
 | `thinking` | boolean | `false` | Requests reasoning output. |
-| `pure` | boolean | `false` | Runs OpenCode without external plugins. Supported on OpenCode 1.x only; see the [OpenCode adapter reference](/reference/adapter-opencode/#version-detection). |
 | `dangerously_skip_permissions` | boolean | `true` | Auto-approves permission requests. `false` changes tool-call behavior; see [validate-time checks](/reference/adapter-opencode/#validate-time-checks). |
 | `disable_autocompact` | boolean | `true` | Disables OpenCode's own context autocompaction. |
 | `allowed_tools` | list of strings | `[]` | Builds an allowlist permission policy: listed keys become `allow`, every known key not listed becomes `deny`, unknown keys are forwarded unchanged. |
@@ -1287,10 +1286,10 @@ The adapter supports OpenCode 1.x and 2.x, with 1.x [deprecated](/reference/adap
 
 The OpenCode runtime accepts no MCP configuration path either, so the adapter re-expresses the generated servers as the runtime's own server entries and sets them in the turn's environment. That happens on a local launch only; an SSH session receives none, and reaches no Sortie tool. See [MCP](/reference/adapter-opencode/#mcp).
 
-The adapter runs one `opencode run --format json` subprocess per turn and a second subprocess after the turn to recover authoritative token usage; the exact command for each varies by major. Neither major exposes `--attach`, `--port`, `--command`, `--file`, `--title`, `--continue`, or `--fork` through WORKFLOW.md. See the [OpenCode CLI adapter reference](/reference/adapter-opencode/) for the exact commands, the full lifecycle, SSH behavior, and authentication model.
+The adapter runs one `opencode run --format json` subprocess per turn and a second subprocess after the turn to recover authoritative token usage. The adapter exposes none of `--attach`, `--port`, `--command`, `--file`, `--title`, `--continue`, or `--fork` through WORKFLOW.md. See the [OpenCode CLI adapter reference](/reference/adapter-opencode/) for the exact commands, the full lifecycle, SSH behavior, and authentication model.
 
 > [!WARNING]
-> `agent.max_turns` (orchestrator turn-loop limit) and OpenCode's internal step budget are not the same thing. The adapter does not expose an OpenCode-specific inner turn cap, on either major.
+> `agent.max_turns` (orchestrator turn-loop limit) and OpenCode's internal step budget are not the same thing. The adapter does not expose an OpenCode-specific inner turn cap.
 
 ```yaml
 opencode:

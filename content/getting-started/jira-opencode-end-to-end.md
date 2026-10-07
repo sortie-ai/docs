@@ -20,7 +20,7 @@ In this tutorial, we will connect Sortie to Jira and the OpenCode CLI, then watc
     opencode --version
     ```
 
-    You should see a version string. Sortie resolves `opencode` from `PATH` at session start and reads this same version to detect whether it is driving OpenCode 1.x or 2.x, so this confirms the binary it will launch. This tutorial installs OpenCode 2.x. Sortie still runs 1.x, but support for it is deprecated; see [deprecation of OpenCode 1.x](/reference/adapter-opencode/#deprecation-of-opencode-1x). If the command is not found, follow the [OpenCode CLI docs](https://opencode.ai/docs/cli/).
+    You should see a version string. Sortie resolves `opencode` from `PATH` at session start and reads this same version, so this confirms the binary it will launch. The version must start with `2`; Sortie refuses any other at session start (see the [version check](/reference/adapter-opencode/#version-check)). If the command is not found, follow the [OpenCode CLI docs](https://opencode.ai/docs/cli/).
 
 - `ANTHROPIC_API_KEY` set in your environment:
 
