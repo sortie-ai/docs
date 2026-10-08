@@ -125,7 +125,7 @@ When more than one configured label is present, the adapter logs a WARN naming t
 
 ### Transitions
 
-A transition composes the move from label and state edits, because Gitea has no transition API. It removes the current state label by id, attaches the target state label by id, and reconciles the native state: a terminal-state target closes an open issue, and an active-state target reopens a closed one. A target that is not a configured active, terminal, or handoff state is rejected with `tracker_payload_error` before any write.
+A transition composes the move from label and state edits, because Gitea has no transition API. It removes every spelling of the current state label that the issue carries, by the id the issue itself reports, so a previous state label that is an organization label is removed too. It then attaches the target state label by id and reconciles the native state: a terminal-state target closes an open issue, and an active-state target reopens a closed one. A target that is not a configured active, terminal, or handoff state is rejected with `tracker_payload_error` before any write.
 
 ### Create-on-missing labels
 
@@ -152,6 +152,14 @@ Pull requests are excluded server-side by the type constraint on every list quer
 Gitea has no transition API, so a transition is composed from label and state edits rather than being a single call: the current state label is removed, the target label is resolved or created and attached, and the native open or closed status is reconciled. Every step is idempotent, so a partial failure converges on retry rather than stranding the issue, and a transition to the state an issue already holds does no label work at all.
 
 A comment that carries the agent's [stop statement](/reference/agent-extensions/#stop-statement) is the stop text, a blank line, and the statement in a fenced Markdown code block. The fence is backticks, at least three and one more than the longest run of backticks in the statement, so nothing inside the statement can close it.
+
+### Label writes
+
+Adding a label, such as an escalation label or a [stage label](/reference/workflow-config/#dispatch), lowercases the name and resolves it against the repository's labels. A name with no match is created as a repository label, as described in [create-on-missing labels](#create-on-missing-labels), and the label is attached by id with `POST /repos/{owner}/{repo}/issues/{index}/labels`. The repository label list does not include organization labels, so adding a name that exists only as an organization label creates a repository label of that name. Gitea answers the attach with the issue's labels, and the adapter checks the new label there.
+
+Removing a label reads the issue's own labels with their ids, keeps every one whose name equals the argument ignoring letter case, and deletes each with `DELETE /repos/{owner}/{repo}/issues/{index}/labels/{id}`. Because the ids come from the issue, an organization label is removed as reliably as a repository label. An issue that carries no match gets no request, so removing an absent label succeeds without a change. A delete that Gitea answers as not found or invalid does not stop the others. A delete returns no label list, so every removal ends with a fresh read of the issue's labels.
+
+An add after which the issue lacks the label, or a removal after which it still carries it, fails with `tracker_payload_error`. Both writes are covered by the `write:issue` [scope](#scopes).
 
 ---
 
@@ -269,7 +277,7 @@ The adapter maps the HTTP status to a normalized error category.
 
 ### Silent success traps
 
-Two Gitea behaviors return HTTP 200 with a wrong-shaped success, so no status mapping catches them. Attaching an unknown label name no-ops. A `labels` filter with an unresolvable name drops the filter and returns every open issue. The adapter's own resolve-before-write steps are the mitigation: it attaches labels by id after resolving or creating them, and it warns on an unresolved `query_filter` label rather than trusting the server to reject it.
+Two Gitea behaviors return HTTP 200 with a wrong-shaped success, so no status mapping catches them. Attaching an unknown label name no-ops. A `labels` filter with an unresolvable name drops the filter and returns every open issue. The adapter's own resolve-before-write steps are the mitigation: it attaches labels by id after resolving or creating them, and it warns on an unresolved `query_filter` label rather than trusting the server to reject it. A label add or removal is also checked against the issue's labels afterwards; see [label writes](#label-writes).
 
 For the full error taxonomy and operator guidance, see the [error reference](/reference/errors/#tracker-errors).
 

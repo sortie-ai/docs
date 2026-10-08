@@ -57,7 +57,7 @@ The `.issue` object is normalized across tracker backends, so the same field nam
 
 For the complete field list with every type and nil/empty distinction, see the [`.issue` table in the workflow config reference](/reference/workflow-config/#issue).
 
-Two other top-level variables are available on every render alongside `.issue`: `.attempt` (`0` on the first try, `>= 1` on retry) and `.run` (`.run.turn_number`, `.run.max_turns`, `.run.is_continuation`). See the [`.attempt` and `.run` reference](/reference/workflow-config/#attempt) for the full field list.
+Three other top-level variables are available on every render alongside `.issue`: `.attempt` (`0` on the first try, `>= 1` on retry), `.run` (`.run.turn_number`, `.run.max_turns`, `.run.is_continuation`), and `.stage` (the current and previous stage of a [stage chain](/concepts/stage-chains/), empty strings outside one). See the [`.attempt` and `.run` reference](/reference/workflow-config/#attempt) and the [`.stage` reference](/reference/workflow-config/#stage) for the full field lists.
 
 Reaction dispatches add one more top-level variable each, carrying the context that triggered them. They are `nil` on an ordinary dispatch, so `{{ if .ci_failure }}` is safe to write in a template that also serves primary runs. See [configure CI feedback](/guides/configure-ci-feedback/) and [configure review feedback](/guides/configure-review-feedback/) for their fields. `.review_comments` and `.bot_review_comments` are also set on the first turn of a new run of an issue whose pull request holds comments no earlier run was given, so write each as an added block that leaves the rest of the prompt unchanged; see [give a new run its pending review comments](/guides/configure-review-feedback/#give-a-new-run-its-pending-review-comments).
 
@@ -235,7 +235,7 @@ Check the logs for the rendered prompt. Render errors appear with line numbers.
 ## Avoid common mistakes
 
 **Referencing a variable that doesn't exist.**
-Sortie runs in strict mode (`missingkey=error`). A typo like `{{ .issue.titel }}` fails rendering immediately instead of producing an empty string. `sortie validate` catches these statically: unknown fields like `.issue.titel` produce an `unknown_field` warning, and unknown top-level variables like `{{ .config }}` produce an `unknown_var` warning. Check field names against the variable table above.
+Sortie runs in strict mode (`missingkey=error`). A typo like `{{ .issue.titel }}` fails rendering immediately instead of producing an empty string. `sortie validate` catches these statically: unknown fields like `.issue.titel` produce an `unknown_field` warning, and unknown top-level variables like `{{ .config }}` produce an `unknown_var` warning. Check field names against the [`.issue` field list](/reference/workflow-config/#issue).
 
 **Forgetting to guard nil fields.**
 `.issue.parent` is `nil` when no parent exists. Accessing `.issue.parent.identifier` without a guard fails the render with `nil pointer evaluating interface {}.identifier`, and the worker attempt ends there:

@@ -189,7 +189,19 @@ Lists recently completed session attempts, both successful and failed. Shows the
 | **Attempt** | Which attempt number completed (1-based). The first dispatch is `1`, the first retry is `2`, and so on. |
 | **Turns** | Number of agent turns completed in this session. A turn is one prompt–response cycle. |
 | **Workflow** | WORKFLOW.md file used for this run. Shows an em dash when unavailable. |
+| **Rule** | Name of the [dispatch rule](/reference/workflow-config/#dispatch) that routed this run. Appears together with **Chain** and **Stage**, under the condition stated for **Stage**. |
+| **Chain** | Identifier of the stage chain the run belongs to: a random string shared by every run of one pass through a chain. A run that no stage hop led to starts a new chain; the run a hop leads to keeps the chain of the run that made the hop, and a retry on the same rule keeps the chain of the run it retries. Appears together with **Rule** and **Stage**. |
+| **Stage** | The run's path through the chain, as dispatch rule names joined by ` -> `: the rule whose hop led to this run, then this run's rule, then the rule its own hop targeted followed by the hop result in parentheses. The first segment appears only when a hop led to the run, the last only when the run's exit reached a hop decision, for example `specify -> plan -> implement (advanced)`, `specify -> plan`, or `specify -> plan (failed)`. Appears only when the run has a chain identifier and either a hop led to it or its exit reached a hop decision. Runs recorded before stage chains existed, and runs no hop touched, show none of these three fields. |
 | **Error** | Error message, if the attempt failed. Shows an em dash for successful attempts. Displayed at full width without truncation. |
+
+The hop result at the end of **Stage** is one of:
+
+| Result | Meaning |
+|---|---|
+| `advanced` | Sortie added the next stage's label and removed the other stage labels the issue carried when the run was dispatched. |
+| `partial` | Sortie added the next stage's label, but at least one other stage label could not be removed and stays on the issue. |
+| `failed` | Adding the next stage's label failed. The issue did not advance, and the run's exit continued as it would for a rule without `next`. |
+| `ceiling` | The hop would have exceeded `dispatch.max_consecutive_hops`, so Sortie did not add the label. The issue did not advance, and the run's exit continued as it would for a rule without `next`. |
 
 The table does not show the model a run used. Completed runs keep their [model and effort](/reference/http-api/#model-and-effort-of-a-completed-run), and `sortie stats` [groups runs by configured model](/reference/cli/#configured-model-breakdown).
 

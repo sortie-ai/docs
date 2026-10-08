@@ -1,13 +1,13 @@
 ---
 title: "How to Configure Dispatch Rules"
 linkTitle: "Configure Dispatch Rules"
-description: "Route issues to different agents, models, reasoning levels, and prompt templates by label, type, priority, identifier, assignee, or title using first-match-wins dispatch rules in WORKFLOW.md."
+description: "Route issues to different agents, models, reasoning levels, and prompt templates by label, type, priority, identifier, assignee, or title, and chain dispatch rules into stages, such as specify then implement, that run one after another in WORKFLOW.md."
 author: Sortie AI
 date: 2026-05-27
 weight: 95
 url: /guides/configure-dispatch-rules/
 ---
-By default, Sortie dispatches every issue with one agent (`agent.kind`) and one prompt template (the Markdown body of WORKFLOW.md). Dispatch rules change that: they route each issue to a specific agent, a specific template, specific agent settings such as the model and reasoning level, or any combination, based on the issue's metadata. Use them when bug fixes need a different prompt than documentation tasks, when frontend and backend issues should go to different agents, or when routine work belongs on a cheaper model and hard work on a stronger one. This guide shows you how to set up rules from zero, starting with a two-rule label split, then routing by model and by title, and adding the other match types as you need them.
+By default, Sortie dispatches every issue with one agent (`agent.kind`) and one prompt template (the Markdown body of WORKFLOW.md). Dispatch rules change that: they route each issue to a specific agent, a specific template, specific agent settings such as the model and reasoning level, or any combination, based on the issue's metadata. Use them when bug fixes need a different prompt than documentation tasks, when frontend and backend issues should go to different agents, or when routine work belongs on a cheaper model and hard work on a stronger one. This guide shows you how to set up rules from zero, starting with a two-rule label split, then routing by model and by title, adding the other match types as you need them, and chaining rules into stages that hand an issue from one agent step to the next.
 
 ## Prerequisites
 
@@ -274,13 +274,155 @@ dispatch:
       template: ./prompts/default.md
 ```
 
-A catch-all rule must be the last entry. A catch-all placed earlier makes the rules after it unreachable, and Sortie rejects that at load time.
+A catch-all rule must come after every other rule that has no `stage`. A catch-all placed earlier makes those rules unreachable, and Sortie rejects that at load time. Rules with a `stage` label may follow it, because their label selects them first; see [Chain rules into stages](#chain-rules-into-stages).
+
+## Chain rules into stages
+
+A stage chain runs one issue through several rules in turn, each with its own agent kind, settings, and template, and moves the issue from one rule to the next after each successful run, with no person in between. For when a chain helps and when one rule is the better choice, see [Stage chains](/concepts/stage-chains/).
+
+The example below is a two-stage chain. A `specify` stage writes a specification and a plan into a file, then an `implement` stage reads that file and writes the code.
+
+### Write the chain
+
+Give each stage a rule with a `name`, a `stage` label, and a template, and link the first rule to the second with `next`. Set `tracker.handoff_state`, the state the chain ends on:
+
+```yaml
+---
+tracker:
+  kind: github
+  api_key: $SORTIE_GITHUB_TOKEN
+  project: myorg/myrepo
+  active_states: [backlog, in-progress]
+  terminal_states: [done, wontfix]
+  handoff_state: review          # required: the chain ends here
+
+agent:
+  kind: claude-code
+
+claude-code:
+  permission_mode: bypassPermissions
+
+dispatch:
+  rules:
+    - name: specify
+      stage: stage-specify       # the label that puts an issue on this stage
+      next: implement            # where the issue goes after a successful run
+      template: ./prompts/specify.md
+
+    - name: implement
+      stage: stage-implement     # no next: a successful run ends on review
+      template: ./prompts/implement.md
+---
+
+Resolve {{ .issue.identifier }}: {{ .issue.title }}.
+```
+
+An issue labeled `stage-specify` runs `specify`. When that run succeeds, Sortie adds `stage-implement` to the issue, removes `stage-specify`, and writes no state, so the issue stays in `backlog` or `in-progress`. On the next poll tick `implement` runs in a new session. When `implement` succeeds, the issue moves to `review` like the end of any run without a chain, and your reactions take over from there.
+
+A rule with `stage` is selected by its label, so it carries no `match` block. Pick labels that differ from every state name and from the labels Sortie applies for escalations and parking. On GitHub, where states are labels too, `stage-specify` must not be `backlog`, `review`, or any other state in the workflow; `sortie validate` reports a clash as `dispatch.stage.collision`.
+
+Sortie adds and removes the stage labels with the tracker credential it already uses. Your tracker's adapter reference ([GitHub](/reference/adapter-github/), [GitLab](/reference/adapter-gitlab/), [Gitea](/reference/adapter-gitea/), [Jira](/reference/adapter-jira/), [Linear](/reference/adapter-linear/)) says what that credential needs and whether a label must exist before Sortie applies it.
+
+### Hand the file from one stage to the next
+
+Every run of an issue uses the same workspace directory, so a file the `specify` agent writes is still there when the `implement` agent starts. Sortie does not read or move the file. The two templates agree on its path, and the issue identifier in the path keeps issues apart.
+
+`prompts/specify.md`:
+
+```text
+You are specifying {{ .issue.identifier }}: {{ .issue.title }}.
+
+{{ .issue.description }}
+
+Research the code this issue touches. Write a specification and a step-by-step implementation plan to specs/{{ .issue.identifier }}.md, relative to your working directory. Do not change any other file.
+```
+
+`prompts/implement.md`:
+
+```text
+You are implementing {{ .issue.identifier }}: {{ .issue.title }}.
+
+{{ if .stage.previous }}The {{ .stage.previous }} stage wrote the specification and plan for this issue.{{ else }}A person placed this issue on the {{ .stage.current }} stage directly.{{ end }} Read specs/{{ .issue.identifier }}.md, relative to your working directory, and follow its plan.
+
+Write the code and its tests. Do not edit the specification.
+```
+
+`.stage.previous` names the stage whose hop placed the issue here, and it is empty when a person applied the label, so the template can tell the agent which happened. `.stage.current` is the name of the staged rule that runs. Both render on every template, chained or not. The [`.stage` reference](/reference/workflow-config/#stage) lists its fields.
+
+Two settings can make the file disappear or keep the chain from moving:
+
+- `hooks.before_run` runs before every stage, while `hooks.after_create` runs only when the workspace is first created. A `before_run` script that deletes untracked files, such as `git clean -fdx`, deletes the specification before `implement` reads it.
+- When the workspace is a Git work tree, write the file outside `.sortie/` and outside paths the repository ignores. Under the default `tracker.handoff_evidence: observed`, Sortie ignores those paths when it checks the workspace for work, and a run that made no commit and changed no other file is not a success: the stage is retried instead of advancing. See [handoff evidence](/reference/state-machine/#handoff-evidence).
+
+### Extend the chain
+
+A longer chain adds one rule per stage and links them with `next`; nothing else changes. Each stage can also carry its own agent kind or model settings, as in [Route issues to a cheaper or a stronger model](#route-issues-to-a-cheaper-or-a-stronger-model):
+
+```yaml
+dispatch:
+  rules:
+    - name: specify
+      stage: stage-specify
+      next: plan
+      template: ./prompts/specify.md
+      claude-code:
+        model: <strong-model-id>
+
+    - name: plan
+      stage: stage-plan
+      next: implement
+      template: ./prompts/plan.md
+
+    - name: implement
+      stage: stage-implement
+      next: test
+      agent: codex
+      template: ./prompts/implement.md
+      codex: {}
+
+    - name: test
+      stage: stage-test
+      template: ./prompts/test.md
+```
+
+The rule a `next` names must carry `stage`, but the first rule of a chain does not have to. To start the chain from a label your team already uses, replace `stage: stage-specify` with `match: { labels: ["feature"] }`. A person then labels the issue `feature` once, and Sortie applies the stage labels from there.
+
+Every stage runs its own session, so an issue needs at least four sessions to get through this chain. `agent.max_sessions` and `agent.max_tokens` count every stage of the issue. If you set `agent.max_sessions`, make it at least the number of stages in the longest chain; `sortie validate` warns with `dispatch.next.max_sessions` when it is smaller.
+
+### Place an issue on a stage or send it back
+
+To start an issue at any stage, apply that stage's label and make sure the issue is in an active state. An issue labeled `stage-implement` skips `specify` and runs `implement`, whose template then takes the branch for a person-placed issue.
+
+To send an issue back, for example from `review` to `specify` after reading the specification, remove `stage-implement`, apply `stage-specify`, and move the issue to an active state. Remove the old label: an issue that carries the labels of two stages of one chain runs the one further along the chain, and Sortie logs `several stage labels found`.
+
+Change stage labels when no run is in progress on the issue. A run keeps the rule it started on until it ends, whatever labels you move during it, and when that run hops, the stage it hopped to runs next.
+
+Sortie counts the hops it makes on an issue in a row and stops at `dispatch.max_consecutive_hops`. The count resets when the issue leaves the active states, which every chain does when it ends on the handoff state, and when Sortie parks the issue or a park on it is released. An issue you send back from `review` therefore starts from zero. Moving a stage label while the issue stays active does not reset the count. Leave `dispatch.max_consecutive_hops` unset: the default is the larger of `10` and the number of hops in your longest chain, so a healthy chain never reaches it, and a value below the longest chain's hops fails validation.
+
+### Confirm the issue advanced
+
+Run `sortie validate WORKFLOW.md`, start Sortie, and label a test issue `stage-specify`. After the `specify` run succeeds:
+
+- The issue carries `stage-implement` instead of `stage-specify` and is still in its active state.
+- The log has a `stage hop made` record with `source_rule=specify`, `target_rule=implement`, and the `hop_count`. Within one poll interval, the next run's `issue dispatched` record carries `rule_name=implement`.
+- The dashboard's [run history](/reference/dashboard/#run-history-table) shows the rule, chain, and stage of each run, and [`sortie stats`](/reference/cli/#stats) groups runs by chain.
+
+To be told about every hop, add `stage.advanced` and `stage.not_advanced` to the `events` list of a [notification entry](/reference/workflow-config/#event-catalog). No entry receives them unless it lists them.
 
 ## How rules resolve
 
+Sortie picks one rule per dispatch, and the first of these that applies decides:
+
+1. The stage the issue's latest hop sent it to, while the issue carries that stage's label.
+2. A rule whose `stage` label the issue carries. When the issue carries the labels of several, the one furthest along its chain runs, then the one listed first.
+3. The rules without `stage`, top to bottom: the first whose `match` block succeeds, or a catch-all.
+4. `dispatch.default`, then the workflow-wide defaults, as in [Set the fallback for unmatched issues](#set-the-fallback-for-unmatched-issues).
+
+So first match wins among the rules without `stage`, and no rule above a staged rule, a catch-all included, captures an issue that carries a stage label.
+
 Sortie evaluates rules once, at the issue's first dispatch, and freezes the resolved agent kind, template, and rule name for the life of the claim. Retries and reaction-driven continuations (CI failure, review comments) reuse the frozen selection so the agent keeps the same prompt and session thread across turns. The settings are the exception: they are read from the current WORKFLOW.md at the start of every attempt, as described in [Edit settings while Sortie runs](#edit-settings-while-sortie-runs).
 
-A changed rule set from a WORKFLOW.md reload applies to future claims only. An issue already in flight keeps its original agent, template, and rule until its claim is released. A waiting retry keeps them too, unless the reload removed its agent kind or template; then it is routed afresh and starts a new session. See [Freeze and reload](/reference/workflow-config/#freeze-and-reload) for the details. A reload that moves `agent.kind` while a rule without its own `agent` still carries a block for the old kind is rejected, and Sortie keeps the last good configuration. For the dispatch and claim lifecycle, see the [state machine reference](/reference/state-machine/); for the architectural model, see [Architecture](/concepts/architecture/).
+A changed rule set from a WORKFLOW.md reload applies to future claims only. An issue already in flight keeps its original agent, template, and rule until its claim is released. A stage hop releases the claim, so each stage of a chain is selected afresh, and a changed `next` applies from the next run that ends. A waiting retry keeps them too, unless the reload removed its agent kind or template; then it is routed afresh and starts a new session. See [Freeze and reload](/reference/workflow-config/#freeze-and-reload) for the details. A reload that moves `agent.kind` while a rule without its own `agent` still carries a block for the old kind is rejected, and Sortie keeps the last good configuration. For the dispatch and claim lifecycle, see the [state machine reference](/reference/state-machine/); for the architectural model, see [Architecture](/concepts/architecture/).
 
 ## Verify the rules
 
@@ -290,7 +432,7 @@ Check the configuration offline before starting the orchestrator:
 sortie validate WORKFLOW.md
 ```
 
-`validate` parses the dispatch block and reports rule errors: an unknown agent kind, a missing or unreadable template file, a duplicate rule name, a non-final catch-all, an unknown match key, a malformed glob, a priority predicate without exactly one operator, or a `title` with no phrase or an unquoted phrase. It also reports a settings block that names a kind the rule does not run, one that sets `command` or a timeout, and one on a rule with no `name`. It reports a registered agent kind that a rule routes to but that carries no settings block of its own, neither at the top level nor in every rule that selects it. It exits non-zero when any error is present.
+`validate` parses the dispatch block and reports rule errors: an unknown agent kind, a missing or unreadable template file, a duplicate rule name, a non-final catch-all, an unknown match key, a malformed glob, a priority predicate without exactly one operator, or a `title` with no phrase or an unquoted phrase. It also reports a settings block that names a kind the rule does not run, one that sets `command` or a timeout, and one on a rule with no `name`. It reports a registered agent kind that a rule routes to but that carries no settings block of its own, neither at the top level nor in every rule that selects it. For a stage chain it reports a `next` that names no rule or a rule without `stage`, a cycle of `next` links, a rule with both `stage` and `match`, a stage label shared by two rules or equal to a state name, `next` without `tracker.handoff_state`, and a `dispatch.max_consecutive_hops` below the longest chain's hops. It exits non-zero when any error is present.
 
 Then run one poll cycle without spawning agents:
 
@@ -320,16 +462,30 @@ sortie --dry-run WORKFLOW.md
 
 **`sortie validate` warns about an inherited effort.** A rule sets `model` and inherits an `effort` from the top-level block, which was chosen for another model. Write `effort` in the rule, or `effort: null` to clear it.
 
+**Validation rejects `next`.** `next requires tracker.handoff_state` means the workflow has no handoff state; set `tracker.handoff_state`, because the last stage and every hop that is not made end there. `names a rule without a stage label` means the rule `next` points to has no `stage`; add one. A cycle message lists the rules that loop; remove one of their `next` keys.
+
+**Validation reports `dispatch.stage.collision`.** A stage label equals a state name, a reaction's escalation label, or the parking label. Rename the stage label; the message names what it collides with.
+
+**A stage runs again instead of handing over.** A stage advances only after a successful run. A failed or timed-out run retries the same stage, and so does a run whose handoff evidence was withheld because it left the work tree unchanged, which logs `handoff withheld by evidence policy`. Check that the stage writes its file outside `.sortie/` and outside ignored paths, as in [Hand the file from one stage to the next](#hand-the-file-from-one-stage-to-the-next).
+
+**The chain stops on the handoff state before its last stage.** A hop was due and was not made, and the issue took the handoff write instead. The `stage hop not made` log record says why in `reason`:
+
+- `add_failed`: the tracker refused the next stage's label, and the record carries the `error`. Fix the credential or create the label, then replace the issue's current stage label with the next one and move the issue to an active state.
+- `ceiling`: the issue made `dispatch.max_consecutive_hops` hops in a row without leaving the active states. Look for tracker automation or a person moving stage labels back while the issue stays active. The handoff reset the count, so the issue can go through the chain again.
+
+**A hop leaves an old stage label on the issue.** Sortie logs `stage hop made, stage labels left on the issue` when it added the next label and failed to remove the old one. The chain still advances, because Sortie routes to the stage it hopped to. Remove the old label by hand.
+
 **A rule change did not affect a running issue.** Rule selection is frozen at first dispatch. A reloaded rule set applies to future claims only. Let the in-flight issue finish, or release its claim, for the new rules to take effect. An edit to the settings inside a rule is different: it applies from the next attempt of the issue, but a session that is already running keeps the settings it started with.
 
 ## Dispatch rule fields
 
-The `dispatch` block accepts a `rules` list, evaluated first-match-wins in YAML order, and a `default` fallback for when nothing matches. Each rule pairs a `match` predicate (keys: `labels`, `issue_type`, `priority`, `identifier`, `assignee`, `title`) with the `agent` and `template` to use, falling through to `default` and then to the top-level `agent.kind` when a rule leaves them unset, and may carry a settings block for its agent kind that is laid over the kind's top-level block. The `priority` predicate takes exactly one numeric operator (`eq`, `in`, `lt`, `lte`, `gt`, `gte`).
+The `dispatch` block accepts a `rules` list, a `default` fallback for when nothing matches, and `max_consecutive_hops`, the ceiling on hops in a row. A rule with a `stage` label is selected by that label before any other rule; the rest are evaluated first-match-wins in YAML order. A rule's `next` names the staged rule an issue moves to after a successful run. Each rule pairs a `match` predicate (keys: `labels`, `issue_type`, `priority`, `identifier`, `assignee`, `title`), or a `stage` label, with the `agent` and `template` to use, falling through to `default` and then to the top-level `agent.kind` when a rule leaves them unset, and may carry a settings block for its agent kind that is laid over the kind's top-level block. The `priority` predicate takes exactly one numeric operator (`eq`, `in`, `lt`, `lte`, `gt`, `gte`).
 
 For the complete field-by-field table, including every match key's matching rule, the overlay rules for a settings block, and every accepted operator, see the [`dispatch` section of the workflow config reference](/reference/workflow-config/#dispatch).
 
 ## Related guides
 
+- [Stage chains](/concepts/stage-chains/): why a pipeline of agent steps runs as a chain of rules, and when one rule is enough
 - [Write a prompt template](/guides/write-prompt-template/): template syntax and variables for per-rule files
 - [Connect to Jira](/guides/connect-to-jira/): Jira adapter setup, which supplies priority and issue type
 - [Connect to GitHub](/guides/connect-to-github/): GitHub adapter setup, label-based state mapping

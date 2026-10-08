@@ -123,6 +123,7 @@ Scenarios worth testing:
 - **Priority sorting.** Add issues with `"priority": 1`, `"priority": 3`, and `"priority": null` to confirm dispatch order.
 - **Blocker rendering.** Populate `blocked_by` with multiple entries and check the rendered prompt.
 - **Tracker comments.** Add a `tracker_comment` entry that lists `session.started` under `notifications` and check the logs for "dispatch comment posted" messages. The file adapter stores comments in memory for the duration of the process.
+- **Stage labels.** Put a [stage label](/reference/workflow-config/#dispatch) in an issue's `labels` to start it on that rule. Labels Sortie adds or removes live in memory too: the adapter keeps every label it adds, matches labels ignoring case, and never writes to `issues.json`. A label Sortie removed stays hidden even if you type it back into the file, until Sortie adds it again. Restart Sortie to return to the labels the file holds.
 
 Each scenario targets a specific `{{ if }}` or `{{ range }}` branch in your template. If a field reference is misspelled, Sortie's strict mode (`missingkey=error`) fails immediately with a line number. There are no silent empty strings.
 

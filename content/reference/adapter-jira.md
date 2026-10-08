@@ -262,7 +262,9 @@ A comment that carries the agent's [stop statement](/reference/agent-extensions/
 
 A comment failure is not fatal to the run. The orchestrator logs a warning and continues, so a token that can read but not comment degrades the run rather than ending it.
 
-Adding a label sends a single `PUT` to the issue resource with an `update.labels` add operation naming the label. The adapter never reads or replaces the issue's existing label list, so no label already on the issue is touched. A label failure is not fatal to the run, the same as a comment failure.
+Adding a label sends a single `PUT` to the issue resource with an `update.labels` add operation naming the label as written; the adapter does not look the label up or create it first. Removing a label reads the issue's `labels` field, collects every label that equals the name ignoring letter case, and removes them all in one `PUT` with an `update.labels` remove operation for each. An issue that carries no such label gets no write, so removing an absent label succeeds and changes nothing. Neither write replaces the label list, so a label someone adds between the read and the write stays on the issue.
+
+Jira answers a label edit with an empty body, so the adapter reads the issue's labels after every add and every removal. An add that leaves the label missing, or a removal that leaves it in place, fails with `tracker_payload_error`. A label failure is not fatal to the run, the same as a comment failure. These two writes are also how a [stage label](/reference/workflow-config/#dispatch) moves on a Jira issue, so stage chains work on Jira.
 
 Writes need a token that can update issues, add comments, and label issues; see [authentication](#authentication).
 
@@ -511,7 +513,7 @@ When the HTTP server is [enabled](/reference/workflow-config/), the adapter incr
 
 | Label | Values |
 |---|---|
-| `operation` | `fetch_candidates`, `fetch_issue`, `fetch_by_states`, `fetch_states_by_ids`, `fetch_states_by_identifiers`, `fetch_comments`, `transition`, `comment`, `add_label` |
+| `operation` | `fetch_candidates`, `fetch_issue`, `fetch_by_states`, `fetch_states_by_ids`, `fetch_states_by_identifiers`, `fetch_comments`, `transition`, `comment`, `add_label`, `remove_label` |
 | `result` | `success`, `error` |
 
 When the HTTP server is disabled, metrics calls are no-ops. See [Prometheus metrics reference](/reference/prometheus-metrics/) for query examples.
@@ -520,7 +522,7 @@ When the HTTP server is disabled, metrics calls are no-ops. See [Prometheus metr
 
 ## Jira permissions
 
-The credential needs read access to the configured project for polling, and write access on top of that if the workflow transitions issues, posts comments, or adds labels. Which scope or permission grants each of those differs between Cloud and Data Center, and both are Atlassian's to document; see [external references](#external-references).
+The credential needs read access to the configured project for polling, and write access on top of that if the workflow transitions issues, posts comments, or adds and removes labels. Removing a label is the same issue edit as adding one and needs no further permission. Which scope or permission grants each of those differs between Cloud and Data Center, and both are Atlassian's to document; see [external references](#external-references).
 
 A credential that can read but not write does not fail at startup. It fails at the moment of the write: a transition returns `tracker_auth_error`, and so does a comment or a label. A failed comment or label is not fatal to the run, so a read-only credential produces a run that works and stays silent on the issue, which is the shape this misconfiguration usually takes.
 

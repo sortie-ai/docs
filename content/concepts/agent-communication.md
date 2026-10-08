@@ -121,8 +121,8 @@ If you're writing workflow prompts or building a custom agent, the decision fram
 | Escalate a decision to a human mid-session | `notify_operator` tool | The human needs to know now; the orchestrator does not act on it |
 | Report progress on a long task | `notify_operator` tool | Fire-and-forget to a configured channel |
 | Signal "I'm blocked" | `.sortie/status` file | Parks the issue with a label; one-way advisory, survives MCP failure. Lines after the value can say why |
-| Signal "ready for review" | `.sortie/status` file | Same file, but runs self-review first, then triggers [handoff transition](/reference/agent-extensions/) when configured |
-| Signal "nothing needed changing" | `.sortie/status` file | Same file, runs self-review first (which can retract the claim), then targets `tracker.no_change_state` where configured instead of the ordinary handoff state |
+| Signal "ready for review" | `.sortie/status` file | Same file, but runs self-review first, then triggers [handoff transition](/reference/agent-extensions/) when configured, or moves the issue to the next [stage](/concepts/stage-chains/) when its rule has one |
+| Signal "nothing needed changing" | `.sortie/status` file | Same file, runs self-review first (which can retract the claim), then targets `tracker.no_change_state` where configured instead of the ordinary handoff state, or moves the issue to the next stage like "ready for review" |
 
 The rule of thumb: if the agent needs a response, use a tool. If the agent is sending a signal about its own state, use the file. If a human needs to know, use `notify_operator`.
 

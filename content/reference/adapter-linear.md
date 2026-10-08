@@ -152,7 +152,7 @@ The adapter normalizes Linear GraphQL responses to [issue object](/reference/wor
 
 Candidates are sorted client-side by normalized priority ascending, then by creation time ascending. Issues with no priority sort last. The server sort hint is not trusted.
 
-The nested `labels` and `inverseRelations` connections are capped at the first 25 nodes and are not paginated. An issue that exceeds the cap emits a WARN (`nested connection truncated`) and is held out of dispatch: its blockers are marked unresolved, so `.issue.blocked_by` renders as `nil` rather than a possibly incomplete list. See [candidate eligibility](/reference/state-machine/#candidate-eligibility) for the dispatch-side effect.
+The nested `labels` connection returns the first 25 labels. For an issue that carries more, the adapter reads the rest with a separate paginated query, so `.issue.labels` holds every label of the issue on candidate polls, state queries, and single-issue reads. The nested `inverseRelations` connection is capped at the first 25 nodes and is not paginated. An issue that exceeds that cap emits a WARN (`nested connection truncated`) and is held out of dispatch: its blockers are marked unresolved, so `.issue.blocked_by` renders as `nil` rather than a possibly incomplete list. See [candidate eligibility](/reference/state-machine/#candidate-eligibility) for the dispatch-side effect.
 
 ### Comment normalization
 
@@ -205,9 +205,15 @@ Linear attaches labels by id, not by name, so adding a label by name is a resolv
 
 When no label matches, the adapter creates one, always scoped to the configured team. If that create fails with a payload-class error, the adapter re-resolves once on the assumption a concurrent request already created the label, and returns the original create error only if that second resolution also finds nothing. A create refused for the team maps to `tracker_auth_error`.
 
-The label is attached through Linear's append-only field, so the issue's existing labels are never read or replaced. A label failure is not fatal to the run.
+The label is attached through `addedLabelIds`, so the issue's other labels stay, except in the single-select case below. The mutation's response carries the issue's labels and the adapter checks the new label there; when the response holds more than one page of labels, it reads the issue's labels instead. An add that leaves the label off the issue fails with `tracker_payload_error`. A label failure is not fatal to the run.
 
-Label creation is also gated by a team-level permission setting that some workspaces restrict to team owners; a credential that can otherwise read and write can still be refused there. See [Linear's own documentation](https://linear.app/developers/graphql) for what that setting is currently called and how to change it.
+Removing a label reads every label on the issue together with its id, keeps the ones whose name equals the argument ignoring letter case, and detaches them by id through `removedLabelIds` in one mutation, so a team label and a workspace label of the same name both go. An issue that carries no such label gets no mutation, and removing an absent label succeeds without a change. The result is checked the same way as an add: a label still on the issue afterwards fails with `tracker_payload_error`.
+
+Linear can let a label inside a single-select label group (any group not set to multi-select) replace the group's other label on the issue. When the plain add leaves such a label off the issue, the adapter removes the group's other labels from the issue and adds the label again, so the add ends with the label attached whether Linear replaced, rejected, or dropped the first try. A request that fails between that removal and the second add leaves the issue with neither label.
+
+[Stage labels](/reference/workflow-config/#dispatch) work on Linear through these writes. When a chain's stage labels share one single-select group, adding the next stage's label can displace the previous one, in which case the removal that follows finds nothing to do. If the second add fails after that removal, the hop is not made: the run ends on `tracker.handoff_state` and the issue carries no stage label from that group.
+
+Label creation is also gated by a team-level permission setting that some workspaces restrict to team owners; a credential that can otherwise read and write can still be refused there. Removing a label never creates one, so that setting does not affect removal. See [Linear's own documentation](https://linear.app/developers/graphql) for what that setting is currently called and how to change it.
 
 ---
 
@@ -218,7 +224,8 @@ Linear uses Relay-style cursor connections. Every connection exposes `pageInfo {
 | Property | Value |
 |---|---|
 | Page size (top-level connections) | 50 |
-| Page size (nested `labels`, `inverseRelations`) | 25, not paginated |
+| Page size (nested `labels`) | 25; labels past the first 25 are read in pages of 50 |
+| Page size (nested `inverseRelations`) | 25, not paginated |
 | Page cap (top-level connections) | 200 pages; the walk logs a WARN and returns the items accumulated so far rather than continuing past it |
 | Cursor | Opaque `endCursor` token, passed back verbatim. Never parsed or constructed. |
 

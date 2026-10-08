@@ -64,6 +64,7 @@ The run history table lists recently completed sessions. Each entry contains:
 | Field | Type | Description |
 |---|---|---|
 | `identifier` | string | Tracker-assigned issue identifier (e.g., `"PROJ-123"`). |
+| `display_id` | string | Qualified form of `identifier` for trackers where the identifier alone is ambiguous, such as `"owner/repo#9"`. The dashboard shows it in place of `identifier` when set. Empty when `identifier` is already display-ready. |
 | `attempt` | integer | One-based retry attempt number. |
 | `status` | string | Terminal outcome: `"succeeded"`, `"failed"`, `"cancelled"`, `"ci_failed"`, `"needs_person"`, or `"budget_stopped"`. `"budget_stopped"` is a session the per-issue token ceiling cancelled while it was still running; `error` then carries the token figures behind the stop. |
 | `workflow_file` | string | Path to the workflow definition used for this run. |
@@ -71,110 +72,11 @@ The run history table lists recently completed sessions. Each entry contains:
 | `completed_at` | string | Formatted completion timestamp. |
 | `error` | string or null | Error message when the run did not succeed. `null` when `status` is `"succeeded"`. |
 | `turns_completed` | integer | Number of agent turns completed before exit. |
-| `review_metadata` | object or null | Self-review outcome. `null` when self-review was not configured or did not run. |
-
-#### `review_metadata` structure
-
-When [self-review](/guides/configure-self-review/) is enabled and runs, `review_metadata` captures the full audit trail:
-
-| Field | Type | Description |
-|---|---|---|
-| `enabled` | boolean | `true` when self-review was configured and ran. |
-| `total_iterations` | integer | Number of review iterations completed. |
-| `final_verdict` | string | Last verdict: `"pass"`, `"iterate"`, or `"none"`. |
-| `cap_reached` | boolean | `true` when the iteration cap was reached without a `"pass"` verdict. |
-| `iterations` | array | Per-iteration records (see below). |
-
-Each element in `iterations`:
-
-| Field | Type | Description |
-|---|---|---|
-| `iteration` | integer | 1-based iteration number. |
-| `diff_size_bytes` | integer | Size of the diff in bytes before truncation. |
-| `diff_truncated` | boolean | `true` when the diff was truncated to `max_diff_bytes`. |
-| `verification_results` | array | Outcome of each verification command (see below). |
-| `verdict` | string | Parsed verdict from the agent: `"pass"`, `"iterate"`, or empty when unparseable. |
-| `verdict_raw` | string | Raw JSON content of the verdict file. Omitted when the file was absent. |
-| `verdict_parse_error` | string | Non-empty when the verdict file existed but could not be parsed, or when it was absent. Omitted otherwise. |
-
-Each element in `verification_results`:
-
-| Field | Type | Description |
-|---|---|---|
-| `command` | string | The shell command that was executed. |
-| `exit_code` | integer | Process exit code. `0` on success; `-1` when the command could not be started or timed out. |
-| `stdout` | string | Captured standard output, truncated to 65536 bytes. |
-| `stderr` | string | Captured standard error, truncated to 65536 bytes. |
-| `duration_ms` | integer | Wall-clock execution time in milliseconds. |
-| `timed_out` | boolean | `true` when the command exceeded the verification timeout. |
-| `execution_error` | string | Non-empty when the command could not be started (binary not found, permission denied). Omitted when the command ran, regardless of exit code. |
-
-Example `review_metadata` for a session that passed on the second iteration:
-
-```json
-{
-  "enabled": true,
-  "iterations": [
-    {
-      "iteration": 1,
-      "diff_size_bytes": 4520,
-      "diff_truncated": false,
-      "verification_results": [
-        {
-          "command": "go test ./...",
-          "exit_code": 1,
-          "stdout": "",
-          "stderr": "--- FAIL: TestExample (0.00s)",
-          "duration_ms": 3400,
-          "timed_out": false
-        },
-        {
-          "command": "go vet ./...",
-          "exit_code": 0,
-          "stdout": "",
-          "stderr": "",
-          "duration_ms": 820,
-          "timed_out": false
-        }
-      ],
-      "verdict": "iterate"
-    },
-    {
-      "iteration": 2,
-      "diff_size_bytes": 4800,
-      "diff_truncated": false,
-      "verification_results": [
-        {
-          "command": "go test ./...",
-          "exit_code": 0,
-          "stdout": "",
-          "stderr": "",
-          "duration_ms": 3100,
-          "timed_out": false
-        },
-        {
-          "command": "go vet ./...",
-          "exit_code": 0,
-          "stdout": "",
-          "stderr": "",
-          "duration_ms": 790,
-          "timed_out": false
-        }
-      ],
-      "verdict": "pass"
-    }
-  ],
-  "total_iterations": 2,
-  "final_verdict": "pass",
-  "cap_reached": false
-}
-```
-
-`review_metadata` is persisted as JSON in the `review_metadata` column of the `run_history` SQLite table. Query it directly when the dashboard view is insufficient:
-
-```sh
-sqlite3 .sortie.db "SELECT review_metadata FROM run_history WHERE review_metadata IS NOT NULL ORDER BY started_at DESC LIMIT 1" | python3 -m json.tool
-```
+| `rule_name` | string | [Dispatch rule](/reference/workflow-config/#dispatch) that routed the run. Empty when none did. |
+| `chain_id` | string | [Stage chain](/reference/workflow-config/#stage-chains) the run belongs to. Empty for a run recorded before stage chains existed. |
+| `stage_previous` | string | Rule whose [stage hop](/reference/state-machine/#stage-hop) led to the run. Empty when no hop did. |
+| `stage_target` | string | Rule the run's own hop decision targeted. Empty when the run's exit reached no hop decision. |
+| `stage_result` | string | Result of that hop decision: `"advanced"`, `"partial"`, `"failed"`, or `"ceiling"`. Empty when `stage_target` is. |
 
 #### Model and effort of a completed run
 

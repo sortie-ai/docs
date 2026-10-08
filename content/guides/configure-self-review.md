@@ -365,11 +365,110 @@ A healthy setup shows `sortie_self_review_sessions_total{final_verdict="pass"}` 
 
 ### Run history
 
-The `review_metadata` field in run history contains the full review audit trail: per-iteration diff size, verification results (exit codes, stdout, stderr), verdicts, and parse errors. It is not exposed over the status API; read it from the SQLite database directly:
+Each run that went through self-review stores the full review audit trail as JSON in the `review_metadata` column of the `run_history` table: per-iteration diff size, verification results (exit codes, stdout, stderr), verdicts, and parse errors. The column is `NULL` when self-review was not configured or did not run. The dashboard and the status API do not show it; read it from the SQLite database directly:
 
 ```bash
 sqlite3 .sortie.db "SELECT review_metadata FROM run_history WHERE review_metadata IS NOT NULL ORDER BY started_at DESC LIMIT 1" | python3 -m json.tool
 ```
+
+The stored object has these fields; in every text field, credentials Sortie knows about appear as `[redacted]` (see [secrets and credential handling](/concepts/security/#secrets-and-credential-handling)):
+
+| Field | Type | Description |
+|---|---|---|
+| `enabled` | boolean | `true` when self-review was configured and ran. |
+| `iterations` | array | Per-iteration records (see below). |
+| `total_iterations` | integer | Number of review iterations completed. |
+| `final_verdict` | string | Verdict of the last iteration: `"pass"` or `"iterate"`, or `"none"` when no iteration ran or the last one has no verdict. |
+| `cap_reached` | boolean | `true` when the iteration cap was reached without a `"pass"` verdict. |
+
+Each element in `iterations`:
+
+| Field | Type | Description |
+|---|---|---|
+| `iteration` | integer | 1-based iteration number. |
+| `diff_size_bytes` | integer | Size of the diff in bytes before truncation. |
+| `diff_truncated` | boolean | `true` when the diff was truncated to `max_diff_bytes`. |
+| `verification_results` | array | Outcome of each verification command (see below). |
+| `verdict` | string | Parsed verdict from the agent: `"pass"` or `"iterate"`. Empty when no verdict was read: the verdict file was missing, unparseable, or held another value, or the iteration stopped before reading it. |
+| `verdict_raw` | string | Raw content of the verdict file. Omitted when `verdict` is empty. |
+| `verdict_parse_error` | string | Why the iteration has no verdict or stopped early: the verdict file was missing, unreadable, unparseable, or held an unrecognized verdict; the review turn failed; the fix turn timed out; or the agent reported `blocked`. Omitted otherwise. |
+
+Each element in `verification_results`:
+
+| Field | Type | Description |
+|---|---|---|
+| `command` | string | The shell command that was executed. |
+| `exit_code` | integer | Process exit code. `0` on success; `-1` when the command could not be started, timed out, or did not exit normally. |
+| `stdout` | string | Captured standard output, truncated to 65536 bytes. |
+| `stderr` | string | Captured standard error, truncated to 65536 bytes. |
+| `duration_ms` | integer | Wall-clock execution time in milliseconds. |
+| `timed_out` | boolean | `true` when the command exceeded `verification_timeout_ms`. |
+| `execution_error` | string | Set when Sortie could not start the command or could not collect its exit status. Omitted when the command ran and exited, whatever its exit code. Commands run through `sh -c`, so a command that is not found shows up as a non-zero `exit_code` with the shell's message in `stderr`, not here. |
+
+Example `review_metadata` for a session that passed on the second iteration:
+
+```json
+{
+  "enabled": true,
+  "iterations": [
+    {
+      "iteration": 1,
+      "diff_size_bytes": 4520,
+      "diff_truncated": false,
+      "verification_results": [
+        {
+          "command": "go test ./...",
+          "exit_code": 1,
+          "stdout": "",
+          "stderr": "--- FAIL: TestExample (0.00s)",
+          "duration_ms": 3400,
+          "timed_out": false
+        },
+        {
+          "command": "go vet ./...",
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": "",
+          "duration_ms": 820,
+          "timed_out": false
+        }
+      ],
+      "verdict": "iterate",
+      "verdict_raw": "{\"verdict\": \"iterate\", \"summary\": \"TestExample fails\"}"
+    },
+    {
+      "iteration": 2,
+      "diff_size_bytes": 4800,
+      "diff_truncated": false,
+      "verification_results": [
+        {
+          "command": "go test ./...",
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": "",
+          "duration_ms": 3100,
+          "timed_out": false
+        },
+        {
+          "command": "go vet ./...",
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": "",
+          "duration_ms": 790,
+          "timed_out": false
+        }
+      ],
+      "verdict": "pass",
+      "verdict_raw": "{\"verdict\": \"pass\", \"summary\": \"All checks pass\"}"
+    }
+  ],
+  "total_iterations": 2,
+  "final_verdict": "pass",
+  "cap_reached": false
+}
+```
+
+[`sortie stats`](/reference/cli/#stats) aggregates this column across runs in its self-review section.
 
 ## Configuration reference
 
