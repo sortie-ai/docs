@@ -100,6 +100,64 @@ Per-rule template files are plain Go `text/template` bodies with no YAML front m
 
 Sortie rejects unsafe paths at load time: absolute paths, `~`-prefixed paths, and any path that resolves outside the WORKFLOW.md directory tree (including through symlinks). Keep templates under the workflow directory, for example in `./prompts/`.
 
+## Share text between rule templates
+
+`prompts/bug.md` and `prompts/docs.md` both print the issue description. To keep that text in one file, move it into a partial: a file of named blocks, each opened by `{{ define "name" }}` and closed by `{{ end }}`. Every template calls a block with `{{ template "name" . }}`. Put partials in a directory of their own, beside `prompts/`:
+
+```text
+WORKFLOW.md
+partials/shared.md
+prompts/bug.md
+prompts/docs.md
+```
+
+List the partials under `dispatch`. An entry is a path or a glob pattern, relative to the directory that holds WORKFLOW.md:
+
+```yaml
+dispatch:
+  partials:
+    - ./partials/*.md
+  rules:
+    # bug-fix and docs rules as above
+```
+
+`partials/shared.md` holds one block:
+
+```text
+{{ define "issue-context" }}{{ .issue.description }}
+
+Work only on this issue. Leave files it does not touch unchanged.{{ end }}
+```
+
+Replace the description line in each rule template with a call. `prompts/bug.md`:
+
+```text
+You are debugging {{ .issue.identifier }}: {{ .issue.title }}.
+
+{{ template "issue-context" . }}
+
+Reproduce the failure first, then fix the root cause. Add a regression test.
+```
+
+`prompts/docs.md`:
+
+```text
+You are writing documentation for {{ .issue.identifier }}: {{ .issue.title }}.
+
+{{ template "issue-context" . }}
+
+Match the surrounding style. Do not change code behavior.
+```
+
+Run `sortie validate WORKFLOW.md`. It exits `0` when both templates find the block. The WORKFLOW.md body and the default template can call `issue-context` the same way.
+
+Two mistakes are easy to make:
+
+- Pass `.` in the call. `{{ template "issue-context" }}` hands the block no data, so `validate` accepts it and the run fails when the template renders, with `nil data; no entry for key "issue"`.
+- Select only partial files. A pattern that also picks up a prompt template, such as `./*/*.md`, stops the workflow from loading, because a partial may hold nothing but blocks.
+
+Sortie does not watch partial files. An edit to one applies from the next poll tick. For the path rules, the order Sortie reads files in, and every other rule, see [Partials](/reference/workflow-config/#partials).
+
 ## Declare every agent kind a rule references
 
 When a rule's `agent` differs from the top-level `agent.kind`, give that kind its own configuration block in the front matter. The example above routes to `codex`, so it includes a `codex:` block. A routed session reads that block and no other, on every attempt of the session; the block named by `agent.kind` does not stand in for it. Leave the block out and both `sortie validate` and startup preflight refuse the workflow with a `dispatch.agent.missing_block` error. Add the block, even an empty one (`codex: {}`), to fix it.
@@ -457,6 +515,8 @@ sortie --dry-run WORKFLOW.md
 **A match key is ignored or rejected.** Unknown match keys are configuration errors, not warnings, so a typo like `lables:` fails `validate` instead of silently disabling the rule. Use only `labels`, `issue_type`, `priority`, `identifier`, `assignee`, and `title`.
 
 **A title rule never fires.** Check the quoting first: `title: [docs]` loads as the word `docs`, not the text `[docs]`. Then check that the phrase appears in the title as whole words. `fix` does not match `Fixes typo`, and `[infra]` does not match `Improve infra docs`, because punctuation in a phrase must appear in the title.
+
+**Validation rejects a shared block call.** A template calls a block that no listed partial defines, for example a misspelled name. The message names the template file and the line of the call, and reads `calls template "issue-contex", which is not defined`. Correct the name, or list the partial that defines the block under `dispatch.partials`. The same fault stops Sortie from starting, and a running Sortie keeps its last good configuration. See [startup and configuration errors](/reference/errors/#startup-and-configuration-errors).
 
 **Validation rejects a settings block.** The message names the rule and the field. A block must sit under the name of the kind the rule runs: its `agent`, else `dispatch.default.agent`, else `agent.kind`. Remove `command`, `kind`, and the timeout keys from it, give the rule a `name`, and write `{}` for an empty block.
 

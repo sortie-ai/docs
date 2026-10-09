@@ -291,8 +291,8 @@ The pipeline checks:
 - `db_path` is a string when present.
 - `agent.max_sessions` is non-negative.
 - `agent.turn_timeout_ms` is positive.
-- Go `text/template` syntax in the prompt body (strict mode: unknown variables and functions are errors).
-- Template static analysis: dot-context misuse inside `{{ range }}` / `{{ with }}`, unknown top-level variables, and unknown sub-fields of known variables (advisory warnings).
+- Go `text/template` syntax in the prompt body, the default template, every rule template, and the [partials](/reference/workflow-config/#partials) they share (strict mode: unknown variables and functions are errors). A call to a template that nothing defines is an error too, in a branch no issue takes as well.
+- Template static analysis, run on the prompt body, the default template, and every rule template (advisory warnings): dot-context misuse inside `{{ range }}` / `{{ with }}`, unknown top-level variables, unknown sub-fields of known variables, and shared blocks that no template calls. The analysis follows a call into a shared block, so a fault inside a partial is reported too.
 - `tracker.kind` is present and maps to a registered adapter.
 - `agent.kind` maps to a registered adapter. Defaults to `claude-code` when absent.
 - Fields required by the selected adapters: `tracker.api_key`, `tracker.project`, and `agent.command` for an agent kind that has no default command, such as `agent-client-protocol`.
@@ -315,9 +315,9 @@ The pipeline does **not** check:
 
 #### Advisory warnings
 
-Beyond the error-level checks above, `validate` runs static analysis on the front matter and the prompt template, checks the resolved configuration for likely-wrong patterns, and reports the advisories recorded while that configuration was built or loaded, emitting **warnings** in every case. Warnings do not block validity: `valid` remains `true` and the exit code is `0` when only warnings are present. Runtime behavior is unchanged; warnings surface patterns that the orchestrator would silently accept, that would produce unexpected output, or that it would otherwise only report through the run log.
+Beyond the error-level checks above, `validate` runs static analysis on the front matter and the prompt templates, checks the resolved configuration for likely-wrong patterns, and reports the advisories recorded while that configuration was built or loaded, emitting **warnings** in every case. Warnings do not block validity: `valid` remains `true` and the exit code is `0` when only warnings are present. Runtime behavior is unchanged; warnings surface patterns that the orchestrator would silently accept, that would produce unexpected output, or that it would otherwise only report through the run log.
 
-`validate` groups these warnings by what produced them: static analysis of the front matter, static analysis of the prompt template, checks on the resolved configuration, and advisories recorded while the configuration was built or loaded, plus adapter-specific warnings when the tracker adapter declares config validation (see [adapter-specific warning check values](#adapter-specific-warning-check-values)):
+`validate` groups these warnings by what produced them: static analysis of the front matter, static analysis of the prompt templates, checks on the resolved configuration, and advisories recorded while the configuration was built or loaded, plus adapter-specific warnings when the tracker adapter declares config validation (see [adapter-specific warning check values](#adapter-specific-warning-check-values)):
 
 **Front matter analysis:**
 
@@ -329,9 +329,12 @@ Beyond the error-level checks above, `validate` runs static analysis on the fron
 
 **Template static analysis:**
 
+Each template warning starts with the file and the line that hold the fault, in the form `<file> (line <n>): <message>`. The file is an absolute path. For the prompt body, the line counts from the top of `WORKFLOW.md`, front matter included. A fault inside a shared block is reported at its line in the partial, and the same fault reached from several templates is reported once. Dot-context, unknown-variable, and unknown-field warnings cover the body, the default template, and every rule template, and a call that passes the root data (`{{ template "name" . }}` outside a `{{ range }}` or `{{ with }}` body) carries the check into the shared block. A call that passes anything else does not. A template that fails to load produces the load error and no template warnings.
+
 - **Dot-context misuse** (`dot_context`). A reference to a top-level data key (such as `.issue`, `.run`, or `.stage`) inside a `{{ range }}` or `{{ with }}` block where the dot has been redefined. Almost always a bug. Use the `$` prefix (`$.issue.title`) to reach root data from inside these blocks.
 - **Unknown template variable** (`unknown_var`). A top-level variable reference not in the template data contract. For example, `{{ .config }}` or `{{ $.settings }}`. Valid top-level variables are `.issue`, `.attempt`, `.run`, `.stage`, and the variables reactions add, such as `.ci_failure`; the message lists them all.
 - **Unknown sub-field** (`unknown_field`). A sub-field of a known top-level variable that does not exist in the domain schema. For example, `{{ .run.foo }}` or `{{ .issue.nonexistent }}`. Also flags sub-field access on scalar variables like `{{ .attempt.something }}`.
+- **Unused shared block** (`unused_partial`). A `{{ define }}` block in a file listed under [`dispatch.partials`](/reference/workflow-config/#partials) that no prompt template calls, directly or through another block. The warning names the block and its line in the partial, and reads `template "<name>" is defined but no prompt template calls it`. One warning per block, in the order the partials load. Call the block from a template with `{{ template "<name>" . }}`, or delete it, to end the warning.
 
 **Configuration checks:**
 
@@ -347,8 +350,8 @@ Every check in this group runs for every agent kind the configuration can reach,
 **Recorded advisories:**
 
 - **Label-commands poll interval clamped** (`reactions.label_commands.poll_interval_ms.clamped`). [`reactions.label_commands.poll_interval_ms`](/reference/workflow-config/#reactionslabel_commands) is set below its floor of `30000`; the floor is used instead.
-- **Label-commands review branch missing** (`reactions.label_commands.review_branch_missing`). `reactions.label_commands` is active with a review label, but the prompt template has no `{{ if .label_review }}` branch, so a review dispatch posts no review.
-- **Label-commands fix branch missing** (`reactions.label_commands.fix_branch_missing`). `reactions.label_commands` is active with a fix label, but the prompt template has no `{{ if .label_fix }}` branch, so a fix dispatch runs the normal work prompt against a checkout that can push.
+- **Label-commands review branch missing** (`reactions.label_commands.review_branch_missing`). `reactions.label_commands` is active with a review label, but neither the prompt body nor a shared block it calls has a `{{ if .label_review }}` branch, so a review dispatch posts no review.
+- **Label-commands fix branch missing** (`reactions.label_commands.fix_branch_missing`). `reactions.label_commands` is active with a fix label, but neither the prompt body nor a shared block it calls has a `{{ if .label_fix }}` branch, so a fix dispatch runs the normal work prompt against a checkout that can push.
 - **Env file missing** (`env_file.missing`). The file named by [`--env-file`](#--env-file) or `SORTIE_ENV_FILE` does not exist; no values are read from it.
 - **Env override replaced a non-mapping section** (`env_override.section_replaced`). A [`SORTIE_*` override](/reference/environment/#configuration-overrides) targets a section that is not a YAML mapping; the section is replaced with one holding only the overridden settings.
 - **Deprecated agent kind** (`agent.kind.deprecated`). A reachable agent kind is registered as deprecated: it still runs unchanged, and the message names the kind that replaces it and says a later release removes it. One warning per deprecated kind, for every kind named by `agent.kind`, `dispatch.default.agent`, or a `dispatch.rules[i].agent`. Move the workflow to the replacement kind to end it.
@@ -394,10 +397,11 @@ Format: `{severity}: {check}: {message}`
 Warning-only output (exit `0`):
 
 ```
-warning: unknown_key: unknown top-level key "trackers"
-warning: dot_context: did you mean "$.issue.title" instead of ".issue.title"? Inside a {{ range }}/{{ with }} block (including arguments to nested range/with), dot refers to the current element, not root data
-warning: unknown_var: unknown template variable ".config"; valid top-level variables are: .issue, .attempt, .run, .stage, .ci_failure, .review_comments, .bot_review_comments, .merge_conflict, .label_review, .label_fix
-warning: unknown_field: unknown field ".run.foo"; known fields: is_continuation, max_turns, turn_number
+warning: unknown_key: trackers: unknown top-level key "trackers"
+warning: dot_context: /srv/sortie/WORKFLOW.md (line 24): did you mean "$.issue.identifier" instead of ".issue.identifier"? Inside a {{ range }}/{{ with }} block (including arguments to nested range/with), dot refers to the current element, not root data
+warning: unknown_var: /srv/sortie/partials/shared.md (line 1): unknown template variable ".config"; valid top-level variables are: .issue, .attempt, .run, .stage, .ci_failure, .review_comments, .bot_review_comments, .merge_conflict, .label_review, .label_fix
+warning: unknown_field: /srv/sortie/rules/bug.md (line 1): unknown field ".run.foo"; known fields: is_continuation, max_turns, turn_number
+warning: unused_partial: /srv/sortie/partials/shared.md (line 2): template "footer" is defined but no prompt template calls it
 ```
 
 When no errors and no warnings are present, nothing is written.
@@ -421,7 +425,7 @@ error: workflow_load: workflow file not found: /path/to/WORKFLOW.md: ...
 With warnings only:
 
 ```json
-{"valid":true,"errors":[],"warnings":[{"severity":"warning","check":"unknown_key","message":"unknown top-level key \"trackers\""}]}
+{"valid":true,"errors":[],"warnings":[{"severity":"warning","check":"unknown_key","message":"trackers: unknown top-level key \"trackers\""}]}
 ```
 
 The `errors` and `warnings` arrays are always present (never `null`). `valid` is `true` when `errors` is empty, regardless of warnings. Each diagnostic element has three fields:
@@ -447,7 +451,7 @@ The `check` field in JSON output and the prefix in text output use these values:
 |---|---|
 | `workflow_load` | Workflow file missing, unreadable, or unparseable YAML. |
 | `workflow_front_matter` | Front matter is not a YAML map. |
-| `config.<field>` | Configuration field type or value error (e.g., `config.polling.interval_ms`, `config.tracker.handoff_state`, `config.tracker.handoff_evidence`, `config.dispatch.rules[0].match.title`, `config.dispatch.rules[0].opencode`). |
+| `config.<field>` | Configuration field type or value error (e.g., `config.polling.interval_ms`, `config.tracker.handoff_state`, `config.tracker.handoff_evidence`, `config.dispatch.rules[0].match.title`, `config.dispatch.rules[0].opencode`, `config.dispatch.partials[0]`). |
 | `config.workspace.retention_days` | Workspace retention window is not an integer, is negative, or is non-zero but below the accepted minimum. |
 | `config.agent.turn_timeout_ms` | The per-turn timeout is not a positive integer. |
 | `reactions.review_comments` | Invalid `reactions.review_comments` block. |
@@ -458,7 +462,7 @@ The `check` field in JSON output and the prefix in text output use these values:
 | `reactions.scm_provider_conflict` | Two active SCM reactions name different providers. |
 | `scm_adapter` | The single provider named by the active SCM reactions has no registered SCM adapter. |
 | `ci_provider` | `reactions.ci_failure.provider` names a provider that has no CI status support registered. |
-| `template_parse` | Go template syntax error in the prompt body. |
+| `template_parse` | A template or partial that cannot load: a Go template syntax error in the prompt body, the default template, a rule template, or a partial; a define name that two files both define; text outside the `define` blocks of a partial; or a call to a template that nothing defines. The message names the file and line. |
 | `tracker.kind` | Missing `tracker.kind` field. |
 | `tracker.api_key` | Missing or empty API key after environment variable expansion. |
 | `tracker.project` | Missing `tracker.project` when required by the adapter. |
@@ -492,13 +496,14 @@ Warning diagnostics use a separate set of check values. They appear only in the 
 | `dot_context` | Reference to a top-level data key (such as `.issue`, `.run`, or `.stage`) inside a `{{ range }}` or `{{ with }}` block where dot is the current element, not root data. Use `$` prefix to fix. |
 | `unknown_var` | Top-level template variable not in the data contract. Valid variables: `.issue`, `.attempt`, `.run`, `.stage`, and the variables reactions add. |
 | `unknown_field` | Sub-field of a known top-level variable that does not exist in the domain schema (e.g., `.issue.nonexistent`, `.run.foo`). |
+| `unused_partial` | A `define` block in a [`dispatch.partials`](/reference/workflow-config/#partials) file that no prompt template calls. |
 | `agent.mcp_config` | An agent kind's pass-through block sets `mcp_config` for a kind whose adapter delivers the generated MCP configuration to the agent process in no form at all, so the value cannot reach the agent. |
 | `agent.kind.no_tool_channel` | The agent kind has no tool execution channel, so Sortie's tools are neither advertised in the first-turn prompt nor callable during the session. |
 | `agent.kind.no_usage_reporting` | `agent.max_tokens` is set against an agent kind that reports no token usage for the sessions this configuration produces, so the per-issue token ceiling has nothing to count against. |
 | `agent.kind.no_cost_estimate` | `token_rates` prices an agent kind that reports no token usage for the sessions this configuration produces, so no cost can be estimated for it. |
 | `reactions.label_commands.poll_interval_ms.clamped` | `reactions.label_commands.poll_interval_ms` is set below its floor of `30000`; the floor is used instead. |
-| `reactions.label_commands.review_branch_missing` | `reactions.label_commands` is active with a review label, but the prompt template has no `{{ if .label_review }}` branch, so a review dispatch posts no review. |
-| `reactions.label_commands.fix_branch_missing` | `reactions.label_commands` is active with a fix label, but the prompt template has no `{{ if .label_fix }}` branch, so a fix dispatch runs the normal work prompt against a checkout that can push. |
+| `reactions.label_commands.review_branch_missing` | `reactions.label_commands` is active with a review label, but neither the prompt body nor a shared block it calls has a `{{ if .label_review }}` branch, so a review dispatch posts no review. |
+| `reactions.label_commands.fix_branch_missing` | `reactions.label_commands` is active with a fix label, but neither the prompt body nor a shared block it calls has a `{{ if .label_fix }}` branch, so a fix dispatch runs the normal work prompt against a checkout that can push. |
 | `env_file.missing` | The file named by [`--env-file`](#--env-file) or `SORTIE_ENV_FILE` does not exist; no values are read from it. |
 | `env_override.section_replaced` | A `SORTIE_*` override targets a section that is not a YAML mapping; the section is replaced with one holding only the overridden settings. |
 | `agent.kind.deprecated` | A reachable agent kind is deprecated: it still runs, and the message names its replacement. |

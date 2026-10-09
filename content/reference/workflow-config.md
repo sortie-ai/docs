@@ -78,6 +78,8 @@ agent:
 
 # --- Dispatch (rule-based routing; optional) ----------------------
 dispatch:
+  partials:                             # files of shared define blocks
+    - ./prompts/partials/*.md           # path or glob, relative to WORKFLOW.md
   rules:                                # Stage labels first, then first match in order
     - name: bug-fix                     # ^[a-z][a-z0-9_-]*$; logs/metric
       match:
@@ -581,13 +583,14 @@ Agents can read the remaining token budget mid-session through the `cost_budget`
 
 Routing for the dispatch of each issue. Rules select an agent kind, a prompt template, and that kind's settings from the issue's tracker metadata, evaluated first-match-wins in declaration order. A rule can instead be selected by a stage label on the issue, and a rule can name the rule that a successful run moves the issue to, so rules form a [stage chain](#stage-chains). When the `dispatch` block is absent, every issue dispatches with the top-level `agent.kind`, the WORKFLOW.md body template, and the top-level settings block of that kind. The block is additive and changes no default.
 
-The block accepts three keys:
+The block accepts four keys:
 
 | Field     | Type | Default     | Description                                                                 |
 | --------- | ---- | ----------- | --------------------------------------------------------------------------- |
 | `rules`   | list | _(absent)_  | Dispatch rules. A rule with `stage` is selected by its label first; the other rules are evaluated first-match-wins in YAML declaration order. See [Resolution and fallback](#resolution-and-fallback). |
 | `max_consecutive_hops` | integer | the larger of `10` and the hops in the longest chain | Per-issue ceiling on consecutive automatic stage hops. Must be greater than `0` and at least the number of hops in the longest chain, which is that chain's rule count minus one. No upper bound. Absent or null takes the default. See [Stage chains](#stage-chains). |
 | `default` | map  | _(absent)_  | Fallback selection applied when no rule matches. Keys: `agent`, `template`. It carries no settings block: a key that names an agent kind fails the load, because the top-level block of each kind holds the default settings. |
+| `partials` | list of strings | _(absent)_ | Files, or glob patterns that select files, whose `define` blocks every prompt template of the workflow can call. Entries resolve relative to the WORKFLOW.md directory. Absent, `null`, and `[]` select nothing. See [Partials](#partials). |
 
 Each entry in `rules` accepts:
 
@@ -757,6 +760,9 @@ Errors fail the load, so `sortie validate` exits non-zero and Sortie does not st
 - A rule's settings block is not a mapping, or writes one of the keys listed above that Sortie derives from `agent`.
 - A rule carries a settings block and has no `name`, or is named `default`, the name run history gives the `dispatch.default` selection.
 - A referenced template is missing, unreadable, contains front matter, or fails to parse.
+- `dispatch.partials` is not a list; an entry is not text, is empty or only white space, is absolute or `~`-prefixed, or leaves the WORKFLOW.md directory tree; a pattern is malformed or matches no file; an entry without a pattern character names a missing file; a selected file resolves outside the tree through a symlink or is not a regular file. The check is reported under `config.dispatch.partials`, with `[<i>]` appended for an entry.
+- A partial is unreadable, carries front matter, has a syntax error, holds text or an action outside a `define` block, defines the name `prompt`, or defines a name that another partial defines. The message names the partial file, and the line where one applies.
+- A prompt template defines a name that a partial also defines, or calls a name that none of its partials and the template itself define, in any branch of an `{{ if }}`, `{{ range }}`, or `{{ with }}`. The message names the file and the line of the fault.
 - A `stage`, `next`, or `dispatch.max_consecutive_hops` fault from the table below.
 
 Each stage chain error reads `config: <field>: <message>`:
@@ -800,6 +806,62 @@ Per-rule `template` paths resolve relative to the directory containing WORKFLOW.
 - Paths that resolve outside the WORKFLOW.md directory tree, including through symlinks or `..` traversal.
 - Files that begin with `---`, since front matter is not permitted in per-rule templates.
 
+Entries of [`dispatch.partials`](#partials) follow these path rules too.
+
+### Partials
+
+`dispatch.partials` lists the files that hold the `define` blocks prompt templates share. The prompt templates of a workflow are the body of WORKFLOW.md, the `dispatch.default.template` file, and each rule `template` file. Each of them calls a shared block with `{{ template "name" . }}`; the syntax is under [Define blocks and calls](#define-blocks-and-calls). A block that a template defines itself is visible to that template only.
+
+| Field      | Type            | Default    | Description |
+| ---------- | --------------- | ---------- | ----------- |
+| `partials` | list of strings | _(absent)_ | Paths or glob patterns, relative to the WORKFLOW.md directory. Absent, `null`, and `[]` select nothing. |
+
+- **Paths.** An entry follows the rules of [Template paths](#template-paths): an absolute entry, a `~`-prefixed entry, and an entry that leaves the WORKFLOW.md directory tree fail the load. `$VAR` is not expanded. A selected file that resolves outside the tree through a symlink fails the load, and so does a selected file that is not a regular file, a directory included. An entry that is not text, or is empty or only white space, fails the load.
+- **Patterns.** An entry that contains `*`, `?`, `[`, or `\` is a glob pattern and selects every matching file in lexical order; any other entry names one file. Only the entry takes part in the match, so a glob character in the path of the WORKFLOW.md directory changes nothing. `*` and `?` match within one path element and never `/`. `**` has no recursive meaning and matches as `*` does: `partials/**/*.md` selects the `.md` files exactly one directory below `partials`, and none directly in it. Write `/` between path elements on every OS. On Windows `\` also separates path elements; elsewhere it escapes the next character.
+- **Dot files.** A pattern skips a matched file whose name starts with `.`, such as an editor lock file named `.#shared.md`, unless the last element of the entry starts with `.`. An entry that names a file in full always selects it.
+- **No match.** A pattern that matches no file fails the load with `matches no file`, and a malformed pattern with `malformed glob pattern`. An entry without a pattern character that names a missing file fails with the cause the filesystem reports.
+- **Order.** Files load in list order, and in lexical order within one pattern. A file that several entries select loads once, at its first position. Every block of every partial is visible to every prompt template whatever the order; the order decides only which of two files that define one name the error names as the earlier definition.
+- **Content.** A partial carries no front matter. It holds `define` blocks only: white space and comments may stand outside them, and any other text or action outside a block fails the load, a `{{ block }}` action included, because the text of a partial is never rendered by itself. A block may call any block visible to the template that reaches it, including a block that only that template defines. A call that no block answers is reported at its line in the partial and ends with `, reached from <template file>`.
+- **Names.** A name has one source in each template: a partial or the template itself, never two files. Two partials that define one name fail the load with `template "<name>" is already defined in <file>`, reported in the later file and naming the earlier one. A prompt template that defines a name a partial defines fails the same way, in the template; `{{ block }}` defines its name as `{{ define }}` does, so it cannot override a partial. The name `prompt` is reserved and fails with `template name "prompt" is reserved for the prompt template`. Two prompt templates may define the same name, because each compiles with the partials and with its own blocks only.
+
+```yaml
+dispatch:
+  partials:
+    - ./partials/*.md
+  rules:
+    - name: bug
+      match:
+        labels: ["bug"]
+      template: ./prompts/bug.md
+    - name: feature
+      match:
+        labels: ["feature"]
+      template: ./prompts/feature.md
+```
+
+`partials/checklist.md` defines `checklist`, which calls `verify_step`. The partial does not define `verify_step`; each rule template does:
+
+```text
+{{ define "checklist" -}}
+Before you finish:
+{{ template "verify_step" . }}
+- Summarize the change to {{ .issue.identifier }}.
+{{- end }}
+```
+
+`prompts/bug.md`:
+
+```text
+{{ define "verify_step" }}- Add a regression test that fails without the fix.{{ end -}}
+Fix {{ .issue.identifier }}: {{ .issue.title }}
+
+{{ template "checklist" . }}
+```
+
+`prompts/feature.md` is the same with `Build` and its own `verify_step`. The WORKFLOW.md body of this workflow does not call `checklist`; a body that did would need its own `verify_step` too.
+
+For the load and reload behavior of partial files, see [Freeze and reload](#freeze-and-reload); for the error each fault draws, see [Validation](#validation) and [startup and configuration errors](/reference/errors/#startup-and-configuration-errors). `sortie validate` also warns about a block that no template calls; see [advisory warnings](/reference/cli/#advisory-warnings).
+
 ### Freeze and reload
 
 An issue keeps its agent kind, template, and rule until its claim is released. What the selection contains is read from WORKFLOW.md at the start of every attempt: the first dispatch, each retry, and each reaction continuation. That covers the settings block (the rule's block laid over the top-level block of the kind, as in [Rule settings blocks](#rule-settings-blocks)), the template text, and the `agent.*` timeouts. A change to a settings block, in a rule or at the top level, therefore applies from the next attempt without a restart, including for a claim that is already held. A running session never changes settings.
@@ -814,7 +876,7 @@ The rule set reloads with WORKFLOW.md changes and applies to future claims only.
 
 `next`, its target's `stage`, and `dispatch.max_consecutive_hops` are read from the configuration in force when the worker exits, not frozen at dispatch. A reload that adds `next` to the rule an issue is running on makes its successful exit hop; one that removes that `next`, removes the rule it names, or removes the named rule's `stage` makes the exit take the handoff write. A hop releases the claim, so the next stage always starts on a new claim and a selection resolved against the configuration in force then. The [`.stage`](#stage) data is part of the selection: a retry or reaction continuation that keeps its rule renders the same `.stage.previous` and `.stage.previous_outcome`, also after a restart, while `.stage.current` is read at each dispatch. A retry that is routed again uses the same three selection steps as a poll tick, stage labels included.
 
-A waiting retry keeps its recorded selection too, as long as the configuration still reaches its agent kind and still holds its template, whether or not the rule still matches the issue. When either is gone, for example after `agent.kind` moved to another kind or a rule's template file was renamed, the retry is routed again by the current rules when its timer fires and starts a new session instead of resuming the earlier one. Sortie logs one `Info` record, `retry dispatching on the selection the configuration in force gives it`, when a retry dispatches on a different selection. A retry whose agent kind has no adapter, because that adapter failed to start with Sortie, is rescheduled with backoff and keeps its claim until Sortie restarts. Per-rule template files are read at WORKFLOW.md load and on every reload; a standalone edit to a per-rule template file applies on the next WORKFLOW.md change or the next dispatch, whichever comes first.
+A waiting retry keeps its recorded selection too, as long as the configuration still reaches its agent kind and still holds its template, whether or not the rule still matches the issue. When either is gone, for example after `agent.kind` moved to another kind or a rule's template file was renamed, the retry is routed again by the current rules when its timer fires and starts a new session instead of resuming the earlier one. Sortie logs one `Info` record, `retry dispatching on the selection the configuration in force gives it`, when a retry dispatches on a different selection. A retry whose agent kind has no adapter, because that adapter failed to start with Sortie, is rescheduled with backoff and keeps its claim until Sortie restarts. Per-rule template files are read at WORKFLOW.md load and on every reload; a standalone edit to a per-rule template file applies on the next WORKFLOW.md change or the next dispatch, whichever comes first. [Partial files](#partials) are read the same way, and the file watcher does not watch them: an edit to a partial alone applies at the next poll tick, when its defensive reload re-reads every partial, or at once when WORKFLOW.md is touched. Every template compiles together with the partials of one load, so an edited block reaches an attempt through the template, as an edited rule template does.
 
 A reload that moves `agent.kind` or `dispatch.default.agent` while a rule without its own `agent` carries a block for the old kind is rejected as a validation error, because the rule would run another kind than its block names. Sortie keeps the last good configuration. Fix the block or give the rule an `agent`, and the next reload applies.
 
@@ -1760,6 +1822,24 @@ Every action, control structure, and comparison function of Go's [`text/template
 > [!NOTE]
 > Inside `{{ range }}`, the dot (`.`) rebinds to the current element. Use `{{ $.issue.identifier }}` to access top-level variables from within a range block. `sortie validate` detects references to `.issue`, `.attempt`, or `.run` inside `{{ range }}` and `{{ with }}` blocks and emits a `dot_context` warning.
 
+### Define blocks and calls
+
+Three actions name a piece of template text and reuse it.
+
+| Action | Effect |
+| ------ | ------ |
+| `{{ define "name" }}...{{ end }}` | Defines the block `name`. Renders nothing where it stands. |
+| `{{ template "name" . }}` | Renders the block `name`. The last argument becomes the block's dot. |
+| `{{ block "name" . }}...{{ end }}` | Defines `name` as `define` does and renders it in place with the argument. Allowed in a prompt template, not in a [partial](#partials). |
+
+A name is a string literal; a call cannot compute it, and a file is not callable by its name. A prompt template calls the blocks it defines itself and the blocks of every file listed under [`dispatch.partials`](#partials).
+
+A call passes `.` so the block receives the data the template received: `{{ template "name" . }}`. A call without an argument, `{{ template "name" }}`, passes nothing, and a block that reads `.issue` then fails the render with `nil data; no entry for key "issue"`. Inside a block, `.` and `$` are the value the call passed. A call outside every `{{ range }}` and `{{ with }}` body passes the whole data map, so `.issue.identifier` and `$.issue.identifier` both work in the block. Inside such a body `.` is the current element; pass `$` to hand over the whole data map: `{{ template "name" $ }}`.
+
+A call to a name that nothing defines fails the load of the workflow, not the run that reaches the call. The rule holds for the WORKFLOW.md body and for every rule and default template, in a workflow with no `dispatch.partials`, and in a branch of an `{{ if }}`, `{{ range }}`, or `{{ with }}` that no issue takes.
+
+A template error names the file that holds the fault and the line in that file: `template parse error in <file> (line <n>): <cause>`, or `template render error in <file> (line <n>): <cause>`. A line in the WORKFLOW.md body counts from the top of WORKFLOW.md, front matter included. A line in a rule template, a `dispatch.default` template, or a partial counts from the top of that file, and a fault inside a block is located in the file that holds the block, not in the file that called it. When Sortie cannot determine the line, `(line <n>)` is left out.
+
 ---
 
 ## Dynamic reload
@@ -1788,6 +1868,7 @@ Sortie watches `WORKFLOW.md` for filesystem changes and re-applies configuration
 | `dispatch.rules`, `dispatch.default`   | Future claims. In-flight issues keep the agent and template frozen at first dispatch. A waiting retry keeps its recorded selection unless the configuration no longer reaches its kind or holds its template; see [Freeze and reload](#freeze-and-reload). A rule's settings block applies from the next attempt, like the top-level block of its kind. A rule's `next` and its target's `stage` are read when the worker exits; see [Stage chains](#stage-chains). |
 | `dispatch.max_consecutive_hops`       | The next worker exit that reaches a hop decision. |
 | Per-rule `dispatch` template files     | Read on WORKFLOW.md load and reload; a standalone edit applies on the next WORKFLOW.md change or dispatch. |
+| `dispatch.partials` and the partial files | Read again on every load and reload, and not watched. An edit to a partial file alone applies at the next poll tick, or at once when WORKFLOW.md is touched. See [Freeze and reload](#freeze-and-reload). |
 | `reactions.ci_failure.max_retries`, `reactions.ci_failure.escalation`, `reactions.ci_failure.escalation_label` | Next reconcile tick. |
 | `reactions.ci_failure.provider`, `reactions.ci_failure.max_log_lines` | Requires restart. The CI provider is built once at startup with its log limit, so a reload neither swaps the provider nor turns CI feedback on or off. The reload is not refused; the running provider stays in use. |
 | `reactions.ci_failure.watch_window_ms` | Next reconcile tick.                   |
