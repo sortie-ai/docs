@@ -460,7 +460,7 @@ When a hook's shell exits, whatever its exit status, Sortie terminates every pro
 
 Prefer a supervisor that owns the service across runs, such as `docker compose up -d` on Linux and macOS, which recreates a service's containers only when its configuration or image changed, or a service manager. A hook whose next step uses the service should wait until the service accepts connections, since these start commands can return before it does.
 
-On Windows, a hook whose Job Object could not be created or assigned still runs, with the failure logged, and that teardown then reaches only the shell itself. When a hook that exits on its own leaves a process running that it did not start through one of the routes above, Sortie logs one INFO record, `leftover processes terminated after the command exited`, carrying `hook` and `workspace`; a termination that still cannot confirm the group or job empty once the 2-second bound elapses is logged as a warning instead.
+On Windows, a hook whose Job Object could not be created or assigned still runs, with the failure logged, and that teardown then reaches only the shell itself. Without a Job Object, Sortie checks after the shell exits for processes descended from it that are still running, and logs the WARN record `subprocess tree did not settle` when it finds one or cannot check one; its `survivors` and `unexamined` attributes list them. When a hook that exits on its own leaves a process running that it did not start through one of the routes above, Sortie logs one INFO record, `leftover processes terminated after the command exited`, carrying `hook` and `workspace`. A termination that still cannot confirm the group or job empty once the 2-second bound elapses logs the WARN record `subprocess group termination failed after the launch returned`. Neither WARN record carries `hook` or `workspace`: they name the launch by `command`, the shell's executable name. On Windows, a Job Object member that Sortie cannot open or query counts as still running, not as gone, so the termination keeps resending until that bound elapses.
 
 For the practical walkthrough, see [how to set up workspace hooks: start a service that outlives a hook](/guides/setup-workspace-hooks/#start-a-service-that-outlives-a-hook).
 
@@ -921,7 +921,7 @@ Each iteration runs one review turn. Non-final iterations that produce an “ite
 
 ### Verification command process lifetime
 
-Each verification command's process group (its Job Object on Windows) is torn down the same way a hook's is: see [hook process lifetime](#hook-process-lifetime) for the resend, the 2-second bound, and the Windows fallback when a Job Object could not be created or assigned. Two things differ here: the command's own exit status, not its timeout or its output, decides whether it passed, and the INFO and WARN records this produces carry `command` in place of `hook` and `workspace`.
+Each verification command's process group (its Job Object on Windows) is torn down the same way a hook's is: see [hook process lifetime](#hook-process-lifetime) for the resend, the 2-second bound, and the Windows fallback when a Job Object could not be created or assigned. Two things differ here: the command's own exit status, not its timeout or its output, decides whether it passed, and the INFO record this produces carries `command`, the configured command, in place of `hook` and `workspace`, while the WARN records name the launch by `command` as the shell's executable name.
 
 ### Dynamic reload
 
