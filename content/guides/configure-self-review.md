@@ -402,7 +402,7 @@ Each element in `verification_results`:
 | `stdout` | string | Captured standard output, truncated to 65536 bytes. |
 | `stderr` | string | Captured standard error, truncated to 65536 bytes. |
 | `duration_ms` | integer | Wall-clock execution time in milliseconds. |
-| `timed_out` | boolean | `true` when the command exceeded `verification_timeout_ms`. |
+| `timed_out` | boolean | `true` when the command exceeded `verification_timeout_ms`, including when the timeout passed before the command's process started. |
 | `execution_error` | string | Set when Sortie could not start the command or could not collect its exit status. Omitted when the command ran and exited, whatever its exit code. Commands run through `sh -c`, so a command that is not found shows up as a non-zero `exit_code` with the shell's message in `stderr`, not here. |
 
 Example `review_metadata` for a session that passed on the second iteration:

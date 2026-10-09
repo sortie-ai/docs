@@ -27,6 +27,7 @@ Session start runs the configured command with `--version`, bounded the same way
 | Condition | Error kind | Message |
 |---|---|---|
 | The version query could not be started | `response_error` | `could not start the agent runtime to read its version` |
+| Session start's own context ended before the query's process started running | `turn_cancelled` | `session start cancelled` |
 | Session start's own context ended before the query finished | `response_error` | `the session start ended while the agent runtime was reporting its version` |
 | The version query did not finish within its bound | `response_timeout` | `the agent runtime did not report its version within <N> ms` |
 | The command exited unexpectedly | `port_exit` | An SSH connection failure on a remote launch, otherwise the [early exit report](/reference/errors/#early-exit-report) |
@@ -264,7 +265,7 @@ Safe to call when no subprocess is active.
 
 ## Process shutdown
 
-Before start, the subprocess is isolated in its own process group. A graceful process-group signal is armed for cancellation, bounded by `stop_grace_ms`. On Unix, graceful shutdown is `SIGTERM` and force kill is `SIGKILL` to the process group. On Windows, graceful shutdown is `CTRL_BREAK_EVENT` to the process group, and the subprocess is assigned to a Job Object with `KILL_ON_JOB_CLOSE` so force termination kills the full descendant tree. The subprocess starts suspended and is resumed only after that assignment succeeds, so nothing it spawns can run before the job takes effect; this covers the auxiliary launches described below, not only turns. A failed assignment logs WARN `process group assignment failed` and the launch runs without a job; a failed resume logs WARN `process resume failed` and reports `response_error`, unless the turn's cancellation had already begun, in which case the turn ends as `turn_cancelled`.
+Before start, the subprocess is isolated in its own process group. A graceful process-group signal is armed for cancellation, bounded by `stop_grace_ms`. On Unix, graceful shutdown is `SIGTERM` and force kill is `SIGKILL` to the process group. On Windows, graceful shutdown is `CTRL_BREAK_EVENT` to the process group, and the subprocess is assigned to a Job Object with `KILL_ON_JOB_CLOSE` so force termination kills the full descendant tree. The subprocess starts suspended and is resumed only after that assignment succeeds, so nothing it spawns can run before the job takes effect; this covers the auxiliary launches described below, not only turns. A failed assignment logs WARN `process group assignment failed` and the launch runs without a job; a failed resume logs WARN `process resume failed` and reports `response_error`. A launch whose context is already done when the resume is reached, by cancellation or by its deadline, is never resumed: Sortie terminates the subprocess before it runs and logs no resume warning. A turn ends this way as `turn_cancelled`.
 
 Shutdown is turn-scoped, not session-scoped. Session stop performs an explicit graceful-to-force sequence. Turn cancellation is stricter: when the turn is cancelled, the graceful signal fires immediately, and the adapter's cancellation path also force-kills the process group during teardown if the process is still alive. After the subprocess exits, the adapter performs a best-effort group kill to clean up surviving children.
 

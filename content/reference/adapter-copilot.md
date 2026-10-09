@@ -133,7 +133,7 @@ Validates the workspace path, resolves the agent binary, runs a canary check, an
 
 1. Validates that the workspace path is a non-empty absolute path pointing to an existing directory.
 2. Resolves the `command` from `PATH`. In SSH mode, resolves the local `ssh` binary instead; the agent command resolves on the remote host.
-3. **Canary check (local mode only):** runs `copilot --version` with a 5-second timeout. Any non-zero exit or timeout fails the session with `agent_not_found`; the adapter does not read the version it printed, so this check confirms only that a working binary is present, not that it is new enough for `--session-id` (see [session identity](#session-identity)) or that any credential works.
+3. **Canary check (local mode only):** runs `copilot --version` with a 5-second timeout. Any non-zero exit or timeout fails the session with `agent_not_found`, except that a session whose own context ends before the canary process starts running ends as `turn_cancelled`; the adapter does not read the version it printed, so this check confirms only that a working binary is present, not that it is new enough for `--session-id` (see [session identity](#session-identity)) or that any credential works.
 4. Mints a fresh v4 UUID as the session identifier, unless a session ID saved from a previous run was supplied for a continuation session, in which case that value is used instead.
 5. The session then records the workspace path, resolved binary, session ID, and SSH configuration for later turns to use.
 
@@ -147,6 +147,7 @@ No credential check runs here. Whether the environment or an authenticated `gh` 
 | Workspace path is not a directory | `invalid_workspace_cwd` |
 | Agent binary not found in `PATH` | `agent_not_found` |
 | Canary `copilot --version` timed out or exited non-zero | `agent_not_found` |
+| Session start's own context ended before the canary process started running | `turn_cancelled` |
 | Session identifier could not be generated (the system's random source is unavailable) | `agent_not_found` |
 | SSH binary not found (SSH mode) | `agent_not_found` |
 
@@ -180,7 +181,7 @@ Terminates a running subprocess. Safe to call when no subprocess is active.
 
 By default, stopping a running subprocess sends an immediate kill signal, giving the agent process no chance to flush output buffers, close network connections, or emit final token-usage events. Sortie overrides that default: it sends a graceful shutdown signal instead (POSIX: `SIGTERM`; Windows: `CTRL_BREAK_EVENT` via the process group) and waits up to `stop_grace_ms` before force-killing the process (POSIX: `SIGKILL`; Windows: `TerminateJobObject`). This applies whenever Sortie stops the subprocess, whether the orchestrator initiated it (a reconciliation kill, stall detection, or a turn timeout) or Sortie itself received a shutdown signal.
 
-On all platforms, the subprocess runs in its own process group. On Windows, it is additionally assigned to a Job Object with `KILL_ON_JOB_CLOSE`, so the entire process tree (including MCP servers and other children) is terminated on shutdown or if Sortie crashes. The subprocess starts suspended and is resumed only after that assignment succeeds, so nothing it spawns can run before the job takes effect. This covers every subprocess the adapter launches on Windows, not only turns: the `copilot --version` canary starts suspended too. A failed assignment logs WARN `process group assignment failed`; a failed resume logs WARN `process resume failed` and fails whichever launch it was, reporting `agent_not_found` for the canary and `port_exit` for a turn, unless the turn's cancellation had already begun, in which case the turn ends as `turn_cancelled`.
+On all platforms, the subprocess runs in its own process group. On Windows, it is additionally assigned to a Job Object with `KILL_ON_JOB_CLOSE`, so the entire process tree (including MCP servers and other children) is terminated on shutdown or if Sortie crashes. The subprocess starts suspended and is resumed only after that assignment succeeds, so nothing it spawns can run before the job takes effect. This covers every subprocess the adapter launches on Windows, not only turns: the `copilot --version` canary starts suspended too. A failed assignment logs WARN `process group assignment failed`; a failed resume logs WARN `process resume failed` and fails whichever launch it was, reporting `agent_not_found` for the canary and `port_exit` for a turn. A launch whose context is already done when the resume is reached, by cancellation or by its deadline, is never resumed: Sortie terminates the subprocess before it runs and logs no resume warning. A turn ends this way as `turn_cancelled`, and so does a session start whose own context ended during the canary; a canary cut off by its own 5-second limit still reports `agent_not_found`.
 
 Session stop follows the same shape: it sends the graceful signal, waits up to `stop_grace_ms`, and force-kills the process group if the wait elapses. If the stop request is itself interrupted before the grace period elapses, the process group is still force-killed and the interruption is reported as the error.
 
