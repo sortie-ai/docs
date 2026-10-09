@@ -29,8 +29,6 @@ reactions:
 
 There is no `enabled` flag. Presence of `provider` activates the feature; absence disables it.
 
-A WORKFLOW.md that still has a top-level `ci_feedback` block, even an empty one, is refused: Sortie does not start and `sortie validate` reports an error. Move the block under `reactions` as `ci_failure` and rename `kind` to `provider`; the other settings keep their names. If `reactions.ci_failure` is already set, delete `ci_feedback` and do not copy its values across. A running Sortie that reloads such a file keeps its previous settings until you fix it.
-
 Once activated, Sortie hooks into the worker exit path. After each normal worker exit where the agent pushed code and the workspace's `.sortie/scm.json` carries a pull request number, an owner, a repository, and a branch, the orchestrator records a pending CI watch for that pull request. On each reconcile tick, it resolves the pull request's current head and polls CI status for that head. Three common outcomes:
 
 - **Passing.** CI is green. The CI-fix attempt counter resets to zero, and Sortie keeps watching that pull request, so a commit pushed afterward is still observed.

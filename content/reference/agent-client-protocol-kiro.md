@@ -6,7 +6,7 @@ date: 2026-09-09
 weight: 147
 url: /reference/agent-client-protocol-kiro/
 ---
-[Kiro CLI](https://kiro.dev/docs/cli/) runs under Sortie in ACP mode: the generic [`agent-client-protocol`](/reference/adapter-agent-client-protocol/) kind, where `agent.command` names the `kiro-cli` binary together with `acp`, the subcommand that puts it into protocol mode. To connect Kiro CLI step by step, or to update a configuration that still names `kind: kiro`, see [how to run Kiro CLI in ACP mode](/guides/run-kiro-cli-in-acp-mode/).
+[Kiro CLI](https://kiro.dev/docs/cli/) runs under Sortie in ACP mode: the generic [`agent-client-protocol`](/reference/adapter-agent-client-protocol/) kind, where `agent.command` names the `kiro-cli` binary together with `acp`, the subcommand that puts it into protocol mode. To connect Kiro CLI step by step, see [how to run Kiro CLI in ACP mode](/guides/run-kiro-cli-in-acp-mode/).
 
 Sample workflow: [`examples/WORKFLOW.agent-client-protocol.kiro.md`](https://github.com/sortie-ai/sortie/blob/main/examples/WORKFLOW.agent-client-protocol.kiro.md).
 
@@ -94,7 +94,7 @@ Every measurement behind this page's claims was taken on a non-Windows host. Whe
 ## Related pages
 
 - [Agent Client Protocol adapter reference](/reference/adapter-agent-client-protocol/): the runtime-neutral transport this page assumes
-- [How to run Kiro CLI in ACP mode](/guides/run-kiro-cli-in-acp-mode/): connecting Kiro CLI, choosing the login, and updating an older configuration
+- [How to run Kiro CLI in ACP mode](/guides/run-kiro-cli-in-acp-mode/): connecting Kiro CLI, choosing the login, reaching remote workers over SSH, and verifying the first run
 - [Gemini CLI on the Agent Client Protocol](/reference/agent-client-protocol-gemini/): a second runtime on the same route, with a different credential trade-off
 - [WORKFLOW.md configuration reference](/reference/workflow-config/): full `agent` schema
 - [Environment variables reference](/reference/environment/): how a runtime's own credential reaches its subprocess
