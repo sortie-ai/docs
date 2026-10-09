@@ -19,13 +19,11 @@ The Linux and macOS archives, the Docker image, and any binary built with `go in
 
 | Role | Members | What the role does |
 |---|---|---|
-| Committers | Serghei Iakovlev ([@sergeyklay](https://github.com/sergeyklay), [@serghei-dev](https://github.com/serghei-dev)) | Hold admin access to the repository and change the source without further review. |
+| Committers | Serghei Iakovlev ([@sergeyklay](https://github.com/sergeyklay), [@serghei-dev](https://github.com/serghei-dev)) | Maintain the repository and merge changes into `main`. |
 | Reviewers | Serghei Iakovlev ([@sergeyklay](https://github.com/sergeyklay), [@serghei-dev](https://github.com/serghei-dev)) | Default code owners in [`CODEOWNERS`](https://github.com/sortie-ai/sortie/blob/main/.github/CODEOWNERS). A change from anyone else reaches `main` only through a pull request with an approving code-owner review. |
 | Approvers | Serghei Iakovlev ([@sergeyklay](https://github.com/sergeyklay), [@serghei-dev](https://github.com/serghei-dev)) | Manually approve every signing request before SignPath signs it. |
 
 `@serghei-dev` is a second GitHub account of the same person.
-
-The CI/CD Bot account ([@cicdbot](https://github.com/cicdbot)) is a code owner of `go.mod`, `go.sum`, and `.github/workflows/`, so its review can satisfy the code-owner rule on pull requests that touch only those paths, such as automated dependency updates. It holds no committer or approver role.
 
 ## Privacy
 
