@@ -76,7 +76,7 @@ These fields are adapter-specific. Each maps to a CLI flag or to a member of the
 | `effort` | string | _(none)_ | Reasoning level, carried on every turn, credential verification included, in OpenCode's one model-variant slot. See [adapter pass-through configuration](/reference/workflow-config/#adapter-pass-through-configuration) for how an unset value is read. Folded into `model` as a `#`-separated suffix, so it needs an `opencode.model` that carries no `#` of its own; see [settings refused at session start](#settings-refused-at-session-start). Setting it together with `variant` is an error; see [validate-time checks](#validate-time-checks). |
 | `variant` | string | _(none)_ | Fills the same slot as `effort`, and setting both is an error. Folded into `model` as a `#`-separated suffix under the same requirements as `effort`. |
 | `thinking` | boolean | `false` | Adds `--thinking`. |
-| `dangerously_skip_permissions` | boolean | `true` | Adds `--dangerously-skip-permissions` when `true`. When `false`, the runtime refuses every permissioned tool call instead of performing it, and the first refusal also ends the turn; see [validate-time checks](#validate-time-checks). |
+| `dangerously_skip_permissions` | boolean | `true` | Adds `--dangerously-skip-permissions` when `true`. When `false`, the runtime refuses every permissioned tool call instead of performing it; see [validate-time checks](#validate-time-checks). |
 | `disable_autocompact` | boolean | `true` | When `true`, sets the inline configuration document's `compaction.auto` to `false`. |
 | `allowed_tools` | list of strings | `[]` | Builds an allowlist policy: listed keys become `allow`, every known key not listed becomes `deny`, unknown keys are forwarded unchanged. The policy rides in the inline configuration document's `permission` member. |
 | `denied_tools` | list of strings | `[]` | Adds `deny` entries to the same policy `allowed_tools` builds. Overlap with `allowed_tools` is refused at session start; see [settings refused at session start](#settings-refused-at-session-start). |
@@ -195,9 +195,9 @@ Session start reports each of these with the same message, so the two paths can 
 
 | Check | Condition | Message |
 |---|---|---|
-| `opencode.dangerously_skip_permissions.auto_reject` | `dangerously_skip_permissions` is explicitly `false` | `opencode.dangerously_skip_permissions is set to false, so the runtime refuses every permissioned tool call instead of performing it, and OpenCode 2.x also ends the turn at the first refusal` |
+| `opencode.dangerously_skip_permissions.auto_reject` | `dangerously_skip_permissions` is explicitly `false` | `opencode.dangerously_skip_permissions is set to false, so the runtime refuses every permissioned tool call instead of performing it` |
 
-This is a warning rather than an error. Warnings leave `valid` true and the exit code `0`. The runtime refuses the request itself, so the setting never leaves a turn waiting for a person; it does stop the agent from using any permissioned tool, and the first refusal also ends the turn. An absent or `true` value draws nothing.
+This is a warning rather than an error. Warnings leave `valid` true and the exit code `0`. The runtime refuses the request itself, so the setting never leaves a turn waiting for a person; it does stop the agent from using any permissioned tool. A refusal reaches the model as an errored tool result, and the turn continues. An absent or `true` value draws nothing.
 
 ---
 
@@ -279,7 +279,7 @@ The adapter reads stdout as newline-delimited envelopes. Most lines are JSON obj
 
 The adapter maps each envelope onto Sortie's [normalized event vocabulary](/guides/write-custom-agent-adapter/), so what reaches the orchestrator, the logs, and the dashboard is the same set of events every adapter produces. OpenCode's own envelope types and their fields are OpenCode's to define; see [external references](#external-references).
 
-Two behaviours are the adapter's own. Every stdout line that fails to parse becomes a `malformed` event, truncated, rather than failing the turn, and it still resets the startup read timer, but it does not count as the runtime having responded; see [early exit report](/reference/errors/#early-exit-report). A permission request the runtime refuses surfaces twice, as a `tool_result` carrying the tool error and as a `notification`; no consent was granted, and the runtime also ends the turn at the first such refusal. Sortie scans stderr for those refusals only after the process exits.
+Two behaviours are the adapter's own. Every stdout line that fails to parse becomes a `malformed` event, truncated, rather than failing the turn, and it still resets the startup read timer, but it does not count as the runtime having responded; see [early exit report](/reference/errors/#early-exit-report). A permission request the runtime refuses surfaces twice, as a `tool_result` carrying the tool error and as a `notification`; no consent was granted, and the refusal does not end the turn. Sortie scans stderr for those refusals only after the process exits.
 
 ---
 
