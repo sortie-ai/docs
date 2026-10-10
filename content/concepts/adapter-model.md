@@ -50,7 +50,7 @@ Today, the agent side already spans five materially different shapes:
 | Claude Code | CLI JSONL stdout | One subprocess per turn |
 | Copilot CLI | CLI JSON stdout stream | One subprocess per turn |
 | Codex | JSON-RPC app server | One persistent subprocess across turns |
-| OpenCode CLI | Newline-delimited JSON envelopes plus a second subprocess for final usage recovery (`opencode export --sanitize` on OpenCode 1.x, `opencode session export --standalone --sanitize` on 2.x) | One subprocess per turn, plus one usage-recovery subprocess after each turn |
+| OpenCode CLI | Newline-delimited JSON envelopes plus a second subprocess for final usage recovery (`opencode session export --standalone --sanitize`) | One subprocess per turn, plus one usage-recovery subprocess after each turn |
 | Agent Client Protocol | Newline-delimited JSON-RPC 2.0 over stdio, a shared vendor-neutral protocol several runtimes implement | One persistent subprocess across turns |
 
 That spread is why the interface is organized around lifecycle and normalized events rather than around one CLI's flags or transport. Claude Code and Copilot CLI look similar from a distance, but Codex keeps a long-lived server process, and OpenCode needs a second pass to recover authoritative token usage. The Agent Client Protocol adapter is a different kind of entry in this table: it is one package that drives whichever runtime `agent.command` names, so it does not correspond to one vendor CLI the way the other four rows do. Kiro CLI is one such runtime, run in [ACP mode](/guides/run-kiro-cli-in-acp-mode/). The orchestrator still reacts to the same event vocabulary regardless.

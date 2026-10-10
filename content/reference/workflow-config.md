@@ -30,7 +30,7 @@ tracker:
   terminal_states:                    # Issues in these states trigger cleanup
     - Done
     - Won't Do
-  handoff_state: Human Review         # State set after successful agent run
+  handoff_state: Human Review         # State set after a successful run that makes no stage hop
   handoff_evidence: observed          # observed (default) | strict | off
   in_progress_state: In Progress       # State set when agent picks up the issue
 
@@ -78,7 +78,9 @@ agent:
 
 # --- Dispatch (rule-based routing; optional) ----------------------
 dispatch:
-  rules:                                # First match wins, in order
+  partials:                             # files of shared define blocks
+    - ./prompts/partials/*.md           # path or glob, relative to WORKFLOW.md
+  rules:                                # Stage labels first, then first match in order
     - name: bug-fix                     # ^[a-z][a-z0-9_-]*$; logs/metric
       match:
         labels: ["bug", "bug/*"]        # glob vs lowercased labels
@@ -88,6 +90,14 @@ dispatch:
       match:
         priority: { lte: 2 }            # op: eq/in/lt/lte/gt/gte
       template: ./prompts/urgent.md
+    - name: specify
+      match:
+        labels: ["feature"]
+      next: implement                   # after a successful run, hop to this rule
+      template: ./prompts/specify.md
+    - name: implement
+      stage: stage-implement            # selected by this issue label, no match
+      template: ./prompts/implement.md
   default:                              # Applied when no rule matches
     template: ./prompts/default.md      # agent omitted -> agent.kind
 
@@ -192,8 +202,8 @@ Issue tracker connection and query settings.
 | `active_states`   | list of strings | `[]`                  | Issue states eligible for dispatch.                                     |
 | `terminal_states` | list of strings | `[]`                  | Issue states that trigger workspace cleanup. This is the primary removal ground and is always on; the opt-in age bound in [`workspace.retention_days`](#workspace) is the second. |
 | `query_filter`    | string          | `""`                  | Query fragment that narrows candidate and terminal-state queries. For Jira: a JQL expression appended to the query. For Linear: an `IssueFilter` JSON object merged into the query (see the Linear example below). For Gitea: a URL query fragment merged into the repository issue-list query (see the Gitea example below). For GitLab: a URL query fragment merged into the project issue-list query, key-checked against a closed allowlist (see the GitLab example below). |
-| `handoff_state`   | string          | _(absent)_            | Target state after a successful agent run. Absent disables handoff.     |
-| `no_change_state` | string          | _(absent)_            | Target state for a run that declared the requested outcome already held (`no-change-needed` on `.sortie/status`). Absent falls back to `handoff_state`. Requires `handoff_state` to be set, and must equal `handoff_state` or name a member of `terminal_states`. It is the one target-state field allowed to name a terminal state. See [handoff evidence: declaring that nothing needed changing](/reference/state-machine/#declaring-that-nothing-needed-changing). |
+| `handoff_state`   | string          | _(absent)_            | Target state after a successful agent run. A run whose dispatch rule carries `next` advances the issue to the next stage instead and writes no state; it takes this write only when the hop is not made. See [Stage chains](#stage-chains). Absent disables handoff, and a rule that carries `next` requires it. |
+| `no_change_state` | string          | _(absent)_            | Target state for a run that declared the requested outcome already held (`no-change-needed` on `.sortie/status`). Absent falls back to `handoff_state`. A declared run on a rule that carries `next` advances to the next stage instead, and this target applies only when that hop is not made. Requires `handoff_state` to be set, and must equal `handoff_state` or name a member of `terminal_states`. It is the one target-state field allowed to name a terminal state. See [handoff evidence: declaring that nothing needed changing](/reference/state-machine/#declaring-that-nothing-needed-changing). |
 | `handoff_evidence` | string         | `"observed"`           | Evidence policy consulted before the handoff write. `observed` withholds the write only on a positively observed absence of workspace change; `strict` also withholds it when evidence cannot be determined; `off` performs no evidence check and leaves the write governed by the other handoff conditions alone. See [state machine reference](/reference/state-machine/#handoff-evidence). |
 | `in_progress_state` | string        | _(absent)_            | Target state for dispatch-time transition at the start of each worker attempt. Absent disables dispatch-time transitions. |
 | `api_version`     | string          | `"3"`                 | Jira REST API version: `"3"` for Jira Cloud, `"2"` for Jira Server / Data Center. Quote the value; a bare integer draws a `sortie validate` advisory. Adapters other than Jira ignore this field. `sortie validate` rejects a value other than `"2"` or `"3"`, and rejects `"2"` against an `.atlassian.net` endpoint. See the [Jira adapter reference](/reference/adapter-jira/#api_version) for deployment-mode behavior and [offline validation](/reference/adapter-jira/#offline-validation) for the full check list. |
@@ -450,7 +460,7 @@ When a hook's shell exits, whatever its exit status, Sortie terminates every pro
 
 Prefer a supervisor that owns the service across runs, such as `docker compose up -d` on Linux and macOS, which recreates a service's containers only when its configuration or image changed, or a service manager. A hook whose next step uses the service should wait until the service accepts connections, since these start commands can return before it does.
 
-On Windows, a hook whose Job Object could not be created or assigned still runs, with the failure logged, and that teardown then reaches only the shell itself. When a hook that exits on its own leaves a process running that it did not start through one of the routes above, Sortie logs one INFO record, `leftover processes terminated after the command exited`, carrying `hook` and `workspace`; a termination that still cannot confirm the group or job empty once the 2-second bound elapses is logged as a warning instead.
+On Windows, a hook whose Job Object could not be created or assigned still runs, with the failure logged, and that teardown then reaches only the shell itself. Without a Job Object, Sortie checks after the shell exits for processes descended from it that are still running, and logs the WARN record `subprocess tree did not settle` when it finds one or cannot check one; its `survivors` and `unexamined` attributes list them. When a hook that exits on its own leaves a process running that it did not start through one of the routes above, Sortie logs one INFO record, `leftover processes terminated after the command exited`, carrying `hook` and `workspace`. A termination that still cannot confirm the group or job empty once the 2-second bound elapses logs the WARN record `subprocess group termination failed after the launch returned`. Neither WARN record carries `hook` or `workspace`: they name the launch by `command`, the shell's executable name. On Windows, a Job Object member that Sortie cannot open or query counts as still running, not as gone, so the termination keeps resending until that bound elapses.
 
 For the practical walkthrough, see [how to set up workspace hooks: start a service that outlives a hook](/guides/setup-workspace-hooks/#start-a-service-that-outlives-a-hook).
 
@@ -501,7 +511,7 @@ Coding agent adapter, concurrency, timeouts, and retry behavior. These fields co
 
 | Field                            | Type    | Default         | Description                                                                           |
 | -------------------------------- | ------- | --------------- | ------------------------------------------------------------------------------------- |
-| `kind`                           | string  | `claude-code`   | Agent adapter identifier. Built-in adapters: `claude-code`, `copilot-cli`, `codex`, `opencode`, `agent-client-protocol` (a generic kind driving any runtime that speaks the [Agent Client Protocol](/reference/adapter-agent-client-protocol/), named by `command`), and `mock`, which simulates a session for local testing and launches no process. A name that a release has removed is converted at load instead of refused; see [Removed agent kinds](#removed-agent-kinds). |
+| `kind`                           | string  | `claude-code`   | Agent adapter identifier. Built-in adapters: `claude-code`, `copilot-cli`, `codex`, `opencode`, `agent-client-protocol` (a generic kind driving any runtime that speaks the [Agent Client Protocol](/reference/adapter-agent-client-protocol/), named by `command`), and `mock`, which simulates a session for local testing and launches no process. |
 | `command`                        | string or list of strings | the kind's default command | Command that launches the agent, read for the default kind only: `dispatch.default.agent` when set, otherwise `agent.kind`. It applies to kinds that run a local subprocess (`claude-code`, `copilot-cli`, `codex`, `opencode`, `agent-client-protocol`). Every one of them except `agent-client-protocol` has a default command (`claude`, `copilot`, `codex app-server`, `opencode`), so `command` can be left out; `agent-client-protocol` has none and requires it, and it also carries the flag or subcommand that puts the named binary into protocol mode. A kind that a [`dispatch` rule](#dispatch) selects, and that is not the default kind, never reads this field and launches its own default command. Adapters that do not start a local process ignore this field. Written as a string, the value is split on whitespace into an argument vector on a local launch and run without a shell, so shell syntax is not interpreted and `~` and `$VAR` are not expanded. When [`worker.ssh_hosts`](#worker) sends the agent to a remote host, the string reaches the remote shell unsplit, so shell syntax in it is interpreted there. Sortie waits for the agent it starts and talks to it, so a string ending in `&` detaches the agent and the session cannot work. Written as a list, element zero is the program and each later element is one argument, passed exactly as written: a local launch neither splits nor expands it, and over SSH each element reaches the remote shell as one word. Use the list form when the program path or an argument contains a space. A list must not be empty, and every element must be a non-empty string. [`SORTIE_AGENT_COMMAND`](/reference/environment/#agent-variables) sets the string form and replaces a list written in the file. |
 | `max_turns`                      | integer | `20`            | Maximum turns per worker session. The worker re-checks tracker state after each turn. |
 | `max_sessions`                   | integer | `0` (unlimited) | Maximum completed sessions per issue before the orchestrator stops retrying. Must be non-negative. The separate `max_consecutive_absences` governs the consecutive-absence ceiling below. It is no longer derived from this field. Reaching this ceiling also posts one comment on the issue naming the session budget and `agent.max_sessions` as the setting that raises it. |
@@ -510,29 +520,13 @@ Coding agent adapter, concurrency, timeouts, and retry behavior. These fields co
 | `max_consecutive_absences`       | integer | `3`             | Bounds how many runs in a row may be observed to have produced no evidence of work before the issue is parked. Any run that produces evidence of work resets the count to zero. The separate `max_sessions` governs the total per-issue session budget; the two ceilings are independent. Unlike `max_sessions` and `max_tokens`, `0` does not mean unlimited here: `0` and negative values are rejected as a configuration error. |
 | `max_concurrent_agents`          | integer | `10`            | Global concurrency limit across all issues.                                           |
 | `max_concurrent_agents_by_state` | map     | `{}`            | Per-state concurrency limits. Keys are state names, lowercased for matching. Non-positive or non-numeric entries are silently ignored; an entry outside the range an integer setting accepts is rejected when the configuration loads instead. |
-| `turn_timeout_ms`                | integer | `3600000` (1h)  | Total timeout for a single agent turn. Must be positive; a non-positive value is rejected when the configuration loads. Unlike `stall_timeout_ms` below, this bound cannot be disabled. |
-| `read_timeout_ms`                | integer | `5000` (5s)     | Timeout for startup and synchronous operations.                                       |
+| `turn_timeout_ms`                | integer | `3600000` (1h)  | Total timeout for a single agent turn. When the deadline passes, Sortie cancels the turn and the attempt fails as `turn_timeout`; a turn that completed or failed on its own keeps its own outcome even if it finished after the deadline. Must be positive; a non-positive value is rejected when the configuration loads. Unlike `stall_timeout_ms` below, this bound cannot be disabled. |
+| `read_timeout_ms`                | integer | `5000` (5s)     | Timeout for startup and synchronous operations. A wait that ends only once the model backend has answered, the `agent-client-protocol` `initialize` response and the first output of an `opencode` turn, lasts at least 60 seconds whatever this value is. |
 | `stall_timeout_ms`               | integer | `300000` (5m)   | Inactivity timeout based on event stream gaps. `0` or negative disables stall detection. |
 | `stop_grace_ms`                  | integer | `5000` (5s)     | How long an adapter waits for the agent to exit on its own after a graceful termination signal, before it force-terminates the process group. Must be positive and no greater than `9223372036854` (about 292 years); any other value is rejected when the configuration loads. An adapter that launches no process, such as `mock`, has no such period. Stopping one session is allowed this value plus a fixed 15 seconds for the output collection and process reaping that follow it, 20 seconds at the default. The force-terminate step itself waits for the process group to report no member left, resending the termination for up to 2 more seconds when a member needs more than one resend to clear, so a session whose process group is slow to tear down can take up to 2 seconds longer than that total. Raising `stop_grace_ms` raises both that bound and the [shutdown worker-drain ceiling](/reference/cli/#signals) by the same amount. |
 | `max_retry_backoff_ms`           | integer | `300000` (5m)   | Maximum delay cap for exponential backoff on retries.                                 |
 
 `max_concurrent_agents`, `max_concurrent_agents_by_state`, `max_retry_backoff_ms`, `max_sessions`, `max_tokens`, `token_warning_percent`, and `max_consecutive_absences` reload dynamically without restart; a reloaded `max_tokens` reaches the sessions already running from the next poll tick onward, and applies at the next retry evaluation. A reloaded `token_warning_percent` reaches the event loop the same way: a run already in flight that has not yet warned is evaluated against the new threshold from its next usage figure, and a run dispatched after the reload starts under it. All other fields apply to future dispatches only, except where the per-field Dynamic reload table at the end of this document states a finer-grained answer.
-
-### Removed agent kinds
-
-A release can remove an agent kind and name the kind that replaces it. A workflow that still names a removed kind does not fail as an unknown adapter. Sortie converts it when the configuration loads, in `agent.kind`, `dispatch.default.agent`, and every `dispatch.rules[i].agent`, and reports one warning per removed kind: the [`agent.kind.retired` check](/reference/cli/#advisory-warnings) in `sortie validate`, and a log record, written once per process, at run time. The `sortie validate` message carries the command the converted sessions launch and the settings the conversion did not carry; the log record carries only the removed kind and the kind that replaced it.
-
-The conversion happens in memory. Sortie never rewrites `WORKFLOW.md`, and the warning stays until the file names the replacement kind itself. It is temporary: a later release removes it.
-
-The removed kind's own top-level block is dropped, and the replacement kind's block is created empty when the file has none, so a [`dispatch.agent.missing_block`](#adapter-pass-through-configuration) check finds it. A block key the conversion cannot carry is listed in the warning and otherwise ignored. A value the conversion cannot honor stops the load with a configuration error; see [conversion errors](/reference/errors/#startup-and-configuration-errors).
-
-Each removed kind and its replacement:
-
-| Removed kind | Converted to | What the conversion reads from a `kiro:` block |
-|---|---|---|
-| `kiro` | `agent-client-protocol`, launching `kiro-cli acp -a` | `model` and `agent`, as `--model` and `--agent` arguments. `trust_all_tools` and `trust_tools` are consumed without a launch argument: full trust converts, and any narrower setting stops the load. Every other key, `mcp_config` included, is not carried. |
-
-For the steps that move a `kiro` workflow onto `agent-client-protocol` for good, and the field-by-field mapping, see [how to run Kiro CLI in ACP mode](/guides/run-kiro-cli-in-acp-mode/).
 
 ### Credential verification
 
@@ -542,7 +536,7 @@ A runtime that cannot complete that one request fails the worker attempt with er
 
 Every built-in kind cleans up after itself where its runtime allows it: `claude-code` disables session persistence for this one session, so it leaves no file behind; `codex` marks the session ephemeral and read-only; `copilot-cli` and `opencode` delete the conversation they created once the check is done; `agent-client-protocol` deletes it only when the runtime's own handshake advertises a delete method, and otherwise falls back to whatever teardown a working session on that runtime would use, which for a runtime whose handshake advertises neither a close nor a delete method leaves the conversation in the runtime's own store; `mock` creates nothing to clean up. See each kind's own adapter reference for the exact mechanism, and the [Agent Client Protocol kind's session-close section](/reference/adapter-agent-client-protocol/#session-close) for which specific runtimes fall into that last case.
 
-`agent.read_timeout_ms` bounds this step's own network waits the same way it bounds a working session's; the [Agent Client Protocol adapter](/reference/adapter-agent-client-protocol/#agent-section) additionally holds its handshake open for at least 60 seconds regardless of a shorter `read_timeout_ms`, because a runtime that has to establish its credential with its own backend before it answers needs more room than an already-authenticated one does. See that adapter's own `read_timeout_ms` row for the detail.
+`agent.read_timeout_ms` bounds this step's own network waits the same way it bounds a working session's; the [Agent Client Protocol adapter](/reference/adapter-agent-client-protocol/#agent-section) additionally holds its handshake open for at least 60 seconds regardless of a shorter `read_timeout_ms`, because a runtime that has to establish its credential with its own backend before it answers needs more room than an already-authenticated one does. The [OpenCode adapter](/reference/adapter-opencode/#agent-section) waits at least 60 seconds for the verification turn's first output, because OpenCode prints nothing until the model answers. See each adapter's own `read_timeout_ms` row for the detail.
 
 ### Usage reporting by agent kind
 
@@ -587,26 +581,30 @@ Agents can read the remaining token budget mid-session through the `cost_budget`
 
 ## `dispatch`
 
-Routing for the dispatch of each issue. Rules select an agent kind, a prompt template, and that kind's settings from the issue's tracker metadata, evaluated first-match-wins in declaration order. When the `dispatch` block is absent, every issue dispatches with the top-level `agent.kind`, the WORKFLOW.md body template, and the top-level settings block of that kind. The block is additive and changes no default.
+Routing for the dispatch of each issue. Rules select an agent kind, a prompt template, and that kind's settings from the issue's tracker metadata, evaluated first-match-wins in declaration order. A rule can instead be selected by a stage label on the issue, and a rule can name the rule that a successful run moves the issue to, so rules form a [stage chain](#stage-chains). When the `dispatch` block is absent, every issue dispatches with the top-level `agent.kind`, the WORKFLOW.md body template, and the top-level settings block of that kind. The block is additive and changes no default.
 
-The block accepts two keys:
+The block accepts four keys:
 
 | Field     | Type | Default     | Description                                                                 |
 | --------- | ---- | ----------- | --------------------------------------------------------------------------- |
-| `rules`   | list | _(absent)_  | Ordered dispatch rules, evaluated first-match-wins in YAML declaration order. |
+| `rules`   | list | _(absent)_  | Dispatch rules. A rule with `stage` is selected by its label first; the other rules are evaluated first-match-wins in YAML declaration order. See [Resolution and fallback](#resolution-and-fallback). |
+| `max_consecutive_hops` | integer | the larger of `10` and the hops in the longest chain | Per-issue ceiling on consecutive automatic stage hops. Must be greater than `0` and at least the number of hops in the longest chain, which is that chain's rule count minus one. No upper bound. Absent or null takes the default. See [Stage chains](#stage-chains). |
 | `default` | map  | _(absent)_  | Fallback selection applied when no rule matches. Keys: `agent`, `template`. It carries no settings block: a key that names an agent kind fails the load, because the top-level block of each kind holds the default settings. |
+| `partials` | list of strings | _(absent)_ | Files, or glob patterns that select files, whose `define` blocks every prompt template of the workflow can call. Entries resolve relative to the WORKFLOW.md directory. Absent, `null`, and `[]` select nothing. See [Partials](#partials). |
 
 Each entry in `rules` accepts:
 
 | Field      | Type   | Default      | Description                                                                                                  |
 | ---------- | ------ | ------------ | ------------------------------------------------------------------------------------------------------------ |
-| `name`     | string | _(absent)_   | Rule identifier recorded in logs, in run history, and in the dispatch rule-match metric. Must match `^[a-z][a-z0-9_-]*$` when set, and must be unique. Required when the rule carries a settings block, and then must not be `default`. Unnamed rules report as `<none>`. |
-| `match`    | map    | _(absent)_   | Predicate block. An absent or empty `match` matches every issue (catch-all).                                 |
-| `agent`    | string | _(fallback)_ | Agent kind for matching issues. Must name a registered adapter; a removed kind is converted instead, see [Removed agent kinds](#removed-agent-kinds). Falls through to `default.agent`, then `agent.kind`. |
+| `name`     | string | _(absent)_   | Rule identifier recorded in logs, in run history, and in the dispatch rule-match metric. Must match `^[a-z][a-z0-9_-]*$` when set, and must be unique. Required when the rule carries a settings block, `stage`, or `next`, and with a settings block must not be `default`. Unnamed rules report as `<none>`. |
+| `stage`    | string | _(absent)_   | Stage label that selects the rule. An issue that carries the label runs on this rule wherever it sits in the list. Compared case-insensitively with the issue's labels, taken literally: no glob characters, no `$VAR` resolution, and surrounding white space is part of the label. A rule with `stage` cannot carry `match` and must have a `name`. See [Stage chains](#stage-chains). |
+| `next`     | string | _(absent)_   | `name` of the rule a successful run advances the issue to. The named rule must exist, must not be this rule, and must carry `stage`. The rule that carries `next` must have a `name`, may be any rule, with or without `stage`, and requires `tracker.handoff_state`. See [Stage chains](#stage-chains). |
+| `match`    | map    | _(absent)_   | Predicate block. On a rule without `stage`, an absent or empty `match` matches every issue (catch-all).        |
+| `agent`    | string | _(fallback)_ | Agent kind for matching issues. Must name a registered adapter. Falls through to `default.agent`, then `agent.kind`. |
 | `template` | string | _(fallback)_ | Prompt template path, relative to the WORKFLOW.md directory. Falls through to `default.template`, then the body template. |
 | `<kind>`   | map    | _(absent)_   | Settings block for the agent kind the rule runs, written under that kind's name, for example `claude-code:`. Holds the keys the kind's top-level block accepts. See [Rule settings blocks](#rule-settings-blocks). |
 
-A rule must carry at least one of `match`, `agent`, `template`, or a settings block. A key in a rule that is not one of these and does not name a registered agent kind fails the load as an unknown key.
+A rule must carry at least one of `match`, `stage`, `agent`, `template`, or a settings block; `next` alone does not count. A key in a rule that is not one of these and does not name a registered agent kind fails the load as an unknown key.
 
 A session a rule routes to an agent kind other than the top-level `agent.kind` reads the matching [adapter pass-through block](#adapter-pass-through-configuration) and no other, with the rule's own settings block laid over it. When neither the top-level block nor a rule's block exists for that kind, Sortie refuses to dispatch rather than falling back to the shared `agent` settings: the check fires as [`dispatch.agent.missing_block`](/reference/errors/#startup-and-configuration-errors), which fails `sortie validate` and blocks Sortie from starting; a fault introduced only by a later config reload blocks dispatch on every poll instead, until the block is added. A kind that every one of its selectors reaches through a rule carrying its block needs no top-level block.
 
@@ -667,6 +665,16 @@ The title counts when a claim is first dispatched, like a label. Renaming an iss
 
 ### Resolution and fallback
 
+A rule is selected in three steps. The first step that yields a rule decides:
+
+1. The target rule of the issue's latest [stage hop](#stage-chains), when the issue carries the stage label that hop added and a rule of that name still exists.
+2. The rules that carry `stage`, when the issue carries one of their labels. Of several, the rule furthest along a chain runs: a staged rule that leads, through `next`, to another stage label the issue carries is set aside, and of the rules left the one listed first runs. Without `next` in the workflow, that is the first listed.
+3. The rules without `stage`, first match in YAML order, then `dispatch.default`, then the workflow-wide defaults below.
+
+A rule with `stage` never matches an issue that does not carry its label, and an earlier rule, a catch-all included, cannot capture an issue that carries one. An issue with several stage labels draws one `Warn` record, `several stage labels found`, with `stage_labels`, every stage label the issue carries in list order, and `rule_name`, the rule selected. The record is logged on each evaluation of the issue: a poll tick, or a retry that is routed again.
+
+After a hop, the issue waits until the poll listing shows the label the hop added or, when the listing lacks it, until a direct read of the issue finds it still active, and then it is routed by the labels that read returns; the [state machine reference](/reference/state-machine/#candidate-eligibility) describes that wait.
+
 `agent` and `template` resolve independently. Each follows this chain until a value is found:
 
 1. The matched rule's `agent` or `template`.
@@ -676,6 +684,31 @@ The title counts when a claim is first dispatched, like a label. Renaming an iss
 A rule's kind is therefore its `agent`, else `dispatch.default.agent`, else `agent.kind`. That is the kind its settings block must be named for.
 
 Resolution runs at the issue's first dispatch. The resolved kind, template, and rule name are frozen for the life of the claim; retries and reaction-driven continuations reuse them. A retry that is waiting when the configuration reloads is the one exception; see [Freeze and reload](#freeze-and-reload).
+
+### Stage chains
+
+A rule that carries `next` names the rule an issue moves to after a successful run. The named rule carries `stage`, so the move, a stage hop, puts that rule's stage label on the issue. A chain is any number of rules linked by `next`; its last rule has no `next` and ends on `tracker.handoff_state` like any rule without chains. A stage is an issue label Sortie adds and removes, never a tracker state.
+
+```yaml
+tracker:
+  active_states: ["To Do", "In Progress"]
+  handoff_state: Human Review
+
+dispatch:
+  rules:
+    - name: specify
+      match:
+        labels: ["feature"]
+      next: implement
+      template: ./prompts/specify.md
+    - name: implement
+      stage: stage-implement
+      template: ./prompts/implement.md
+```
+
+A successful `specify` run makes a stage hop in place of the handoff write: Sortie adds `stage-implement`, removes the issue's other stage labels, and writes no tracker state, so the issue stays active and the next poll tick runs `implement` on a new claim and in a new session. A successful `implement` run, which has no `next`, moves the issue to `Human Review`. A hop that cannot be made, because the label add fails or the issue's count reached `dispatch.max_consecutive_hops`, falls back to the handoff write. That count is the number of hops Sortie has made on the issue in a row; it is kept in the database and survives a restart. The [state machine reference](/reference/state-machine/#stage-hop) gives the exact exits that hop, the recorded results, the log records, and every count reset.
+
+For a copyable chain, placing an issue on a stage, and sending it back, see [how to configure dispatch rules](/guides/configure-dispatch-rules/#chain-rules-into-stages). For why chains work this way, see [stage chains](/concepts/stage-chains/).
 
 ### Rule settings blocks
 
@@ -704,7 +737,7 @@ The block an attempt runs with is the top-level block of the rule's kind with th
 - A kind with no top-level block inherits nothing; the rule's block is the whole block.
 - The rule's block is laid only over the top-level block of its own kind.
 
-An adapter applies its defaults after the overlay, so no key is defaulted or coerced before it. `$VAR` and `${VAR}` references in a rule's block resolve as they do in a top-level block, and Sortie redacts their values under the same rules; an unset variable draws the `unresolved_extension_var` warning, with the field named `dispatch.rules[<i>].<kind>.<key>`. A [removed agent kind](#removed-agent-kinds) named by a rule converts together with that rule's block, and the load fails when the rule's block would change the command the replacement kind launches, because a rule cannot set a command.
+An adapter applies its defaults after the overlay, so no key is defaulted or coerced before it. `$VAR` and `${VAR}` references in a rule's block resolve as they do in a top-level block, and Sortie redacts their values under the same rules; an unset variable draws the `unresolved_extension_var` warning, with the field named `dispatch.rules[<i>].<kind>.<key>`.
 
 A rule's block cannot write `kind`, `command`, `turn_timeout_ms`, `read_timeout_ms`, `stall_timeout_ms`, or `stop_grace_ms`. Sortie derives them from the [`agent`](#agent) section, which stays workflow-wide, so writing one in a rule would read as an override that does not happen. For the same reason a rule cannot override `agent.max_tokens`, `agent.max_sessions`, `agent.max_consecutive_absences`, the concurrency and backoff limits, or `agent.max_turns`: every rule an issue passes through shares them.
 
@@ -714,10 +747,11 @@ A block must be a mapping. An empty block is written `{}`; a bare `claude-code:`
 
 Errors fail the load, so `sortie validate` exits non-zero and Sortie does not start. A reload with an error keeps the last good configuration.
 
-- `dispatch` is not a mapping, `dispatch.rules` is not a sequence, or `dispatch.default` is not a mapping; a rule is not a mapping or carries none of `match`, `agent`, `template`, or a settings block.
+- `dispatch` is not a mapping, `dispatch.rules` is not a sequence, or `dispatch.default` is not a mapping; a rule is not a mapping or carries none of `match`, `stage`, `agent`, `template`, or a settings block.
+- `dispatch.default` carries a key other than `agent` or `template`, `stage` and `next` included.
 - A rule `name` does not match `^[a-z][a-z0-9_-]*$`, or two rules share a `name`.
-- A catch-all rule (absent or empty `match`) precedes another rule, reported as `unreachable_rules`. A catch-all must be the last entry.
-- A `rule.agent` or `default.agent` names an unregistered adapter kind. A removed kind is not one: it converts, and draws the [`agent.kind.retired`](/reference/cli/#advisory-warnings) warning.
+- A catch-all rule (no `stage` and an absent or empty `match`) precedes a rule without `stage`, reported as `unreachable_rules`. Only rules with `stage` may follow a catch-all.
+- A `rule.agent` or `default.agent` names an unregistered adapter kind.
 - A `match` key is not one of `labels`, `issue_type`, `priority`, `identifier`, `assignee`, or `title`.
 - A `labels` or `identifier` glob is malformed.
 - A `priority` predicate carries no operator or more than one.
@@ -726,12 +760,40 @@ Errors fail the load, so `sortie validate` exits non-zero and Sortie does not st
 - A rule's settings block is not a mapping, or writes one of the keys listed above that Sortie derives from `agent`.
 - A rule carries a settings block and has no `name`, or is named `default`, the name run history gives the `dispatch.default` selection.
 - A referenced template is missing, unreadable, contains front matter, or fails to parse.
+- `dispatch.partials` is not a list; an entry is not text, is empty or only white space, is absolute or `~`-prefixed, or leaves the WORKFLOW.md directory tree; a pattern is malformed or matches no file; an entry without a pattern character names a missing file; a selected file resolves outside the tree through a symlink or is not a regular file. The check is reported under `config.dispatch.partials`, with `[<i>]` appended for an entry.
+- A partial is unreadable, carries front matter, has a syntax error, holds text or an action outside a `define` block, defines the name `prompt`, or defines a name that another partial defines. The message names the partial file, and the line where one applies.
+- A prompt template defines a name that a partial also defines, or calls a name that none of its partials and the template itself define, in any branch of an `{{ if }}`, `{{ range }}`, or `{{ with }}`. The message names the file and the line of the fault.
+- A `stage`, `next`, or `dispatch.max_consecutive_hops` fault from the table below.
+
+Each stage chain error reads `config: <field>: <message>`:
+
+| Field | Message | Cause |
+|---|---|---|
+| `dispatch.rules[<i>]` | `rule must specify at least one of match, stage, agent, template, or a settings block` | The rule carries none of those keys; `next` alone does not count. |
+| `dispatch.rules[<i>].stage` | `expected a label, got <shape>` | The value is not text. `<shape>` is `a number`, `a true/false value`, `a list`, `a map`, or `a value of an unexpected type`. |
+| `dispatch.rules[<i>].stage` | `needs a label with a character other than white space` | The value is null, a bare `stage:`, empty, or only white space. |
+| `dispatch.rules[<i>]` | `a rule with a stage label is selected by that label and cannot also carry match` | The rule carries `stage` and `match`, an empty `match` included. |
+| `dispatch.rules[<i>]` | `a rule that carries a stage label must have a name` | The rule carries `stage` and no `name`. |
+| `dispatch.rules[<j>].stage` | `duplicate stage label "<label>" (first at index <i>)` | Two rules carry labels that differ at most in case. |
+| `dispatch.rules[<i>].next` | `expected a rule name, got <shape>` | The value is not text, with `<shape>` as for `stage`. |
+| `dispatch.rules[<i>].next` | `needs a rule name` | The value is null, a bare `next:`, empty, or only white space. |
+| `dispatch.rules[<i>]` | `a rule that carries next must have a name` | The rule carries `next` and no `name`. |
+| `dispatch.rules[<i>].next` | `next "<value>" names no dispatch rule` | No rule has that `name`. |
+| `dispatch.rules[<i>].next` | `next names the rule that carries it` | The rule names itself. |
+| `dispatch.rules[<i>].next` | `next "<value>" names a rule without a stage label; the rule a next names must carry stage` | The named rule has no `stage`. |
+| `dispatch.rules[<s>].next` | `next links form a cycle: <a> -> <b> -> <a>` | Following `next` returns to a rule already on the path. `<s>` is the loop's first rule in list order, and the path starts there. |
+| `dispatch.max_consecutive_hops` | `invalid integer value: <value>` | The value is not an integer. A whole number outside the platform's integer range reads `value is outside the range an integer setting accepts, <min> to <max>` instead. |
+| `dispatch.max_consecutive_hops` | `must be greater than 0` | The value is `0` or negative. |
+| `dispatch.max_consecutive_hops` | `must be at least <n>, the number of hops in the longest stage chain (<a> -> <b> -> ...)` | The value is below the hops of the longest chain, which the message names. |
+| `dispatch.rules[<i>].next` | `next requires tracker.handoff_state, the state a stage ends on when a hop is not made` | A rule carries `next` and `tracker.handoff_state` is unset. |
 
 Load errors are reported one at a time: the first one stops the run, so two unrelated dispatch errors surface across two runs.
 
 The checks that every top-level block draws also run on each rule's resolved block, the top-level block with the rule's laid over it: key types, the adapter's own configuration checks, the session-resume check, and conflicts that appear only once the layers are combined, such as `opencode.effort` beside a `variant` inherited from the top level. Each message opens with `dispatch rule "<name>" (dispatch.rules[<i>].<kind>): `. They run at startup, on every reload, before every dispatch, and in `sortie validate`. Two advisories concern rules and never block: `agent.effort.inherited`, drawn when a rule writes `model`, does not write `effort`, and inherits a non-empty `effort` from the top-level block, and `agent.effort.not_forwarded`, which also fires for a rule whose kind passes no reasoning level; see [Advisory warning check values](/reference/cli/#advisory-warning-check-values). Level names depend on the model, so write `effort` in the rule to choose the level for its model, or `effort: null` to clear the inherited one.
 
 A `rule.agent` or `default.agent` naming a registered kind that differs from `agent.kind` is checked separately, alongside every other agent block preflight validates: see [`dispatch.agent.missing_block`](#adapter-pass-through-configuration). The same pass reports an `agent.command` error for a rule that routes to a kind with no default command while another kind is the default; [errors](/reference/errors/#startup-and-configuration-errors) gives the message.
+
+The same pass checks every stage label against the states and labels Sortie writes, as [`dispatch.stage.collision`](/reference/errors/#startup-and-configuration-errors). Compared ignoring case, a stage label must not equal an entry of `tracker.active_states` or `tracker.terminal_states` (the tracker adapter's own list when the workflow leaves one empty), `tracker.handoff_state`, `tracker.in_progress_state`, `tracker.no_change_state`, the `escalation_label` of a reaction, or the parking label. Each rule and each collision draws its own error, which names the rule, the label, and the value it collides with. Like `dispatch.agent.missing_block`, it fails `sortie validate` and blocks Sortie from starting, and a collision introduced by a reload blocks dispatch on every poll until it is fixed. One advisory concerns chains and never blocks: `dispatch.next.max_sessions`, drawn when `agent.max_sessions` is above `0` and below the number of runs the longest chain needs; see [Advisory warning check values](/reference/cli/#advisory-warning-check-values).
 
 > [!NOTE]
 > Environment variable overrides for `dispatch` fields are not supported. Rule definitions, template paths, and rule settings blocks must come from WORKFLOW.md.
@@ -744,6 +806,62 @@ Per-rule `template` paths resolve relative to the directory containing WORKFLOW.
 - Paths that resolve outside the WORKFLOW.md directory tree, including through symlinks or `..` traversal.
 - Files that begin with `---`, since front matter is not permitted in per-rule templates.
 
+Entries of [`dispatch.partials`](#partials) follow these path rules too.
+
+### Partials
+
+`dispatch.partials` lists the files that hold the `define` blocks prompt templates share. The prompt templates of a workflow are the body of WORKFLOW.md, the `dispatch.default.template` file, and each rule `template` file. Each of them calls a shared block with `{{ template "name" . }}`; the syntax is under [Define blocks and calls](#define-blocks-and-calls). A block that a template defines itself is visible to that template only.
+
+| Field      | Type            | Default    | Description |
+| ---------- | --------------- | ---------- | ----------- |
+| `partials` | list of strings | _(absent)_ | Paths or glob patterns, relative to the WORKFLOW.md directory. Absent, `null`, and `[]` select nothing. |
+
+- **Paths.** An entry follows the rules of [Template paths](#template-paths): an absolute entry, a `~`-prefixed entry, and an entry that leaves the WORKFLOW.md directory tree fail the load. `$VAR` is not expanded. A selected file that resolves outside the tree through a symlink fails the load, and so does a selected file that is not a regular file, a directory included. An entry that is not text, or is empty or only white space, fails the load.
+- **Patterns.** An entry that contains `*`, `?`, `[`, or `\` is a glob pattern and selects every matching file in lexical order; any other entry names one file. Only the entry takes part in the match, so a glob character in the path of the WORKFLOW.md directory changes nothing. `*` and `?` match within one path element and never `/`. `**` has no recursive meaning and matches as `*` does: `partials/**/*.md` selects the `.md` files exactly one directory below `partials`, and none directly in it. Write `/` between path elements on every OS. On Windows `\` also separates path elements; elsewhere it escapes the next character.
+- **Dot files.** A pattern skips a matched file whose name starts with `.`, such as an editor lock file named `.#shared.md`, unless the last element of the entry starts with `.`. An entry that names a file in full always selects it.
+- **No match.** A pattern that matches no file fails the load with `matches no file`, and a malformed pattern with `malformed glob pattern`. An entry without a pattern character that names a missing file fails with the cause the filesystem reports.
+- **Order.** Files load in list order, and in lexical order within one pattern. A file that several entries select loads once, at its first position. Every block of every partial is visible to every prompt template whatever the order; the order decides only which of two files that define one name the error names as the earlier definition.
+- **Content.** A partial carries no front matter. It holds `define` blocks only: white space and comments may stand outside them, and any other text or action outside a block fails the load, a `{{ block }}` action included, because the text of a partial is never rendered by itself. A block may call any block visible to the template that reaches it, including a block that only that template defines. A call that no block answers is reported at its line in the partial and ends with `, reached from <template file>`.
+- **Names.** A name has one source in each template: a partial or the template itself, never two files. Two partials that define one name fail the load with `template "<name>" is already defined in <file>`, reported in the later file and naming the earlier one. A prompt template that defines a name a partial defines fails the same way, in the template; `{{ block }}` defines its name as `{{ define }}` does, so it cannot override a partial. The name `prompt` is reserved and fails with `template name "prompt" is reserved for the prompt template`. Two prompt templates may define the same name, because each compiles with the partials and with its own blocks only.
+
+```yaml
+dispatch:
+  partials:
+    - ./partials/*.md
+  rules:
+    - name: bug
+      match:
+        labels: ["bug"]
+      template: ./prompts/bug.md
+    - name: feature
+      match:
+        labels: ["feature"]
+      template: ./prompts/feature.md
+```
+
+`partials/checklist.md` defines `checklist`, which calls `verify_step`. The partial does not define `verify_step`; each rule template does:
+
+```text
+{{ define "checklist" -}}
+Before you finish:
+{{ template "verify_step" . }}
+- Summarize the change to {{ .issue.identifier }}.
+{{- end }}
+```
+
+`prompts/bug.md`:
+
+```text
+{{ define "verify_step" }}- Add a regression test that fails without the fix.{{ end -}}
+Fix {{ .issue.identifier }}: {{ .issue.title }}
+
+{{ template "checklist" . }}
+```
+
+`prompts/feature.md` is the same with `Build` and its own `verify_step`. The WORKFLOW.md body of this workflow does not call `checklist`; a body that did would need its own `verify_step` too.
+
+For the load and reload behavior of partial files, see [Freeze and reload](#freeze-and-reload); for the error each fault draws, see [Validation](#validation) and [startup and configuration errors](/reference/errors/#startup-and-configuration-errors). `sortie validate` also warns about a block that no template calls; see [advisory warnings](/reference/cli/#advisory-warnings).
+
 ### Freeze and reload
 
 An issue keeps its agent kind, template, and rule until its claim is released. What the selection contains is read from WORKFLOW.md at the start of every attempt: the first dispatch, each retry, and each reaction continuation. That covers the settings block (the rule's block laid over the top-level block of the kind, as in [Rule settings blocks](#rule-settings-blocks)), the template text, and the `agent.*` timeouts. A change to a settings block, in a rule or at the top level, therefore applies from the next attempt without a restart, including for a claim that is already held. A running session never changes settings.
@@ -754,9 +872,11 @@ An attempt whose resolved block fails an error-severity check starts no session.
 
 When a rule whose block an earlier attempt used no longer exists, or no longer carries a block for the claim's kind, the attempt runs on the top-level block of that kind and Sortie logs one `Info` record naming the rule.
 
-The rule set reloads with WORKFLOW.md changes and applies to future claims only. An in-flight issue keeps the kind, template, and rule frozen at its first dispatch until its claim is released, and moving a label on, or renaming, an issue whose claim is held does not re-route it.
+The rule set reloads with WORKFLOW.md changes and applies to future claims only. An in-flight issue keeps the kind, template, and rule frozen at its first dispatch until its claim is released, and moving a label on, or renaming, an issue whose claim is held does not re-route it. That includes adding or removing a stage label.
 
-A waiting retry keeps its recorded selection too, as long as the configuration still reaches its agent kind and still holds its template, whether or not the rule still matches the issue. When either is gone, for example after `agent.kind` moved to another kind or a rule's template file was renamed, the retry is routed again by the current rules when its timer fires and starts a new session instead of resuming the earlier one. Sortie logs one `Info` record, `retry dispatching on the selection the configuration in force gives it`, when a retry dispatches on a different selection. A retry whose agent kind has no adapter, because that adapter failed to start with Sortie, is rescheduled with backoff and keeps its claim until Sortie restarts. Per-rule template files are read at WORKFLOW.md load and on every reload; a standalone edit to a per-rule template file applies on the next WORKFLOW.md change or the next dispatch, whichever comes first.
+`next`, its target's `stage`, and `dispatch.max_consecutive_hops` are read from the configuration in force when the worker exits, not frozen at dispatch. A reload that adds `next` to the rule an issue is running on makes its successful exit hop; one that removes that `next`, removes the rule it names, or removes the named rule's `stage` makes the exit take the handoff write. A hop releases the claim, so the next stage always starts on a new claim and a selection resolved against the configuration in force then. The [`.stage`](#stage) data is part of the selection: a retry or reaction continuation that keeps its rule renders the same `.stage.previous` and `.stage.previous_outcome`, also after a restart, while `.stage.current` is read at each dispatch. A retry that is routed again uses the same three selection steps as a poll tick, stage labels included.
+
+A waiting retry keeps its recorded selection too, as long as the configuration still reaches its agent kind and still holds its template, whether or not the rule still matches the issue. When either is gone, for example after `agent.kind` moved to another kind or a rule's template file was renamed, the retry is routed again by the current rules when its timer fires and starts a new session instead of resuming the earlier one. Sortie logs one `Info` record, `retry dispatching on the selection the configuration in force gives it`, when a retry dispatches on a different selection. A retry whose agent kind has no adapter, because that adapter failed to start with Sortie, is rescheduled with backoff and keeps its claim until Sortie restarts. Per-rule template files are read at WORKFLOW.md load and on every reload; a standalone edit to a per-rule template file applies on the next WORKFLOW.md change or the next dispatch, whichever comes first. [Partial files](#partials) are read the same way, and the file watcher does not watch them: an edit to a partial alone applies at the next poll tick, when its defensive reload re-reads every partial, or at once when WORKFLOW.md is touched. Every template compiles together with the partials of one load, so an edited block reaches an attempt through the template, as an edited rule template does.
 
 A reload that moves `agent.kind` or `dispatch.default.agent` while a rule without its own `agent` carries a block for the old kind is rejected as a validation error, because the rule would run another kind than its block names. Sortie keeps the last good configuration. Fix the block or give the rule an `agent`, and the next reload applies.
 
@@ -801,7 +921,7 @@ Each iteration runs one review turn. Non-final iterations that produce an “ite
 
 ### Verification command process lifetime
 
-Each verification command's process group (its Job Object on Windows) is torn down the same way a hook's is: see [hook process lifetime](#hook-process-lifetime) for the resend, the 2-second bound, and the Windows fallback when a Job Object could not be created or assigned. Two things differ here: the command's own exit status, not its timeout or its output, decides whether it passed, and the INFO and WARN records this produces carry `command` in place of `hook` and `workspace`.
+Each verification command's process group (its Job Object on Windows) is torn down the same way a hook's is: see [hook process lifetime](#hook-process-lifetime) for the resend, the 2-second bound, and the Windows fallback when a Job Object could not be created or assigned. Two things differ here: the command's own exit status, not its timeout or its output, decides whether it passed, and the INFO record this produces carries `command`, the configured command, in place of `hook` and `workspace`, while the WARN records name the launch by `command` as the shell's executable name.
 
 ### Dynamic reload
 
@@ -886,7 +1006,7 @@ reactions:
     watch_window_ms: 1800000            # optional; shown at its default (30 min)
 ```
 
-When a review-fix continuation dispatches, the prompt receives a `review_comments` template variable: a list of maps with keys `id`, `file`, `start_line`, `end_line`, `reviewer`, `body`. Templates should guard with `{{ if .review_comments }}`. See the [`.review_comments`](#review_comments) template variable reference below for the full schema, and [how to write a prompt template](/guides/write-prompt-template/) for syntax.
+When a review-fix continuation dispatches, the prompt receives a `review_comments` template variable: a list of maps with keys `id`, `file`, `start_line`, `end_line`, `reviewer`, `body`. Templates should guard with `{{ if .review_comments }}`. The variable is also set on the first turn of a new run of an issue that already has a pull request, when the pull request holds comments no earlier run was given; see [comments already given](/reference/reactions/#comments-already-given). See the [`.review_comments`](#review_comments) template variable reference below for the full schema, and [how to write a prompt template](/guides/write-prompt-template/) for syntax.
 
 For operational guidance on setting up review feedback, see [how to configure PR review feedback](/guides/configure-review-feedback/).
 
@@ -1024,9 +1144,11 @@ The catalog is closed. Validation accepts exactly these names and rejects any ot
 | `escalation.ci_failure`, `escalation.review_comments`, `escalation.bot_review`, `escalation.merge_conflicts`, `escalation.auto_merge`, `escalation.merge_completion` | The matching [reaction](/reference/reactions/#escalation-actions) hands its subject to a person, under any `escalation` value. | `warning` |
 | `auto_merge.merged` | The auto-merge reaction merges a pull request. | `info` |
 | `budget.held` | An issue is held out of dispatch by `agent.max_sessions` or `agent.max_tokens`. | `warning` |
+| `stage.advanced` | A [stage hop](#stage-chains) is made, including one that left an old stage label on the issue. | `info` |
+| `stage.not_advanced` | A stage hop is due and not made. The reason is `failed` when the label add failed, or `ceiling` when the issue reached `dispatch.max_consecutive_hops`. | `warning` |
 | `agent.message` | The agent calls `notify_operator`. | Set by the agent. |
 
-A run Sortie cancels (stall timeout, reconciliation, shutdown) produces no session event.
+A run Sortie cancels (stall timeout, reconciliation, shutdown) produces no session event. A stage event follows the exit that reached the hop decision, in addition to that exit's session event, and a destination receives it only when its `events` list names it.
 
 ### The `tracker_comment` destination
 
@@ -1038,6 +1160,19 @@ A `tracker_comment` entry posts each event it receives as a comment on the event
 | `session.completed` | `Sortie session completed.`, then the duration and the turns completed. The headline gains a `(re-queuing)` suffix when a continuation retry is scheduled. |
 | `session.stopped` | `Sortie session completed (agent signaled: <value>).`, then the duration and the turns completed, then the agent's stop statement in a literal block when it wrote one. |
 | `session.failed` | `Sortie session failed.`, then the duration and the retry status: `Retry: yes (attempt N)` with the next attempt number, or `Retry: no (not retryable)`. |
+
+A stage event comments with a headline, then one line each for the source rule, the target rule, the reason when the hop was not made, the hop count, and the chain identifier:
+
+```text
+Sortie did not advance the issue to the next stage.
+From: specify
+To: implement
+Reason: the issue reached its limit of consecutive stage moves (dispatch.max_consecutive_hops)
+Hop count: 10
+Chain: <chain id>
+```
+
+The `stage.advanced` headline is `Sortie advanced the issue to the next stage.` and carries no `Reason` line. For reason `failed` the line reads `Reason: the next stage's label could not be added to the issue`. The chain identifier is a random value that ties together the runs of one pass through a chain.
 
 No comment carries the agent session ID, the agent kind, or the error text. The cause of a failure is in the log, the run history, and the dashboard. The stop statement is the one piece of agent-written text a comment can carry. Sortie masks the secrets it knows in the statement, and the tracker shows it as literal text, so no slash command, mention, or markup in it takes effect. Slack and webhook destinations receive the full notification, including session and dispatch identity.
 
@@ -1081,6 +1216,18 @@ The `webhook` backend posts the same JSON object it posts for an `agent.message`
   "agent_text": "The ticket asks for both soft and hard delete of invoices.\nWhich one should the API expose?"
 }
 ```
+
+A stage event carries the identity of the run whose exit reached the hop decision, and adds a `stage` object that no other payload carries:
+
+| Key | Type | Value |
+|---|---|---|
+| `stage.source_rule` | string | The rule whose run reached the decision. |
+| `stage.target_rule` | string | The rule `next` names. |
+| `stage.chain_id` | string | The chain identifier. |
+| `stage.hop_count` | integer | The issue's consecutive hop count once the decision applies: the new count after a hop, the unchanged count otherwise. |
+| `stage.reason` | string | `failed` or `ceiling` on `stage.not_advanced`. Absent on `stage.advanced`. |
+
+A stage event carries no `agent_text`. The `slack` backend has no `stage` field: its `text` holds the comment body above.
 
 Events from reactions and the budget hold have no run behind them, so their `dispatch_id`, `session_id`, and `agent` are empty strings and `attempt` is `null`. The [agent extensions reference](/reference/agent-extensions/#what-each-backend-delivers) describes every other field.
 
@@ -1285,28 +1432,27 @@ codex:
 
 ### `opencode`
 
-The adapter supports OpenCode 1.x and 2.x, with 1.x [deprecated](/reference/adapter-opencode/#deprecation-of-opencode-1x), and detects which one `agent.command` names by querying its version at the start of each session, refusing a version it cannot read and any major other than 1 or 2. Several fields below map to a different CLI flag, environment variable, or configuration field depending on which major is detected; see the [OpenCode adapter reference](/reference/adapter-opencode/#opencode-extension-section) for the per-major mapping and [version detection](/reference/adapter-opencode/#version-detection) for the mechanism and every version-related refusal.
+The adapter runs OpenCode 2.x. It queries the version `agent.command` reports at the start of each session and refuses one it cannot read or one that is not 2.x; see the [version check](/reference/adapter-opencode/#version-check) for every refusal and [settings refused at session start](/reference/adapter-opencode/#settings-refused-at-session-start) for the configuration it rejects.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `model` | string | _(CLI default)_ | Model identifier in `provider/model` form. |
 | `agent` | string | _(none)_ | OpenCode agent name, passed through unchanged. |
-| `effort` | string | _(none)_ | Reasoning level; see [reasoning effort](#adapter-pass-through-configuration). It fills OpenCode's model-variant slot, so some combinations with `model` are refused on OpenCode 2.x; see the [OpenCode adapter reference](/reference/adapter-opencode/#version-detection). Setting it together with `variant` is an error. |
-| `variant` | string | _(none)_ | Reasoning variant. Fills the same slot as `effort`; setting both fails under `opencode.effort.conflict`. Some combinations with `model` are refused on OpenCode 2.x; see the [OpenCode adapter reference](/reference/adapter-opencode/#version-detection). |
+| `effort` | string | _(none)_ | Reasoning level; see [reasoning effort](#adapter-pass-through-configuration). It fills OpenCode's model-variant slot, so it needs a `model` without a `#` suffix of its own; see [settings refused at session start](/reference/adapter-opencode/#settings-refused-at-session-start). Setting it together with `variant` is an error. |
+| `variant` | string | _(none)_ | Reasoning variant. Fills the same slot as `effort`; setting both fails under `opencode.effort.conflict`. It needs a `model` without a `#` suffix of its own; see [settings refused at session start](/reference/adapter-opencode/#settings-refused-at-session-start). |
 | `thinking` | boolean | `false` | Requests reasoning output. |
-| `pure` | boolean | `false` | Runs OpenCode without external plugins. Supported on OpenCode 1.x only; see the [OpenCode adapter reference](/reference/adapter-opencode/#version-detection). |
 | `dangerously_skip_permissions` | boolean | `true` | Auto-approves permission requests. `false` changes tool-call behavior; see [validate-time checks](/reference/adapter-opencode/#validate-time-checks). |
 | `disable_autocompact` | boolean | `true` | Disables OpenCode's own context autocompaction. |
 | `allowed_tools` | list of strings | `[]` | Builds an allowlist permission policy: listed keys become `allow`, every known key not listed becomes `deny`, unknown keys are forwarded unchanged. |
 | `denied_tools` | list of strings | `[]` | Adds `deny` rules to the same policy `allowed_tools` builds. Overlap with `allowed_tools` is rejected when the adapter is built. |
 | `mcp_config` | string | _(none)_ | Path to an MCP server configuration file, resolved relative to the WORKFLOW.md directory when not absolute. Its servers are merged into the copy Sortie generates for its own tool sidecar; the original is never modified, and a file already declaring `sortie-tools` fails the attempt. |
 
-The OpenCode runtime accepts no MCP configuration path either, so the adapter re-expresses the generated servers as the runtime's own server entries and sets them in the turn's environment. That happens on a local launch only; an SSH session receives none, and reaches no Sortie tool. See [MCP](/reference/adapter-opencode/#mcp).
+The OpenCode runtime accepts no MCP configuration path either, so the adapter re-expresses the generated servers as the runtime's own server entries and sets them in the turn's environment. That happens on a local launch only; an SSH session receives no servers and reaches no Sortie tool. The rest of that environment document, the permission policy and compaction setting included, applies on SSH as it does locally. See [MCP](/reference/adapter-opencode/#mcp).
 
-The adapter runs one `opencode run --format json` subprocess per turn and a second subprocess after the turn to recover authoritative token usage; the exact command for each varies by major. Neither major exposes `--attach`, `--port`, `--command`, `--file`, `--title`, `--continue`, or `--fork` through WORKFLOW.md. See the [OpenCode CLI adapter reference](/reference/adapter-opencode/) for the exact commands, the full lifecycle, SSH behavior, and authentication model.
+The adapter runs one `opencode run --format json` subprocess per turn and a second subprocess after the turn to recover authoritative token usage. The adapter exposes none of `--attach`, `--port`, `--command`, `--file`, `--title`, `--continue`, or `--fork` through WORKFLOW.md. See the [OpenCode CLI adapter reference](/reference/adapter-opencode/) for the exact commands, the full lifecycle, SSH behavior, and authentication model.
 
 > [!WARNING]
-> `agent.max_turns` (orchestrator turn-loop limit) and OpenCode's internal step budget are not the same thing. The adapter does not expose an OpenCode-specific inner turn cap, on either major.
+> `agent.max_turns` (orchestrator turn-loop limit) and OpenCode's internal step budget are not the same thing. The adapter does not expose an OpenCode-specific inner turn cap.
 
 ```yaml
 opencode:
@@ -1507,7 +1653,7 @@ worker:
 
 The markdown body after the closing `---` is a Go `text/template` rendered per issue. The template engine runs in strict mode (`missingkey=error`): referencing an undefined variable or function fails rendering immediately.
 
-The template receives three core top-level variables on every render, `.issue`, `.attempt`, and `.run`, plus six reaction continuation variables that are `nil` except on the first turn of the matching reaction-triggered dispatch: `.ci_failure`, `.review_comments`, `.bot_review_comments`, `.merge_conflict`, `.label_review`, and `.label_fix`. Every continuation variable defaults to `nil` so a template referencing it renders under `missingkey=error` even when the corresponding reaction is never configured.
+The template receives four core top-level variables on every render, `.issue`, `.attempt`, `.run`, and `.stage`, plus six reaction continuation variables that are `nil` except on the first turn of the matching reaction-triggered dispatch (`.review_comments` and `.bot_review_comments` are also set on the first turn of a new run, as described under each): `.ci_failure`, `.review_comments`, `.bot_review_comments`, `.merge_conflict`, `.label_review`, and `.label_fix`. Every continuation variable defaults to `nil` so a template referencing it renders under `missingkey=error` even when the corresponding reaction is never configured.
 
 ### `.issue`
 
@@ -1546,6 +1692,20 @@ In template conditionals, `0` evaluates to false: `{{ if .attempt }}` is true on
 | `.run.max_turns`       | integer | Configured maximum turns (`agent.max_turns`).                                                                    |
 | `.run.is_continuation` | boolean | `true` when this is a continuation turn (not the first turn, not a retry after error).                           |
 
+### `.stage`
+
+Present on every render, first and continuation turns alike, and never `nil`, so a template that reads it renders in a workflow without [stage chains](#stage-chains). Every value is a string. When no hop led to the dispatch, `.stage.previous` and `.stage.previous_outcome` are empty strings.
+
+| Field                     | Type   | Description |
+| ------------------------- | ------ | ----------- |
+| `.stage.current`          | string | `name` of the rule this dispatch runs, when that rule carries `stage`. Empty for a rule without `stage`, for `dispatch.default`, and when no rule applies. |
+| `.stage.previous`         | string | `name` of the rule whose hop led to this dispatch. Set when the dispatch runs the target of the issue's latest hop and the hop count has not reset since; empty otherwise. |
+| `.stage.previous_outcome` | string | `succeeded`, or `no_change` when the previous stage's run declared `no-change-needed`. Empty when `.stage.previous` is empty. |
+
+```
+{{ if .stage.previous }}The {{ .stage.previous }} stage finished first ({{ .stage.previous_outcome }}). Read what it left in the workspace before you start.{{ end }}
+```
+
 ### `.ci_failure`
 
 Available only on the first turn of a CI-fix continuation dispatch. `nil` on normal dispatches and non-CI retries.
@@ -1560,7 +1720,7 @@ Available only on the first turn of a CI-fix continuation dispatch. `nil` on nor
 
 ### `.review_comments`
 
-Available only on the first turn of a review-fix continuation dispatch. `nil` on normal dispatches and non-review retries.
+Set on the first turn of a review-fix continuation dispatch, and on the first turn of a new run of an issue whose pull request holds review comments no earlier run was given, under the conditions in [comments already given](/reference/reactions/#comments-already-given). `nil` on every other turn.
 
 A list of maps, one per actionable review comment. Outdated comments (referring to code modified by a subsequent push) are excluded.
 
@@ -1588,7 +1748,7 @@ A list of maps, one per actionable review comment. Outdated comments (referring 
 
 ### `.bot_review_comments`
 
-Available only on the first turn of a bot-review-fix continuation dispatch, triggered by [`reactions.bot_review`](/reference/reactions/#reactionsbot_review). `nil` on normal dispatches and non-bot-review retries.
+Set on the first turn of a bot-review-fix continuation dispatch, triggered by [`reactions.bot_review`](/reference/reactions/#reactionsbot_review), and on the first turn of a new run of an issue whose pull request holds bot comments no earlier run was given, under the same conditions as `.review_comments`. `nil` on every other turn.
 
 Same per-element shape as [`.review_comments`](#review_comments): a list of maps with `.id`, `.file`, `.start_line`, `.end_line`, `.reviewer` (the bot's login), and `.body`.
 
@@ -1662,6 +1822,24 @@ Every action, control structure, and comparison function of Go's [`text/template
 > [!NOTE]
 > Inside `{{ range }}`, the dot (`.`) rebinds to the current element. Use `{{ $.issue.identifier }}` to access top-level variables from within a range block. `sortie validate` detects references to `.issue`, `.attempt`, or `.run` inside `{{ range }}` and `{{ with }}` blocks and emits a `dot_context` warning.
 
+### Define blocks and calls
+
+Three actions name a piece of template text and reuse it.
+
+| Action | Effect |
+| ------ | ------ |
+| `{{ define "name" }}...{{ end }}` | Defines the block `name`. Renders nothing where it stands. |
+| `{{ template "name" . }}` | Renders the block `name`. The last argument becomes the block's dot. |
+| `{{ block "name" . }}...{{ end }}` | Defines `name` as `define` does and renders it in place with the argument. Allowed in a prompt template, not in a [partial](#partials). |
+
+A name is a string literal; a call cannot compute it, and a file is not callable by its name. A prompt template calls the blocks it defines itself and the blocks of every file listed under [`dispatch.partials`](#partials).
+
+A call passes `.` so the block receives the data the template received: `{{ template "name" . }}`. A call without an argument, `{{ template "name" }}`, passes nothing, and a block that reads `.issue` then fails the render with `nil data; no entry for key "issue"`. Inside a block, `.` and `$` are the value the call passed. A call outside every `{{ range }}` and `{{ with }}` body passes the whole data map, so `.issue.identifier` and `$.issue.identifier` both work in the block. Inside such a body `.` is the current element; pass `$` to hand over the whole data map: `{{ template "name" $ }}`.
+
+A call to a name that nothing defines fails the load of the workflow, not the run that reaches the call. The rule holds for the WORKFLOW.md body and for every rule and default template, in a workflow with no `dispatch.partials`, and in a branch of an `{{ if }}`, `{{ range }}`, or `{{ with }}` that no issue takes.
+
+A template error names the file that holds the fault and the line in that file: `template parse error in <file> (line <n>): <cause>`, or `template render error in <file> (line <n>): <cause>`. A line in the WORKFLOW.md body counts from the top of WORKFLOW.md, front matter included. A line in a rule template, a `dispatch.default` template, or a partial counts from the top of that file, and a fault inside a block is located in the file that holds the block, not in the file that called it. When Sortie cannot determine the line, `(line <n>)` is left out.
+
 ---
 
 ## Dynamic reload
@@ -1687,8 +1865,10 @@ Sortie watches `WORKFLOW.md` for filesystem changes and re-applies configuration
 | `agent.stop_grace_ms`                  | Future worker attempts for the per-session stop bound, which each attempt freezes when it starts. The shutdown worker-drain ceiling reads the active value instead, so a reloaded value bounds the next shutdown without waiting for a new attempt. |
 | `worker.ssh_hosts`, `worker.max_concurrent_agents_per_host`, `worker.ssh_strict_host_key_checking`, `worker.ssh_pass_env`, `worker.ssh_disallow_pass_env` | Dynamic. Future dispatches use the reloaded value; in-flight sessions are unaffected. |
 | Prompt template                        | Future worker attempts.                |
-| `dispatch.rules`, `dispatch.default`   | Future claims. In-flight issues keep the agent and template frozen at first dispatch. A waiting retry keeps its recorded selection unless the configuration no longer reaches its kind or holds its template; see [Freeze and reload](#freeze-and-reload). A rule's settings block applies from the next attempt, like the top-level block of its kind. |
+| `dispatch.rules`, `dispatch.default`   | Future claims. In-flight issues keep the agent and template frozen at first dispatch. A waiting retry keeps its recorded selection unless the configuration no longer reaches its kind or holds its template; see [Freeze and reload](#freeze-and-reload). A rule's settings block applies from the next attempt, like the top-level block of its kind. A rule's `next` and its target's `stage` are read when the worker exits; see [Stage chains](#stage-chains). |
+| `dispatch.max_consecutive_hops`       | The next worker exit that reaches a hop decision. |
 | Per-rule `dispatch` template files     | Read on WORKFLOW.md load and reload; a standalone edit applies on the next WORKFLOW.md change or dispatch. |
+| `dispatch.partials` and the partial files | Read again on every load and reload, and not watched. An edit to a partial file alone applies at the next poll tick, or at once when WORKFLOW.md is touched. See [Freeze and reload](#freeze-and-reload). |
 | `reactions.ci_failure.max_retries`, `reactions.ci_failure.escalation`, `reactions.ci_failure.escalation_label` | Next reconcile tick. |
 | `reactions.ci_failure.provider`, `reactions.ci_failure.max_log_lines` | Requires restart. The CI provider is built once at startup with its log limit, so a reload neither swaps the provider nor turns CI feedback on or off. The reload is not refused; the running provider stays in use. |
 | `reactions.ci_failure.watch_window_ms` | Next reconcile tick.                   |

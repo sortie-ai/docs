@@ -291,8 +291,8 @@ The pipeline checks:
 - `db_path` is a string when present.
 - `agent.max_sessions` is non-negative.
 - `agent.turn_timeout_ms` is positive.
-- Go `text/template` syntax in the prompt body (strict mode: unknown variables and functions are errors).
-- Template static analysis: dot-context misuse inside `{{ range }}` / `{{ with }}`, unknown top-level variables, and unknown sub-fields of known variables (advisory warnings).
+- Go `text/template` syntax in the prompt body, the default template, every rule template, and the [partials](/reference/workflow-config/#partials) they share (strict mode: unknown variables and functions are errors). A call to a template that nothing defines is an error too, in a branch no issue takes as well.
+- Template static analysis, run on the prompt body, the default template, and every rule template (advisory warnings): dot-context misuse inside `{{ range }}` / `{{ with }}`, unknown top-level variables, unknown sub-fields of known variables, and shared blocks that no template calls. The analysis follows a call into a shared block, so a fault inside a partial is reported too.
 - `tracker.kind` is present and maps to a registered adapter.
 - `agent.kind` maps to a registered adapter. Defaults to `claude-code` when absent.
 - Fields required by the selected adapters: `tracker.api_key`, `tracker.project`, and `agent.command` for an agent kind that has no default command, such as `agent-client-protocol`.
@@ -302,19 +302,22 @@ The pipeline checks:
 - Settings block presence (`dispatch.agent.missing_block`), for every agent kind a `dispatch.default.agent` or a `dispatch.rules[i].agent` names, when that kind is registered and differs from the top-level `agent.kind`. The kind must carry its own top-level block in the front matter, or the workflow is refused, naming the selector that introduced the kind and the block it expects. An empty block (`codex: {}` or a bare `codex:` key) is enough. A kind whose every selector is a rule that carries the kind's own settings block needs no top-level block, so the check does not fire for it. Skipped for a kind Sortie does not recognize as a registered adapter, since that is already reported separately as `agent_adapter`.
 - Session-resume refusal (`agent.kind.session_resume`), for every agent kind the configuration can reach. An adapter declares which of its own pass-through keys stops it resuming a session across separate agent launches; when the configuration sets that key to the blocking value, the workflow is refused. Sortie re-dispatches an issue carrying its earlier session after a retry, a continuation, a stall, or a restart, so every resumed turn would fail. The check reads the adapter's declaration and that adapter's own pass-through block, and no core setting; it runs offline with no network access and no subprocess launch. `claude-code.session_persistence` set to `false` is the only key any built-in adapter declares.
 - Dispatch rule settings blocks: the structural checks on `dispatch.rules` that fail the load (a block for a kind the rule does not run, a block that is not a mapping or writes `command` or a timeout, a missing or reserved rule `name`) and the [`match.title`](/reference/workflow-config/#title-phrases) checks, reported as `config.dispatch.rules[<i>]...` fields.
+- Stage labels and `next` links on [dispatch rules](/reference/workflow-config/#stage-chains), reported as `config.dispatch.rules[<i>].stage`, `config.dispatch.rules[<i>].next`, or `config.dispatch.rules[<i>]`. A `stage` is a string with at least one character other than white space and repeats no other rule's stage label, compared without regard to case. A rule that carries `stage` or `next` has a `name`, and a rule that carries `stage` has no `match` block. A `next` names another rule, that rule carries a `stage`, and the `next` links form no cycle. Any `next` requires `tracker.handoff_state`. Both keys belong to rules only: under `dispatch.default` either one is rejected as `config.dispatch.default.<key>` with the message `unknown key`.
+- `dispatch.max_consecutive_hops`, when written, is an integer greater than `0` and at least the number of hops in the longest stage chain, reported as `config.dispatch.max_consecutive_hops`.
+- Stage label collisions (`dispatch.stage.collision`). Each rule's stage label is compared, without regard to case, against the active and terminal states (the tracker adapter's default list when the workflow leaves one empty), `tracker.handoff_state`, `tracker.in_progress_state`, `tracker.no_change_state`, every reaction's `escalation_label`, and the parking label (`needs-human` unless `reactions.review_comments.escalation_label` names another). Each match is one error, which names the rule and the value it collides with. The check reads configuration only and makes no tracker call.
 - Agent-adapter config validation, for every agent kind the configuration can reach: the default `agent.kind`, the kind a [dispatch default](/reference/workflow-config/#dispatch) names, and the kind each dispatch rule selects. Every rule that carries a settings block is also checked on its resolved block, the top-level block of its kind with the rule's block laid over it, and each message opens with `dispatch rule "<name>" (dispatch.rules[<i>].<kind>): `. A rule's block therefore draws the same errors and warnings a top-level block would. A registered kind the configuration never names is skipped, because reporting a fault in a block no run reads would be noise. These checks cover the pass-through values that would let the agent stop and wait for a person, and they run offline with no network access and no subprocess launch. The Codex, Claude Code, Copilot CLI, and OpenCode adapters each declare them: see [Codex](/reference/adapter-codex/#validate-time-checks), [Claude Code](/reference/adapter-claude-code/#validate-time-checks), [Copilot CLI](/reference/adapter-copilot/#validate-time-checks), and [OpenCode](/reference/adapter-opencode/#validate-time-checks).
 - Workspace root directory exists (or can be created) and is writable.
 
 The pipeline does **not** check:
 
-- **Value ranges**, for most fields. `agent.max_sessions`, `agent.max_tokens`, `agent.token_warning_percent`, `agent.max_consecutive_absences`, `agent.turn_timeout_ms`, `agent.stop_grace_ms`, `workspace.retention_days`, the `self_review` integer fields, `reactions.*.max_retries`, and the `reactions.ci_failure` integer fields are checked and reject an out-of-range value as a configuration error. Negative values for `polling.interval_ms` or other timeout fields are accepted. Zero replaces with a built-in default for `polling.interval_ms` and `agent.read_timeout_ms`; for `agent.stall_timeout_ms` zero is kept and disables stall detection. `agent.turn_timeout_ms` and `agent.stop_grace_ms` must be positive; any other value is rejected rather than replaced.
+- **Value ranges**, for most fields. `agent.max_sessions`, `agent.max_tokens`, `agent.token_warning_percent`, `agent.max_consecutive_absences`, `agent.turn_timeout_ms`, `agent.stop_grace_ms`, `workspace.retention_days`, the `self_review` integer fields, `reactions.*.max_retries`, the `reactions.ci_failure` integer fields, and `dispatch.max_consecutive_hops` are checked and reject an out-of-range value as a configuration error. Negative values for `polling.interval_ms` or other timeout fields are accepted. Zero replaces with a built-in default for `polling.interval_ms` and `agent.read_timeout_ms`; for `agent.stall_timeout_ms` zero is kept and disables stall detection. `agent.turn_timeout_ms` and `agent.stop_grace_ms` must be positive; any other value is rejected rather than replaced.
 - **Format constraints.** `tracker.endpoint` is not checked for valid URL syntax. Path fields are not checked for existence (except `workspace.root`).
 
 #### Advisory warnings
 
-Beyond the error-level checks above, `validate` runs static analysis on the front matter and the prompt template, checks the resolved configuration for likely-wrong patterns, and reports the advisories recorded while that configuration was built or loaded, emitting **warnings** in every case. Warnings do not block validity: `valid` remains `true` and the exit code is `0` when only warnings are present. Runtime behavior is unchanged; warnings surface patterns that the orchestrator would silently accept, that would produce unexpected output, or that it would otherwise only report through the run log.
+Beyond the error-level checks above, `validate` runs static analysis on the front matter and the prompt templates, checks the resolved configuration for likely-wrong patterns, and reports the advisories recorded while that configuration was built or loaded, emitting **warnings** in every case. Warnings do not block validity: `valid` remains `true` and the exit code is `0` when only warnings are present. Runtime behavior is unchanged; warnings surface patterns that the orchestrator would silently accept, that would produce unexpected output, or that it would otherwise only report through the run log.
 
-`validate` groups these warnings by what produced them: static analysis of the front matter, static analysis of the prompt template, checks on the resolved configuration, and advisories recorded while the configuration was built or loaded, plus adapter-specific warnings when the tracker adapter declares config validation (see [adapter-specific warning check values](#adapter-specific-warning-check-values)):
+`validate` groups these warnings by what produced them: static analysis of the front matter, static analysis of the prompt templates, checks on the resolved configuration, and advisories recorded while the configuration was built or loaded, plus adapter-specific warnings when the tracker adapter declares config validation (see [adapter-specific warning check values](#adapter-specific-warning-check-values)):
 
 **Front matter analysis:**
 
@@ -326,9 +329,12 @@ Beyond the error-level checks above, `validate` runs static analysis on the fron
 
 **Template static analysis:**
 
-- **Dot-context misuse** (`dot_context`). A reference to a top-level data key (`.issue`, `.attempt`, `.run`) inside a `{{ range }}` or `{{ with }}` block where the dot has been redefined. Almost always a bug. Use the `$` prefix (`$.issue.title`) to reach root data from inside these blocks.
-- **Unknown template variable** (`unknown_var`). A top-level variable reference not in the template data contract. For example, `{{ .config }}` or `{{ $.settings }}`. Valid top-level variables are `.issue`, `.attempt`, and `.run`.
+Each template warning starts with the file and the line that hold the fault, in the form `<file> (line <n>): <message>`. The file is an absolute path. For the prompt body, the line counts from the top of `WORKFLOW.md`, front matter included. A fault inside a shared block is reported at its line in the partial, and the same fault reached from several templates is reported once. Dot-context, unknown-variable, and unknown-field warnings cover the body, the default template, and every rule template, and a call that passes the root data (`{{ template "name" . }}` outside a `{{ range }}` or `{{ with }}` body) carries the check into the shared block. A call that passes anything else does not. A template that fails to load produces the load error and no template warnings.
+
+- **Dot-context misuse** (`dot_context`). A reference to a top-level data key (such as `.issue`, `.run`, or `.stage`) inside a `{{ range }}` or `{{ with }}` block where the dot has been redefined. Almost always a bug. Use the `$` prefix (`$.issue.title`) to reach root data from inside these blocks.
+- **Unknown template variable** (`unknown_var`). A top-level variable reference not in the template data contract. For example, `{{ .config }}` or `{{ $.settings }}`. Valid top-level variables are `.issue`, `.attempt`, `.run`, `.stage`, and the variables reactions add, such as `.ci_failure`; the message lists them all.
 - **Unknown sub-field** (`unknown_field`). A sub-field of a known top-level variable that does not exist in the domain schema. For example, `{{ .run.foo }}` or `{{ .issue.nonexistent }}`. Also flags sub-field access on scalar variables like `{{ .attempt.something }}`.
+- **Unused shared block** (`unused_partial`). A `{{ define }}` block in a file listed under [`dispatch.partials`](/reference/workflow-config/#partials) that no prompt template calls, directly or through another block. The warning names the block and its line in the partial, and reads `template "<name>" is defined but no prompt template calls it`. One warning per block, in the order the partials load. Call the block from a template with `{{ template "<name>" . }}`, or delete it, to end the warning.
 
 **Configuration checks:**
 
@@ -344,19 +350,19 @@ Every check in this group runs for every agent kind the configuration can reach,
 **Recorded advisories:**
 
 - **Label-commands poll interval clamped** (`reactions.label_commands.poll_interval_ms.clamped`). [`reactions.label_commands.poll_interval_ms`](/reference/workflow-config/#reactionslabel_commands) is set below its floor of `30000`; the floor is used instead.
-- **Label-commands review branch missing** (`reactions.label_commands.review_branch_missing`). `reactions.label_commands` is active with a review label, but the prompt template has no `{{ if .label_review }}` branch, so a review dispatch posts no review.
-- **Label-commands fix branch missing** (`reactions.label_commands.fix_branch_missing`). `reactions.label_commands` is active with a fix label, but the prompt template has no `{{ if .label_fix }}` branch, so a fix dispatch runs the normal work prompt against a checkout that can push.
+- **Label-commands review branch missing** (`reactions.label_commands.review_branch_missing`). `reactions.label_commands` is active with a review label, but neither the prompt body nor a shared block it calls has a `{{ if .label_review }}` branch, so a review dispatch posts no review.
+- **Label-commands fix branch missing** (`reactions.label_commands.fix_branch_missing`). `reactions.label_commands` is active with a fix label, but neither the prompt body nor a shared block it calls has a `{{ if .label_fix }}` branch, so a fix dispatch runs the normal work prompt against a checkout that can push.
 - **Env file missing** (`env_file.missing`). The file named by [`--env-file`](#--env-file) or `SORTIE_ENV_FILE` does not exist; no values are read from it.
 - **Env override replaced a non-mapping section** (`env_override.section_replaced`). A [`SORTIE_*` override](/reference/environment/#configuration-overrides) targets a section that is not a YAML mapping; the section is replaced with one holding only the overridden settings.
-- **Deprecated agent kind** (`agent.kind.deprecated`). A reachable agent kind is registered as deprecated: it still runs unchanged, and the message names the kind that replaces it and says a later release removes it. One warning per deprecated kind, for every kind named by `agent.kind`, `dispatch.default.agent`, or a `dispatch.rules[i].agent`. Move the workflow to the replacement kind to end it. A kind a release has removed draws the next warning instead.
+- **Deprecated agent kind** (`agent.kind.deprecated`). A reachable agent kind is registered as deprecated: it still runs unchanged, and the message names the kind that replaces it and says a later release removes it. One warning per deprecated kind, for every kind named by `agent.kind`, `dispatch.default.agent`, or a `dispatch.rules[i].agent`. Move the workflow to the replacement kind to end it.
 - **Effort on a kind that passes none** (`agent.effort.not_forwarded`). A reachable agent kind whose adapter passes no reasoning level to its agent, such as `agent-client-protocol` or `mock`, has a non-empty `effort`, or an `effort` of another type, in its settings block, so the setting has no effect. One warning per such kind, for every kind named by `agent.kind`, `dispatch.default.agent`, or a `dispatch.rules[i].agent`, and one more per dispatch rule of such a kind whose resolved block carries an `effort`, written in the rule or inherited, with the message opening `dispatch rule "<name>" (dispatch.rules[<i>].<kind>): `. For `agent-client-protocol`, write the runtime's own reasoning option in `agent.command`; see [reasoning effort](/reference/workflow-config/#adapter-pass-through-configuration).
 - **Rule changes the model and keeps an inherited effort** (`agent.effort.inherited`). A [dispatch rule](/reference/workflow-config/#rule-settings-blocks) writes `model` in its settings block, does not write `effort`, and inherits a non-empty `effort` from the top-level block of its kind. Level names depend on the model, so the inherited level may not exist for the rule's model. The message reads `dispatch rule "<name>" (dispatch.rules[<i>].<kind>) sets model and inherits effort "<level>" from the top-level <kind> block; level names depend on the model, so write effort in the rule to choose the level for its model, or effort: null to clear it`. One warning per such rule.
-- **Removed agent kind** (`agent.kind.retired`). The workflow names an agent kind a release has removed, in `agent.kind`, `dispatch.default.agent`, or a `dispatch.rules[i].agent`, so Sortie converted the configuration onto the kind that replaces it when it loaded. One warning per removed kind names the replacement, the fields that named the removed kind, the command the converted sessions launch, and any setting of the removed kind's block that was not carried over. The conversion is temporary and a later release removes it. Ending the warning means naming the replacement kind in the workflow file; see [Removed agent kinds](/reference/workflow-config/#removed-agent-kinds). A configuration the conversion cannot honor fails with a `config.<field>` error instead; see [conversion errors](/reference/errors/#startup-and-configuration-errors).
 - **Deprecated tracker comment flag** (`tracker.comments.on_dispatch.deprecated`, `tracker.comments.on_completion.deprecated`, `tracker.comments.on_failure.deprecated`). The flag resolves to `true`, from the workflow file or from its `SORTIE_TRACKER_COMMENTS_*` variable. The flag keeps posting, and the message names the events to list in a `tracker_comment` entry of [`notifications`](/reference/workflow-config/#notifications). One warning per flag.
 - **Deprecated comment escalation** (`reactions.<kind>.escalation.deprecated`). A reaction with a provider sets `escalation: comment`. The message names `escalation: none` and the `escalation.<kind>` event to list in a `tracker_comment` entry. One warning per reaction.
 - **Implicit tracker comment** (`notifications.tracker_comment.implicit_auto_merge`, `notifications.tracker_comment.implicit_budget_hold`). A tracker is configured, no `tracker_comment` entry exists, and the workflow relies on the auto-merge success comment (the auto-merge reaction has a provider) or the budget-hold comment (`agent.max_sessions` or `agent.max_tokens` is above `0`). The comment keeps posting. Adding an entry that lists `auto_merge.merged` or `budget.held` ends the warning, and an entry that omits the event ends the comment.
 - **Notification entry without `events`** (`notifications[<i>].events.missing`). A `webhook` or `slack` entry omits `events` and so receives `agent.message` only. The message suggests `events: [agent.message]`. One warning per entry.
 - **Invalid token rate entry** (`token_rates`). The block or an entry has the wrong type, an entry uses an empty kind or unknown key, a rate is invalid, or an entry lacks `input_per_mtok` or `output_per_mtok`. The warning names the rejected value or incomplete entry; the workflow remains valid.
+- **Session budget shorter than a stage chain** (`dispatch.next.max_sessions`). `agent.max_sessions` is above `0` and smaller than the number of runs the longest stage chain needs, one per rule on it, so an issue on that chain exhausts its session budget before the chain ends. The message reads `agent.max_sessions <n> is smaller than the <runs> runs the longest stage chain needs (<path>); an issue on it exhausts its session budget before the chain ends`, where `<path>` lists the chain's rule names, as in `specify -> implement`. One warning, for the longest chain.
 
 Each of these is recomputed fresh every time the configuration is built. `sortie validate` and `sortie` [`--dry-run`](#--dry-run) report every currently-applicable advisory on every invocation, with no memory of an earlier run. The long-running process is the exception: its run log records an advisory once and again only after the condition has cleared and returned, kept in memory for the life of the process, so a restart logs it again immediately if the condition still holds. None of them affect `valid` or the exit code.
 
@@ -391,10 +397,11 @@ Format: `{severity}: {check}: {message}`
 Warning-only output (exit `0`):
 
 ```
-warning: unknown_key: unknown top-level key "trackers"
-warning: dot_context: did you mean "$.issue.title" instead of ".issue.title"? Inside a {{ range }}/{{ with }} block (including arguments to nested range/with), dot refers to the current element, not root data
-warning: unknown_var: unknown template variable ".config"; valid top-level variables are: .issue, .attempt, .run
-warning: unknown_field: unknown field ".run.foo"; known fields: is_continuation, max_turns, turn_number
+warning: unknown_key: trackers: unknown top-level key "trackers"
+warning: dot_context: /srv/sortie/WORKFLOW.md (line 24): did you mean "$.issue.identifier" instead of ".issue.identifier"? Inside a {{ range }}/{{ with }} block (including arguments to nested range/with), dot refers to the current element, not root data
+warning: unknown_var: /srv/sortie/partials/shared.md (line 1): unknown template variable ".config"; valid top-level variables are: .issue, .attempt, .run, .stage, .ci_failure, .review_comments, .bot_review_comments, .merge_conflict, .label_review, .label_fix
+warning: unknown_field: /srv/sortie/rules/bug.md (line 1): unknown field ".run.foo"; known fields: is_continuation, max_turns, turn_number
+warning: unused_partial: /srv/sortie/partials/shared.md (line 2): template "footer" is defined but no prompt template calls it
 ```
 
 When no errors and no warnings are present, nothing is written.
@@ -418,7 +425,7 @@ error: workflow_load: workflow file not found: /path/to/WORKFLOW.md: ...
 With warnings only:
 
 ```json
-{"valid":true,"errors":[],"warnings":[{"severity":"warning","check":"unknown_key","message":"unknown top-level key \"trackers\""}]}
+{"valid":true,"errors":[],"warnings":[{"severity":"warning","check":"unknown_key","message":"trackers: unknown top-level key \"trackers\""}]}
 ```
 
 The `errors` and `warnings` arrays are always present (never `null`). `valid` is `true` when `errors` is empty, regardless of warnings. Each diagnostic element has three fields:
@@ -444,7 +451,7 @@ The `check` field in JSON output and the prefix in text output use these values:
 |---|---|
 | `workflow_load` | Workflow file missing, unreadable, or unparseable YAML. |
 | `workflow_front_matter` | Front matter is not a YAML map. |
-| `config.<field>` | Configuration field type or value error (e.g., `config.polling.interval_ms`, `config.tracker.handoff_state`, `config.tracker.handoff_evidence`, `config.dispatch.rules[0].match.title`, `config.dispatch.rules[0].opencode`). A removed agent kind whose settings cannot be converted reports under the removed kind's own field, such as `config.kiro.trust_tools`; see [conversion errors](/reference/errors/#startup-and-configuration-errors). |
+| `config.<field>` | Configuration field type or value error (e.g., `config.polling.interval_ms`, `config.tracker.handoff_state`, `config.tracker.handoff_evidence`, `config.dispatch.rules[0].match.title`, `config.dispatch.rules[0].opencode`, `config.dispatch.partials[0]`). |
 | `config.workspace.retention_days` | Workspace retention window is not an integer, is negative, or is non-zero but below the accepted minimum. |
 | `config.agent.turn_timeout_ms` | The per-turn timeout is not a positive integer. |
 | `reactions.review_comments` | Invalid `reactions.review_comments` block. |
@@ -455,7 +462,7 @@ The `check` field in JSON output and the prefix in text output use these values:
 | `reactions.scm_provider_conflict` | Two active SCM reactions name different providers. |
 | `scm_adapter` | The single provider named by the active SCM reactions has no registered SCM adapter. |
 | `ci_provider` | `reactions.ci_failure.provider` names a provider that has no CI status support registered. |
-| `template_parse` | Go template syntax error in the prompt body. |
+| `template_parse` | A template or partial that cannot load: a Go template syntax error in the prompt body, the default template, a rule template, or a partial; a define name that two files both define; text outside the `define` blocks of a partial; or a call to a template that nothing defines. The message names the file and line. |
 | `tracker.kind` | Missing `tracker.kind` field. |
 | `tracker.api_key` | Missing or empty API key after environment variable expansion. |
 | `tracker.project` | Missing `tracker.project` when required by the adapter. |
@@ -465,6 +472,10 @@ The `check` field in JSON output and the prefix in text output use these values:
 | `agent_adapter` | Unknown agent adapter kind. |
 | `tracker.project.format` | `tracker.project` is non-empty but not in `owner/repo` format (GitHub adapter). |
 | `dispatch.agent.missing_block` | A `dispatch.default.agent` or `dispatch.rules[i].agent` names a registered kind, other than `agent.kind`, with no top-level settings block in the front matter, and at least one selector of that kind is not a rule carrying its own settings block. |
+| `config.dispatch.rules[<i>].stage` | A rule's `stage` is not a string, has no character other than white space, or repeats an earlier rule's stage label regardless of case. |
+| `config.dispatch.rules[<i>].next` | A rule's `next` is not a string or is blank, names no rule, names the rule that carries it, names a rule without a stage label, or closes a cycle of `next` links; or `next` is written while `tracker.handoff_state` is unset. |
+| `config.dispatch.max_consecutive_hops` | Not an integer, not greater than `0`, or smaller than the number of hops in the longest stage chain. |
+| `dispatch.stage.collision` | A rule's stage label equals, regardless of case, an active or terminal state, `tracker.handoff_state`, `tracker.in_progress_state`, `tracker.no_change_state`, a reaction's `escalation_label`, or the parking label. |
 | `agent.kind.session_resume` | An agent kind's pass-through block sets a key the adapter declares as blocking session resume across separate agent launches. |
 | `workspace.root_writable` | Workspace root directory does not exist and cannot be created, or is not writable. |
 | `args` | Invalid command-line arguments (too many positional args). |
@@ -482,27 +493,28 @@ Warning diagnostics use a separate set of check values. They appear only in the 
 | `type_mismatch` | Value type does not match the expected type for the field (e.g., string where integer is expected). Also covers semantic issues: non-positive `hooks.timeout_ms`, non-numeric or non-positive values in `agent.max_concurrent_agents_by_state`. An out-of-range integer never produces this warning; see [Validation scope](#validation-scope) for what checks it instead. |
 | `ineffective_setting` | `agent.token_warning_percent` is set above `0` while `agent.max_tokens` is `0`, so the token warning threshold derives from a ceiling that is not in force. |
 | `unresolved_extension_var` | A `$VAR` or `${VAR}` reference inside an extension field (an adapter pass-through block, a dispatch rule's settings block, or `server`, `logging`, `worker`) whose named environment variable is unset or empty. |
-| `dot_context` | Reference to a top-level data key (`.issue`, `.attempt`, `.run`) inside a `{{ range }}` or `{{ with }}` block where dot is the current element, not root data. Use `$` prefix to fix. |
-| `unknown_var` | Top-level template variable not in the data contract. Valid variables: `.issue`, `.attempt`, `.run`. |
+| `dot_context` | Reference to a top-level data key (such as `.issue`, `.run`, or `.stage`) inside a `{{ range }}` or `{{ with }}` block where dot is the current element, not root data. Use `$` prefix to fix. |
+| `unknown_var` | Top-level template variable not in the data contract. Valid variables: `.issue`, `.attempt`, `.run`, `.stage`, and the variables reactions add. |
 | `unknown_field` | Sub-field of a known top-level variable that does not exist in the domain schema (e.g., `.issue.nonexistent`, `.run.foo`). |
+| `unused_partial` | A `define` block in a [`dispatch.partials`](/reference/workflow-config/#partials) file that no prompt template calls. |
 | `agent.mcp_config` | An agent kind's pass-through block sets `mcp_config` for a kind whose adapter delivers the generated MCP configuration to the agent process in no form at all, so the value cannot reach the agent. |
 | `agent.kind.no_tool_channel` | The agent kind has no tool execution channel, so Sortie's tools are neither advertised in the first-turn prompt nor callable during the session. |
 | `agent.kind.no_usage_reporting` | `agent.max_tokens` is set against an agent kind that reports no token usage for the sessions this configuration produces, so the per-issue token ceiling has nothing to count against. |
 | `agent.kind.no_cost_estimate` | `token_rates` prices an agent kind that reports no token usage for the sessions this configuration produces, so no cost can be estimated for it. |
 | `reactions.label_commands.poll_interval_ms.clamped` | `reactions.label_commands.poll_interval_ms` is set below its floor of `30000`; the floor is used instead. |
-| `reactions.label_commands.review_branch_missing` | `reactions.label_commands` is active with a review label, but the prompt template has no `{{ if .label_review }}` branch, so a review dispatch posts no review. |
-| `reactions.label_commands.fix_branch_missing` | `reactions.label_commands` is active with a fix label, but the prompt template has no `{{ if .label_fix }}` branch, so a fix dispatch runs the normal work prompt against a checkout that can push. |
+| `reactions.label_commands.review_branch_missing` | `reactions.label_commands` is active with a review label, but neither the prompt body nor a shared block it calls has a `{{ if .label_review }}` branch, so a review dispatch posts no review. |
+| `reactions.label_commands.fix_branch_missing` | `reactions.label_commands` is active with a fix label, but neither the prompt body nor a shared block it calls has a `{{ if .label_fix }}` branch, so a fix dispatch runs the normal work prompt against a checkout that can push. |
 | `env_file.missing` | The file named by [`--env-file`](#--env-file) or `SORTIE_ENV_FILE` does not exist; no values are read from it. |
 | `env_override.section_replaced` | A `SORTIE_*` override targets a section that is not a YAML mapping; the section is replaced with one holding only the overridden settings. |
 | `agent.kind.deprecated` | A reachable agent kind is deprecated: it still runs, and the message names its replacement. |
 | `agent.effort.not_forwarded` | A reachable agent kind that passes no reasoning level to its agent has `effort` set in its settings block, or a dispatch rule of that kind resolves one, so the setting has no effect. |
 | `agent.effort.inherited` | A dispatch rule writes `model`, does not write `effort`, and inherits a non-empty `effort` from the top-level block of its kind. |
-| `agent.kind.retired` | The workflow names an agent kind a release has removed, and its configuration was converted onto the replacement kind. The message names both kinds and the launch command; the conversion is temporary. |
 | `tracker.comments.on_dispatch.deprecated`, `tracker.comments.on_completion.deprecated`, `tracker.comments.on_failure.deprecated` | The flag resolves to `true`. It still posts, and the message names the replacement events. |
 | `reactions.<kind>.escalation.deprecated` | A reaction sets `escalation: comment`. It still posts, and the message names `escalation: none` and the event to subscribe. |
 | `notifications.tracker_comment.implicit_auto_merge`, `notifications.tracker_comment.implicit_budget_hold` | The workflow relies on the auto-merge success comment or the budget-hold comment while no `tracker_comment` entry exists. |
 | `notifications[<i>].events.missing` | A `webhook` or `slack` entry omits `events`. |
 | `token_rates` | A `token_rates` value is malformed, incomplete, or contains an unrecognized key. The invalid part is ignored or the incomplete entry prices nothing. |
+| `dispatch.next.max_sessions` | `agent.max_sessions` is above `0` and smaller than the number of runs the longest stage chain needs, so an issue on that chain exhausts its session budget before the chain ends. |
 
 #### Adapter-specific warning check values
 
@@ -524,7 +536,7 @@ For details on each check, see [GitHub adapter validate-time checks](/reference/
 
 ### `stats`
 
-Reports how past runs went and what they cost. Sortie appends one row to `run_history` each time an agent session finishes; `stats` reads that history back over a time range and aggregates it into run counts, success rate, duration percentiles, turns, token sums, and derived cost, broken down by outcome, by coding agent, by dispatch rule, by prompt template, and by configured model. The database is opened read-only, so the command is safe to run while the orchestrator is working, and it makes no network call.
+Reports how past runs went and what they cost. Sortie appends one row to `run_history` each time an agent session finishes; `stats` reads that history back over a time range and aggregates it into run counts, success rate, duration percentiles, turns, token sums, and derived cost, broken down by outcome, by coding agent, by dispatch rule, by prompt template, by configured model, and by stage chain. The database is opened read-only, so the command is safe to run while the orchestrator is working, and it makes no network call.
 
 ```
 sortie stats [--format text|json] [--since value] [--until value] [workflow-path]
@@ -595,17 +607,17 @@ Which figures a report can carry depends on the database it reads, not on the ve
 | Tokens | `input_tokens`, `output_tokens`, `total_tokens`, `cache_read_tokens` | Token sums and every derived cost figure. `cache_write_tokens`, when present, adds the cache-write sum without changing the tier. |
 | Token measurement | `tokens_measured` | Which runs the coding agent could measure, and so which ones the token and cost figures cover |
 
-A sixth group sits outside the tier: `configured_model`, `configured_effort`, and `reported_model`. Only the configured-model breakdown depends on it, so a database without it is still `full`. See [configured model breakdown](#configured-model-breakdown).
+A sixth group sits outside the tier: `configured_model`, `configured_effort`, and `reported_model`. Only the configured-model breakdown depends on it, so a database without it is still `full`. See [configured model breakdown](#configured-model-breakdown). A seventh, `chain_id`, `stage_target`, and `stage_result`, sits outside the tier too and supplies only the stage chain breakdown. See [stage chain breakdown](#stage-chain-breakdown).
 
-**`base`**: at least one group is missing. The report falls back to run counts, the outcome breakdown, the coding-agent breakdown, and durations. Turns, tokens, cost, the dispatch-rule breakdown, the prompt-template breakdown, the configured-model breakdown, and the self-review section are all left out.
+**`base`**: at least one group is missing. The report falls back to run counts, the outcome breakdown, the coding-agent breakdown, and durations. Turns, tokens, cost, the dispatch-rule breakdown, the prompt-template breakdown, the configured-model breakdown, the stage chain breakdown, and the self-review section are all left out.
 
 The tier is all-or-nothing by design. A database carrying four of the five groups still reports `base`, and the report then drops the groups it does carry along with the ones it never recorded. The warning names both lists so the two are not confused:
 
 ```
-warning: this database was written before sortie recorded dispatch-rule routing, tokens and cost, which runs the coding agent could measure, the model each run was configured with. The report falls back to run counts and durations, so it also leaves out turns, self-review results, which this database does carry. Run sortie once with this workflow to get the full report.
+warning: this database was written before sortie recorded dispatch-rule routing, tokens and cost, which runs the coding agent could measure, the model each run was configured with, stage chains. The report falls back to run counts and durations, so it also leaves out turns, self-review results, which this database does carry. Run sortie once with this workflow to get the full report.
 ```
 
-A degraded report is still a report: the warning goes to stderr in text mode and into `warnings` in JSON, and the exit code is `0`. In JSON, `by_rule`, `by_template`, and `by_model` are empty arrays, `self_review` is `null`, and every figure the tier cannot supply is `null` rather than `0`. A null means the database never recorded that figure, not that the figure measured zero.
+A degraded report is still a report: the warning goes to stderr in text mode and into `warnings` in JSON, and the exit code is `0`. In JSON, `by_rule`, `by_template`, `by_model`, and `by_chain` are empty arrays, `self_review` is `null`, and every figure the tier cannot supply is `null` rather than `0`. A null means the database never recorded that figure, not that the figure measured zero.
 
 The remedy is to run the orchestrator once with this workflow. Startup applies the pending migrations, and runs recorded from then on carry the full set. `stats` cannot do this itself; its read-only connection cannot apply a migration.
 
@@ -634,6 +646,47 @@ warning: this database was written before sortie recorded the model each run was
 Running the orchestrator once applies the migration. Runs recorded before it stay under `<none>`.
 
 On a `base` database the group is named in the degraded-schema warning shown under [schema tiers](#schema-tiers) instead, and `by_model` is `[]` as well.
+
+#### Stage chain breakdown
+
+The `by stage chain` table (`by_chain` in JSON) groups runs by stage chain: one pass of one issue through the [stage chains](/reference/workflow-config/#stage-chains) the workflow configures, retries included. Each chain is named by a generated 26-character identifier, the one the [dashboard's run history](/reference/dashboard/#run-history-table) shows as **Chain**.
+
+- Only chains where a hop was due or made are listed: at least one of the chain's runs in the range followed a hop or ended in a hop decision. Every run carries a chain identifier, including one that never takes part in a stage chain, so `by_chain` is a listing rather than a partition, and its run counts need not add up to the report's total.
+- A run recorded before Sortie stored chains carries none and is left out.
+- `issue` is the issue's display identifier, or its tracker identifier when it has none, as the chain's latest run recorded it.
+- `stages` lists the rules the chain's runs followed, in the order they ran, with consecutive runs of one rule, such as a retry, counted once. Only runs inside the range contribute.
+- `last_hop` is the latest hop decision among the chain's runs in the range. It is empty in JSON, and `-` in text, when no run in the range reached one. A run on the last stage of a chain reaches no hop decision, so a chain that ran to its end keeps the result of its last hop.
+
+| `last_hop` | Meaning |
+|---|---|
+| `advanced` | The hop was made: the next stage's label was added and the other stage labels were removed. |
+| `partial` | The hop was made, but at least one other stage label could not be removed from the issue. |
+| `failed` | The hop was not made: the next stage's label could not be added. |
+| `ceiling` | The hop was not made: the issue had reached [`dispatch.max_consecutive_hops`](/reference/workflow-config/#stage-chains). |
+
+The figures cover every run of the chain in the range, as in the other non-outcome breakdowns, and entries are sorted the same way. The text table puts four columns ahead of the figures and prints the 20 chains with the most runs:
+
+```
+by stage chain
+  CHAIN                       ISSUE          STAGES                LAST HOP  RUNS  SUCCEEDED  SUCCESS RATE  P50     P95     MEAN    TURNS  TOTAL TOKENS  COST
+  H7RD2KXW5NQM3TBZ6CJPLV4YSE  owner/repo#57  specify -> implement  advanced  3     2          66.7%         7m 0s   8m 30s  6m 16s  4.3    250,000       $1.25
+  Q4ZK7MNB2XWRT5HDJ3LCPEVS6A  owner/repo#42  specify -> implement  advanced  2     2          100.0%        4m 10s  9m 40s  6m 55s  4.5    167,000       $0.86
+  M2TQ6VXH4RKZ7BNWD3JCLP5YSA  owner/repo#61  specify               failed    1     1          100.0%        3m 50s  3m 50s  3m 50s  2.0    43,000        $0.21
+```
+
+The table follows the configured-model table and is omitted when no chain qualifies. When more than 20 chains qualify, a footnote names the total, and `--format json` carries every entry:
+
+```
+note: the breakdown by stage chain shows the 20 stage chains with the most runs; --format json lists all 37.
+```
+
+On a `full` database written before Sortie recorded stage chains, `by_chain` is `[]`, the text report omits the table, and `warnings` carries this message. The exit code is `0`.
+
+```
+warning: this database was written before sortie recorded stage chains, so the report leaves out the breakdown by stage chain. Run sortie once with this workflow to add it.
+```
+
+When the database also predates the configured-model columns, only the configured-model warning appears, and running the orchestrator once adds both breakdowns. On a `base` database stage chains are named in the degraded-schema warning instead, and `by_chain` is `[]` as well.
 
 #### Output formats
 
@@ -689,7 +742,7 @@ self review
   runs reviewed 6   iterate 1   pass 5   hit iteration cap 1   mean iterations 1.50
 ```
 
-The outcome table shows `SHARE`, a group's runs over total runs. Every other breakdown shows `SUCCEEDED` and `SUCCESS RATE`, a group's succeeded runs over its own. On the `base` tier the `TURNS`, `TOTAL TOKENS`, and `COST` columns are absent entirely, and the dispatch-rule, prompt-template, configured-model, and self-review sections do not appear.
+The outcome table shows `SHARE`, a group's runs over total runs. Every other breakdown shows `SUCCEEDED` and `SUCCESS RATE`, a group's succeeded runs over its own. On the `base` tier the `TURNS`, `TOTAL TOKENS`, and `COST` columns are absent entirely, and the dispatch-rule, prompt-template, configured-model, stage-chain, and self-review sections do not appear.
 
 The `covering:` line is prose rather than a sentinel. It reads `every run on record` when neither bound was given, `<since> onward` with only `--since`, `the start of the record until <until>` with only `--until`, and `<since> until <until>` with both.
 
@@ -739,6 +792,7 @@ Envelope:
 | `by_rule` | array of object | Breakdown by dispatch rule. Empty array on the `base` tier. |
 | `by_template` | array of object | Breakdown by prompt template. Empty array on the `base` tier. |
 | `by_model` | array of object | Breakdown by configured model. Empty array on the `base` tier and on a `full` database that predates the configured-model columns. See [configured model breakdown](#configured-model-breakdown). |
+| `by_chain` | array of object | Breakdown by stage chain, listing only chains where a hop was due or made. Empty array on the `base` tier and on a `full` database that predates the configured-model or stage-chain columns. See [stage chain breakdown](#stage-chain-breakdown). |
 | `self_review` | object or null | Self-review aggregation. `null` on the `base` tier, meaning the results were not read, not that no review ran. |
 
 `summary`:
@@ -758,11 +812,11 @@ Envelope:
 | `cost_unpriced_runs` | integer | Runs left out of the cost figures because `token_rates` has no complete entry for their coding agent. An entry is complete only when it sets both input and output rates. |
 | `tokens_unmeasured_runs` | integer | Runs left out of the token and cost figures because the coding agent behind them reported no token usage. `0` on the `base` tier, where the distinction was never recorded. |
 
-Each element of `by_status`, `by_adapter`, `by_rule`, `by_template`, and `by_model`:
+Each element of `by_status`, `by_adapter`, `by_rule`, `by_template`, `by_model`, and `by_chain`:
 
 | Field | Type | Description |
 |---|---|---|
-| `name` | string | The group: an outcome, an agent adapter kind, a dispatch rule name, a template identifier, or a configured model. A run that recorded none carries the sentinel `<none>`. Runs keep the agent kind they were recorded under, so a removed kind stays a group of its own next to the kind that replaced it. |
+| `name` | string | The group: an outcome, an agent adapter kind, a dispatch rule name, a template identifier, a configured model, or a chain identifier. A run that recorded none carries the sentinel `<none>`, except in `by_chain`, which leaves such a run out. Runs keep the agent kind they were recorded under, so a removed kind stays a group of its own next to the kind that replaced it. |
 | `runs` | integer | Runs in this group. |
 | `succeeded` | integer | Succeeded runs in this group. In `by_status` this is structural rather than informative: the `succeeded` row necessarily reports it equal to `runs`. |
 | `success_rate` | number | `succeeded` over this group's `runs`. |
@@ -773,6 +827,14 @@ Each element of `by_status`, `by_adapter`, `by_rule`, `by_template`, and `by_mod
 | `cost_usd` | number or null | Estimated cost over this group's priced runs. `null` on the `base` tier and when the group holds no priced run. |
 | `cost_per_succeeded_run_usd` | number or null | `cost_usd` divided by this group's succeeded runs that were measured. `null` whenever `cost_usd` is `null`, and when the group has no measured succeeded run. |
 | `tokens_unmeasured_runs` | integer | This group's runs left out of the token and cost figures because the coding agent behind them reported no token usage. `0` on the `base` tier. |
+
+Each element of `by_chain` adds three fields after these:
+
+| Field | Type | Description |
+|---|---|---|
+| `issue` | string | The issue's display identifier, or its tracker identifier when it has none. |
+| `stages` | array of string | The rules the chain's runs in the range followed, in order, with consecutive runs of one rule counted once. |
+| `last_hop` | string | The latest hop decision among the chain's runs in the range: `advanced`, `partial`, `failed`, or `ceiling`. Empty when none was reached. |
 
 `duration_seconds`, in both `summary` and every breakdown element:
 
@@ -912,6 +974,7 @@ A worked example, expanded for readability and trimmed to one row per breakdown.
       "tokens_unmeasured_runs": 0
     }
   ],
+  "by_chain": [],
   "self_review": {
     "runs_with_metadata": 6,
     "by_final_verdict": [{"verdict": "iterate", "runs": 1}, {"verdict": "pass", "runs": 5}],
@@ -1017,7 +1080,7 @@ When no version or help flag is present, Sortie executes these steps in order:
 8. **Build tracker adapter.** Resolve and build the tracker adapter for `tracker.kind`, gathering its configuration, with `user_agent` set to `sortie/<version>`.
 9. **Open SQLite database.** Path from [`db_path`](/reference/workflow-config/) config field, or `.sortie.db` adjacent to the workflow file. Relative paths resolve against the workflow file's directory, not the working directory.
 10. **Run schema migrations.** Applied automatically on every startup.
-11. **Restore persisted state.** Load pending retry entries and rebuild their timers from the stored `due_at`, load the cumulative token and runtime totals, and load the park records that hold issues out of dispatch. A failure to read the totals or the park records is logged as a warning and startup continues with none.
+11. **Restore persisted state.** Load pending retry entries and rebuild their timers from the stored `due_at`, load the cumulative token and runtime totals, load the park records that hold issues out of dispatch, and load each issue's stage hop record, which carries its count of consecutive hops (see [stage chains](/reference/workflow-config/#stage-chains)). A failure to read the totals, the park records, or the stage hop records is logged as a warning and startup continues with none.
 12. **Build agent adapters.** Build the adapter for the default `agent.kind`, then eagerly build every other registered kind so dispatch-rule routing resolves without building one per issue. A non-default kind that fails to build is logged at warn level and skipped.
 13. **Clean terminal workspaces.** Query tracker for states of existing workspace directories; remove those in terminal states. Only directories whose state comes back known and terminal are removed, and if the directory listing or the tracker read fails, Sortie logs a warning and cleans nothing on this pass. No age-based removal runs here: the [`workspace.retention_days`](/reference/workflow-config/#workspace) bound belongs to the periodic sweep, whose first pass falls 60 poll ticks after step 16.
 14. **Recover pending reactions.** Rebuild the pending reaction set from recent run history so a restart does not lose a watch that was in flight. A failure here is logged as a warning and startup continues.

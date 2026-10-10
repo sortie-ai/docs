@@ -61,7 +61,7 @@ reactions:
 | `escalation` | `"label"` | Action when the retry budget is exhausted: `"label"`, `"none"`, or the deprecated `"comment"`. |
 | `escalation_label` | `"needs-human"` | Label applied when `escalation` is `"label"`. Created on demand if the tracker does not already have it. |
 
-The retry budget for this kind is `max_continuation_turns`, configured below, not `max_retries`: `review_comments` accepts `max_retries` for schema consistency with the other reaction kinds but does not consume it, so setting it here has no effect. `max_continuation_turns` counts continuation turns triggered specifically by review comments, independent of the agent's `max_sessions` budget and CI feedback's retry counter. If the agent addresses all comments within this budget, the loop ends. If not, Sortie escalates and releases its claim.
+The retry budget for this kind is `max_continuation_turns`, configured below, not `max_retries`: `review_comments` accepts `max_retries` for schema consistency with the other reaction kinds but does not consume it, so setting it here has no effect. `max_continuation_turns` counts continuation turns triggered specifically by review comments, independent of the agent's `max_sessions` budget and CI feedback's retry counter. If the agent addresses all comments within this budget, the loop ends. If a new comment arrives after the budget is spent, Sortie escalates and releases its claim. Comments an earlier run was given do not escalate on their own.
 
 With `label`, Sortie adds the configured label to the issue. With `none`, it adds no label. Every escalation emits the `escalation.review_comments` event, and a `tracker_comment` entry that lists it posts a comment noting how many turns were attempted and that remaining comments need human attention; see [how to route notifications](/guides/route-notifications/). The deprecated `comment` value posts that comment without an entry. Every strategy cancels any pending retry and releases the claim.
 
@@ -92,7 +92,7 @@ Debounce prevents premature dispatch while a reviewer is still commenting. A rev
 
 `poll_interval_ms` throttles how often Sortie hits the GitHub Reviews API per tracked PR. The 2-minute default balances responsiveness and API rate budget. If you're tracking many PRs, consider raising it. The minimum is 30 seconds.
 
-`max_continuation_turns` prevents infinite reviewer-agent ping-pong. When the cap is hit, Sortie escalates and a human takes over.
+`max_continuation_turns` prevents infinite reviewer-agent ping-pong. Once the cap is spent, the next new comment makes Sortie escalate and a human takes over. If the last turn resolved the comments, nothing escalates. See [retry budgets](/reference/reactions/#retry-budgets) for the exact rule.
 
 ## How the review loop works
 
@@ -102,10 +102,11 @@ Debounce prevents premature dispatch while a reviewer is still commenting. A rev
 4. Sortie detects the comments on its next poll after the debounce window expires.
 5. Outdated comments (on lines the agent already changed) are filtered out, as are comments whose author the forge marks as a bot account. Gitea carries no bot marker, so nothing is excluded there; see the [Gitea adapter reference](/reference/adapter-gitea/#bot-classification).
 6. Sortie builds a fingerprint from the remaining comment IDs. If this fingerprint was already dispatched, it skips (deduplication).
-7. Sortie dispatches a continuation turn with the review comments as structured prompt context.
-8. The agent addresses the comments, commits, and pushes fixes.
-9. If the reviewer approves, polling stops on the next state change. If the reviewer requests more changes, the cycle repeats from step 3, up to `max_continuation_turns`.
-10. If the turn cap is reached, Sortie escalates and releases the claim.
+7. Sortie checks whether the set holds a comment that no earlier run of the issue was given. If every comment was given before, for example because a fix made some of them outdated, no turn starts and no budget is spent.
+8. Otherwise Sortie dispatches a continuation turn with all remaining review comments as structured prompt context.
+9. The agent addresses the comments, commits, and pushes fixes.
+10. If the reviewer approves, polling stops on the next state change. If the reviewer requests more changes, the cycle repeats from step 3, up to `max_continuation_turns`.
+11. If the turn cap is spent and a new comment arrives, Sortie escalates and releases the claim.
 
 ## What the agent sees
 
@@ -140,6 +141,22 @@ Each comment exposes:
 | `body` | string | The comment text. |
 
 For template syntax details, see [Write a prompt template](/guides/write-prompt-template/).
+
+### Make sure the template shows the comments
+
+Sortie counts a comment as given only when the first prompt of a run shows it, and records that when the run exits normally. If your template never prints `review_comments`, nothing is recorded and the same comments can start another turn. Keep the block above in the template the review turns use.
+
+### Give a new run its pending review comments
+
+A new run of an issue that already has a pull request, such as after you reopen the issue, receives the comments no earlier run was given on its first turn, through the same `review_comments` variable. No later poll then starts a turn that repeats them. To set it up:
+
+- Have the hook or agent write `branch` to `.sortie/scm.json` next to `pr_number`, `owner`, and `repo`. Review polling works without `branch`, but a new run gets its comments only when it is present.
+- Leave the `triage` block off the reaction.
+- Write the comments as an added section, like the `{{ if .review_comments }}` block above, with the rest of the prompt unchanged.
+
+A template that swaps its main text when `review_comments` is set keeps its normal prompt on a new run, and the comments reach the agent through a later review turn instead.
+
+If fetching the comments fails, Sortie starts the run without them and logs `fresh run not given review comments` at warn level. The same applies to `bot_review` with `bot_review_comments`. For the exact rules, see [comments already given](/reference/reactions/#comments-already-given).
 
 ## Interaction with CI feedback
 
@@ -311,8 +328,17 @@ grep "review comments within debounce window" sortie.log
 # Fingerprint already dispatched: deduplication working
 grep "review comments already dispatched for this fingerprint" sortie.log
 
-# Turn cap exhausted, escalation triggered
+# Turn cap spent and a new comment arrived, escalation triggered
 grep "review fix continuation turns exhausted" sortie.log
+
+# Changed set holds no comment an earlier run was given, nothing dispatched or escalated (debug level)
+grep "comment set already handed off, not dispatching" sortie.log
+
+# Set covered only by the turn that is still running, judged again after it exits (debug level)
+grep "comment set held by a running turn, not dispatching" sortie.log
+
+# New run started without its pending comments
+grep "fresh run not given review comments" sortie.log
 ```
 
 ### Dashboard and status API
@@ -339,6 +365,14 @@ sqlite3 sortie.db "SELECT * FROM reaction_fingerprints WHERE kind='review'"
 ```
 
 Each row shows the issue ID, the `review` kind, the SHA-256 fingerprint of comment IDs, and whether it has been dispatched.
+
+The `reaction_handoffs` table records which comments each issue's runs were given. A changed comment set starts a turn only when it holds an ID missing from this table:
+
+```bash
+sqlite3 sortie.db "SELECT comment_id FROM reaction_handoffs WHERE kind='review' AND issue_id='<issue id>'"
+```
+
+Rows are never deleted, and the table starts empty after an upgrade, so a comment given before the upgrade can be given once more.
 
 ## Configuration reference
 

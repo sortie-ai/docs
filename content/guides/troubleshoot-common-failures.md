@@ -141,6 +141,20 @@ The agent subprocess wrote output and exited with code 0, but reported no turn o
 
 Run with `--log-level debug` to see the full subprocess stderr. Fix the root cause (correct the config path, set the right API key, wait for rate limits to clear) and Sortie's exponential backoff retries will succeed automatically.
 
+## The agent is killed from outside
+
+```
+level=WARN msg="worker run failed, scheduling retry" issue_id="PROJ-42" issue_identifier="PROJ-42" session_id="session-abc-001" error="agent turn 3: agent: port_exit: exit code -1: signal: killed" next_attempt=1 delay_ms=10000
+```
+
+The agent process ended on a signal Sortie did not send, so the turn failed with `port_exit` and the error text names the signal. Sortie retries it on the usual exponential backoff. A signal Sortie did send, from stall detection, reconciliation, or shutdown, reports `turn_cancelled` instead; what happens to the claim afterward is in the [worker exit kinds](/reference/errors/#worker-exit-kinds) table. An agent killed before it wrote anything takes the early exit report described in [agent exits before it responds](#agent-exits-before-it-responds), whose status reads `signal: killed`.
+
+1. **Look for what else on the host sends signals.** On Linux, `signal: killed` with no one at the keyboard is most often the kernel's out-of-memory killer. Check `dmesg` or `journalctl -k` for an `Out of memory: Killed process` line near the failure time.
+
+2. **Check container and service limits.** A memory limit on the container, or a cgroup limit on the systemd unit that runs Sortie, ends the agent the same way. See [how to run Sortie as a systemd service](/guides/run-as-systemd-service/) and [how to deploy Sortie to Kubernetes](/guides/deploy-sortie-to-kubernetes/).
+
+3. **Rule out other tools.** A cleanup job or a process supervisor that terminates stray processes by name can match the agent binary.
+
 ## Copilot CLI stops without finishing the task
 
 ```

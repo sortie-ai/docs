@@ -196,6 +196,8 @@ sha256sum -c checksums.txt --ignore-missing
 
 Compare the output against the matching line in `checksums.txt`.
 
+The `sortie.exe` inside each Windows archive is signed; see the [Code signing policy](/code-signing-policy/).
+
 ### Move the binary to your PATH
 
 **macOS / Linux:**

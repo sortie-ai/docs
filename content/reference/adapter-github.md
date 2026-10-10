@@ -208,6 +208,14 @@ A transition sets the state label and removes the ones it replaces. A comment is
 
 A comment that carries the agent's [stop statement](/reference/agent-extensions/#stop-statement) is the stop text, a blank line, and the statement in a fenced Markdown code block. The fence is backticks, at least three and one more than the longest run of backticks in the statement, so nothing inside the statement can close it.
 
+### Label writes
+
+Adding a label, such as an escalation label or a [stage label](/reference/workflow-config/#dispatch), sends `POST /repos/{owner}/{repo}/issues/{number}/labels` with that one name, which leaves the issue's other labels alone. A name the repository has no label for is created by GitHub rather than rejected; see [pre-creating labels](#pre-creating-labels). GitHub answers with the issue's label list, and the adapter checks the new label in it.
+
+Removing a label first pages through the issue's labels and keeps every one whose name equals the argument ignoring letter case. Each match is deleted by name with its own `DELETE /repos/{owner}/{repo}/issues/{number}/labels/{name}`. An issue that carries no match gets no request, so removing an absent label succeeds and changes nothing. A delete that GitHub answers as not found or invalid does not stop the others, and a fresh read of the issue's labels decides whether the removal stands. The replace-all form of the labels route is never used, so a label someone adds between the read and the write survives.
+
+An add after which the issue does not carry the label, or a removal after which it still does, fails with `tracker_payload_error`. Removing needs the same token permission as adding: **Issues** write on a fine-grained token, `repo` on a classic one. Stage chains therefore run on GitHub with no extra setup.
+
 ## Field mapping
 
 | Template field | GitHub source | Normalization |
@@ -379,7 +387,7 @@ The already-merged marker is never read from GitHub's rejection text: the adapte
 
 Deleting a branch calls `DELETE /repos/{owner}/{repo}/git/refs/heads/{branch}`. An already-gone branch (HTTP 404) is a no-op.
 
-Removing a label calls `DELETE /repos/{owner}/{repo}/issues/{number}/labels/{label}`. An already-absent label (HTTP 404) is a no-op; any other failure surfaces as an error.
+Removing a label from a pull request takes the same path as the tracker's [label removal](#label-writes): a read of the pull request's labels, one `DELETE /repos/{owner}/{repo}/issues/{number}/labels/{label}` per case variant, and a check of the result. A blank label, a label the pull request does not carry, and a pull request that no longer exists are no-ops; any other failure surfaces as an error.
 
 ### Token scope for auto-merge
 

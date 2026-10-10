@@ -133,7 +133,7 @@ Validates the workspace path, resolves the agent binary, runs a canary check, an
 
 1. Validates that the workspace path is a non-empty absolute path pointing to an existing directory.
 2. Resolves the `command` from `PATH`. In SSH mode, resolves the local `ssh` binary instead; the agent command resolves on the remote host.
-3. **Canary check (local mode only):** runs `copilot --version` with a 5-second timeout. Any non-zero exit or timeout fails the session with `agent_not_found`; the adapter does not read the version it printed, so this check confirms only that a working binary is present, not that it is new enough for `--session-id` (see [session identity](#session-identity)) or that any credential works.
+3. **Canary check (local mode only):** runs `copilot --version` with a 5-second timeout. Any non-zero exit or timeout fails the session with `agent_not_found`, except that a session whose own context ends before the canary process starts running ends as `turn_cancelled`; the adapter does not read the version it printed, so this check confirms only that a working binary is present, not that it is new enough for `--session-id` (see [session identity](#session-identity)) or that any credential works.
 4. Mints a fresh v4 UUID as the session identifier, unless a session ID saved from a previous run was supplied for a continuation session, in which case that value is used instead.
 5. The session then records the workspace path, resolved binary, session ID, and SSH configuration for later turns to use.
 
@@ -147,6 +147,7 @@ No credential check runs here. Whether the environment or an authenticated `gh` 
 | Workspace path is not a directory | `invalid_workspace_cwd` |
 | Agent binary not found in `PATH` | `agent_not_found` |
 | Canary `copilot --version` timed out or exited non-zero | `agent_not_found` |
+| Session start's own context ended before the canary process started running | `turn_cancelled` |
 | Session identifier could not be generated (the system's random source is unavailable) | `agent_not_found` |
 | SSH binary not found (SSH mode) | `agent_not_found` |
 
@@ -180,7 +181,7 @@ Terminates a running subprocess. Safe to call when no subprocess is active.
 
 By default, stopping a running subprocess sends an immediate kill signal, giving the agent process no chance to flush output buffers, close network connections, or emit final token-usage events. Sortie overrides that default: it sends a graceful shutdown signal instead (POSIX: `SIGTERM`; Windows: `CTRL_BREAK_EVENT` via the process group) and waits up to `stop_grace_ms` before force-killing the process (POSIX: `SIGKILL`; Windows: `TerminateJobObject`). This applies whenever Sortie stops the subprocess, whether the orchestrator initiated it (a reconciliation kill, stall detection, or a turn timeout) or Sortie itself received a shutdown signal.
 
-On all platforms, the subprocess runs in its own process group. On Windows, it is additionally assigned to a Job Object with `KILL_ON_JOB_CLOSE`, so the entire process tree (including MCP servers and other children) is terminated on shutdown or if Sortie crashes. The subprocess starts suspended and is resumed only after that assignment succeeds, so nothing it spawns can run before the job takes effect. This covers every subprocess the adapter launches on Windows, not only turns: the `copilot --version` canary starts suspended too. A failed assignment logs WARN `process group assignment failed`; a failed resume logs WARN `process resume failed` and fails whichever launch it was, reporting `agent_not_found` for the canary and `port_exit` for a turn.
+On all platforms, the subprocess runs in its own process group. On Windows, it is additionally assigned to a Job Object with `KILL_ON_JOB_CLOSE`, so the entire process tree (including MCP servers and other children) is terminated on shutdown or if Sortie crashes. The subprocess starts suspended and is resumed only after that assignment succeeds, so nothing it spawns can run before the job takes effect. This covers every subprocess the adapter launches on Windows, not only turns: the `copilot --version` canary starts suspended too. A failed assignment logs WARN `process group assignment failed`; a failed resume logs WARN `process resume failed` and fails whichever launch it was, reporting `agent_not_found` for the canary and `port_exit` for a turn. A launch whose context is already done when the resume is reached, by cancellation or by its deadline, is never resumed: Sortie terminates the subprocess before it runs and logs no resume warning. A turn ends this way as `turn_cancelled`, and so does a session start whose own context ended during the canary; a canary cut off by its own 5-second limit still reports `agent_not_found`.
 
 Session stop follows the same shape: it sends the graceful signal, waits up to `stop_grace_ms`, and force-kills the process group if the wait elapses. If the stop request is itself interrupted before the grace period elapses, the process group is still force-killed and the interruption is reported as the error.
 
@@ -250,19 +251,18 @@ The outcome is not decided by the exit code alone. The shared decision table eva
 
 | Evidence, in evaluation order | Exit reason | Error kind |
 |---|---|---|
-| Orchestrator cancelled the turn | `turn_cancelled` | `turn_cancelled` |
-| The process was killed by a signal Sortie sent, or by any signal after writing output | `turn_cancelled` | `turn_cancelled` |
+| Orchestrator cancelled the turn while the process was still running | `turn_cancelled` | `turn_cancelled` |
 | Exit code `127`, after writing output | `turn_failed` | `agent_not_found` |
 | `result` event carrying `exitCode: 0`, no `session.task_complete` event this turn | `turn_failed` | `turn_incomplete` |
 | `result` event carrying `exitCode: 0`, a `session.task_complete` event reporting `success: false` | `turn_failed` | `turn_failed` |
 | `result` event carrying `exitCode: 0`, a `session.task_complete` event reporting `success` true or omitted | `turn_completed` | _(none)_ |
 | `result` event carrying any other `exitCode`, or carrying no `exitCode` field | `turn_failed` | `turn_failed` |
 | No `result` event, the process exited before writing a line the adapter decodes as an event, whatever its exit status | `turn_failed` | `port_exit`, as the [early exit report](/reference/errors/#early-exit-report) |
-| No `result` event, non-zero exit | `turn_failed` | `port_exit` |
+| No `result` event, non-zero exit, including death by a signal Sortie did not send | `turn_failed` | `port_exit` |
 | No `result` event, exit `0`, no message from the agent and no tool call this turn | `turn_failed` | `turn_failed` |
 | No `result` event, exit `0`, a message from the agent or a tool call this turn | `turn_completed` | _(none)_ |
 
-The cancellation, signal, and exit-`127` rows are decided before the adapter's own classifier runs; the signal and exit-`127` rows apply only once the process has written output, because an exit before that is the early-exit row. The work test reads this turn's own stream rather than any token count. A message from the agent is a non-empty `data.content` on an `assistant.message`, or any `assistant.message_delta`, whose event type names an assistant message even though its payload stays unparsed. A tool call is a non-empty `data.toolRequests` on an `assistant.message`, or a `tool.execution_start` or `tool.execution_complete` whose data parsed. Stderr from a failing turn is re-emitted at WARN level.
+The cancellation and exit-`127` rows are decided before the adapter's own classifier runs; the exit-`127` row applies only once the process has written output, because an exit before that is the early-exit row. A cancellation counts only when the stop began while the process was still running: a process that had already exited on its own is classified by its own exit status, however long the wait for its output ran. A process ended by a signal Sortie did not send is a non-zero exit, and the error text names the signal, for example `signal: killed`. The work test reads this turn's own stream rather than any token count. A message from the agent is a non-empty `data.content` on an `assistant.message`, or any `assistant.message_delta`, whose event type names an assistant message even though its payload stays unparsed. A tool call is a non-empty `data.toolRequests` on an `assistant.message`, or a `tool.execution_start` or `tool.execution_complete` whose data parsed. Stderr from a failing turn is re-emitted at WARN level.
 
 When the `result` event reports a failed exit (a non-zero or missing `exitCode`), the failure text is the trimmed `data.message` of the turn's last `session.error` event, so an error from the model provider reaches the run as the provider wrote it. If the runtime sent no `session.error` with a readable message, the text is `non-zero exit in result event`. Each `session.error` event also reaches the orchestrator as an `other_message` event whose message is the event type. Every turn starts with no stored message, so an earlier turn's error never labels a later one.
 

@@ -210,7 +210,7 @@ Terminates a running subprocess. Safe to call when no subprocess is active.
 
 By default, stopping a running subprocess sends an immediate kill signal, giving the agent process no chance to flush output buffers, close network connections, or emit final token-usage events. Sortie overrides that default: it sends a graceful shutdown signal instead (POSIX: `SIGTERM`; Windows: `CTRL_BREAK_EVENT` via the process group) and waits up to `stop_grace_ms` before force-killing the process (POSIX: `SIGKILL`; Windows: `TerminateJobObject`). This applies whenever Sortie stops the subprocess, whether the orchestrator initiated it (a reconciliation kill, stall detection, or a turn timeout) or Sortie itself received a shutdown signal.
 
-On all platforms, the subprocess runs in its own process group. On Windows, it is additionally assigned to a Job Object with `KILL_ON_JOB_CLOSE`, so the entire process tree (including MCP servers and other children) is terminated on shutdown or if Sortie crashes. The subprocess starts suspended and is resumed only after that assignment succeeds, so nothing it spawns can run before the job takes effect. A failed assignment logs WARN `process group assignment failed` and the turn's subprocess runs without a job; a failed resume logs WARN `process resume failed` and ends that turn as `turn_failed` with error kind `port_exit`. Because Claude Code launches a fresh subprocess every turn, a resume that keeps failing fails each subsequent turn the same way rather than only the first.
+On all platforms, the subprocess runs in its own process group. On Windows, it is additionally assigned to a Job Object with `KILL_ON_JOB_CLOSE`, so the entire process tree (including MCP servers and other children) is terminated on shutdown or if Sortie crashes. The subprocess starts suspended and is resumed only after that assignment succeeds, so nothing it spawns can run before the job takes effect. A failed assignment logs WARN `process group assignment failed` and the turn's subprocess runs without a job; a failed resume logs WARN `process resume failed` and ends that turn as `turn_failed` with error kind `port_exit`. A turn whose context is already done when the resume is reached, by cancellation or by its deadline, is never resumed: Sortie terminates the subprocess before it runs, logs no resume warning, and the turn ends as `turn_cancelled`. Because Claude Code launches a fresh subprocess every turn, a resume that keeps failing fails each subsequent turn the same way rather than only the first.
 
 Session stop follows the same shape: it sends the graceful signal, waits up to `stop_grace_ms`, and force-kills the process group if the wait elapses. If the stop request is itself interrupted before the grace period elapses, the process group is still force-killed and the interruption is reported as the error.
 
@@ -279,17 +279,16 @@ The outcome is not decided by the exit code alone. The shared decision table eva
 | Evidence, in evaluation order | Exit reason | Error kind |
 |---|---|---|
 | A denied `AskUserQuestion` was observed during the turn | `turn_input_required` | `turn_input_required` |
-| Orchestrator cancelled the turn | `turn_cancelled` | `turn_cancelled` |
-| The process was killed by a signal Sortie sent, or by any signal after writing output | `turn_cancelled` | `turn_cancelled` |
+| Orchestrator cancelled the turn while the process was still running | `turn_cancelled` | `turn_cancelled` |
 | Exit code `127`, after writing output | `turn_failed` | `agent_not_found` |
 | `result` event with subtype `success` and `is_error` false | `turn_completed` | _(none)_ |
 | `result` event that is `is_error` or has any other subtype | `turn_failed` | `turn_failed` |
 | No `result` event, the process exited before writing a line the adapter decodes as an event, whatever its exit status | `turn_failed` | `port_exit`, as the [early exit report](/reference/errors/#early-exit-report) |
-| No `result` event, non-zero exit | `turn_failed` | `port_exit` |
+| No `result` event, non-zero exit, including death by a signal Sortie did not send | `turn_failed` | `port_exit` |
 | No `result` event, exit `0`, no message from the agent and no tool call this turn | `turn_failed` | `turn_failed` |
 | No `result` event, exit `0`, a message from the agent or a tool call this turn | `turn_completed` | _(none)_ |
 
-The human-input, cancellation, signal, and exit-`127` rows are decided before the adapter's own classifier runs; the signal and exit-`127` rows apply only once the process has written output, because an exit before that is the early-exit row. The work test reads this turn's own stream rather than the run-cumulative token figure. A message from the agent is a `text` content block carrying text on an `assistant` message; a tool call is a `tool_use` or `tool_result` block. Stderr from a failing turn is re-emitted at WARN level.
+The human-input, cancellation, and exit-`127` rows are decided before the adapter's own classifier runs; the exit-`127` row applies only once the process has written output, because an exit before that is the early-exit row. A cancellation counts only when the stop began while the process was still running: a process that had already exited on its own is classified by its own exit status, however long the wait for its output ran. A process ended by a signal Sortie did not send, such as the kernel's out-of-memory killer, is a non-zero exit, and the error text names the signal, for example `signal: killed`. The work test reads this turn's own stream rather than the run-cumulative token figure. A message from the agent is a `text` content block carrying text on an `assistant` message; a tool call is a `tool_use` or `tool_result` block. Stderr from a failing turn is re-emitted at WARN level.
 
 ### Stdout read failure
 

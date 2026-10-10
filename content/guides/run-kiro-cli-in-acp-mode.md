@@ -1,13 +1,13 @@
 ---
 title: "How to Run Kiro CLI in ACP Mode"
 linkTitle: "Run Kiro CLI in ACP Mode"
-description: "Connect Kiro CLI to Sortie over the Agent Client Protocol, including how to convert a config from Sortie's earlier Kiro integration."
+description: "Connect Kiro CLI to Sortie over the Agent Client Protocol: choose a credential, set the launch command, and reach remote workers over SSH."
 author: Sortie AI
 date: 2026-09-27
 weight: 156
 url: /guides/run-kiro-cli-in-acp-mode/
 ---
-ACP mode is Kiro CLI's own protocol interface. Sortie drives it as the generic `agent-client-protocol` kind, launching `kiro-cli acp`. A `WORKFLOW.md` that says `agent.kind: kiro` is converted onto this setup when it loads; see [convert a `kiro` configuration](#convert-a-kiro-configuration).
+ACP mode is Kiro CLI's own protocol interface. Sortie drives it as the generic `agent-client-protocol` kind, launching `kiro-cli acp`.
 
 ## Choose a credential
 
@@ -84,97 +84,3 @@ level=INFO msg="turn started" issue_identifier=PROJ-42 turn_number=1 max_turns=1
 ```
 
 `agent credential verified` is the same [credential-verification step](/reference/workflow-config/#credential-verification) every kind runs; it proves the credential answers a request, not which credential answered or whether it can reach Sortie's tools. Confirm the credential itself with `kiro-cli whoami` on the host that runs the session, as above.
-
-## Convert a `kiro` configuration
-
-Sortie has no `kiro` agent kind. A `WORKFLOW.md` that names it in `agent.kind`, `dispatch.default.agent`, or a dispatch rule's `agent` keeps loading: Sortie converts it in memory onto `agent-client-protocol` and warns. The file on disk is never rewritten. The conversion is temporary and a later release removes it, after which such a file fails to load. Make the edit below while the warning is all you get.
-
-### What the conversion does
-
-A converted workflow launches `kiro-cli acp -a`. When `kiro` is the default kind and `agent.command` names a program, that program replaces `kiro-cli`. `kiro.model` and `kiro.agent` become `--model` and `--agent` on the command. Everything else in the `kiro:` block is dropped, `kiro.mcp_config` included, so MCP servers you declared there do not reach the session. Move that path to `agent-client-protocol.mcp_config` yourself.
-
-Under the `kiro` kind Sortie carried `KIRO_API_KEY` to SSH hosts on its own. A converted workflow does too, without a `worker.ssh_pass_env` entry; a hand-written ACP configuration needs one, as [above](#reach-remote-workers-over-ssh).
-
-New runs are recorded under `agent-client-protocol` in run history, on the dashboard and in `sortie stats`. Runs recorded earlier keep their `kiro` label.
-
-### The warning
-
-`sortie validate` prints one warning per converted kind, check `agent.kind.retired`, and reports the file as valid. This is the text for a workflow with `kiro.model` and `kiro.mcp_config` set:
-
-```
-warning: agent.kind.retired: agent kind "kiro" was removed, so this configuration was converted to agent kind "agent-client-protocol" (agent.kind); its sessions launch "kiro-cli acp -a --model claude-sonnet-4.6"; not carried: kiro.mcp_config. This conversion is temporary and will be removed in a later release: name agent kind "agent-client-protocol" where the workflow names "kiro" and give it this invocation in agent.command
-```
-
-The parenthesis lists every field that named `kiro`. The quoted command is what to write in `agent.command`, and `not carried` lists the settings you have to move. When `worker.ssh_hosts` is set, the text also says a remote launch carries `KIRO_API_KEY` and asks you to list it under `worker.ssh_pass_env`. A running Sortie logs a shorter record at `WARN` level, with the message `agent kind was removed and its configuration was converted to the replacement kind; the conversion will be removed in a later release` and the attributes `agent_kind=kiro` and `replacement_kind=agent-client-protocol`. It carries no invocation, so run `sortie validate` to read it. [Advisory warnings](/reference/cli/#advisory-warnings) says how often each surfaces; the two do not share a cadence.
-
-### What to write
-
-Two fields change at the top of `agent`, and the `kiro:` block goes away. The warning ends once no field names `kiro`.
-
-| `kiro` configuration | ACP mode equivalent |
-|---|---|
-| `agent.kind: kiro` | `agent.kind: agent-client-protocol` |
-| `agent.command` (empty selected `kiro-cli`) | The same binary, followed by `acp -a` |
-| `kiro.model` | `--model <id>` appended to `agent.command` |
-| `kiro.agent` | `--agent <name>` appended to `agent.command` |
-| `kiro.trust_all_tools: true`, or neither trust key set | `-a`, already in `agent.command` |
-| `kiro.trust_tools` | Does not convert; see [configurations that do not convert](#configurations-that-do-not-convert) |
-| `kiro.mcp_config` | `agent-client-protocol.mcp_config` |
-| `KIRO_API_KEY` reaching SSH hosts by itself | `KIRO_API_KEY` under `worker.ssh_pass_env`, only when `worker.ssh_hosts` is set |
-| The `kiro:` block itself | Deleted |
-
-Here is a `kiro` configuration and the ACP-mode configuration built from the mapping above.
-
-Before:
-
-```yaml
-agent:
-  kind: kiro
-  command: kiro-cli
-  max_turns: 5
-  max_concurrent_agents: 4
-  turn_timeout_ms: 1800000
-  stall_timeout_ms: 300000
-  stop_grace_ms: 5000
-  max_retry_backoff_ms: 300000
-
-kiro:
-  model: claude-sonnet-4.6
-```
-
-After:
-
-```yaml
-agent:
-  kind: agent-client-protocol
-  command: kiro-cli acp -a --model claude-sonnet-4.6
-  max_turns: 5
-  max_concurrent_agents: 4
-  turn_timeout_ms: 1800000
-  stall_timeout_ms: 300000
-  stop_grace_ms: 5000
-  max_retry_backoff_ms: 300000
-```
-
-Every field below `command` is untouched. Nothing else in `WORKFLOW.md`, the tracker, hooks, or prompt template needs to change.
-
-When `kiro` is named only by a dispatch rule, the warning tells you `agent-client-protocol` runs that invocation only as the default kind. Make it the default kind, as [described above](#configure-acp-mode).
-
-When `agent-client-protocol` is already the default kind and a dispatch rule names `kiro`, the conversion changes no command. The warning says that rule's sessions keep `agent.command` and carry none of the `kiro:` settings, so a `kiro.model` or `kiro.agent` has no effect until you add `--model` or `--agent` to `agent.command` yourself. The edit is to name `agent-client-protocol` in that rule.
-
-### Configurations that do not convert
-
-The conversion trusts every tool, because `-a` does. A configuration that limits trust is refused instead of widened, so Sortie will not start on it, and a running Sortie keeps the last configuration that loaded. These fail the load:
-
-- `kiro.trust_all_tools: false`
-- a `kiro.trust_tools` list, including an empty one
-- `kiro.trust_all_tools: true` together with a non-empty `kiro.trust_tools`
-- a `kiro.model` or `kiro.agent` that is not a string
-
-`sortie validate` reports the first three under the check `config.kiro.trust_tools`, and the last under `config.kiro.model` or `config.kiro.agent`. The message opens with `agent kind "kiro" was removed and this configuration cannot be converted to agent kind "agent-client-protocol"`. For a trust setting it goes on to name the two ways out: set `trust_all_tools: true` and remove `trust_tools`, or remove both, to convert; or name `agent-client-protocol` and put `kiro-cli acp --trust-tools=<names>` in `agent.command` to keep the narrower set. That switch is described in [the trust-and-posture switch](/reference/agent-client-protocol-kiro/#the-trust-and-posture-switch); read it before narrowing, because a tool missing from the list stalls an unattended run.
-
-If you cannot move to ACP mode, Sortie 1.25.0 is the last release that includes the `kiro` agent kind. [Install it as a pinned version](/getting-started/installation/#script-options); the conversion is temporary, so plan the move to ACP mode either way.
-
-### What ACP mode changes for a converted workflow
-
-Converting from a `KIRO_API_KEY` deployment costs no tool access: the `kiro` kind delivered Sortie's tools under no credential. A stored device login reaches them on a local launch. Token accounting is unchanged: `kiro-cli` has no measurement source on this route, so every run is unmeasured and `agent.turn_timeout_ms` is what bounds a turn instead. See [the route reference](/reference/agent-client-protocol-kiro/) for tool delivery, credential verification, and limitations.
