@@ -47,7 +47,7 @@ These fields control the orchestrator's scheduling behavior. They are not passed
 | `max_concurrent_agents` | integer | `10` | Global concurrency limit across all issues. |
 | `max_concurrent_agents_by_state` | map | `{}` | Per-state concurrency limits. Keys are state names, lowercased for matching. See [`agent.max_concurrent_agents_by_state`](/reference/workflow-config/#agent) for how an invalid entry is handled. |
 | `turn_timeout_ms` | integer | `3600000` (1 hour) | Total timeout for a single turn. The orchestrator cancels the turn when exceeded. |
-| `read_timeout_ms` | integer | `5000` (5 seconds) | Bounds the wait for the turn's first JSON envelope, and, doubled and capped at 30 seconds, the version query every session start makes, the post-turn `export` subprocess, and, on a [credential-verification](/reference/workflow-config/#credential-verification) session, the `session delete` cleanup call. It does not bound anything after the first envelope arrives. Falls back to 30 seconds when unset or not positive. |
+| `read_timeout_ms` | integer | `5000` (5 seconds) | Bounds the wait for the turn's first JSON envelope, which is never shorter than 60 seconds, so a value below `60000` does not shorten it. OpenCode prints nothing until the model starts answering, so the wait carries the provider's latency. The same wait applies to the turn of a [credential-verification](/reference/workflow-config/#credential-verification) session. Doubled and capped at 30 seconds, this value also bounds the version query every session start makes, the post-turn `export` subprocess, and, on a credential-verification session, the `session delete` cleanup call; those three have no 60-second minimum. It does not bound anything after the first envelope arrives. Falls back to 30 seconds when unset or not positive. |
 | `stall_timeout_ms` | integer | `300000` (5 minutes) | Maximum time between consecutive emitted events before the orchestrator treats the turn as stalled. `0` or negative disables stall detection. |
 | `stop_grace_ms` | integer | `5000` (5 seconds) | How long the adapter waits for the subprocess to exit on its own after a graceful termination signal, before it force-terminates the process group. Must be positive. |
 | `max_retry_backoff_ms` | integer | `300000` (5 minutes) | Maximum delay cap for exponential backoff between retry attempts. |
@@ -240,7 +240,7 @@ Spawns one OpenCode subprocess, reads its stdout, and delivers normalized events
 4. Launches the subprocess locally or through SSH, with the full parent process environment plus the [managed environment](#managed-environment), which includes `OPENCODE_CONFIG_CONTENT` on every turn. On a local launch, `PWD` in that environment names the same verified workspace path the subprocess's own working directory is set to, so the subprocess lands in the workspace.
 5. Isolates the subprocess in its own process group before start, then arms a graceful process-group signal for cancellation, bounded by `stop_grace_ms`.
 6. Reads stdout and stderr concurrently while waiting for the subprocess to exit.
-7. Applies a startup timer derived from `read_timeout_ms`. A stdout line that fails to parse as a JSON envelope still resets the timer before the first accepted envelope arrives, but does not itself count as the runtime having responded; see [early exit report](/reference/errors/#early-exit-report).
+7. Applies a startup timer set to the larger of `read_timeout_ms` and 60 seconds. A stdout line that fails to parse as a JSON envelope still resets the timer before the first accepted envelope arrives, but does not itself count as the runtime having responded; see [early exit report](/reference/errors/#early-exit-report).
 8. On the first JSON envelope with `sessionID`, adopts the session ID if unset or verifies it matches the resumed session. Emits `session_started` once per session.
 9. Maps JSON envelopes and tolerated plain-text lines into events.
 10. Once the subprocess has been reaped, gives stderr collection up to five seconds to finish, then gives whatever stdout is still in flight another five seconds to arrive, before recovering final token usage with `opencode session export --standalone --sanitize <sessionID>`.
@@ -341,7 +341,7 @@ An error kind is absent only on a `turn_completed` outcome; every other outcome 
 
 | Condition | Exit reason | Error kind | Description |
 |---|---|---|---|
-| No JSON envelope arrived within `read_timeout_ms` of launch | `turn_failed` | `response_timeout` | Message is `timed out waiting for first opencode json event`. The subprocess is killed and its stderr re-emitted at WARN level. |
+| No JSON envelope arrived within the larger of `read_timeout_ms` and 60 seconds of launch | `turn_failed` | `response_timeout` | Message is `timed out waiting for first opencode json event`. The subprocess is killed and its stderr re-emitted at WARN level. |
 | A JSON envelope carried a `sessionID` other than the one already adopted | `turn_failed` | `response_error` | Message is `session id mismatch: expected "...", got "..."`. The turn is aborted rather than reconciled. |
 | Stdout `error` envelope observed, whatever the process exit status | `turn_failed` | `turn_failed` | Structured logical failure, authoritative over the exit code. Message is the envelope's own detail; see [masked failures](#masked-failures). On OpenCode's hosted free tier, a refusal naming a denied `bash` or `read` tool gains a trailing clause naming the setting that denied it; see [free-tier refusals](#free-tier-refusals). |
 | Turn cancelled, or the session stopped, while the subprocess was still running | `turn_cancelled` | `turn_cancelled` | Message is `turn cancelled`. Cancellation outranks the process-exit classification. A subprocess that had already exited on its own is classified by its own exit status instead, however long the wait for its output ran. |
@@ -373,7 +373,7 @@ If a cancellation or stop had already begun when the adapter killed the process,
 
 ### Stall detection
 
-The adapter does not run its own inter-event stall timer. `read_timeout_ms` only covers startup and waits for the first JSON envelope, although plain-text stdout lines reset that timer before the first JSON line arrives.
+The adapter does not run its own inter-event stall timer. The first-envelope wait, the larger of `read_timeout_ms` and 60 seconds, only covers startup, although plain-text stdout lines reset that timer before the first JSON line arrives.
 
 After the first JSON envelope, stall detection is orchestrator-owned. The adapter emits `notification` or `malformed` events for plain-text warnings, unknown JSON types, and normal OpenCode envelopes so the orchestrator's `stall_timeout_ms` watchdog can observe output activity. When the orchestrator cancels a stalled turn, the adapter tears down the process and the turn ends as `turn_cancelled`.
 
