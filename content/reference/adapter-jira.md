@@ -19,7 +19,7 @@ See also: [WORKFLOW.md configuration](/reference/workflow-config/) for the full 
 
 ## Configuration
 
-The adapter reads its configuration from the `tracker` section of the [WORKFLOW.md front matter](/reference/workflow-config/). Three fields are required; the rest have defaults.
+The adapter reads its configuration from the `tracker` section of the [WORKFLOW.md front matter](/reference/workflow-config/). Four fields are required; the rest have defaults.
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -28,8 +28,8 @@ The adapter reads its configuration from the `tracker` section of the [WORKFLOW.
 | `api_key` | string | Yes | - | Authentication credential. See [authentication](#authentication) for format by mode. |
 | `project` | string | Yes | - | Jira project key (e.g., `PLATFORM`). |
 | `api_version` | string | No | `"3"` | REST API version. `"3"` for Jira Cloud; `"2"` for Jira Server / Data Center. Quote the value: `api_version: "2"`. |
-| `active_states` | list of strings | No | `["Backlog", "Selected for Development", "In Progress"]` | Issue states eligible for dispatch. |
-| `terminal_states` | list of strings | No | `[]` | Issue states that trigger workspace cleanup. |
+| `active_states` | list of strings | Yes | - | Issue states eligible for dispatch. An empty list dispatches nothing. |
+| `terminal_states` | list of strings | No | - | Issue states that trigger workspace cleanup. |
 | `query_filter` | string | No | `""` | Raw JQL fragment appended to candidate and state-fetch queries. |
 | `handoff_state` | string | No | _(absent)_ | Target state for orchestrator-initiated transitions after a successful run. Must appear in neither `active_states` nor `terminal_states`. |
 | `in_progress_state` | string | No | _(absent)_ | Target state for dispatch-time transitions at the start of each worker attempt. |
@@ -114,7 +114,7 @@ Must be non-empty. A missing or empty value produces a `missing_tracker_project`
 
 ### `active_states`
 
-List of Jira workflow status names that make issues eligible for dispatch. State names are compared case-insensitively against the Jira status. When omitted, defaults to:
+List of Jira workflow status names that make issues eligible for dispatch. State names are compared case-insensitively against the Jira status. There is no default list: an empty `active_states` dispatches nothing, and an entry cannot be blank. Use the status names of the project's workflow scheme, for example:
 
 ```yaml
 active_states:
@@ -122,8 +122,6 @@ active_states:
   - Selected for Development
   - In Progress
 ```
-
-These defaults match the default Jira Software board. Projects with custom workflows require explicit state names matching the project's workflow scheme.
 
 ### `query_filter`
 
@@ -187,7 +185,6 @@ An empty `api_key` draws no adapter diagnostic: the generic preflight already re
 
 | Check | Condition |
 |---|---|
-| `tracker.active_states.empty_element`, `tracker.terminal_states.empty_element` | A state list element is empty or whitespace only. |
 | `tracker.active_states.untrimmed_element`, `tracker.terminal_states.untrimmed_element` | A state list element has leading or trailing whitespace. |
 | `tracker.states.overlap` | A name appears in both `active_states` and `terminal_states`, compared case-insensitively. |
 

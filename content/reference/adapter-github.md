@@ -16,7 +16,7 @@ See also: [WORKFLOW.md configuration](/reference/workflow-config/) for the full 
 
 ## Configuration
 
-The adapter reads its configuration from the `tracker` section of the [WORKFLOW.md front matter](/reference/workflow-config/). Two fields are required; the rest have defaults.
+The adapter reads its configuration from the `tracker` section of the [WORKFLOW.md front matter](/reference/workflow-config/). Four fields are required; the rest have defaults.
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -24,8 +24,8 @@ The adapter reads its configuration from the `tracker` section of the [WORKFLOW.
 | `api_key` | string | Yes | - | GitHub personal access token. Plain token string, not `email:token` format. |
 | `project` | string | Yes | - | Repository in `owner/repo` format. |
 | `endpoint` | string | No | `https://api.github.com` | GitHub API base URL. Override for GitHub Enterprise Server. |
-| `active_states` | list of strings | No | `["backlog", "in-progress", "review"]` | Issue label names that map to active Sortie states. Compared case-insensitively; stored lowercased. |
-| `terminal_states` | list of strings | No | `["done", "wontfix"]` | Issue label names that map to terminal Sortie states. Stored lowercased. |
+| `active_states` | list of strings | Yes | - | Issue label names that map to active Sortie states. An open issue is dispatched only when it carries one. Compared case-insensitively; stored lowercased. See [`active_states`](#active_states). |
+| `terminal_states` | list of strings | Yes | - | Issue label names that map to terminal Sortie states. Must name at least one. Stored lowercased. See [`terminal_states`](#terminal_states). |
 | `query_filter` | string | No | `""` | Raw GitHub search qualifier appended to the search query. When set, candidate polling uses the search endpoint instead of the issues list endpoint. |
 | `handoff_state` | string | No | _(absent)_ | Target label name after a successful agent run. Must appear in neither `active_states` nor `terminal_states`. Created on demand if absent from the repository; see [Pre-creating labels](#pre-creating-labels). |
 | `in_progress_state` | string | No | _(absent)_ | Target label name for dispatch-time transitions. Must appear in `active_states`. |
@@ -65,15 +65,15 @@ project: $SORTIE_GITHUB_PROJECT
 
 ### `active_states`
 
-Label names that map to active Sortie states. Issues with one of these labels are eligible for dispatch. Values are compared case-insensitively and stored lowercased when the adapter is built.
+Label names that map to active Sortie states. An open issue carrying one of these labels is eligible for dispatch; an open issue carrying none is left alone (see [unlabeled issues](#unlabeled-issues)). Values are compared case-insensitively and stored lowercased when the adapter is built.
 
-When omitted, defaults to `["backlog", "in-progress", "review"]`. These label names must exist in the repository: GitHub has no built-in equivalents.
+There is no default list, and an empty list dispatches nothing. An entry cannot be blank. The labels must exist in the repository: GitHub has no built-in equivalents. At the first poll, and again after a reload changes the list, the adapter reads the repository's labels and logs a warning, `configured active label missing from tracker labels`, naming each active label the repository does not have, so a mistyped label shows up at the first poll. `in_progress_state` is not checked, because Sortie writes that label itself.
 
 ### `terminal_states`
 
 Label names that map to terminal Sortie states. Issues with one of these labels trigger workspace cleanup. Stored lowercased.
 
-When omitted, defaults to `["done", "wontfix"]`.
+There is no default list, and an entry cannot be blank. The list must name at least one state, because a closed issue that carries no terminal label reads as the first entry. An empty list fails the workflow load; see [startup and configuration errors](/reference/errors/#startup-and-configuration-errors).
 
 ### `query_filter`
 
@@ -114,11 +114,11 @@ Empty `tracker.project` is caught by the generic preflight check (`tracker.proje
 |---|---|---|
 | `tracker.api_key.github_token_hint` | `tracker.api_key` is empty after env expansion, but `GITHUB_TOKEN` env var is set | `tracker.api_key is empty but GITHUB_TOKEN environment variable is set; consider using api_key: $GITHUB_TOKEN` |
 | `tracker.api_key.github_token_missing` | `tracker.api_key` is empty and `GITHUB_TOKEN` is not set | `tracker.api_key is empty and GITHUB_TOKEN environment variable is not set` |
-| `tracker.active_states.empty_element` | An element in `active_states` is empty or whitespace-only | `tracker.active_states[{i}]: empty state value never matches an issue state` |
-| `tracker.terminal_states.empty_element` | An element in `terminal_states` is empty or whitespace-only | `tracker.terminal_states[{i}]: empty state value never matches an issue state` |
 | `tracker.active_states.untrimmed_element` | An element in `active_states` has leading or trailing whitespace | `tracker.active_states[{i}]: state value has leading or trailing whitespace and never matches an issue state` |
 | `tracker.terminal_states.untrimmed_element` | An element in `terminal_states` has leading or trailing whitespace | `tracker.terminal_states[{i}]: state value has leading or trailing whitespace and never matches an issue state` |
 | `tracker.states.overlap` | A label appears in both `active_states` and `terminal_states` (case-insensitive) | `tracker.active_states and tracker.terminal_states overlap on "{label}"; an issue in state "{label}" would match both sets` |
+
+An empty or whitespace-only entry in either list is not an adapter diagnostic: it fails the workflow load as a configuration error, as does an empty `terminal_states`. An empty `active_states` draws the generic preflight warning `tracker.active_states.empty`. See [`sortie validate`](/reference/cli/#validate).
 
 The `api_key` warnings are supplementary hints. The generic preflight check already reports an **error** when `tracker.api_key` is empty. The adapter-specific warnings provide actionable remediation guidance alongside that error.
 
@@ -148,29 +148,36 @@ The HTTP client has a 30-second per-request timeout. Cancelling the operation in
 
 ## State derivation
 
-GitHub issues have two native states: `open` and `closed`. Sortie states are derived from issue labels using a five-priority algorithm.
+GitHub issues have two native states: `open` and `closed`. Sortie states are derived from issue labels and the native state.
 
 ### Priority order
 
-1. **Active states, config order.** Issue labels are scanned against `active_states` in configuration order. The first match is returned.
-2. **Terminal states, config order.** If no active state matched, labels are scanned against `terminal_states` in configuration order. The first match is returned.
-3. **Handoff state.** If neither list matched and `handoff_state` is configured, the labels are scanned for it. A match returns `handoff_state`.
-4. **Native-state fallback.** If no label matched any of the above:
-   - `open` issue → `active_states[0]` (first configured active state, e.g., `"backlog"`).
-   - `closed` issue → `terminal_states[0]` (first configured terminal state, e.g., `"done"`).
-5. **Native state passthrough.** When both `active_states` and `terminal_states` are empty (not recommended), returns `"open"` or `"closed"` directly.
+The adapter compares the issue's labels with the configured states in this order and takes the first state the issue carries:
+
+1. **Terminal states, config order.**
+2. **Handoff state,** when `handoff_state` is configured.
+3. **Active states, config order.**
+
+What happens when the issue carries none of them depends on its native state:
+
+- A `closed` issue reads as the first entry of `terminal_states`, so it is terminal whatever its labels.
+- An `open` issue reads as no state. Sortie does not dispatch it.
 
 ### Multi-label conflicts
 
-When an issue carries multiple state labels, the first configured active state wins (priority 1). Configuration order is deterministic; label display order on the issue is irrelevant.
+When an open issue carries more than one configured state label, the first one in the priority order wins, so a terminal label outranks a handoff label, and a handoff label outranks an active one. Configuration order is deterministic; label display order on the issue is irrelevant. The adapter logs a warning, `issue carries more than one state label`, naming the issue and the matched labels, once for each distinct set of labels the issue carries.
 
 ### Handoff-labeled issues
 
-An open issue carrying the `handoff_state` label resolves to `handoff_state`, not to `active_states[0]`. `handoff_state` is rejected at load time when it appears in `active_states` or `terminal_states`, so priority 3 is the only rule that matches the label.
+An open issue carrying the `handoff_state` label, and no terminal label, reads as `handoff_state`. `handoff_state` is rejected at load time when it appears in `active_states` or `terminal_states`, so the label never matches another rule.
 
 ### Unlabeled issues
 
-An open issue with no state label resolves to `active_states[0]`. A closed issue resolves to `terminal_states[0]`. This prevents unlabeled issues from appearing as an unknown state in the orchestrator.
+An open issue that carries no label from `active_states`, `terminal_states`, or `handoff_state` is in no state and is never dispatched. Labeling an issue with an active state is how you hand it to Sortie.
+
+When a poll leaves out open issues for that reason, the adapter logs `skipped open issues without a state label` at INFO with the number skipped, and logs again only when the number changes. `sortie --dry-run` logs it too.
+
+A running issue whose state label is removed keeps running through one poll that reads no state, because editing labels by hand can pass through a moment with none. At the second consecutive poll that reads none, Sortie stops the worker and keeps its workspace. A queued retry and a [stage](/reference/workflow-config/#dispatch) move wait for a second such poll in the same way.
 
 ### Case handling
 

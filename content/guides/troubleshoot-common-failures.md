@@ -358,7 +358,9 @@ Sortie is polling but finds nothing to dispatch.
 
 1. **State names must match exactly.** Verify `tracker.active_states` matches your tracker (case-sensitive). `"To Do"` and `"to do"` are different states.
 
-2. **Use dry-run** to see what Sortie would dispatch:
+2. **An open issue carries no state label (GitHub, Gitea, GitLab).** Sortie dispatches an open issue only when it carries a label from `tracker.active_states`. It logs `skipped open issues without a state label` at INFO with the number it left alone, and logs again only when that number changes. A label from `active_states` that the tracker does not have draws the warning `configured active label missing from tracker labels` at the first poll. An open issue that also carries a `terminal_states` label reads as terminal, because terminal labels outrank active ones.
+
+3. **Use dry-run** to see what Sortie would dispatch:
 
     ```bash
     sortie --dry-run ./WORKFLOW.md
@@ -366,15 +368,15 @@ Sortie is polling but finds nothing to dispatch.
 
     Each candidate gets a `would_dispatch` or `skip_reason` field in the log.
 
-3. **Concurrency cap reached.** If `running` equals `agent.max_concurrent_agents`, new issues wait. Increase the cap or wait for running agents to finish.
+4. **Concurrency cap reached.** If `running` equals `agent.max_concurrent_agents`, new issues wait. Increase the cap or wait for running agents to finish.
 
-4. **Query filter too narrow.** A typo in `tracker.query_filter` returns zero results. Use `--dry-run --log-level debug` to see the full query.
+5. **Query filter too narrow.** A typo in `tracker.query_filter` returns zero results. Use `--dry-run --log-level debug` to see the full query.
 
-5. **A blocker hasn't cleared, or its list couldn't be read.** An issue held for this reason carries a `skip_reason` in dry-run output: `blocked_by` means a listed blocker hasn't reached a terminal state yet. `blockers_unresolved` and `blockers_not_read` mean Sortie couldn't read the blocker list this poll (a failed read, or the per-poll read budget was already spent on other candidates) and will retry on a later poll. This applies to GitHub and Gitea, which read dependencies separately from the candidate list. See [candidate eligibility](/reference/state-machine/#candidate-eligibility) for the full gate, and `sortie_candidate_holds_total` on the [Prometheus metrics reference](/reference/prometheus-metrics/#counters) to watch this over time instead of one poll at a time.
+6. **A blocker hasn't cleared, or its list couldn't be read.** An issue held for this reason carries a `skip_reason` in dry-run output: `blocked_by` means a listed blocker hasn't reached a terminal state yet. `blockers_unresolved` and `blockers_not_read` mean Sortie couldn't read the blocker list this poll (a failed read, or the per-poll read budget was already spent on other candidates) and will retry on a later poll. This applies to GitHub and Gitea, which read dependencies separately from the candidate list. See [candidate eligibility](/reference/state-machine/#candidate-eligibility) for the full gate, and `sortie_candidate_holds_total` on the [Prometheus metrics reference](/reference/prometheus-metrics/#counters) to watch this over time instead of one poll at a time.
 
-6. **A per-issue budget ceiling was reached.** An issue held by `agent.max_sessions` or `agent.max_tokens` stays in its active tracker state and is skipped on every poll. Check `GET /api/v1/{identifier}` for `status: "budget_exhausted"`, the dashboard's [Budget blocked table](/reference/dashboard/#budget-blocked-table), or grep your logs for `blocking re-dispatch`. Sortie also posts one comment on the issue naming the ceiling that stopped it, and that comment counts the issue's sessions the token ceiling stopped in flight, if any. See [how to control agent costs](/guides/control-costs/).
+7. **A per-issue budget ceiling was reached.** An issue held by `agent.max_sessions` or `agent.max_tokens` stays in its active tracker state and is skipped on every poll. Check `GET /api/v1/{identifier}` for `status: "budget_exhausted"`, the dashboard's [Budget blocked table](/reference/dashboard/#budget-blocked-table), or grep your logs for `blocking re-dispatch`. Sortie also posts one comment on the issue naming the ceiling that stopped it, and that comment counts the issue's sessions the token ceiling stopped in flight, if any. See [how to control agent costs](/guides/control-costs/).
 
-7. **A retry keeps being rescheduled with `retry agent settings refused`.** The retry queue shows that text as the issue's error. The settings the retry would run with, a [dispatch rule's](/guides/configure-dispatch-rules/) block laid over the agent kind's block, fail a check that is an error, usually after an edit to `WORKFLOW.md`. Run `sortie validate` to see the same check, then fix the settings and the next retry starts. The `check` and `diagnostic` fields of the log record name the failure; see [dispatch and agent settings](/guides/monitor-with-logs/#dispatch-and-agent-settings).
+8. **A retry keeps being rescheduled with `retry agent settings refused`.** The retry queue shows that text as the issue's error. The settings the retry would run with, a [dispatch rule's](/guides/configure-dispatch-rules/) block laid over the agent kind's block, fail a check that is an error, usually after an edit to `WORKFLOW.md`. Run `sortie validate` to see the same check, then fix the settings and the next retry starts. The `check` and `diagnostic` fields of the log record name the failure; see [dispatch and agent settings](/guides/monitor-with-logs/#dispatch-and-agent-settings).
 
 ## Sortie won't start at all
 
@@ -390,6 +392,7 @@ Sortie validates the config at startup and reports all failures at once. Run `so
 | `tracker.project` | Jira adapter |
 | `tracker.api_key` | Jira adapter (after `$VAR` expansion) |
 | `active_states` or `terminal_states` | At least one non-empty |
+| `terminal_states` | GitHub, Gitea, and GitLab adapters: at least one entry |
 
 If `$VAR` references aren't resolving, verify the variables are exported in the shell that runs Sortie:
 

@@ -147,6 +147,6 @@ This runs a real agent against your test fixture: full code generation sessions 
 
 **"failed to parse file"**: The JSON is malformed. Validate it: `python3 -m json.tool issues.json > /dev/null`
 
-**No issues dispatched**: The `state` values in your JSON don't match `active_states`. Comparison is case-insensitive, but check for typos: `"To do"` won't match `"To Do"` because both sides are lowercased to `"to do"` before comparison. This means case differences are fine, but spelling must match.
+**No issues dispatched**: `active_states` is empty, which dispatches nothing, or the `state` values in your JSON don't match it. The adapter lowercases both sides before comparing, so `"To do"` matches `"To Do"`, but a spelling difference such as `"ToDo"` does not.
 
 For the full configuration schema, see the [WORKFLOW.md reference](/reference/workflow-config/). For template syntax and available variables, see [How to write a prompt template](/guides/write-prompt-template/).

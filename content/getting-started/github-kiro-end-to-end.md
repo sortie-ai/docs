@@ -63,6 +63,8 @@ gh issue create --repo yourorg/yourrepo \
 
 Note the issue number in the output (for example, `#7`). We will see it in the logs later.
 
+When you start Sortie below, the log should show it finding this issue by `backlog`. Other open issues in the repository without such a label stay untouched.
+
 Vague descriptions like "improve the API" produce vague results; concrete tasks like adding a file or writing a test work best with any coding agent.
 
 ### Set up the project directory

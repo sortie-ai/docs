@@ -69,7 +69,7 @@ Three fields are required:
 
 The `$VAR` syntax expands environment variables at config load time. `endpoint` and `project` expand only when the entire value is a variable reference (`$VAR` or `${VAR}`). `api_key` expands variables anywhere in the string, so `$SORTIE_JIRA_API_KEY` works both ways.
 
-If you omit `active_states`, Sortie defaults to `["Backlog", "Selected for Development", "In Progress"]`. Override this to match your project's actual workflow status names. State names are compared **case-insensitively**; `"to do"` matches Jira's `"To Do"`.
+Sortie has no default `active_states`, and an empty list dispatches nothing. Write the status names of your project's workflow. State names are compared **case-insensitively**; `"to do"` matches Jira's `"To Do"`.
 
 ## Scope issues with a query filter
 

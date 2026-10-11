@@ -55,28 +55,33 @@ agent:
 Fix #{{ .issue.identifier }}: {{ .issue.title }}
 ```
 
-Three fields are required:
+Five fields are required:
 
 - **`api_key`**: a single token string. Unlike Jira, this is *not* an `email:token` pair. It's the PAT by itself, sent as a `Bearer` token on every request.
 - **`project`**: `owner/repo` format. Must contain exactly one `/` with both segments non-empty. Example: `acme-corp/platform`.
 - **`kind`**: `github`.
+- **`active_states`** and **`terminal_states`**: the labels that mark an issue as work for Sortie and as finished. Sortie has no default for either list. `terminal_states` needs at least one entry, or the workflow fails to load. See [Map states to labels](#map-states-to-labels).
 
-The `$VAR` syntax expands environment variables at config load time. If you omit `endpoint`, Sortie defaults to `https://api.github.com`. If you omit `active_states`, Sortie defaults to `["backlog", "in-progress", "review"]`. If you omit `terminal_states`, Sortie defaults to `["done", "wontfix"]`.
+The `$VAR` syntax expands environment variables at config load time. If you omit `endpoint`, Sortie defaults to `https://api.github.com`.
 
 ## Map states to labels
 
 This is the key difference from Jira. GitHub has no native workflow states beyond open and closed. Sortie derives richer states from **issue labels**. You control the workflow by defining which labels represent active and terminal states.
 
-- **`active_states`**: label names for issues eligible for dispatch (e.g., `backlog`, `in-progress`, `review`).
-- **`terminal_states`**: label names for completed issues (e.g., `done`, `wontfix`).
+- **`active_states`**: label names for issues eligible for dispatch (e.g., `backlog`, `in-progress`, `review`). Sortie picks up an open issue only when it carries one of these labels. An open issue with none of them is left alone.
+- **`terminal_states`**: label names for completed issues (e.g., `done`, `wontfix`). A closed issue counts as terminal even when it carries none of them.
+
+To hand an issue to Sortie, add one of the `active_states` labels to it. To keep an issue away from Sortie, leave the label off.
 
 All comparisons are case-insensitive. Config values are lowercased at startup, so `"In-Progress"` and `"in-progress"` behave identically.
 
-**Create the `active_states` labels before you start.** An issue can only carry a label that already exists, and those labels are what make an issue eligible for dispatch. Create one label per entry in `active_states` and `terminal_states`. GitHub's own documentation covers creating labels through the web UI or the `gh` CLI: [managing labels](https://docs.github.com/en/issues/using-labels-and-milestones-to-track-work/managing-labels).
+**Create the `active_states` labels before you start.** An issue can only carry a label that already exists, and those labels are what make an issue eligible for dispatch. Create one label per entry in `active_states` and `terminal_states`. At the first poll, Sortie logs a warning for each `active_states` label the repository does not have. GitHub's own documentation covers creating labels through the web UI or the `gh` CLI: [managing labels](https://docs.github.com/en/issues/using-labels-and-milestones-to-track-work/managing-labels).
 
 ### How state derivation works
 
-When Sortie reads an issue, it scans the issue's labels against `active_states` first, then `terminal_states`, then `handoff_state`, in config order. The first match wins. Because the handoff label is part of that scan, an issue parked in handoff keeps its own state rather than looking unlabeled. If no label matches at all, Sortie falls back: open issues default to the first entry in `active_states` (`backlog` with the defaults above), and closed issues default to the first entry in `terminal_states` (`done`). This means unlabeled open issues show up as candidates. Label them explicitly if you want tighter control.
+When Sortie reads an issue, it scans the issue's labels against `terminal_states` first, then `handoff_state`, then `active_states`, in config order. The first match wins. Because the handoff label is part of that scan, an issue parked in handoff keeps its own state rather than looking unlabeled. If no label matches, a closed issue counts as terminal, and an open issue has no state and is not dispatched. See [state derivation](/reference/adapter-github/#state-derivation) for the full rules.
+
+Removing every state label from an issue Sortie is working on stops that work, and the workspace stays. Sortie waits for a second poll that sees no state label before it stops, so a label edit made in two steps does not interrupt the run.
 
 When Sortie transitions an issue, it removes the old state label, adds the new state label, and closes or reopens the issue as needed. Moving to a terminal state closes the issue. Moving to an active state from a closed issue reopens it. All label operations are idempotent. Retrying a failed transition converges to the correct state.
 
@@ -133,7 +138,7 @@ Sortie removes the current state label (e.g., `in-progress`), adds the `review` 
 Constraints:
 
 - `handoff_state` must not appear in `terminal_states`. A handoff parks the issue for a person; it is not a close. Sortie rejects the configuration at load time.
-- `handoff_state` must not appear in `active_states` either, or the issue would be dispatched again on the next poll. The GitHub adapter's default active list includes `review`, so once you use `review` as the handoff label, set `active_states` explicitly and leave it out, as the snippet above does.
+- `handoff_state` must not appear in `active_states` either, or the issue would be dispatched again on the next poll. If you use `review` as the handoff label, leave it out of `active_states`, as the snippet above does.
 - Sortie creates the label on demand the first time an issue transitions into it.
 
 Closing stays a human decision. Move the issue to a terminal state once you have read the work, and Sortie cleans up its workspace on the next sweep.
@@ -179,7 +184,7 @@ Check your configuration without making API calls:
 sortie validate ./WORKFLOW.md
 ```
 
-This parses front matter, compiles the prompt template, and runs preflight checks. It catches missing fields, a malformed `endpoint`, bad `owner/repo` format, env vars that resolve to empty strings, state labels that are empty or padded with whitespace, state overlap between `active_states` and `terminal_states`, and a `handoff_state` that appears in either list. When `GITHUB_TOKEN` is set but `api_key` is empty, it hints at the available token. See [validate-time checks](/reference/adapter-github/#validate-time-checks) for the full list of GitHub-specific diagnostics.
+This parses front matter, compiles the prompt template, and runs preflight checks. It catches missing fields, a malformed `endpoint`, bad `owner/repo` format, env vars that resolve to empty strings, an empty `terminal_states`, blank or whitespace-padded state labels, an empty `active_states` (a warning, because nothing is dispatched), state overlap between `active_states` and `terminal_states`, and a `handoff_state` that appears in either list. When `GITHUB_TOKEN` is set but `api_key` is empty, it hints at the available token. See [validate-time checks](/reference/adapter-github/#validate-time-checks) for the full list of GitHub-specific diagnostics.
 
 ### Test connectivity
 
@@ -197,7 +202,7 @@ level=INFO msg="dry-run: complete" candidates_fetched=3 would_dispatch=2 ineligi
 
 `candidates_fetched=3` means Sortie found 3 issues matching your active states (and `query_filter`, if set). `would_dispatch` counts how many of those it would have dispatched; dry-run mode never actually spawns an agent.
 
-If `candidates_fetched=0` and you expected results, check that your active-state labels exist on the issues you expect Sortie to pick up.
+If `candidates_fetched=0` and you expected results, see [An open issue is not picked up](#an-open-issue-is-not-picked-up).
 
 ## Troubleshoot errors
 
@@ -247,6 +252,15 @@ level=ERROR msg="failed to fetch candidate issues" error="tracker: tracker_not_f
 ```
 
 Check that `project` is in `owner/repo` format and that the token has access to the repo. Private repositories require explicit token access: a fine-grained PAT must be scoped to the repo, and a classic PAT must have `repo` scope.
+
+### An open issue is not picked up
+
+Sortie dispatches an open issue only when it carries a label from `active_states`. Check these in order:
+
+1. Does the issue carry one of the `active_states` labels? Spelling must match, ignoring case. Sortie logs `skipped open issues without a state label` at INFO with the number of open issues it left alone, and logs it again only when the number changes.
+2. Does the repository have the label? Sortie logs a warning, `configured active label missing from tracker labels`, naming each `active_states` label the repository lacks, so a mistyped label shows up at the first poll.
+3. Does the issue also carry a `terminal_states` label? A terminal label outranks an active one, so the issue reads as finished. Sortie logs `issue carries more than one state label` when an issue carries several.
+4. Does the issue match `query_filter`, when you set one?
 
 ### Transition does not change the label
 
@@ -309,4 +323,4 @@ You are a senior engineer. Your work is tracked by Sortie.
 {{ end }}
 ```
 
-This configuration polls every 60 seconds, picks up issues labeled `agent-ready` in `backlog`, `in-progress`, or `review`, runs up to 3 agent turns per issue, and moves completed issues to the `review` label. Issues reaching `done` or `wontfix` are closed automatically. For the full set of configuration options, see the [WORKFLOW.md reference](/reference/workflow-config/). For prompt template syntax, see [How to write a prompt template](/guides/write-prompt-template/).
+This configuration polls every 60 seconds, picks up open issues labeled `agent-ready` that also carry the `backlog` or `in-progress` label, runs up to 3 agent turns per issue, and moves completed issues to the `review` label. Issues reaching `done` or `wontfix` are closed automatically. For the full set of configuration options, see the [WORKFLOW.md reference](/reference/workflow-config/). For prompt template syntax, see [How to write a prompt template](/guides/write-prompt-template/).

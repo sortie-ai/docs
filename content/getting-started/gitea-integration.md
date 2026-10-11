@@ -103,7 +103,7 @@ LABEL_BACKLOG=$(curl -sS -H "Authorization: token $TOKEN" \
 
 Notice the `Authorization: token $TOKEN` header. Gitea reads the value straight after the word `token`, which is exactly how Sortie sends it.
 
-Create two issues, both labeled `backlog`, for Sortie to discover:
+Create two issues, both labeled `backlog`, for Sortie to discover. Leave the label off an issue and Sortie ignores it, which you can try later:
 
 ```bash
 for title in "Add a health-check endpoint" "Document the configuration options"; do
@@ -196,7 +196,7 @@ A few Gitea-specific lines to notice:
 - `endpoint` is required and has no default, because Gitea is self-hosted. You give the instance root, and Sortie appends `/api/v1`.
 - `api_key` is your token. Sortie sends it verbatim in the `Authorization: token <key>` header, the same header you used with `curl` above.
 - `project` is the repository in `owner/repo` form, the `sortie/adapter-lab` you created.
-- `active_states` and `terminal_states` are repository label names, matched case-insensitively. Sortie creates a state label on demand the first time it moves an issue into that state, so you did not pre-create `review`. Watch it appear after the handoff.
+- `active_states` and `terminal_states` are repository label names, matched case-insensitively, and Sortie has no default for either list. Only open issues carrying an `active_states` label are dispatched, which is why you labeled both issues `backlog`. Sortie creates a state label on demand the first time it moves an issue into that state, so you did not pre-create `review`. Watch it appear after the handoff.
 - `handoff_state: review` moves each finished issue to the `review` label. Because `review` is not a terminal state, the issue stays open.
 - `agent.kind: mock` runs the built-in mock agent, which simulates a session with no subprocess and no file changes. `max_turns: 1` gives it a single turn, enough to prove the loop.
 - `polling.interval_ms: 30000` polls Gitea every 30 seconds.

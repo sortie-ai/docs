@@ -126,21 +126,21 @@ tracker:
   terminal_states: [done, wontfix]
 ```
 
-- **`active_states`** selects candidates for dispatch. Omit it and the adapter carries `backlog`, `in-progress`, and `review`.
-- **`terminal_states`** marks completed issues so Sortie stops tracking them. Omit it and the adapter carries `done` and `wontfix`.
+- **`active_states`** selects candidates for dispatch. Sortie picks up an open issue only when it carries one of these labels, and leaves an open issue with none of them alone. Sortie has no default list, and an empty list dispatches nothing.
+- **`terminal_states`** marks completed issues so Sortie stops tracking them. Sortie has no default list. The list needs at least one entry, or the workflow fails to load, because a closed issue counts as terminal even when it carries none of these labels.
 - **`handoff_state`** is the label an issue moves to once an agent finishes, such as a review column. It has no default; omit it and Sortie makes no post-run transition.
 
-Those internal fallback lists derive an issue's state from its labels when you omit a list. They do not drive dispatch. Dispatch is gated on the `active_states` you configure, so set it to the labels your project actually uses and Sortie picks up the issues carrying them.
+To hand an issue to Sortie, add one of the `active_states` labels to it. At the first poll, Sortie logs a warning, `configured active label missing from tracker labels`, for each `active_states` label the project does not hold, inherited group labels included.
 
-Names match case-insensitively, so `In-Progress` and `in-progress` select the same issues. The adapter lowercases the configured names at startup but does not trim them, so a padded value such as `" review"` can never match a normalized issue label. `sortie validate` warns on a padded or empty entry in either list, and on a name shared between `active_states` and `terminal_states`, where an issue would match both sets.
+Names match case-insensitively, so `In-Progress` and `in-progress` select the same issues. The adapter lowercases the configured names at startup but does not trim them, so a padded value such as `" review"` can never match a normalized issue label. `sortie validate` warns on a padded entry in either list, fails on an empty one, and warns on a name shared between `active_states` and `terminal_states`, where an issue would match both sets.
 
-A `handoff_state` that also appears in `active_states` or `terminal_states` is a blocking error rather than a warning: the issue would be dispatched again on the next poll, or the handoff would double as a close. The default active list includes `review`, so once you use `review` as your handoff label, configure `active_states` explicitly without it, as the snippet above does.
+A `handoff_state` that also appears in `active_states` or `terminal_states` is a blocking error rather than a warning: the issue would be dispatched again on the next poll, or the handoff would double as a close. If you use `review` as your handoff label, keep it out of `active_states`, as the snippet above does.
 
-You do not pre-create these labels. GitLab creates a label named in a write when it does not exist and returns HTTP 200, so your configured state labels appear in the project the first time issues move through them. The risk that replaces the missing-label risk is **case**: label names are case-sensitive, so attaching `REVIEW` to a project that already holds `review` creates a second label and leaves the issue carrying both. The adapter defends against this by reading the project label catalog at startup and resolving the stored casing of every configured state name, so a write attaches the label the project already holds rather than a variant of it. A configured name that matches nothing in the catalog is treated as the label you intend to create.
+You do not need to pre-create a label Sortie moves an issue into. GitLab creates a label named in a write when it does not exist and returns HTTP 200, so those state labels appear in the project the first time issues move through them. Create the `active_states` labels yourself, because you apply them to issues to hand them to Sortie. The risk that replaces the missing-label risk is **case**: label names are case-sensitive, so attaching `REVIEW` to a project that already holds `review` creates a second label and leaves the issue carrying both. The adapter defends against this by reading the project label catalog at startup and resolving the stored casing of every configured state name, so a write attaches the label the project already holds rather than a variant of it. A configured name that matches nothing in the catalog is treated as the label you intend to create.
 
 One caveat sits outside that defense: auto-creation always creates a *project* label. If you want your state labels to live at group level, shared across several projects, create them in the group first.
 
-A transition is a single request that swaps the state label and reconciles the issue's native open or closed status at the same time. Moving an issue to a terminal state (`done` or `wontfix`) closes it, moving a closed issue back to an active state reopens it, and a handoff to `review` moves the labels while leaving the issue open, because `review` is neither terminal nor active.
+A transition swaps the state label in one request and reconciles the issue's native open or closed status in another. Moving an issue to a terminal state (`done` or `wontfix`) closes it, moving a closed issue back to an active state reopens it, and a handoff to `review` moves the labels while leaving the issue open, because `review` is neither terminal nor active.
 
 For the full `tracker.*` field contract, types, and validation rules, see the [GitLab adapter reference](/reference/adapter-gitlab/) and the [WORKFLOW.md reference](/reference/workflow-config/).
 
@@ -315,7 +315,7 @@ level=INFO msg="dry-run: candidate" issue_identifier=42 state=backlog would_disp
 level=INFO msg="dry-run: complete" candidates_fetched=3 would_dispatch=3 ineligible=0
 ```
 
-`candidates_fetched=3` means Sortie found three open issues in your active states that also match your `query_filter`. If the count is zero when you expect issues, confirm the issues carry a label you listed in `active_states`, and remember that a `labels` filter naming a label that does not resolve returns an empty set rather than an error.
+`candidates_fetched=3` means Sortie found three open issues in your active states that also match your `query_filter`. If the count is zero when you expect issues, confirm the issues carry a label you listed in `active_states`. Sortie logs `skipped open issues without a state label` at INFO with the number of open issues it left alone, and logs again only when the number changes. Remember that a `labels` filter naming a label that does not resolve returns an empty set rather than an error.
 
 ### Run Sortie
 

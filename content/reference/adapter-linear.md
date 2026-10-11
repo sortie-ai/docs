@@ -14,7 +14,7 @@ See also: [WORKFLOW.md configuration](/reference/workflow-config/) for the full 
 
 ## Configuration
 
-The adapter reads its configuration from the `tracker` section of the [WORKFLOW.md front matter](/reference/workflow-config/). Two fields are required; the rest have defaults.
+The adapter reads its configuration from the `tracker` section of the [WORKFLOW.md front matter](/reference/workflow-config/). Three fields are required; the rest have defaults.
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -22,8 +22,8 @@ The adapter reads its configuration from the `tracker` section of the [WORKFLOW.
 | `api_key` | string | Yes | - | Linear personal API key. Sent verbatim in the `Authorization` header, no `Bearer` prefix. See [authentication](#authentication). |
 | `project` | string | Yes | - | Linear **team key** (e.g., `ENG`), the prefix on issue identifiers. Not a Linear project. See [identifiers and team scoping](#identifiers-and-team-scoping). |
 | `endpoint` | string | No | `https://api.linear.app/graphql` | GraphQL endpoint URL. There is no self-hosted Linear; overriding serves tests and mocks. A present value must be an absolute http(s) URL with a hostname, or the adapter is rejected when it is built. |
-| `active_states` | list of strings | No | `["Backlog", "Todo", "In Progress"]` | Workflow-state names eligible for dispatch. |
-| `terminal_states` | list of strings | No | `["Done", "Canceled", "Duplicate"]` | Workflow-state names that trigger workspace cleanup. |
+| `active_states` | list of strings | Yes | - | Workflow-state names eligible for dispatch. An empty list dispatches nothing. See [state lists](#state-lists). |
+| `terminal_states` | list of strings | No | - | Workflow-state names that trigger workspace cleanup. See [state lists](#state-lists). |
 | `handoff_state` | string | No | _(absent)_ | Workflow-state name set after a successful agent run. Must appear in neither `active_states` nor `terminal_states`. Absent disables handoff. |
 | `query_filter` | string | No | `""` | Raw Linear `IssueFilter` JSON fragment, ANDed with the team and state constraints. See [query filter](#query-filter). |
 
@@ -33,7 +33,7 @@ The adapter reads its configuration from the `tracker` section of the [WORKFLOW.
 
 State names are compared case-insensitively at startup and resolved to the team's canonical casing. `active_states` and `terminal_states` must not overlap, and `handoff_state` must appear in neither list. See [state model](#state-model).
 
-`sortie validate` checks `endpoint`, `project`, and the state lists for this same shape without making network calls, reusing the rules enforced when the adapter is built. A malformed `endpoint` is reported as `tracker.endpoint.invalid`; an empty value is not, since the adapter substitutes the default host for it. Unlike the sibling forge adapters, there is no plain-`http` warning here, because Linear has no self-hosted deployment mode to make the distinction meaningful. A `project` value containing whitespace is an error, and one containing a slash draws a warning that it looks like a GitHub-style `owner/repo` value rather than a Linear team key. An empty or padded state name is an error here, not a warning as on the sibling forge adapters, because the adapter matches a configured name against the team's workflow states exactly; an overlap between `active_states` and `terminal_states` is also an error. State collisions involving `handoff_state` or `in_progress_state` are rejected before Sortie starts, the same way for every tracker kind; see [startup and configuration errors](/reference/errors/#startup-and-configuration-errors).
+`sortie validate` checks `endpoint`, `project`, and the state lists for this same shape without making network calls, reusing the rules enforced when the adapter is built. A malformed `endpoint` is reported as `tracker.endpoint.invalid`; an empty value is not, since the adapter substitutes the default host for it. Unlike the sibling forge adapters, there is no plain-`http` warning here, because Linear has no self-hosted deployment mode to make the distinction meaningful. A `project` value containing whitespace is an error, and one containing a slash draws a warning that it looks like a GitHub-style `owner/repo` value rather than a Linear team key. A padded state name is an error here, not a warning as on the sibling forge adapters, because the adapter matches a configured name against the team's workflow states exactly; an overlap between `active_states` and `terminal_states` is also an error. State collisions involving `handoff_state` or `in_progress_state` are rejected before Sortie starts, the same way for every tracker kind; see [startup and configuration errors](/reference/errors/#startup-and-configuration-errors).
 
 ```yaml
 tracker:
@@ -98,16 +98,11 @@ The adapter maps issues by configured state **name**, not by `type`. `.issue.sta
 
 Linear's `state.name.in` filter is case-sensitive. When the adapter is built, it fetches the team's states once, matches each configured name case-insensitively, and caches the team's exact casing. Fetch queries send the canonical names. A configured name that no state on the team matches is rejected when the adapter is built, with `tracker_payload_error` (`state "<name>" not found in team "<key>"`); an unknown team key is rejected the same way (`unknown team key "<key>"`).
 
-### Default mapping
+### State lists
 
-The adapter's built-in defaults, applied when `active_states` or `terminal_states` is absent or empty:
+The adapter applies no default lists. Write `active_states` and `terminal_states` with the names of the team's workflow states, as in the example above. An empty `active_states` dispatches nothing, and an entry cannot be blank. Every configured name must exist in the team, or the adapter is rejected when it is built.
 
-```yaml
-active_states: [Backlog, Todo, In Progress]
-terminal_states: [Done, Canceled, Duplicate]
-```
-
-`handoff_state` has no default; it stays absent, and dispatch-time handoff is disabled, unless configured.
+`handoff_state` is absent unless configured, and dispatch-time handoff is disabled without it.
 
 ---
 

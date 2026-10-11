@@ -514,7 +514,7 @@ Observes the merge state of Sortie-managed pull requests and transitions the lin
 
 One common field behaves differently here. `max_retries` keeps its default of `2` and bounds retryable transition failures, but `max_retries: 0` escalates on the first failed transition rather than turning the count-based check off, which is what the same value does for `auto_merge`. `escalation` and `escalation_label` carry their usual defaults.
 
-**Tracker prerequisites:** two `tracker` fields must be set whenever this block is active, each reported as its own configuration error when it is missing. `tracker.handoff_state` must be non-empty: it is the state a merge waits in, and the reaction stops re-enqueueing an entry once the issue leaves it. `tracker.terminal_states` must be written out in front matter rather than left to the tracker adapter's default list, because the reconcile pass reads the list exactly as configured with no fallback; a defaulted list would let the validator accept a `target_state` the runtime never treats as terminal.
+**Tracker prerequisites:** two `tracker` fields must be set whenever this block is active, each reported as its own configuration error when it is missing. `tracker.handoff_state` must be non-empty: it is the state a merge waits in, and the reaction stops re-enqueueing an entry once the issue leaves it. `tracker.terminal_states` must be written out in front matter, because the reconcile pass reads the list exactly as configured and no tracker supplies a default.
 
 **Activation:** active when `provider` names a registered SCM adapter, on its own, with no other `reactions` block required. `provider` must match the provider named by every other active SCM reaction; a mismatch is reported by `sortie validate` under the `reactions.scm_provider_conflict` check. The agent or an `after_run` hook must write `pr_number` (positive integer), `owner`, and `repo` to `.sortie/scm.json` in the workspace. Unlike the checkout-bearing kinds, no `branch` is required, because this reaction performs no checkout and reads no branch.
 
@@ -523,8 +523,8 @@ One common field behaves differently here. `max_retries` keeps its default of `2
 **Target-state rule:** the issue moves to the state named by `target_state`, applied verbatim. The target is never derived from `tracker.terminal_states`, because a terminal list routinely mixes a completion state with one or more abandonment states, and neither the ordering nor the vocabulary carries a guaranteed meaning. Three rules constrain the value, all compared case-insensitively and evaluated in this order:
 
 1. It must not equal `tracker.handoff_state`.
-2. It must not be a member of `tracker.active_states`, falling back to the tracker adapter's default active list only when `tracker.active_states` is itself empty.
-3. It must be a member of `tracker.terminal_states` as written, with no fallback to the adapter's default terminal list.
+2. It must not be a member of `tracker.active_states` as written.
+3. It must be a member of `tracker.terminal_states` as written.
 
 The order decides what you are told: a value that is both the handoff state and non-terminal is reported against the first rule, not the third. All three are configuration-shape checks that need no network access, so `sortie validate` reports them offline under the check name `reactions.merge_completion`, at `error` severity, which fails validation and exits non-zero.
 
@@ -598,7 +598,7 @@ Rules marked **startup only** are not reachable by `sortie validate`. They are e
 - `require_ci` and `delete_branch` for `auto_merge` must be boolean.
 - Every active SCM reaction must declare the same `provider`. The set spans `ci_failure`, `review_comments`, `bot_review`, `merge_conflicts`, `auto_merge`, `merge_completion`, and the `label_commands` block, and any two of them naming different providers is reported under the `reactions.scm_provider_conflict` check.
 - `poll_interval_ms` must be at least `30000` for `merge_completion`.
-- `target_state` is required for `merge_completion`. Compared case-insensitively, it must not equal `tracker.handoff_state`, must not be a member of `tracker.active_states` (falling back to the tracker adapter's default active list only when `tracker.active_states` is itself empty), and must be a member of `tracker.terminal_states` as written, with no fallback to the adapter's default terminal list.
+- `target_state` is required for `merge_completion`. Compared case-insensitively, it must not equal `tracker.handoff_state`, must not be a member of `tracker.active_states`, and must be a member of `tracker.terminal_states`, both as written.
 - `tracker.handoff_state` must be non-empty and `tracker.terminal_states` must be written out in front matter whenever `reactions.merge_completion.provider` is set. Each missing field is its own configuration error.
 
 `sortie validate` reports every unmarked rule above offline, before dispatch, at `error` severity, which fails validation and exits non-zero. A startup-only rule surfaces instead as an `invalid review reaction config` or `invalid merge_conflicts reaction config` log line naming the offending field, and the process exits before its first poll. See the [CLI reference](/reference/cli/) for the `validate` subcommand.

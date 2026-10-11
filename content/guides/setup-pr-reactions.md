@@ -221,7 +221,7 @@ The kind needs a provider, a target state, and two `tracker` fields it depends o
 ```yaml
 tracker:
   handoff_state: review        # required: the state a merge waits in
-  terminal_states:             # required: written out, not left to the adapter default
+  terminal_states:             # required: written out, no tracker supplies a default
     - done
     - wontfix
 

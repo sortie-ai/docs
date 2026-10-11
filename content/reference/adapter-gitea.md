@@ -14,7 +14,7 @@ See also: [WORKFLOW.md configuration](/reference/workflow-config/) for the full 
 
 ## Configuration
 
-The adapter reads its configuration from the `tracker` section of the [WORKFLOW.md front matter](/reference/workflow-config/). Three fields are required; the rest have defaults.
+The adapter reads its configuration from the `tracker` section of the [WORKFLOW.md front matter](/reference/workflow-config/). Five fields are required; the rest have defaults.
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -22,8 +22,8 @@ The adapter reads its configuration from the `tracker` section of the [WORKFLOW.
 | `endpoint` | string | Yes | - | Instance base URL, for example `https://gitea.example.com`. No default host. See [endpoint](#endpoint). |
 | `api_key` | string | Yes | - | Gitea access token. Sent verbatim as `Authorization: token <key>`. See [authentication](#authentication). |
 | `project` | string | Yes | - | Repository in `owner/repo` form. See [identifiers and project scoping](#identifiers-and-project-scoping). |
-| `active_states` | list of strings | No | `["backlog", "in-progress", "review"]` | Repository label names whose issues are eligible for dispatch. Stored lowercased. |
-| `terminal_states` | list of strings | No | `["done", "wontfix"]` | Repository label names that mark completed issues. Stored lowercased. |
+| `active_states` | list of strings | Yes | - | Repository label names whose open issues are eligible for dispatch. An open issue carrying none of them is left alone. Stored lowercased. See [state lists](#state-lists). |
+| `terminal_states` | list of strings | Yes | - | Repository label names that mark completed issues. Must name at least one. Stored lowercased. See [state lists](#state-lists). |
 | `handoff_state` | string | No | _(absent)_ | Repository label name set after a successful agent run. Must appear in neither `active_states` nor `terminal_states`. Absent disables handoff. |
 | `in_progress_state` | string | No | _(absent)_ | Repository label set at dispatch, before the agent runs. Must appear in `active_states`. Absent disables the dispatch-time transition. |
 | `query_filter` | string | No | `""` | URL query fragment merged into the repository issue-list request. See [query filter](#query-filter). |
@@ -59,11 +59,15 @@ A non-empty value must also parse as an absolute `http` or `https` URL carrying 
 
 Repository in `owner/repo` form, for example `sortie-ai/sortie`. The adapter splits the value on its single slash when it is built and rejects anything that is not exactly one slash with a non-empty owner and repository.
 
-### State defaults
+### State lists
 
-The adapter's default active states are `["backlog", "in-progress", "review"]`; its default terminal states are `["done", "wontfix"]`. When `active_states` or `terminal_states` is omitted, the adapter substitutes the corresponding default to derive an issue's state from its labels; an open issue with no state label derives to the first active state. These defaults feed state derivation only. The orchestrator gates dispatch on the workflow's configured `active_states`, not on the adapter's substituted defaults, so an omitted `active_states` dispatches nothing. Set both lists to the repository's actual labels rather than relying on the defaults.
+The adapter carries no default labels. Both lists are written in the workflow, and an entry cannot be blank.
 
-`sortie validate` checks these fields without making network calls, reusing the rules enforced when the adapter is built: an empty or padded state-list element, and an overlap between `active_states` and `terminal_states`, are both warnings here rather than errors, since a padded label only fails to match at dispatch time rather than blocking startup.
+An open issue is dispatched only when it carries a label from `active_states`, so labeling an issue is how you hand it to Sortie. An empty `active_states` dispatches nothing, and validation rejects a workflow with both lists empty. `terminal_states` must name at least one state, because a closed issue that carries no terminal label reads as the first entry; an empty list fails the workflow load.
+
+At the first poll, and again after a reload changes `active_states`, the adapter reads the repository's labels and its organization's labels, and logs a warning, `configured active label missing from tracker labels`, for each active label that neither has. `in_progress_state` is not checked, because a transition creates that label itself. See [create-on-missing labels](#create-on-missing-labels).
+
+`sortie validate` checks these fields without making network calls, reusing the rules enforced when the adapter is built. A padded state-list element and an overlap between `active_states` and `terminal_states` are warnings here rather than errors, since a padded label only fails to match at dispatch time rather than blocking startup. An empty or whitespace-only element fails the workflow load on every tracker, and an empty `active_states` draws the generic warning `tracker.active_states.empty`; see [`sortie validate`](/reference/cli/#validate).
 
 ---
 
@@ -117,15 +121,17 @@ Gitea issues natively carry only `open` and `closed`. There is no workflow engin
 
 The adapter scans an issue's labels against the configured lists and returns the first match.
 
-1. `active_states`, in configuration order.
-2. `terminal_states`, in configuration order.
-3. `handoff_state`, if set.
+1. `terminal_states`, in configuration order.
+2. `handoff_state`, if set.
+3. `active_states`, in configuration order.
 
-When more than one configured label is present, the adapter logs a WARN naming the issue and the matched labels, and keeps the first. When no configured label is present, an `open` issue maps to the first `active_states` entry and a `closed` issue maps to the first `terminal_states` entry. When both lists are empty, the native `open` or `closed` value passes through. All comparisons are case-insensitive.
+When more than one configured label is present on an open issue, the adapter logs a WARN, `issue carries more than one state label`, naming the issue and the matched labels, and keeps the first. When no configured label is present, a `closed` issue maps to the first `terminal_states` entry. An `open` issue maps to no state: it is not dispatched, and the adapter logs `skipped open issues without a state label` at INFO with the number it skipped, and logs again only when that number changes. `sortie --dry-run` logs it too. All comparisons are case-insensitive.
+
+A running issue whose state label is removed keeps running through one poll that reads no state, because editing labels by hand can pass through a moment with none. At the second consecutive poll that reads none, Sortie stops the worker and keeps its workspace.
 
 ### Transitions
 
-A transition composes the move from label and state edits, because Gitea has no transition API. It removes every spelling of the current state label that the issue carries, by the id the issue itself reports, so a previous state label that is an organization label is removed too. It then attaches the target state label by id and reconciles the native state: a terminal-state target closes an open issue, and an active-state target reopens a closed one. A target that is not a configured active, terminal, or handoff state is rejected with `tracker_payload_error` before any write.
+A transition composes the move from label and state edits, because Gitea has no transition API. It attaches the target state label by id first, then removes every spelling of the other configured state labels that the issue carries, by the id the issue itself reports, so a previous state label that is an organization label is removed too. The issue never reads as being in no state between the two writes. It then reconciles the native state: a terminal-state target closes an open issue, and an active-state target reopens a closed one. Labels outside the configured states are never touched. A target that is not a configured active, terminal, or handoff state is rejected with `tracker_payload_error` before any write, and a move to the handoff state is refused for a closed issue.
 
 ### Create-on-missing labels
 
@@ -149,7 +155,7 @@ The adapter implements every method of the tracker contract against Gitea's issu
 
 Pull requests are excluded server-side by the type constraint on every list query, and the adapter keeps a client-side guard on the pull-request marker as a second line of defence. A per-issue route that resolves to a pull request is reported as `tracker_not_found` rather than normalized into an issue.
 
-Gitea has no transition API, so a transition is composed from label and state edits rather than being a single call: the current state label is removed, the target label is resolved or created and attached, and the native open or closed status is reconciled. Every step is idempotent, so a partial failure converges on retry rather than stranding the issue, and a transition to the state an issue already holds does no label work at all.
+Gitea has no transition API, so a transition is composed from label and state edits rather than being a single call: the target label is resolved or created and attached, the labels of the other configured states are removed, and the native open or closed status is reconciled. Every step is idempotent, so a partial failure converges on retry rather than stranding the issue, and a transition to the state an issue already holds does no label work at all.
 
 A comment that carries the agent's [stop statement](/reference/agent-extensions/#stop-statement) is the stop text, a blank line, and the statement in a fenced Markdown code block. The fence is backticks, at least three and one more than the longest run of backticks in the statement, so nothing inside the statement can close it.
 

@@ -59,6 +59,8 @@ gh issue create --repo yourorg/yourrepo \
 
 Note the issue number in the output (for example, `#8`). We will see it in the logs later.
 
+The first poll will find this issue through its `backlog` label. An open issue with no `active_states` label is invisible to Sortie.
+
 ### Set up the project directory
 
 Create a directory for this tutorial:

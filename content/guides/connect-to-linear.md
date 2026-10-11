@@ -83,11 +83,9 @@ tracker:
   terminal_states: [Done, Canceled, Duplicate]
 ```
 
-- **`active_states`** selects candidates for dispatch. Omit it and Sortie uses `Backlog`, `Todo`, and `In Progress`.
-- **`terminal_states`** marks completed issues so Sortie can stop tracking them. Omit it and Sortie uses `Done`, `Canceled`, and `Duplicate`.
+- **`active_states`** selects candidates for dispatch. Sortie has no default list, and an empty list dispatches nothing.
+- **`terminal_states`** marks completed issues so Sortie can stop tracking them. Sortie has no default list.
 - **`handoff_state`** is the state an issue moves to once an agent finishes, such as a review column. It has no default. Omit it and Sortie makes no post-run transition.
-
-The active and terminal defaults match the states a new Linear team ships with, so on a stock team you can leave both out.
 
 The names you write do not have to match Linear's casing. At startup Sortie reads the team's states once, matches each configured name case-insensitively, and caches the team's exact spelling for the queries it sends, because Linear's state filter itself is case-sensitive. So `todo` and `Todo` both resolve to your team's `Todo`.
 

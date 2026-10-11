@@ -107,19 +107,19 @@ tracker:
   terminal_states: [done, wontfix]
 ```
 
-- **`active_states`** selects candidates for dispatch. Omit it and Sortie applies `backlog`, `in-progress`, and `review`.
-- **`terminal_states`** marks completed issues so Sortie stops tracking them. Omit it and Sortie applies `done` and `wontfix`.
+- **`active_states`** selects candidates for dispatch. Sortie picks up an open issue only when it carries one of these labels, and leaves an open issue with none of them alone. Sortie has no default list, and an empty list dispatches nothing.
+- **`terminal_states`** marks completed issues so Sortie stops tracking them. Sortie has no default list. The list needs at least one entry, or the workflow fails to load, because a closed issue counts as terminal even when it carries none of these labels.
 - **`handoff_state`** is the label an issue moves to once an agent finishes, such as a review column. It has no default; omit it and Sortie makes no post-run transition.
 
 Names match case-insensitively, so `In-Progress` and `in-progress` behave identically. Sortie lowercases the configured names at startup.
 
-When you omit `active_states`, Sortie falls back to `backlog`, `in-progress`, and `review` to derive an issue's state from its labels: an open issue carrying one of them takes that state, and an open issue with no state label derives to `backlog`. These fallbacks derive state only; they do not drive dispatch. Dispatch is gated on the `active_states` you configure, so set it to the labels your repository actually uses and Sortie picks up the issues carrying them.
+To hand an issue to Sortie, add one of the `active_states` labels to it. Create those labels in the repository (or the owning organization) first, because you apply them yourself. At the first poll, Sortie logs a warning, `configured active label missing from tracker labels`, for each `active_states` label that neither has.
 
-You do not have to pre-create these labels. When Sortie transitions an issue into a state whose label does not yet exist in the repository, it creates the label on demand with a neutral gray color and then applies it, so expect your configured state labels to appear in the repository the first time issues move through them. This is deliberate: Gitea silently ignores a request to attach a label that does not exist and still returns success, so there is no fail-loud path to lean on, and creating the label first is what makes the transition actually take effect.
+You do not have to pre-create the other state labels. When Sortie transitions an issue into a state whose label does not yet exist in the repository, it creates the label on demand with a neutral gray color and then applies it, so expect your configured state labels to appear in the repository the first time issues move through them. This is deliberate: Gitea silently ignores a request to attach a label that does not exist and still returns success, so there is no fail-loud path to lean on, and creating the label first is what makes the transition actually take effect.
 
 A transition also reconciles the issue's open or closed status. Moving an issue to a terminal state (`done` or `wontfix`) closes it, and moving a closed issue back to an active state reopens it. A handoff to `review` leaves the issue open, because `review` is not a terminal state.
 
-Two rules constrain `handoff_state`: it must not appear in `active_states`, or the issue would be dispatched again on the next poll, and it must not appear in `terminal_states`, because a handoff is not a close. The default active list includes `review`, so once you use `review` as your handoff label, drop it from `active_states` as the snippet above does. Neither rule is advisory: `sortie validate` reports either collision as an error and Sortie refuses to start. A label shared between `active_states` and `terminal_states` is a warning by contrast, and startup continues.
+Two rules constrain `handoff_state`: it must not appear in `active_states`, or the issue would be dispatched again on the next poll, and it must not appear in `terminal_states`, because a handoff is not a close. If you use `review` as your handoff label, keep it out of `active_states`, as the snippet above does. Neither rule is advisory: `sortie validate` reports either collision as an error and Sortie refuses to start. A label shared between `active_states` and `terminal_states` is a warning by contrast, and startup continues.
 
 For the full `tracker.*` field contract, types, and validation rules, see the [Gitea adapter reference](/reference/adapter-gitea/) and the [WORKFLOW.md reference](/reference/workflow-config/).
 
@@ -258,7 +258,7 @@ This configuration polls every 60 seconds, picks up issues assigned to `hermes-b
 sortie validate ./WORKFLOW.md
 ```
 
-`sortie validate` parses the front matter, compiles the prompt template, and runs the offline Gitea checks: `endpoint` is present and shaped like an absolute `http(s)` URL, `project` is `owner/repo` with non-empty halves, no state label is empty, `active_states` and `terminal_states` do not overlap, and `handoff_state` collides with neither list. That last one is an error rather than a warning: Sortie will not start on it. It also warns on an `http` endpoint, on an `endpoint` that already ends in `/api/v1`, and, when `api_key` is empty, points you at `SORTIE_GITEA_TOKEN`. It does not contact Gitea, so it cannot tell you whether the token works or whether the repository exists. Those are construction-time checks.
+`sortie validate` parses the front matter, compiles the prompt template, and runs the offline Gitea checks: `endpoint` is present and shaped like an absolute `http(s)` URL, `project` is `owner/repo` with non-empty halves, no state label is empty or padded with whitespace, `terminal_states` is not empty, `active_states` and `terminal_states` do not overlap, and `handoff_state` collides with neither list. That last one is an error rather than a warning: Sortie will not start on it. It also warns on an `http` endpoint, on an `endpoint` that already ends in `/api/v1`, and, when `api_key` is empty, points you at `SORTIE_GITEA_TOKEN`. It does not contact Gitea, so it cannot tell you whether the token works or whether the repository exists. Those are construction-time checks.
 
 With the `reactions` block present, validation also covers the forge configuration offline: an `auto_merge` `strategy` outside `merge`, `squash`, and `rebase`, a `bot_usernames` value that is not a list of strings, and a reaction `provider` that names no registered adapter or differs across the active reactions.
 
@@ -282,7 +282,7 @@ level=INFO msg="dry-run: candidate" issue_identifier=42 state=backlog would_disp
 level=INFO msg="dry-run: complete" candidates_fetched=3 would_dispatch=3 ineligible=0
 ```
 
-`candidates_fetched=3` means Sortie found three open issues in your active states that also match your `query_filter`. If the count is zero when you expect issues, confirm the issues sit in a state you listed in `active_states` and that your `query_filter` is not excluding them.
+`candidates_fetched=3` means Sortie found three open issues in your active states that also match your `query_filter`. If the count is zero when you expect issues, confirm each issue carries a label you listed in `active_states` and that your `query_filter` is not excluding them. Sortie logs `skipped open issues without a state label` at INFO with the number of open issues it left alone, and logs again only when the number changes.
 
 ### Run Sortie
 

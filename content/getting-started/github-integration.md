@@ -51,7 +51,7 @@ You should see your token printed back. If the output is blank, re-run the `expo
 
 ### Prepare state labels
 
-GitHub Issues has only two native states: open and closed. Sortie maps richer workflow states through labels. Create four labels in your repository. These are Sortie's defaults for the GitHub adapter:
+GitHub Issues has only two native states: open and closed. Sortie maps richer workflow states through labels. Create four labels in your repository:
 
 | Label | Purpose |
 |---|---|
@@ -69,7 +69,7 @@ gh label create review --repo owner/repo
 gh label create done --repo owner/repo
 ```
 
-These are the label names the GitHub adapter ships as defaults. In the `WORKFLOW.md` we write next, `backlog` and `in-progress` are the active states, `review` is the handoff target, and `done` is the terminal state. You can use different names. Match them in `WORKFLOW.md` and Sortie will follow your naming.
+In the `WORKFLOW.md` we write next, `backlog` and `in-progress` are the active states, `review` is the handoff target, and `done` is the terminal state. You can use different names. Match them in `WORKFLOW.md` and Sortie will follow your naming.
 
 ### Create a test issue
 
@@ -80,6 +80,8 @@ gh issue create --repo owner/repo --title "Test Sortie integration" --label back
 ```
 
 Note the issue number in the output (e.g., `#1`). We will look for it in the next steps.
+
+Remember this label: Sortie picks up an open issue only if it carries one of the `active_states` labels, here `backlog` or `in-progress`. If your repository already has other open issues, they stay untouched until someone labels them.
 
 ### Write the workflow file
 
@@ -125,7 +127,8 @@ A few things to notice:
 - `tracker.project: owner/repo` identifies your repository. The format is `owner/repo`, not a Jira project key.
 - `$SORTIE_GITHUB_TOKEN` resolves from the environment variable we set earlier. The token is a single string, with no `email:token` format like Jira.
 - No `tracker.endpoint` is needed. Sortie defaults to `https://api.github.com`.
-- `active_states` lists label names that qualify issues for dispatch. Label comparison is case-insensitive, so `Backlog` and `backlog` both match.
+- `active_states` lists label names that qualify issues for dispatch. An open issue without one of these labels is never dispatched. Label comparison is case-insensitive, so `Backlog` and `backlog` both match.
+- `terminal_states` lists the labels that mark an issue as finished. A GitHub workflow must list at least one, because Sortie has no default.
 - `handoff_state: review` tells Sortie to move the issue to "review" after the agent finishes. Sortie removes the current state label, adds the `review` label, and leaves the issue open for a human to look at. A handoff state has to stay outside both `active_states` and `terminal_states`, which is why `review` is not in the active list here. (See the [state constraints reference](/reference/workflow-config/#constraints) for the rule.)
 - `agent.kind: mock` uses the built-in mock agent. No subprocess, no file changes. It proves the tracker loop works.
 - `max_turns: 1` limits each mock session to a single turn. Enough to prove the flow.
@@ -185,9 +188,11 @@ Look at three things:
 2. **`would_dispatch=true`** means the issue passes all dispatch filters.
 3. **`issue_identifier=1`** should match the issue number you created.
 
+If your repository has other open issues without an active-state label, Sortie also logs how many it skipped, for example `msg="skipped open issues without a state label" count=4`. Those issues stay untouched.
+
 If `candidates_fetched=0`, check that:
 
-- The issue has the `backlog` label (case-insensitive, but must exist on the repo).
+- The issue has the `backlog` label (case-insensitive, but must exist on the repo). If the repository lacks an `active_states` label, Sortie logs a warning, `configured active label missing from tracker labels`, naming it.
 - The issue is open.
 - The `project` value in `WORKFLOW.md` is the correct `owner/repo`.
 

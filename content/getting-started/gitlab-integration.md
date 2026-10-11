@@ -27,7 +27,7 @@ Sortie's `tracker.project` field accepts either form GitLab exposes for a projec
 
 Create a label named `backlog` on the project (see GitLab's [label documentation](https://docs.gitlab.com/user/project/labels/)) and apply it to two open issues. Titles like "Add a health-check endpoint" and "Document the configuration options" are enough; the mock agent never reads them. GitLab numbers them `#1` and `#2` within the project.
 
-Your project now has two open, labeled issues waiting for Sortie to find.
+Your project now has two open, labeled issues waiting for Sortie to find. Sortie will find them by the `backlog` label alone, so any other open issue in the project, without an active label, is not touched.
 
 ### Create an access token
 
@@ -128,7 +128,7 @@ A few GitLab-specific lines to notice:
 - No `endpoint` line appears, because the adapter defaults to `https://gitlab.com`. On the self-managed path, add `endpoint: $SORTIE_GITLAB_ENDPOINT` and give the instance root; the adapter appends `/api/v4` itself.
 - `api_key` is your token. Sortie sends it verbatim in the `PRIVATE-TOKEN` header.
 - `project` is the namespace path, or the numeric project ID if you prefer that. Write it unencoded. The adapter percent-encodes the whole value exactly once, and a pre-encoded value is a configuration error. Subgroups nest to any depth, so `group/subgroup/project` is as valid as `group/project`.
-- `active_states` and `terminal_states` are label names, matched case-insensitively when Sortie reads them. You pre-created only `backlog`. GitLab creates any other label the moment Sortie names it in a write, so `review` appears on its own after the first handoff. Case is the one thing GitLab is strict about: label names are case-sensitive on the server, and attaching `Review` to a project that already holds `review` creates a second label rather than matching the first. Sortie reads the project's label catalog at startup and sends the stored casing for every configured state, so it never grows that duplicate for you.
+- `active_states` and `terminal_states` are label names, matched case-insensitively when Sortie reads them, and Sortie has no default for either list. You pre-created only `backlog`, the label that makes an issue a candidate. GitLab creates any other label the moment Sortie names it in a write, so `review` appears on its own after the first handoff. Case is the one thing GitLab is strict about: label names are case-sensitive on the server, and attaching `Review` to a project that already holds `review` creates a second label rather than matching the first. Sortie reads the project's label catalog at startup and sends the stored casing for every configured state, so it never grows that duplicate for you.
 - `handoff_state: review` moves each finished issue to the `review` label. Because `review` is not a terminal state, the issue stays open.
 - `agent.kind: mock` runs the built-in mock agent, which simulates a session with no subprocess and no file changes. `max_turns: 1` gives it a single turn, enough to prove the loop.
 - `polling.interval_ms: 30000` polls GitLab every 30 seconds.

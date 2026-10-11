@@ -52,6 +52,8 @@ gh issue create --repo yourorg/yourrepo \
 
 Note the issue number in the output (e.g., `#5`). We will see it in the logs later.
 
+Keep the `backlog` label on this issue: without an `active_states` label, Sortie never dispatches it, however well the task is written.
+
 Vague descriptions like "improve the API" produce vague results. Concrete tasks (add a file, fix a specific bug, write a test) work best with any coding agent.
 
 ### Set up the project directory

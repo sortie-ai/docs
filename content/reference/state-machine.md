@@ -69,7 +69,7 @@ An issue holds at most one queued retry. When any of these outcomes finds one al
 
 **Claimed → Released.** The claim is removed and no retry is scheduled:
 
-- Reconciliation detects the tracker state is terminal or no longer in `active_states`.
+- Reconciliation detects the tracker state is terminal or no longer in `active_states`. On a label-modelled tracker, an issue that reads no state label counts only at the second consecutive reading.
 - The retry timer fires and the per-issue tracker read reports the issue missing, terminal, or no longer in an active state. A reaction-kind entry is rescheduled instead of released.
 - The `max_sessions` budget is reached.
 - The `max_tokens` token budget is reached, either at a dispatch decision, or by the in-flight check when its cancellation is what ends the running session.
@@ -269,7 +269,7 @@ An issue is eligible for dispatch when all conditions are true:
 | Not claimed | The issue is not already `Claimed`. |
 | Not budget-exhausted | The issue is not already held by a per-issue `agent.max_sessions` or `agent.max_tokens` ceiling, rebuilt each poll tick from run history. |
 | Not parked | The issue is not already parked. A park holds the issue until a later poll tick observes a release gesture. |
-| Stage hop label observed | After a [stage hop](#stage-hop), the issue dispatches on no rule until a read has shown the label the hop added. When the candidate list lacks that label, Sortie reads the issue once by ID that tick. A read that shows the label releases the hold. A read that shows the issue active without the label also releases it, logs `stage hop target label absent, hold released`, and routes the issue by the labels that read returned. A read that finds the issue terminal or outside the active states resets the hop count and dispatches nothing. A failed read holds the issue until the next tick. A released hold stays released across a restart. |
+| Stage hop label observed | After a [stage hop](#stage-hop), the issue dispatches on no rule until a read has shown the label the hop added. When the candidate list lacks that label, Sortie reads the issue once by ID that tick. A read that shows the label releases the hold. A read that shows the issue active without the label also releases it, logs `stage hop target label absent, hold released`, and routes the issue by the labels that read returned. A read that finds the issue terminal or outside the active states resets the hop count and dispatches nothing. A read that shows no state holds the issue for that tick and logs `stage hop target read showed no state, holding issue`; reconciliation resets the count at the second consecutive reading with no state. A failed read holds the issue until the next tick. A released hold stays released across a restart. |
 | Global slots available | `running_count < agent.max_concurrent_agents`. |
 | Per-state slots available | Running count for this state < `agent.max_concurrent_agents_by_state[state]` (if configured). |
 | No blocker is still active | Every entry in `blocked_by` has a non-empty state that is in `tracker.terminal_states`. An entry with an empty state, or a state outside `terminal_states`, holds the issue. |
@@ -336,9 +336,11 @@ Reconciliation runs at the start of every poll tick, before dispatch, as one fix
 | Terminal state | Cancel worker. Mark workspace for cleanup after worker exits. |
 | Still active | Update the in-memory issue snapshot. Worker continues. |
 | Neither active nor terminal | Cancel worker. No workspace cleanup here; the periodic sweep may remove that workspace later on age. |
+| No state, first reading (GitHub, Gitea, GitLab: an open issue with no state label) | Keep the worker running and log `deferred stop for issue without a state label`. A person's label edit can pass through zero state labels for a moment. |
+| No state, second consecutive reading | Treated as neither active nor terminal: cancel worker, no workspace cleanup. |
 | Fetch fails | Keep all workers running. Retry on next tick. |
 
-A terminal state, or one that is neither active nor terminal, also resets the hop count of an issue holding a stage hop record.
+A terminal state, or one that is neither active nor terminal, also resets the hop count of an issue holding a stage hop record. A reading with no state resets it only at the second consecutive such reading. A queued retry whose per-issue read shows no state is likewise rescheduled at the first reading and released at the second.
 
 **Part D: Reaction passes.** The eight reaction kinds each get one pass, in this order: CI failure, review comments, bot review, merge conflicts, auto-merge, review label command, fix label command, merge completion. The order is load-bearing in two places: merge-conflict detection runs before auto-merge so a fresh conflict is acted on before auto-merge re-confirms its deferral, and merge completion runs last so a merge performed earlier in the same tick is observed on the same pass. See the [reactions reference](/reference/reactions/) for what each pass does.
 

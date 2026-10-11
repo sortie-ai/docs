@@ -14,7 +14,7 @@ See also: [WORKFLOW.md configuration](/reference/workflow-config/) for the full 
 
 ## Configuration
 
-The adapter reads its configuration from the `tracker` section of the [WORKFLOW.md front matter](/reference/workflow-config/). Two fields are required; the rest have defaults.
+The adapter reads its configuration from the `tracker` section of the [WORKFLOW.md front matter](/reference/workflow-config/). Four fields are required; the rest have defaults.
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -22,8 +22,8 @@ The adapter reads its configuration from the `tracker` section of the [WORKFLOW.
 | `api_key` | string | Yes | - | GitLab access token. Sent verbatim in the `PRIVATE-TOKEN` header. See [authentication](#authentication). |
 | `project` | string | Yes | - | Namespace path or numeric project ID. See [identifiers and project scoping](#identifiers-and-project-scoping). |
 | `endpoint` | string | No | `https://gitlab.com` | Instance base URL. Required only for a self-managed instance. See [endpoint](#endpoint). |
-| `active_states` | list of strings | No | `["backlog", "in-progress", "review"]` | Project or group label names. Stored lowercased. See [state defaults](#state-defaults). |
-| `terminal_states` | list of strings | No | `["done", "wontfix"]` | Project or group label names that mark completed issues. Stored lowercased. |
+| `active_states` | list of strings | Yes | - | Project or group label names whose opened issues are eligible for dispatch. An opened issue carrying none of them is left alone. Stored lowercased. See [state lists](#state-lists). |
+| `terminal_states` | list of strings | Yes | - | Project or group label names that mark completed issues. Must name at least one. Stored lowercased. See [state lists](#state-lists). |
 | `handoff_state` | string | No | _(absent)_ | Label name set after a successful agent run. Must appear in neither `active_states` nor `terminal_states`. Absent disables handoff. |
 | `query_filter` | string | No | `""` | URL query fragment merged into the issue-list request. Validated against a closed allowlist when the adapter is built. See [query filter](#query-filter). |
 | `user_agent` | string | No | `sortie/<version>` | `User-Agent` header sent on all requests. Sortie sets the tracker role's value to its own version string, so only the SCM and CI roles honor an override, set in a top-level `gitlab:` block. |
@@ -60,9 +60,13 @@ Either a numeric project ID or the project's full namespace path. GitLab nests s
 
 A project can be renamed or moved, which changes the path but not the numeric ID. A deployment that expects to survive a rename configures the numeric ID.
 
-### State defaults
+### State lists
 
-When `active_states` or `terminal_states` is omitted or empty, the adapter substitutes the corresponding default so it can derive an issue's state from its labels. These defaults feed state derivation. The orchestrator gates dispatch on the workflow's configured `active_states`, not on the adapter's substituted defaults, so an omitted `active_states` dispatches nothing. Set both lists to the project's actual labels rather than relying on the defaults.
+The adapter carries no default labels. Both lists are written in the workflow, and an entry cannot be blank.
+
+An opened issue is dispatched only when it carries a label from `active_states`, so labeling an issue is how you hand it to Sortie. An empty `active_states` dispatches nothing, and validation rejects a workflow with both lists empty. `terminal_states` must name at least one state, because a closed issue that carries no terminal label reads as the first entry; an empty list fails the workflow load.
+
+At the first poll, and again after a reload changes `active_states`, the adapter reads the project's labels, inherited group labels included, and logs a warning, `configured active label missing from tracker labels`, for each active label the project does not hold. `in_progress_state` is not checked, because a transition attaches that label itself.
 
 ---
 
@@ -145,23 +149,29 @@ GitLab issues natively carry only `opened` and `closed`. There is no workflow en
 
 The adapter collects every configured label present on the issue, scanning in this order:
 
-1. `active_states`, in configuration order.
-2. `terminal_states`, in configuration order.
-3. `handoff_state`, if set.
+1. `terminal_states`, in configuration order.
+2. `handoff_state`, if set.
+3. `active_states`, in configuration order.
 
-When more than one matches, the adapter logs a WARN naming every matched label, carrying the issue's `iid` in the `issue_identifier` log attribute, then keeps the first. When none matches, a natively `opened` issue maps to the first `active_states` entry and a natively `closed` issue maps to the first `terminal_states` entry. With the corresponding list empty, the native `opened` or `closed` value passes through unchanged. All comparisons are case-insensitive.
+When more than one matches on an open issue, the adapter logs a WARN, `issue carries more than one state label`, naming every matched label, carrying the issue's `iid` in the `issue_identifier` log attribute, then keeps the first. When none matches, a natively `closed` issue maps to the first `terminal_states` entry. A natively `opened` issue maps to no state: it is not dispatched, and the adapter logs `skipped open issues without a state label` at INFO with the number it skipped, and logs again only when that number changes. `sortie --dry-run` logs it too. All comparisons are case-insensitive.
+
+A running issue whose state label is removed keeps running through one poll that reads no state, because editing labels by hand can pass through a moment with none. At the second consecutive poll that reads none, Sortie stops the worker and keeps its workspace.
 
 ### Transitions
 
-Transitioning an issue reads the issue, then applies the whole move in **one** `PUT` request carrying `state_event`, `add_labels`, and `remove_labels` together. GitLab applies all three in one transaction, so there is no window in which an issue carries a terminal label while still open.
+Transitioning an issue reads the issue, then changes its labels in **one** `PUT` request carrying `add_labels` and `remove_labels`. The request adds the target label and removes the labels of the other configured states. The adapter checks that the response carries the target label and none of the removed ones, because GitLab answers a label edit the token may not make with success. A close or reopen is a `PUT` of its own carrying `state_event`, because GitLab commits a `state_event` before the labels of the same request. The two requests are ordered so that every reading between them is the start state or the target.
 
-| Target | Request contents |
+| Target | Requests |
 |---|---|
-| Terminal state, issue open | `state_event=close`, plus the label swap. |
-| Active state, issue closed | `state_event=reopen`, plus the label swap. |
-| Handoff state | Label swap only. The native state is untouched. |
+| Terminal state, issue open | The label swap, then `state_event=close`. |
+| Active state, issue closed, carrying a terminal label | `state_event=reopen`, then the label swap. |
+| Active state, issue closed, carrying no terminal label | The label swap, then `state_event=reopen`. |
+| Handoff state, issue open | The label swap only. The native state is untouched. |
+| Handoff state, issue closed | Refused with `tracker_payload_error` before any request. |
 | Already converged | No request is issued. |
 | Not a configured active, terminal, or handoff state | Rejected with `tracker_payload_error` before any request. |
+
+The issue carries the labels of exactly one configured state afterward, and labels outside the configured states are never touched.
 
 `state_event` accepts exactly `close` and `reopen`; the past-tense and GitHub-style spellings `closed` and `open` return HTTP 400. Re-sending `state_event=close` to an already-closed issue returns 200 and is a no-op, so a partial failure converges on retry.
 
@@ -631,11 +641,12 @@ The project checks are evaluated in that order and report the first fault that a
 | `tracker.api_key.sortie_gitlab_token_hint` | `api_key` is empty and `SORTIE_GITLAB_TOKEN` is set in the environment. |
 | `tracker.api_key.sortie_gitlab_token_missing` | `api_key` is empty and `SORTIE_GITLAB_TOKEN` is not set. |
 | `tracker.api_key.gitlab_whitespace` | `api_key` has leading or trailing whitespace. |
-| `tracker.active_states.empty_element`, `tracker.terminal_states.empty_element` | A state list element is empty or whitespace only. |
 | `tracker.active_states.untrimmed_element`, `tracker.terminal_states.untrimmed_element` | A state list element has leading or trailing whitespace. |
 | `tracker.states.overlap` | A name appears in both `active_states` and `terminal_states`, compared case-insensitively. |
 
 `SORTIE_GITLAB_TOKEN` is the conventional variable name this advisory suggests, not a separate config path; the key resolves through the standard `tracker.api_key` field.
+
+An empty or whitespace-only state list element is not an adapter diagnostic: it fails the workflow load as a configuration error, as does an empty `terminal_states`. An empty `active_states` draws the generic preflight warning `tracker.active_states.empty`. See [`sortie validate`](/reference/cli/#validate).
 
 ### Deliberate non-checks
 
