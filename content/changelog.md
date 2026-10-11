@@ -9,6 +9,106 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.27.0] - 2026-10-11 { #1.27.0 }
+
+### Added
+
+- A dispatch rule can now carry a `stage` label in place of a `match` block: an issue that carries the label runs on that rule wherever it sits in the list, so one label puts an issue on a stage, and an issue with several stage labels runs on the first such rule and logs a warning. `sortie validate` rejects a stage label that two rules share, that names a tracker state, or that is a label Sortie adds itself, such as `needs-human`. ([#1256](https://github.com/sortie-ai/sortie/issues/1256))
+
+- A dispatch rule can now name the rule that follows it with `next`: after a successful run Sortie moves the issue to that rule's stage label instead of writing `tracker.handoff_state`, so a chain such as specify then implement runs without a person moving the issue between stages, and the last stage still ends on the handoff state. Prompt templates see the current and the previous stage in `stage`, and `dispatch.max_consecutive_hops` limits how many times in a row Sortie moves one issue. ([#1257](https://github.com/sortie-ai/sortie/issues/1257))
+
+- `sortie validate` now rejects a stage chain Sortie cannot run, such as a `next` that names a missing rule, a loop of `next` links, or `next` without `tracker.handoff_state`, and warns when `agent.max_sessions` would stop an issue before its chain ends. ([#1257](https://github.com/sortie-ai/sortie/issues/1257))
+
+- `sortie stats` now groups runs by stage chain, and the dashboard's run history shows the rule, chain, and stage of each run on either side of a stage move, so the path an issue took through its stages, and where it stopped, stays visible. ([#1258](https://github.com/sortie-ai/sortie/issues/1258))
+
+- Notification destinations can now subscribe to `stage.advanced`, sent when Sortie moves an issue to its next stage, and `stage.not_advanced`, sent with the reason when a due move is not made. ([#1258](https://github.com/sortie-ai/sortie/issues/1258))
+
+- A workflow can now share prompt text between its templates: files listed under `dispatch.partials` hold named blocks that the Markdown body, the default template, and every rule template call with `{{ template "name" . }}`, so a shared instruction is edited in one place. ([#1219](https://github.com/sortie-ai/sortie/issues/1219))
+
+- `sortie validate` now checks the templates of dispatch rules and the shared blocks they call, names the file and line of each template warning, and warns about a shared block that no template calls. ([#1219](https://github.com/sortie-ai/sortie/issues/1219))
+
+- The Windows `sortie.exe` now shows its product name and version under Properties -> Details.
+
+- GitHub, Gitea, and GitLab trackers now log how many open issues Sortie skipped for carrying no state label, `sortie --dry-run` included. ([#1278](https://github.com/sortie-ai/sortie/issues/1278))
+
+- GitHub, Gitea, and GitLab trackers now warn about each label in `tracker.active_states` that the tracker does not have, so a mistyped label shows up at the first poll. ([#1278](https://github.com/sortie-ai/sortie/issues/1278))
+
+- `sortie validate` now warns when `tracker.active_states` is empty, because no issue is dispatched. ([#1278](https://github.com/sortie-ai/sortie/issues/1278))
+
+### Changed
+
+- A template that calls a block nothing defines now stops the workflow from loading, instead of failing the run that reaches the call, so correct such a call before upgrading. ([#1219](https://github.com/sortie-ai/sortie/issues/1219))
+
+- An `opencode` turn on an SSH worker now applies `opencode.allowed_tools`, `opencode.denied_tools`, and `opencode.disable_autocompact` and keeps session sharing off, as a local turn does; these settings were silently ignored on SSH workers until now. A workflow that needs OpenCode's automatic compaction on SSH workers sets `opencode.disable_autocompact: false`. ([#1210](https://github.com/sortie-ai/sortie/issues/1210))
+
+- On GitHub, Gitea, and GitLab, an open issue is now worked on only when it carries a label from `tracker.active_states`; an open issue with none is left alone instead of being dispatched as the first active state, and work already under way on one stops with its workspace kept, so label the open issues Sortie should work on before upgrading. ([#1278](https://github.com/sortie-ai/sortie/issues/1278))
+
+- No tracker supplies built-in state lists any more, and an empty `tracker.active_states` dispatches nothing on every tracker, the `file` tracker included, so before upgrading list in the workflow any state you relied on the defaults for: `backlog`, `in-progress`, `review`, `done`, and `wontfix` on GitHub, Gitea, and GitLab, `Backlog`, `Selected for Development`, and `In Progress` on Jira, and `Backlog`, `Todo`, `In Progress`, `Done`, `Canceled`, and `Duplicate` on Linear. ([#1278](https://github.com/sortie-ai/sortie/issues/1278))
+
+- A running issue whose state label is removed now stops at the second consecutive poll that sees no state label, and its workspace stays; a queued retry and a stage move wait for a second such poll in the same way. ([#1278](https://github.com/sortie-ai/sortie/issues/1278))
+
+- GitHub, Gitea, and GitLab now require `tracker.terminal_states` to name at least one state, because a closed issue reads as its first entry: startup and `sortie validate` refuse an empty list and a reload that empties it keeps the previous configuration, so list the terminal labels, such as `done`, before upgrading. ([#1278](https://github.com/sortie-ai/sortie/issues/1278))
+
+- An empty entry in `tracker.active_states` or `tracker.terminal_states` now fails startup and `sortie validate` on every tracker, and a reload that adds one keeps the previous configuration. ([#1278](https://github.com/sortie-ai/sortie/issues/1278))
+
+### Removed
+
+- A workflow that names the `kiro` agent kind is no longer converted to `agent-client-protocol`: it fails to start and fails `sortie validate`, like any unknown agent kind, so name `agent-client-protocol` for Kiro CLI instead. ([#1170](https://github.com/sortie-ai/sortie/issues/1170))
+
+- The `opencode` agent kind runs OpenCode 2.x only: a session on 1.x fails at start, naming the installed version and asking for OpenCode 2.x (`@opencode/cli`). A session with `opencode.pure: true` fails at start with an error naming the setting, and `opencode.effort` or `opencode.variant` needs `opencode.model`. ([#1179](https://github.com/sortie-ai/sortie/issues/1179))
+
+### Fixed
+
+- Stopping or finishing an agent session, a hook, or a command Sortie runs can no longer terminate unrelated processes that received the same process ID after the command exited, and on Windows the finished command's own leftover processes no longer survive in that case. ([#1095](https://github.com/sortie-ai/sortie/issues/1095))
+
+- Review comment and bot review reactions no longer escalate right after the last allowed continuation turn when that turn resolved the comments; they escalate only when a new comment arrives that no turn was given, and for bot reviews only a comment on the code counts, so findings a bot posts only in its review summary after the last turn stay on the pull request. ([#1238](https://github.com/sortie-ai/sortie/issues/1238))
+
+- Hooks, the reaction triage command, self-review verification commands, and agent runtimes that exit on their own, including by a crash or by a signal they send themselves, are now reported by their own exit status instead of as cancelled or timed out; on Windows, a hook or agent turn whose process cannot be resumed is now reported as a failed start. ([#1097](https://github.com/sortie-ai/sortie/issues/1097))
+
+- Review comment and bot review reactions no longer start a turn that only repeats comments an earlier run was given, such as after a fix outdates some of them, also across restarts; a comment left unaddressed comes back with the next new comment. A new run of an issue that already has a pull request, such as after a reopen, now receives the review comments no run was given through the same template variables continuation turns use, so no later turn repeats them. ([#1249](https://github.com/sortie-ai/sortie/issues/1249))
+
+- Dispatch rules and prompt templates now see every label of a Linear issue, not only the first 25. ([#1255](https://github.com/sortie-ai/sortie/issues/1255))
+
+- The `file` tracker now keeps every label Sortie adds to an issue instead of only the most recent one. ([#1255](https://github.com/sortie-ai/sortie/issues/1255))
+
+- A label Sortie applies is now checked on the issue afterwards, so a label the tracker accepts without adding, such as on GitLab with a token that cannot edit labels, is logged as a failed write instead of passing as applied. On Gitea a state change also removes a previous state label that is an organization label, and on Linear a label from a single-select label group replaces the group's other label on the issue. ([#1255](https://github.com/sortie-ai/sortie/issues/1255))
+
+- An `opencode` turn on an SSH worker no longer spends tokens on a session title, so the token usage reported for it covers every model request it makes. ([#1210](https://github.com/sortie-ai/sortie/issues/1210))
+
+- On Windows, a command or agent runtime that is cancelled or times out while Sortie is still starting it is now stopped before it runs, instead of running for up to the stop grace period. ([#1100](https://github.com/sortie-ai/sortie/issues/1100))
+
+- A `codex`, `opencode`, `copilot-cli`, or `agent-client-protocol` session that is cancelled before its agent runtime starts running is now reported as cancelled, instead of as a failed start or, for `copilot-cli`, as a runtime that does not work, and a self-review verification command that times out before its process starts as timed out, instead of as a failed start. ([#1100](https://github.com/sortie-ai/sortie/issues/1100))
+
+- On Windows, when Sortie could not place a command in a Job Object and cannot check one of the command's processes afterwards, it now logs `subprocess tree did not settle`, and that warning no longer lists processes that belong to other programs. A process in the Job Object of a command or agent session that Sortie cannot check no longer counts as gone: Sortie keeps terminating the job for up to 2 seconds, then logs `subprocess group termination failed after the launch returned`. ([#1098](https://github.com/sortie-ai/sortie/issues/1098))
+
+- A `codex` agent can now call Sortie's tools, which the agent runtime refused on every call before, and a tool from a server in its `mcp_config` is no longer refused for want of an approval nobody can give. ([#1262](https://github.com/sortie-ai/sortie/issues/1262))
+
+- A `codex` tool call that fails or is refused is now reported as a tool error instead of as a successful call. ([#1262](https://github.com/sortie-ai/sortie/issues/1262))
+
+- An `opencode` run no longer fails when the model takes more than five seconds to start answering: the wait for a turn's first output and for the start-up credential check is now at least 60 seconds, whatever `agent.read_timeout_ms` is set to. ([#1239](https://github.com/sortie-ai/sortie/issues/1239))
+
+- The `sortie validate` warning for `opencode.dangerously_skip_permissions: false` now says only that the runtime refuses every permissioned tool call, no longer that an `opencode` turn ends at the first refusal, which it does not. ([#1215](https://github.com/sortie-ai/sortie/issues/1215))
+
+- On GitHub, Gitea, and GitLab, closing an issue now stops any run on it and cleans up its workspace whatever labels it carries. ([#1278](https://github.com/sortie-ai/sortie/issues/1278))
+
+- On GitHub, Gitea, and GitLab, a terminal or handoff label now outranks an active one, so adding `done` to an issue that still carries `backlog` keeps it from dispatch. ([#1278](https://github.com/sortie-ai/sortie/issues/1278))
+
+- A state change on GitHub, Gitea, and GitLab now leaves the issue with the labels of exactly one state, adding the new label before removing the old ones, so a poll in between never sees an issue with no state; a label change that GitLab accepts without applying is reported as a failed transition, and a handoff on an issue that is already closed is refused. ([#1278](https://github.com/sortie-ai/sortie/issues/1278))
+
+- A reload of the state lists in `WORKFLOW.md` now applies to the next tracker request on every tracker, instead of the lists the tracker started with. ([#1278](https://github.com/sortie-ai/sortie/issues/1278))
+
+- An issue that carries labels of more than one state now logs one warning for each distinct set of labels instead of one for every poll. ([#1278](https://github.com/sortie-ai/sortie/issues/1278))
+
+- With `opencode.dangerously_skip_permissions: false`, the `opencode` agent no longer reads or writes files outside the session workspace; it is refused and reported like any other refused tool call. To allow it, add `external_directory` to `opencode.allowed_tools`. An `external_directory` rule in your own OpenCode configuration no longer applies in this mode. ([#1281](https://github.com/sortie-ai/sortie/issues/1281))
+
+### Migrations
+
+- Add the `reaction_handoffs` table, recording the review comments each issue's runs were given. An upgrade starts with it empty, so a comment given before the upgrade can be given once more.
+
+- Add the `stage_hops` table, keeping each issue's count of consecutive automatic stage moves, and add `stage_previous` and `stage_previous_outcome` to `run_history` and `retry_entries`. An upgrade starts with no moves counted, and a run or retry recorded before the upgrade reads back with no previous stage. ([#1257](https://github.com/sortie-ai/sortie/issues/1257))
+
+- Add `chain_id`, `stage_target`, and `stage_result` to `run_history`, and `chain_id` to `retry_entries` and `stage_hops`. A run recorded before the upgrade reads back with no chain and is left out of the grouping by stage chain. ([#1258](https://github.com/sortie-ai/sortie/issues/1258))
+- 
 ## [1.26.0] - 2026-10-01 { #1.26.0 }
 
 ### Added
@@ -1120,6 +1220,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - CI pipeline with `golangci-lint`, `gofmt` enforcement, and test execution via GitHub Actions.
 - Architecture Decision Records (ADR-0001 through ADR-0005).
 
+[1.26.0]: https://github.com/sortie-ai/sortie/compare/v1.26.0...v1.27.0
 [1.26.0]: https://github.com/sortie-ai/sortie/compare/v1.25.0...v1.26.0
 [1.25.0]: https://github.com/sortie-ai/sortie/compare/v1.24.1...v1.25.0
 [1.24.1]: https://github.com/sortie-ai/sortie/compare/v1.24.0...v1.24.1
