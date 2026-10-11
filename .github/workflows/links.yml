@@ -65,6 +65,10 @@ jobs:
       #
       # Retries are off: a retried 429 from github.com rate-limits every
       # request queued behind it.
+      #
+      # 503 is accepted because github.com answers random /blob/ links with
+      # it, and lychee's GITHUB_TOKEN fallback only checks that a repository
+      # exists, so it cannot rescue a file link. A deleted file is still a 404.
       - name: Check links and anchors
         env:
           GITHUB_TOKEN: ${{ github.token }}
