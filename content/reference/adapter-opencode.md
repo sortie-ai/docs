@@ -76,7 +76,7 @@ These fields are adapter-specific. Each maps to a CLI flag or to a member of the
 | `effort` | string | _(none)_ | Reasoning level, carried on every turn, credential verification included, in OpenCode's one model-variant slot. See [adapter pass-through configuration](/reference/workflow-config/#adapter-pass-through-configuration) for how an unset value is read. Folded into `model` as a `#`-separated suffix, so it needs an `opencode.model` that carries no `#` of its own; see [settings refused at session start](#settings-refused-at-session-start). Setting it together with `variant` is an error; see [validate-time checks](#validate-time-checks). |
 | `variant` | string | _(none)_ | Fills the same slot as `effort`, and setting both is an error. Folded into `model` as a `#`-separated suffix under the same requirements as `effort`. |
 | `thinking` | boolean | `false` | Adds `--thinking`. |
-| `dangerously_skip_permissions` | boolean | `true` | Adds `--dangerously-skip-permissions` when `true`. When `false`, the runtime refuses every permissioned tool call instead of performing it; see [validate-time checks](#validate-time-checks). |
+| `dangerously_skip_permissions` | boolean | `true` | Adds `--dangerously-skip-permissions` when `true`. When `false`, the runtime refuses every permissioned tool call instead of performing it, and access outside the workspace is refused unless a tool list names `external_directory`; see [validate-time checks](#validate-time-checks) and [access outside the workspace](#access-outside-the-workspace). |
 | `disable_autocompact` | boolean | `true` | When `true`, sets the inline configuration document's `compaction.auto` to `false`. |
 | `allowed_tools` | list of strings | `[]` | Builds an allowlist policy: listed keys become `allow`, every known key not listed becomes `deny`, unknown keys are forwarded unchanged. The policy rides in the inline configuration document's `permission` member. |
 | `denied_tools` | list of strings | `[]` | Adds `deny` entries to the same policy `allowed_tools` builds. Overlap with `allowed_tools` is refused at session start; see [settings refused at session start](#settings-refused-at-session-start). |
@@ -123,13 +123,13 @@ Use `turn_timeout_ms` to bound wall-clock time for a single turn. There is no ad
 
 ### Permission policy
 
-The adapter synthesizes one managed permission policy from `allowed_tools` and `denied_tools` and injects it as the `permission` member of the inline configuration document (see [managed environment](#managed-environment)). The policy is separate from `--dangerously-skip-permissions`.
+The adapter synthesizes one managed permission policy from `allowed_tools` and `denied_tools` and injects it as the `permission` member of the inline configuration document (see [managed environment](#managed-environment)). The policy is separate from the `--dangerously-skip-permissions` flag, but with `dangerously_skip_permissions: false` the adapter also writes a policy when both lists are empty; see [access outside the workspace](#access-outside-the-workspace).
 
 | Input | Adapter behavior |
 |---|---|
-| No `allowed_tools`, no `denied_tools` | Sets no policy. OpenCode falls back to on-disk config and its own defaults. |
+| No `allowed_tools`, no `denied_tools` | With `dangerously_skip_permissions: true`, sets no policy, and OpenCode falls back to on-disk config and its own defaults. With `false`, sets only `external_directory` to `ask`. |
 | `allowed_tools` only | Sets each listed key to `allow`, then sets every known key not listed to `deny`. |
-| `denied_tools` only | Sets only the listed keys to `deny`. Other keys fall through to OpenCode defaults or operator config. |
+| `denied_tools` only | Sets the listed keys to `deny`. With `dangerously_skip_permissions: false` and `external_directory` not listed, it also sets `external_directory` to `ask`. Other keys fall through to OpenCode defaults or operator config. |
 | Both fields present | Starts with the allowlist behavior above, then applies `deny` overrides from `denied_tools`. |
 | Overlap between the two fields | Session start fails. |
 | Unknown permission key | Forwards the key verbatim and logs it at debug level. |
@@ -161,6 +161,22 @@ The adapter's known permission-key set is:
 | `websearch` | Yes |
 
 This is the set this version of the adapter knows about, not a catalogue of OpenCode's tools. A key OpenCode adds later is unknown to the adapter until the adapter learns it, and an unknown key you write is forwarded unchanged. The adapter forwards every key unchanged, so a key takes effect only where the runtime itself recognizes it.
+
+#### Access outside the workspace
+
+With `dangerously_skip_permissions: false`, the agent cannot read or write files outside the session workspace unless you allow it. The runtime refuses the access and reports it to the model like any other refused tool call. To allow it, name `external_directory` in `allowed_tools`. A non-empty `allowed_tools` denies every known key it does not list, so list each tool the agent needs (`read`, `edit`, `bash`, and so on) alongside `external_directory`. The other way to allow it is `dangerously_skip_permissions: true`, which approves every permissioned call and not only this one.
+
+The adapter decides `external_directory` as follows:
+
+| Configuration | Action written for `external_directory` |
+|---|---|
+| `dangerously_skip_permissions: true` | None. The adapter writes no `external_directory` rule of its own. |
+| `false`, neither list names the key, `allowed_tools` empty | `ask`, which the runtime refuses because no one can answer. |
+| `false`, `allowed_tools` non-empty and not naming the key | `deny`, from the blanket deny described above. |
+| `false`, `allowed_tools` names the key | `allow`. |
+| `false`, `denied_tools` names the key | `deny`. |
+
+On a local launch, an `external_directory` rule in your own OpenCode configuration files does not apply in this mode, because the adapter writes a value for the key and its document loads last; see [managed environment](#managed-environment). On an SSH worker, an `OPENCODE_PERMISSION` value set in the remote login environment is applied after the adapter's document and wins for every key it names.
 
 ### Managed environment
 
