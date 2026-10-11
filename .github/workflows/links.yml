@@ -58,9 +58,10 @@ jobs:
       #
       # Markdown mirrors and llms*.txt are left out: their /<page>.md links are
       # answered by Cloudflare, not by a file in the build. The Grafana download
-      # is a Cloudflare redirect to the sortie repository. The ChatGPT and
-      # "Edit this page" links come from hugo.toml on every page; neither
-      # answers a bot.
+      # is a Cloudflare redirect to the sortie repository. The ChatGPT, Claude
+      # and "Edit this page" links come from hugo.toml on every page; none
+      # answers a bot. platform.openai.com sits behind the same Cloudflare
+      # bot challenge and returns 403 to any crawler.
       #
       # Retries are off: a retried 429 from github.com rate-limits every
       # request queued behind it.
