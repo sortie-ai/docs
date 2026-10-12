@@ -196,12 +196,12 @@ Sortie exposes per-host usage through two channels.
 **The state API** returns `ssh_host` on each running session. Hit the endpoint while agents are active:
 
 ```bash
-curl -s localhost:7678/api/v1/state | jq '.running[] | {identifier, ssh_host}'
+curl -s localhost:7678/api/v1/state | jq '.running[] | {issue_identifier, ssh_host}'
 ```
 
 ```json
-{"identifier": "PROJ-42", "ssh_host": "build01.internal"}
-{"identifier": "PROJ-43", "ssh_host": "build02.internal"}
+{"issue_identifier": "PROJ-42", "ssh_host": "build01.internal"}
+{"issue_identifier": "PROJ-43", "ssh_host": "build02.internal"}
 ```
 
 **Prometheus metrics** expose a gauge per host:

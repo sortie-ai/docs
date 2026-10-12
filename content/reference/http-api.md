@@ -112,9 +112,14 @@ curl http://localhost:7678/api/v1/state
     {
       "issue_id": "abc123",
       "issue_identifier": "MT-649",
+      "issue_title": "Fix the flaky login test",
+      "issue_url": "https://tracker.example.com/browse/MT-649",
+      "issue_labels": ["bug", "backend"],
       "state": "In Progress",
       "session_id": "session-abc-001",
       "turn_count": 7,
+      "self_review_active": false,
+      "self_review_iteration": 0,
       "last_event": "turn_completed",
       "last_message": "",
       "started_at": "2026-03-26T14:10:12Z",
@@ -131,6 +136,8 @@ curl http://localhost:7678/api/v1/state
       "rule_name": "bugfix",
       "configured_model": "claude-sonnet-4-5",
       "configured_effort": "medium",
+      "workflow_file": "WORKFLOW.md",
+      "agent_kind": "claude-code",
       "api_request_count": 12,
       "requests_by_model": {
         "<model-id-reported-by-the-agent>": 12
@@ -141,6 +148,7 @@ curl http://localhost:7678/api/v1/state
       "usage_arrival": "incremental",
       "usage_attribution": "per_model",
       "tokens_pending": false,
+      "tokens_awaited": false,
       "api_requests_measured": true
     }
   ],
@@ -148,6 +156,8 @@ curl http://localhost:7678/api/v1/state
     {
       "issue_id": "def456",
       "issue_identifier": "MT-650",
+      "issue_title": "Retry the export job",
+      "issue_url": "https://tracker.example.com/browse/MT-650",
       "attempt": 3,
       "due_at": "2026-03-26T14:35:00Z",
       "error": "agent exited with code 1"
@@ -157,6 +167,8 @@ curl http://localhost:7678/api/v1/state
     {
       "issue_id": "ghi789",
       "issue_identifier": "MT-651",
+      "issue_title": "Migrate the billing tables",
+      "issue_url": "https://tracker.example.com/browse/MT-651",
       "reason": "session_budget",
       "used_sessions": 3,
       "budget_sessions": 3,
@@ -190,6 +202,14 @@ curl http://localhost:7678/api/v1/state
 | Field | Description |
 |---|---|
 | `display_identifier` | Human-facing identifier when the tracker distinguishes it from `issue_identifier`. Omitted when empty. |
+| `issue_title` | The tracker's title of the issue, as read when the session was dispatched and unchanged for the whole run. Omitted when the tracker returned none. |
+| `issue_url` | The tracker's web link to the issue, as read at dispatch. Omitted when the tracker returned none. |
+| `issue_labels` | The issue's labels as read at dispatch, lowercase and in the tracker's order. Always present; `[]` when the issue has none. |
+| `ssh_host` | The [SSH host](/reference/workflow-config/#worker) the session runs on. Omitted for a session that runs on the machine running Sortie. |
+| `workflow_file` | Base filename of the `WORKFLOW.md` in force at dispatch. Omitted when unset. |
+| `agent_kind` | The agent kind the session runs, from the configuration in force at dispatch. Omitted when unset. |
+| `self_review_active` | `true` while the session is in its self-review phase. |
+| `self_review_iteration` | Self-review iterations completed in the current phase: `0` while the first one runs, and whenever `self_review_active` is `false`. |
 | `turn_count` | Number of turns this session has run: the coding turns plus any review and fix turns from self-review. Advances by one the instant a turn starts, the same way for every agent kind, and resets to `0` at the start of each attempt. [`agent.max_turns`](/reference/workflow-config/#agent) caps only the coding turns, so this figure can run higher once self-review is active. |
 | `tokens` | Nested object with `input_tokens`, `output_tokens`, `total_tokens`, `cache_read_tokens`, and `cache_write_tokens` for this session. `total_tokens` is `input_tokens + output_tokens`; both cache counters are disjoint subsets of `input_tokens`, never additions to it. Each member is an integer or `null`, and all five are `null` together exactly when `tokens_measured` is `false`. |
 | `tokens_measured` | `false` until the coding agent reports token usage for this session, including before the first turn begins; that is what makes the members of `tokens` `null` rather than `0`. `true` once any usage figure has been reported. Stays `false` for the life of a session whose `usage_arrival` is `"none"`, whatever its runtime sends. |
@@ -204,6 +224,7 @@ curl http://localhost:7678/api/v1/state
 | `api_time_percent` | Percentage of elapsed wall-clock time spent waiting on API calls. `null` when not yet computed. |
 | `usage_arrival` | When this session's token figures arrive, frozen at dispatch from the agent kind, its configuration, and whether the session runs over SSH. `"incremental"` (one figure per LLM API request, while the turn is still running), `"turn_end"` (at most one figure per turn, after the turn's work is over), `"none"` (no figure is ever produced), or `""` when the kind declares nothing. |
 | `usage_attribution` | What this session's token figures attribute to, frozen alongside `usage_arrival`. `"per_model"` (a figure names the model that produced it), `"session_total"` (figures are session-level totals with no model), `"none"` (there is no figure to attribute), or `""` when the kind declares nothing. |
+| `tokens_awaited` | `true` only when the session has recorded no token figure and the moment its `usage_arrival` names for one has not passed. A session whose `usage_arrival` reports figures and whose `tokens_awaited` is `false` has recorded nothing and will record nothing. |
 | `tokens_pending` | `true` only when `usage_arrival` is `"turn_end"`, `tokens_measured` is `true`, and the turn whose figure is still to settle has not ended. The counts in `tokens` then exclude the turn in progress rather than being final. |
 | `api_requests_measured` | `true` exactly when `api_request_count` is non-null. It requires `usage_arrival` to be `"incremental"`, and then either a figure already counted or no turn yet begun. A `"turn_end"` session is never measured, because its counter settles at most once per turn rather than once per request; an `"incremental"` session with nothing counted is not measured either once its first turn has begun, whatever its agent kind declares. |
 
@@ -234,10 +255,24 @@ Nothing compares the two, and a reported model never replaces a configured one. 
 
 The dashboard shows the same values as **Configured model**, **Configured effort**, and **Reported model**. Completed runs keep all three; see [run history entries](#run-history-entries).
 
+`issue_title`, `issue_url`, and `issue_labels` pass through the same masking as the logs: a value Sortie knows to be a secret reads `[redacted]`. A Jira link carries no user name or password written into `tracker.endpoint`.
+
+**`retrying[]` entries:**
+
+| Field | Description |
+|---|---|
+| `display_identifier` | Human-facing identifier when the tracker distinguishes it from `issue_identifier`. Omitted when empty. |
+| `issue_title` | The tracker's title of the issue. Omitted when empty, which on a retry means Sortie has not fetched the issue's title since the retry was restored. Masked like the running row's. |
+| `issue_url` | The tracker's web link to the issue, under the same rule as `issue_title`. |
+
+A retry keeps the title and link it was scheduled with. Sortie stores them with the retry and restores them at startup, so a restart serves what was served before it. A retry stored by an earlier release has neither until the next poll whose candidates include its issue, or until the retry next fires. Neither replaces a title and link the retry already holds.
+
 **`budget_exhausted[]` entries:** Issues held out of dispatch by a per-issue budget ceiling ([`agent.max_sessions`](/reference/workflow-config/#agent) or [`agent.max_tokens`](/reference/workflow-config/#agent)).
 
 | Field | Description |
 |---|---|
+| `display_identifier` | Human-facing identifier when the tracker distinguishes it from `issue_identifier`. Omitted when empty. |
+| `issue_title`, `issue_url` | The tracker's title and web link, as read by the poll that last rebuilt the held set, or by the retry the hold was found on until the next poll. Each omitted when empty. Masked like the running row's. |
 | `reason` | `session_budget` or `token_budget`: which ceiling stopped dispatch. |
 | `used_sessions`, `budget_sessions` | Completed sessions for the issue against the configured `agent.max_sessions`. |
 | `used_tokens`, `budget_tokens` | Measured cumulative tokens against the configured `agent.max_tokens`. `used_tokens` is `null` only on a `session_budget` entry, and there only when the token ceiling has not been evaluated for the issue: `agent.max_tokens` is `0`, or reading the issue's token spend failed. |
@@ -292,9 +327,14 @@ curl http://localhost:7678/api/v1/MT-649
   "running": {
     "issue_id": "abc123",
     "issue_identifier": "MT-649",
+    "issue_title": "Fix the flaky login test",
+    "issue_url": "https://tracker.example.com/browse/MT-649",
+    "issue_labels": ["bug", "backend"],
     "state": "In Progress",
     "session_id": "session-abc-001",
     "turn_count": 7,
+    "self_review_active": false,
+    "self_review_iteration": 0,
     "last_event": "turn_completed",
     "last_message": "Working on tests",
     "started_at": "2026-03-26T14:10:12Z",
@@ -311,6 +351,8 @@ curl http://localhost:7678/api/v1/MT-649
     "rule_name": "bugfix",
     "configured_model": "claude-sonnet-4-5",
     "configured_effort": "medium",
+    "workflow_file": "WORKFLOW.md",
+    "agent_kind": "claude-code",
     "api_request_count": 12,
     "requests_by_model": {
       "<model-id-reported-by-the-agent>": 12
@@ -321,6 +363,7 @@ curl http://localhost:7678/api/v1/MT-649
     "usage_arrival": "incremental",
     "usage_attribution": "per_model",
     "tokens_pending": false,
+    "tokens_awaited": false,
     "api_requests_measured": true
   },
   "retry": null,
@@ -349,6 +392,8 @@ When an issue is in the retry queue rather than actively running, `status` is `"
   "retry": {
     "issue_id": "def456",
     "issue_identifier": "MT-650",
+    "issue_title": "Retry the export job",
+    "issue_url": "https://tracker.example.com/browse/MT-650",
     "attempt": 3,
     "due_at": "2026-03-26T14:35:00Z",
     "error": "agent exited with code 1"
@@ -379,6 +424,8 @@ When an issue has neither a running session nor a pending retry, but is held out
   "budget_exhausted": {
     "issue_id": "ghi789",
     "issue_identifier": "MT-651",
+    "issue_title": "Migrate the billing tables",
+    "issue_url": "https://tracker.example.com/browse/MT-651",
     "reason": "session_budget",
     "used_sessions": 3,
     "budget_sessions": 3,
@@ -402,7 +449,7 @@ When an issue has neither a running session nor a pending retry, but is held out
 | `attempts.restart_count` | How many times this issue has been restarted (attempt minus one, floored at zero). |
 | `attempts.current_retry_attempt` | The current attempt number. `0` for running and budget-exhausted issues that haven't retried. |
 | `running` | Full running entry (same shape as entries in `/api/v1/state`), or `null`. |
-| `retry` | Full retry entry, or `null`. |
+| `retry` | Full retry entry (same shape as entries in the `retrying` array on `/api/v1/state`), or `null`. |
 | `budget_exhausted` | Full budget-exhausted entry (same shape as entries in the `budget_exhausted` array on `/api/v1/state`), or `null`. |
 | `recent_events` | Reserved for future use. Currently an empty array. |
 | `last_error` | Most recent error message from the retry queue, or `null`. |

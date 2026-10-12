@@ -21,7 +21,7 @@ Everything. Sortie stores all durable state in SQLite, not in memory. A restart 
 
 | Table | What it stores | Why it matters after restart |
 |---|---|---|
-| `retry_entries` | Pending retries: issue ID, attempt number, scheduled fire time | Retries resume at the correct position in the backoff sequence. Overdue retries fire immediately on startup. |
+| `retry_entries` | Pending retries: issue ID, attempt number, scheduled fire time, issue title and link | Retries resume at the correct position in the backoff sequence. Overdue retries fire immediately on startup. The [state API](/reference/http-api/#get-apiv1state-system-state) names a restored retry's issue right away; a retry stored by an earlier release gets its title and link from the next poll or when it fires. |
 | `run_history` | Completed runs: issue ID, attempt, status, timestamps, workspace path | The `max_sessions` budget check queries this table. After restart, Sortie knows exactly how many sessions each issue has used, with no counter resets. |
 | `session_metadata` | Last session ID, token counters, model name, API request count | Enables agent session resume (e.g., the `--resume` flag for Claude Code). When the same issue is dispatched again, the adapter can pick up the previous session. |
 

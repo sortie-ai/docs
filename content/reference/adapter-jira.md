@@ -280,7 +280,7 @@ The adapter normalizes Jira API responses to the [issue object](/reference/workf
 | `.issue.priority` | `fields.priority.id` | Parsed as integer. `nil` when absent, empty, or non-numeric. |
 | `.issue.state` | `fields.status.name` | String with original casing preserved. |
 | `.issue.branch_name` | _(not available)_ | Empty string. Not exposed via the REST API. |
-| `.issue.url` | _(constructed)_ | `{endpoint}/browse/{key}` |
+| `.issue.url` | _(constructed)_ | `{endpoint}/browse/{key}`. A user name and password written into `endpoint` are left out of the link. |
 | `.issue.labels` | `fields.labels` | Each label lowercased. Empty non-nil list when no labels exist. |
 | `.issue.assignee` | `fields.assignee.displayName` | Empty string when assignee is absent. |
 | `.issue.issue_type` | `fields.issuetype.name` | String, as-is (e.g., `Bug`, `Story`, `Task`). |
