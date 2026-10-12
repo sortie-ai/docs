@@ -117,6 +117,7 @@ curl http://localhost:7678/api/v1/state
       "issue_title": "Fix the flaky login test",
       "issue_url": "https://tracker.example.com/browse/MT-649",
       "issue_labels": ["bug", "backend"],
+      "issue_type": "Bug",
       "state": "In Progress",
       "session_id": "session-abc-001",
       "turn_count": 7,
@@ -171,6 +172,9 @@ curl http://localhost:7678/api/v1/state
       "issue_identifier": "MT-650",
       "issue_title": "Retry the export job",
       "issue_url": "https://tracker.example.com/browse/MT-650",
+      "issue_type": "Task",
+      "issue_labels": ["export"],
+      "state": "In Progress",
       "attempt": 3,
       "due_at": "2026-03-26T14:35:00Z",
       "error": "no available orchestrator slots",
@@ -186,6 +190,9 @@ curl http://localhost:7678/api/v1/state
       "issue_identifier": "MT-651",
       "issue_title": "Migrate the billing tables",
       "issue_url": "https://tracker.example.com/browse/MT-651",
+      "issue_type": "Task",
+      "issue_labels": [],
+      "state": "In Progress",
       "reason": "session_budget",
       "used_sessions": 3,
       "budget_sessions": 3,
@@ -389,6 +396,8 @@ curl http://localhost:7678/api/v1/state
 | `issue_title` | The tracker's title of the issue, as read when the session was dispatched and unchanged for the whole run. Omitted when the tracker returned none. |
 | `issue_url` | The tracker's web link to the issue, as read at dispatch. Omitted when the tracker returned none. |
 | `issue_labels` | The issue's labels as read at dispatch, lowercase and in the tracker's order. Always present; `[]` when the issue has none. |
+| `issue_type` | The tracker's issue type, as read at dispatch. Omitted when the tracker returned none. |
+| `state` | The tracker state of the issue as Sortie last read it for the session. |
 | `ssh_host` | The [SSH host](/reference/workflow-config/#worker) the session runs on. Omitted for a session that runs on the machine running Sortie. |
 | `workflow_file` | Base filename of the `WORKFLOW.md` in force at dispatch. Omitted when unset. |
 | `agent_kind` | The agent kind the session runs, from the configuration in force at dispatch. Omitted when unset. |
@@ -455,7 +464,7 @@ Nothing compares the two, and a reported model never replaces a configured one. 
 
 The dashboard shows the same values as **Configured model**, **Configured effort**, and **Reported model**. Completed runs keep all three; see [run history entries](#run-history-entries).
 
-`issue_title`, `issue_url`, and `issue_labels` pass through the same masking as the logs: a value Sortie knows to be a secret reads `[redacted]`. A Jira link carries no user name or password written into `tracker.endpoint`.
+`issue_title`, `issue_url`, `issue_labels`, `issue_type`, and `state` pass through the same masking as the logs: a value Sortie knows to be a secret reads `[redacted]`. A Jira link carries no user name or password written into `tracker.endpoint`.
 
 **`retrying[]` entries:**
 
@@ -464,6 +473,9 @@ The dashboard shows the same values as **Configured model**, **Configured effort
 | `display_identifier` | Human-facing identifier when the tracker distinguishes it from `issue_identifier`. Omitted when empty. |
 | `issue_title` | The tracker's title of the issue. Omitted when empty, which on a retry means Sortie has not fetched the issue's title since the retry was restored. Masked like the running row's. |
 | `issue_url` | The tracker's web link to the issue, under the same rule as `issue_title`. |
+| `issue_type` | The tracker's issue type. Omitted when empty or unread. Masked like the running row's. |
+| `issue_labels` | The issue's labels, lowercase and in the tracker's order. `[]` when the issue was read and carries none. Omitted while the retry holds no read of its labels, so an unread issue never reads as one without labels. Masked like the running row's. |
+| `state` | The tracker state of the issue. Omitted when empty or unread. Masked like the running row's. |
 | `trigger` | The `sortie_retries_total` label of the schedule that created the retry: `error`, `continuation`, `timer`, `stall`, or `ci_fix`. See the [metrics reference](/reference/prometheus-metrics/#counters). Omitted for a review, bot review, merge conflict, or label command continuation, which `reaction_kind` names instead, and for a retry restored from a row stored by an earlier release until it next comes due. |
 | `reaction_kind` | The reaction behind the retry: `ci`, `review`, `bot-review`, `merge`, `merge-conflict`, `label-review`, `label-fix`, or `merge-completion`. Omitted when the retry carries none. An `error` or `stall` retry of a run that a reaction dispatched carries that run's kind, and a `timer` row keeps the kind of the retry it replaced. |
 | `reaction_config_key` | The key under [`reactions`](/reference/reactions/) in `WORKFLOW.md` that configures `reaction_kind`: `ci_failure`, `review_comments`, `bot_review`, `auto_merge`, `merge_conflicts`, `label_commands` (for both `label-review` and `label-fix`), or `merge_completion`. Omitted whenever `reaction_kind` is. |
@@ -487,7 +499,7 @@ When a retry comes due and cannot start, Sortie puts it back with `trigger` set 
 
 A retry that is rescheduled this way and advances its attempt waits the backoff delay of the new attempt number, per the [backoff formula](/reference/state-machine/#backoff-formula). A reaction retry that stays paused is eventually dropped; see the retry timer row of the [transition triggers](/reference/state-machine/#transition-triggers).
 
-A retry keeps the title and link it was scheduled with. Sortie stores them with the retry and restores them at startup, so a restart serves what was served before it. A retry stored by an earlier release has neither until the next poll whose candidates include its issue, or until the retry next fires. Neither replaces a title and link the retry already holds.
+A retry keeps the title, link, type, labels, and state it was scheduled with. Sortie stores them with the retry and restores them at startup, so a restart serves what was served before it. A retry stored by an earlier release has none of them until the next poll whose candidates include its issue, or until the retry next fires. A read never replaces a title or link the retry already holds.
 
 **`budget_exhausted[]` entries:** Issues held out of dispatch by a per-issue budget ceiling ([`agent.max_sessions`](/reference/workflow-config/#agent) or [`agent.max_tokens`](/reference/workflow-config/#agent)).
 
@@ -495,6 +507,7 @@ A retry keeps the title and link it was scheduled with. Sortie stores them with 
 |---|---|
 | `display_identifier` | Human-facing identifier when the tracker distinguishes it from `issue_identifier`. Omitted when empty. |
 | `issue_title`, `issue_url` | The tracker's title and web link, as read by the poll that last rebuilt the held set, or by the retry the hold was found on until the next poll. Each omitted when empty. Masked like the running row's. |
+| `issue_type`, `issue_labels`, `state` | The issue's type, labels, and tracker state from the same read, under the rules of the `retrying[]` entries. Masked like the running row's. |
 | `reason` | `session_budget` or `token_budget`: which ceiling stopped dispatch. |
 | `used_sessions`, `budget_sessions` | Completed sessions for the issue against the configured `agent.max_sessions`. `budget_sessions` is `0` when no session budget is set, unlike the same key on a `running[]` entry, where it is `null`. |
 | `used_tokens`, `budget_tokens` | Measured cumulative tokens against the configured `agent.max_tokens`. `budget_tokens` is `0` when no token ceiling is set, unlike the same key on a `running[]` entry, where it is `null`. `used_tokens` is `null` only on a `session_budget` entry, and there only when the token ceiling has not been evaluated for the issue: `agent.max_tokens` is `0`, or reading the issue's token spend failed. |
@@ -664,6 +677,13 @@ curl http://localhost:7678/api/v1/MT-649
   "issue_identifier": "MT-649",
   "issue_id": "abc123",
   "status": "running",
+  "issue": {
+    "title": "Fix the flaky login test",
+    "url": "https://tracker.example.com/browse/MT-649",
+    "issue_type": "Bug",
+    "labels": ["bug", "backend"],
+    "state": "In Progress"
+  },
   "workspace": {
     "path": "/tmp/sortie_workspaces/MT-649"
   },
@@ -677,6 +697,7 @@ curl http://localhost:7678/api/v1/MT-649
     "issue_title": "Fix the flaky login test",
     "issue_url": "https://tracker.example.com/browse/MT-649",
     "issue_labels": ["bug", "backend"],
+    "issue_type": "Bug",
     "state": "In Progress",
     "session_id": "session-abc-001",
     "turn_count": 7,
@@ -743,6 +764,13 @@ When an issue is in the retry queue rather than actively running, `status` is `"
   "issue_identifier": "MT-650",
   "issue_id": "def456",
   "status": "retrying",
+  "issue": {
+    "title": "Retry the export job",
+    "url": "https://tracker.example.com/browse/MT-650",
+    "issue_type": "Task",
+    "labels": ["export"],
+    "state": "In Progress"
+  },
   "workspace": null,
   "attempts": {
     "restart_count": 2,
@@ -754,6 +782,9 @@ When an issue is in the retry queue rather than actively running, `status` is `"
     "issue_identifier": "MT-650",
     "issue_title": "Retry the export job",
     "issue_url": "https://tracker.example.com/browse/MT-650",
+    "issue_type": "Task",
+    "issue_labels": ["export"],
+    "state": "In Progress",
     "attempt": 3,
     "due_at": "2026-03-26T14:35:00Z",
     "error": "no available orchestrator slots",
@@ -780,6 +811,13 @@ When an issue has neither a running session nor a pending retry, but is held out
   "issue_identifier": "MT-651",
   "issue_id": "ghi789",
   "status": "budget_exhausted",
+  "issue": {
+    "title": "Migrate the billing tables",
+    "url": "https://tracker.example.com/browse/MT-651",
+    "issue_type": "Task",
+    "labels": [],
+    "state": "In Progress"
+  },
   "workspace": null,
   "attempts": {
     "restart_count": 0,
@@ -792,6 +830,9 @@ When an issue has neither a running session nor a pending retry, but is held out
     "issue_identifier": "MT-651",
     "issue_title": "Migrate the billing tables",
     "issue_url": "https://tracker.example.com/browse/MT-651",
+    "issue_type": "Task",
+    "issue_labels": [],
+    "state": "In Progress",
     "reason": "session_budget",
     "used_sessions": 3,
     "budget_sessions": 3,
@@ -818,6 +859,11 @@ When an issue has no running session, no pending retry, and no budget hold, but 
   "issue_identifier": "MT-652",
   "issue_id": "jkl012",
   "status": "parked",
+  "issue": {
+    "title": "Rotate the signing keys",
+    "url": "https://tracker.example.com/browse/MT-652",
+    "state": "In Progress"
+  },
   "workspace": null,
   "attempts": {
     "restart_count": 0,
@@ -853,6 +899,10 @@ When an issue has no running session, no pending retry, no budget hold, and is n
   "issue_identifier": "MT-654",
   "issue_id": "pqr678",
   "status": "pending_reactions",
+  "issue": {
+    "title": "Cache the price list",
+    "url": "https://tracker.example.com/browse/MT-654"
+  },
   "workspace": null,
   "attempts": {
     "restart_count": 0,
@@ -901,6 +951,7 @@ When an issue has no running session, no pending retry, no budget hold, and is n
 | Field | Description |
 |---|---|
 | `status` | One of `"running"`, `"retrying"`, `"budget_exhausted"`, `"parked"`, or `"pending_reactions"`. Derived from which set the issue appears in; `running` takes precedence over `retrying`, which takes precedence over `budget_exhausted`, which takes precedence over `parked`, which takes precedence over `pending_reactions`. |
+| `issue` | The tracker's view of the issue, taken from whichever entry decides `status`. Present on every `200` response. Its members use the names of the [`.issue` template variable](/reference/workflow-config/#issue): `title`, `url`, `issue_type`, `labels`, and `state`. Each is omitted when that entry holds none, so the object is `{}` when it holds none of them. `labels` is `[]` when the entry was read and the issue carries none, and omitted when the entry holds no read of the labels. Masked like the running row's `issue_title`. For `running`, `retrying`, and `budget_exhausted` the members come from the entry's `issue_title`, `issue_url`, `issue_type`, `issue_labels`, and `state`. For `parked` they are `title` and `url` of the parked entry and `state` from its `parked_state`. For `pending_reactions` they are `title` and `url` of the issue's first row. |
 | `workspace` | Contains `path` when the issue has an active workspace. `null` for retrying, budget-exhausted, parked, and pending-reaction issues, or when the workspace path is unknown. |
 | `attempts.restart_count` | How many times this issue has been restarted (attempt minus one, floored at zero). |
 | `attempts.current_retry_attempt` | The current attempt number. `0` for running, budget-exhausted, parked, and pending-reaction issues that have no pending retry. |
