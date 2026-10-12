@@ -152,7 +152,7 @@ Lists issues that are waiting for their next session attempt. Sorted by due time
 
 | Field | Description |
 |---|---|
-| **Error** | Error message from the previous failed attempt. Displayed at full width in the detail panel without truncation. |
+| **Error** | Why the retry is queued: the error of the run that scheduled it, or, once the retry has come due and could not start, the reason it was put back. A dash when the retry carries none, as a continuation does. Displayed at full width in the detail panel without truncation. See the [`error` values after a reschedule](/reference/http-api/#get-apiv1state-system-state). |
 
 When no retries are pending, the table is replaced with "No retries pending."
 

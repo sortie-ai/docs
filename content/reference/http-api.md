@@ -92,7 +92,7 @@ An unset value is an empty string, not `NULL`. All three columns are empty on ru
 
 ## GET /api/v1/state: System state
 
-Returns a full runtime snapshot: running sessions, retry queue, aggregate totals, and rate limits.
+Returns a full runtime snapshot: running sessions, retry queue, budget-exhausted and parked issues, aggregate totals, and rate limits.
 
 ```sh
 curl http://localhost:7678/api/v1/state
@@ -106,7 +106,8 @@ curl http://localhost:7678/api/v1/state
   "counts": {
     "running": 1,
     "retrying": 1,
-    "budget_exhausted": 1
+    "budget_exhausted": 1,
+    "parked": 1
   },
   "running": [
     {
@@ -171,7 +172,11 @@ curl http://localhost:7678/api/v1/state
       "issue_url": "https://tracker.example.com/browse/MT-650",
       "attempt": 3,
       "due_at": "2026-03-26T14:35:00Z",
-      "error": "agent exited with code 1"
+      "error": "no available orchestrator slots",
+      "trigger": "timer",
+      "rule_name": "bugfix",
+      "stage_lineage": null,
+      "paused": false
     }
   ],
   "budget_exhausted": [
@@ -188,6 +193,19 @@ curl http://localhost:7678/api/v1/state
       "unmeasured_sessions": null,
       "stopped_in_flight": null,
       "exhausted_at": "2026-03-26T14:12:00Z"
+    }
+  ],
+  "parked": [
+    {
+      "issue_id": "jkl012",
+      "issue_identifier": "MT-652",
+      "issue_title": "Rotate the signing keys",
+      "issue_url": "https://tracker.example.com/browse/MT-652",
+      "reason": "agent_blocked",
+      "parked_state": "In Progress",
+      "label": "needs-human",
+      "label_applied": true,
+      "parked_at": "2026-03-26T14:05:00Z"
     }
   ],
   "agent_totals": {
@@ -292,6 +310,28 @@ The dashboard shows the same values as **Configured model**, **Configured effort
 | `display_identifier` | Human-facing identifier when the tracker distinguishes it from `issue_identifier`. Omitted when empty. |
 | `issue_title` | The tracker's title of the issue. Omitted when empty, which on a retry means Sortie has not fetched the issue's title since the retry was restored. Masked like the running row's. |
 | `issue_url` | The tracker's web link to the issue, under the same rule as `issue_title`. |
+| `trigger` | The `sortie_retries_total` label of the schedule that created the retry: `error`, `continuation`, `timer`, `stall`, or `ci_fix`. See the [metrics reference](/reference/prometheus-metrics/#counters). Omitted for a review, bot review, merge conflict, or label command continuation, which `reaction_kind` names instead, and for a retry restored from a row stored by an earlier release until it next comes due. |
+| `reaction_kind` | The reaction behind the retry: `ci`, `review`, `bot-review`, `merge`, `merge-conflict`, `label-review`, `label-fix`, or `merge-completion`. Omitted when the retry carries none. An `error` or `stall` retry of a run that a reaction dispatched carries that run's kind, and a `timer` row keeps the kind of the retry it replaced. |
+| `reaction_config_key` | The key under [`reactions`](/reference/reactions/) in `WORKFLOW.md` that configures `reaction_kind`: `ci_failure`, `review_comments`, `bot_review`, `auto_merge`, `merge_conflicts`, `label_commands` (for both `label-review` and `label-fix`), or `merge_completion`. Omitted whenever `reaction_kind` is. |
+| `rule_name` | Name of the [dispatch rule](/reference/workflow-config/#dispatch) of the run the retry follows, frozen with the retry. Omitted when no rule routed that run. If the configuration in force no longer reaches that rule when the retry fires, the retry dispatches on another one. |
+| `stage_lineage` | Always present. `null` unless a [stage hop](/reference/state-machine/#stage-hop) reached the run the retry follows. Otherwise an object with `previous` (the rule whose hop reached the run), `previous_outcome` (`succeeded` or `no_change`), and `chain_id` (the [stage chain](/reference/workflow-config/#stage-chains) the run belongs to). Each member is omitted when empty. |
+| `paused` | Always present. `true` when the retry was last put back because its issue's state does not permit dispatching it, which is when `error` is `reaction retry paused by an open blocking issue` or `reaction retry paused by issue state`. |
+
+When a retry comes due and cannot start, Sortie puts it back with `trigger` set to `timer` and `error` set to the reason from the table below. The error of the run before it is not kept on the row; it stays in the logs and in that run's run history. A retry that has not yet come due still carries the error of the run that scheduled it.
+
+| `error` after a reschedule | Meaning | Attempt |
+|---|---|---|
+| `worker still running` | The issue's previous run has not finished stopping. | Unchanged |
+| `issue without a state label` | The tracker read of the issue returned no state. The first such reading waits; a second consecutive one releases the retry. | Unchanged |
+| `retry issue fetch failed` | The tracker read of the issue failed. | Advances |
+| `reaction retry paused by an open blocking issue` | Another issue that is not yet in a terminal state blocks this one, so its reaction retry waits. | Advances |
+| `reaction retry paused by issue state` | The issue is in a state that is neither active nor the handoff state, so its reaction retry waits. | Advances |
+| `no available orchestrator slots` | No concurrency slot is free for the issue's state. | Advances |
+| `no available SSH hosts` | Every SSH host is at its session limit. | Advances |
+| `retry agent kind unavailable` | The adapter for the retry's agent kind failed to start. | Advances |
+| `retry agent settings refused` | The agent settings in force for the retry fail an error-severity check. | Advances |
+
+A retry that is rescheduled this way and advances its attempt waits the backoff delay of the new attempt number, per the [backoff formula](/reference/state-machine/#backoff-formula). A reaction retry that stays paused is eventually dropped; see the retry timer row of the [transition triggers](/reference/state-machine/#transition-triggers).
 
 A retry keeps the title and link it was scheduled with. Sortie stores them with the retry and restores them at startup, so a restart serves what was served before it. A retry stored by an earlier release has neither until the next poll whose candidates include its issue, or until the retry next fires. Neither replaces a title and link the retry already holds.
 
@@ -307,6 +347,18 @@ A retry keeps the title and link it was scheduled with. Sortie stores them with 
 | `unmeasured_sessions` | Count of the issue's sessions whose agent reported no token usage. `null` exactly when `used_tokens` is `null`. |
 | `stopped_in_flight` | Count of the issue's sessions that the token ceiling stopped while they were running, recorded with status `budget_stopped`. `null` exactly when `used_tokens` is `null`. |
 | `exhausted_at` | When the hold began. |
+
+**`parked[]` entries:** Issues held out of dispatch until a person acts on them. The list is always present, `[]` when no issue is parked, and sorted by `issue_identifier`, then `issue_id`. `counts.parked` equals its length. An issue appears in every list that holds it, so a parked issue that also has a reaction continuation queued is in `parked` and `retrying` both. For how a park is recorded and lifted, see [agent communication](/concepts/agent-communication/).
+
+| Field | Description |
+|---|---|
+| `display_identifier` | Human-facing identifier when the tracker distinguishes it from `issue_identifier`. Omitted when empty. |
+| `issue_title`, `issue_url` | The tracker's title and web link, as read when the park was recorded. A park recorded or restored without a read takes one at the first poll tick on which the tracker answers for the issue, and a read already held is never replaced. Each omitted when empty. Masked like the running row's. |
+| `reason` | `agent_blocked` (the agent reported itself blocked) or `handoff_absence` (the consecutive handoff-absence ceiling was reached). |
+| `parked_state` | The tracker state observed when the park was recorded, or at the first observation after a park recorded before any read. Omitted while unobserved. Masked. |
+| `label` | The parking label Sortie applied. |
+| `label_applied` | `true` once a read showed the label on the issue. |
+| `parked_at` | When the park was recorded, as an RFC 3339 timestamp in UTC. |
 
 **`agent_totals`:** Cumulative across all sessions since Sortie's database was created, carried over when Sortie restarts; a session whose coding agent has reported no token usage, running or completed, adds nothing to its five token counts. `seconds_running` includes elapsed time from currently active sessions, not only completed ones. Three further fields disclose, by reason, how many sessions those counts leave out:
 
@@ -408,6 +460,7 @@ curl http://localhost:7678/api/v1/MT-649
   },
   "retry": null,
   "budget_exhausted": null,
+  "parked": null,
   "recent_events": [],
   "last_error": null,
   "tracked": {}
@@ -436,11 +489,16 @@ When an issue is in the retry queue rather than actively running, `status` is `"
     "issue_url": "https://tracker.example.com/browse/MT-650",
     "attempt": 3,
     "due_at": "2026-03-26T14:35:00Z",
-    "error": "agent exited with code 1"
+    "error": "no available orchestrator slots",
+    "trigger": "timer",
+    "rule_name": "bugfix",
+    "stage_lineage": null,
+    "paused": false
   },
   "budget_exhausted": null,
+  "parked": null,
   "recent_events": [],
-  "last_error": "agent exited with code 1",
+  "last_error": "no available orchestrator slots",
   "tracked": {}
 }
 ```
@@ -475,6 +533,41 @@ When an issue has neither a running session nor a pending retry, but is held out
     "stopped_in_flight": null,
     "exhausted_at": "2026-03-26T14:12:00Z"
   },
+  "parked": null,
+  "recent_events": [],
+  "last_error": null,
+  "tracked": {}
+}
+```
+
+### Response (parked issue)
+
+When an issue has no running session, no pending retry, and no budget hold, but is parked, `status` is `"parked"`, `running`, `retry`, and `budget_exhausted` are all `null`, and `parked` is populated:
+
+```json
+{
+  "issue_identifier": "MT-652",
+  "issue_id": "jkl012",
+  "status": "parked",
+  "workspace": null,
+  "attempts": {
+    "restart_count": 0,
+    "current_retry_attempt": 0
+  },
+  "running": null,
+  "retry": null,
+  "budget_exhausted": null,
+  "parked": {
+    "issue_id": "jkl012",
+    "issue_identifier": "MT-652",
+    "issue_title": "Rotate the signing keys",
+    "issue_url": "https://tracker.example.com/browse/MT-652",
+    "reason": "agent_blocked",
+    "parked_state": "In Progress",
+    "label": "needs-human",
+    "label_applied": true,
+    "parked_at": "2026-03-26T14:05:00Z"
+  },
   "recent_events": [],
   "last_error": null,
   "tracked": {}
@@ -485,15 +578,16 @@ When an issue has neither a running session nor a pending retry, but is held out
 
 | Field | Description |
 |---|---|
-| `status` | One of `"running"`, `"retrying"`, or `"budget_exhausted"`. Derived from which queue the issue appears in; `running` takes precedence over `retrying`, which takes precedence over `budget_exhausted`. |
-| `workspace` | Contains `path` when the issue has an active workspace. `null` for retrying and budget-exhausted issues, or when the workspace path is unknown. |
+| `status` | One of `"running"`, `"retrying"`, `"budget_exhausted"`, or `"parked"`. Derived from which set the issue appears in; `running` takes precedence over `retrying`, which takes precedence over `budget_exhausted`, which takes precedence over `parked`. |
+| `workspace` | Contains `path` when the issue has an active workspace. `null` for retrying, budget-exhausted, and parked issues, or when the workspace path is unknown. |
 | `attempts.restart_count` | How many times this issue has been restarted (attempt minus one, floored at zero). |
-| `attempts.current_retry_attempt` | The current attempt number. `0` for running and budget-exhausted issues that haven't retried. |
+| `attempts.current_retry_attempt` | The current attempt number. `0` for running, budget-exhausted, and parked issues that have no pending retry. |
 | `running` | Full running entry (same shape as entries in `/api/v1/state`), or `null`. |
 | `retry` | Full retry entry (same shape as entries in the `retrying` array on `/api/v1/state`), or `null`. |
 | `budget_exhausted` | Full budget-exhausted entry (same shape as entries in the `budget_exhausted` array on `/api/v1/state`), or `null`. |
+| `parked` | Full parked entry (same shape as entries in the `parked` array on `/api/v1/state`), or `null`. Always present. Populated whenever the issue is parked, whatever `status` reads. |
 | `recent_events` | Reserved for future use. Currently an empty array. |
-| `last_error` | Most recent error message from the retry queue, or `null`. |
+| `last_error` | The `error` of the issue's retry entry, or `null` when it has none. After a reschedule this is the reschedule reason. |
 | `tracked` | Reserved for future use. Currently an empty object. |
 
 ### Status codes
@@ -501,7 +595,7 @@ When an issue has neither a running session nor a pending retry, but is held out
 | Code | Meaning |
 |---|---|
 | `200 OK` | Issue found and returned. |
-| `404 Not Found` | Identifier not present in the running set, the retry queue, or the budget-exhausted set. The issue may have completed, or it may not exist. |
+| `404 Not Found` | Identifier not present in the running set, the retry queue, the budget-exhausted set, or the parked set. The issue may have completed, or it may not exist. |
 | `503 Service Unavailable` | Orchestrator state snapshot could not be produced. |
 
 ---
@@ -660,7 +754,7 @@ All JSON API errors use a consistent structure:
 
 | Code | HTTP Status | Meaning |
 |---|---|---|
-| `issue_not_found` | 404 | The requested issue identifier is not in any active queue. |
+| `issue_not_found` | 404 | The requested issue identifier is not running, retrying, budget-exhausted, or parked. |
 | `snapshot_unavailable` | 503 | The orchestrator could not produce a state snapshot. |
 | `method_not_allowed` | 405 | The HTTP method is not supported on this endpoint. |
 | `internal_error` | 500 | Unexpected server error (e.g., JSON serialization failure). |

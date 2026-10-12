@@ -378,6 +378,8 @@ Sortie is polling but finds nothing to dispatch.
 
 8. **A retry keeps being rescheduled with `retry agent settings refused`.** The retry queue shows that text as the issue's error. The settings the retry would run with, a [dispatch rule's](/guides/configure-dispatch-rules/) block laid over the agent kind's block, fail a check that is an error, usually after an edit to `WORKFLOW.md`. Run `sortie validate` to see the same check, then fix the settings and the next retry starts. The `check` and `diagnostic` fields of the log record name the failure; see [dispatch and agent settings](/guides/monitor-with-logs/#dispatch-and-agent-settings).
 
+9. **The issue is parked.** A parked issue stays in its active tracker state and is skipped on every poll until a person releases it. Check the `parked` list of `GET /api/v1/state`, or `GET /api/v1/{identifier}` for `status: "parked"`; the entry names the reason and the parking label. See [release a parked issue](/guides/configure-retry-behavior/#park-issues-stuck-in-a-loop-of-empty-runs) for how a park lifts.
+
 ## Sortie won't start at all
 
 ```

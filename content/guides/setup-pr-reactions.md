@@ -309,9 +309,11 @@ The `auto_merge deferred:` messages name the unmet precondition (`review decisio
 
 ### Dashboard and status API
 
-Pending reactions are runtime state and are not published. The dashboard and the status API expose running sessions, the retry queue, agent totals, rate limits, and budget exhaustion; neither surfaces a reaction entry, its kind, or its attempt count. Do not expect to watch a reaction poll from either.
+While Sortie watches a pull request, the watch is runtime state and neither surface publishes it. That covers the pending reaction entry, its poll timing, and the count of reaction attempts used so far. Do not expect to watch a reaction poll from the dashboard or the status API.
 
-What you do see is the result. When a reaction dispatches a continuation turn, the issue reappears as a running session for the duration of that turn, exactly like any other dispatch. Auto-merge and post-merge closure dispatch no turn at all, so they leave no trace on either surface; for those, read the logs, the fingerprint rows below, or the counters above. See the [dashboard reference](/reference/dashboard/) for what each surface does carry.
+You can see the reaction once it has been queued to run. A CI fix, a review response, a bot review response, a merge conflict fix, or a label command waits in the retry queue until its timer fires, and the `retrying` list of `GET /api/v1/state` (and the `retry` object of `GET /api/v1/{identifier}`) names it: `reaction_kind` says which reaction, `reaction_config_key` says which `reactions` key in `WORKFLOW.md` configures it, and `attempt` and `error` are the retry's own. If the issue's state does not permit dispatch, `paused` reads `true` and `error` says why. The dashboard's retry table shows only the identifier, attempt, due time, and error, not the reaction. See the [HTTP API reference](/reference/http-api/#get-apiv1state-system-state) for the fields.
+
+When the continuation dispatches, the issue reappears as a running session for the duration of that turn, exactly like any other dispatch. Auto-merge and post-merge closure dispatch no turn at all, so they leave no trace on either surface; for those, read the logs, the fingerprint rows below, or the counters above. A park, if the issue gets one, is listed under `parked` in the status API but not on the dashboard. See the [dashboard reference](/reference/dashboard/) for what that surface carries.
 
 ### Prometheus metrics
 

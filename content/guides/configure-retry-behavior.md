@@ -91,6 +91,8 @@ Release a parked issue with any one of three gestures:
 
 If [`tracker.query_filter`](/reference/workflow-config/#tracker) excludes the parking label from the issues Sortie fetches, Sortie can never confirm the label is present, so removing it never releases the park either. Release those issues by moving them to a different state instead.
 
+To find out which issues are parked right now, read the `parked` list of `GET /api/v1/state`, or ask for one issue with `GET /api/v1/{identifier}`, which answers with `status` `parked`. Each entry gives the title, link, reason, and parking label. See the [HTTP API reference](/reference/http-api/#get-apiv1state-system-state).
+
 A review-comment or CI continuation retry is never stopped by this ceiling; it runs on its own retry budget. The consecutive-absence count is neither kept nor consulted when `tracker.handoff_evidence` is `off`. And a run that ends with no evidence verdict at all, such as an agent that reports itself blocked, leaves the count exactly where it stood: it neither advances it nor resets it. So does a run whose withheld verdict Sortie discarded because the issue had reached a terminal state by the time the outcome was recorded. A finished issue does not move toward the ceiling.
 
 ## Tune backoff timing
@@ -198,7 +200,7 @@ What this means in practice: each issue gets up to 3 sessions. Each session runs
 
 Worst case for a single issue: 3 sessions × 3 turns × 30 minutes = 4.5 hours of compute time, plus retry delays between sessions. In reality, most issues resolve in one session, and failed turns trigger backoff well before hitting the turn timeout.
 
-If an error retry fires but no concurrency slot is available, the retry is rescheduled at the same backoff interval. It doesn't lose its place in the queue or reset its attempt counter.
+If a retry fires but no concurrency slot is available, it stays in the retry queue and keeps the issue's claim. It moves to the next attempt number, so its delay grows by one backoff step, and its error reads `no available orchestrator slots`.
 
 ## Verify retry behavior
 
