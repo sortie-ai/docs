@@ -808,7 +808,7 @@ Envelope:
 | `cost_per_succeeded_run_usd` | number or null | `cost_usd` divided by the succeeded runs that were measured. `null` whenever `cost_usd` is `null`, and when no measured run succeeded. |
 | `zero_duration_runs` | integer | Runs that took no measurable time. A run that a CI result closed out carries the same start and finish time. |
 | `duration_excluded_runs` | integer | Runs left out of every duration figure because their stored timestamps could not be parsed or ran backwards. |
-| `cost_unpriced_runs` | integer | Runs left out of the cost figures because `token_rates` has no complete entry for their coding agent. An entry is complete only when it sets both input and output rates. |
+| `cost_unpriced_runs` | integer | Runs left out of the cost figures because `token_rates` has no complete entry for their coding agent. An entry is complete only when it sets both input and output rates. A `ci_failed` run records a CI verdict and no coding agent, so it is never counted here. |
 | `tokens_unmeasured_runs` | integer | Runs left out of the token and cost figures because the coding agent behind them reported no token usage. `0` on the `base` tier, where the distinction was never recorded. |
 
 Each element of `by_status`, `by_adapter`, `by_rule`, `by_template`, `by_model`, and `by_chain`:

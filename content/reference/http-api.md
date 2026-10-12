@@ -104,7 +104,7 @@ curl http://localhost:7678/api/v1/state
 {
   "generated_at": "2026-03-26T14:30:00Z",
   "counts": {
-    "running": 2,
+    "running": 1,
     "retrying": 1,
     "budget_exhausted": 1
   },
@@ -149,7 +149,18 @@ curl http://localhost:7678/api/v1/state
       "usage_attribution": "per_model",
       "tokens_pending": false,
       "tokens_awaited": false,
-      "api_requests_measured": true
+      "api_requests_measured": true,
+      "used_sessions": 2,
+      "budget_sessions": 5,
+      "issue_tokens_completed": 105000,
+      "unmeasured_sessions": 0,
+      "used_tokens": 120700,
+      "used_tokens_complete": true,
+      "budget_tokens": 500000,
+      "estimated_cost_usd": 0.06372,
+      "cost_status": "estimated",
+      "issue_estimated_cost_usd": 0.49872,
+      "issue_cost_status": "estimated"
     }
   ],
   "retrying": [
@@ -175,6 +186,7 @@ curl http://localhost:7678/api/v1/state
       "used_tokens": null,
       "budget_tokens": 0,
       "unmeasured_sessions": null,
+      "stopped_in_flight": null,
       "exhausted_at": "2026-03-26T14:12:00Z"
     }
   ],
@@ -186,11 +198,11 @@ curl http://localhost:7678/api/v1/state
     "cache_write_tokens": 4800,
     "seconds_running": 2847.3,
     "unmeasured_sessions": 3,
-    "running_unreported": 1,
+    "running_unreported": 0,
     "running_non_reporting": 0
   },
   "rate_limits": {},
-  "active_estimated_cost_usd": 1.47,
+  "active_estimated_cost_usd": 0.06372,
   "cost_unpriced_running": 0
 }
 ```
@@ -227,6 +239,19 @@ curl http://localhost:7678/api/v1/state
 | `tokens_awaited` | `true` only when the session has recorded no token figure and the moment its `usage_arrival` names for one has not passed. A session whose `usage_arrival` reports figures and whose `tokens_awaited` is `false` has recorded nothing and will record nothing. |
 | `tokens_pending` | `true` only when `usage_arrival` is `"turn_end"`, `tokens_measured` is `true`, and the turn whose figure is still to settle has not ended. The counts in `tokens` then exclude the turn in progress rather than being final. |
 | `api_requests_measured` | `true` exactly when `api_request_count` is non-null. It requires `usage_arrival` to be `"incremental"`, and then either a figure already counted or no turn yet begun. A `"turn_end"` session is never measured, because its counter settles at most once per turn rather than once per request; an `"incremental"` session with nothing counted is not measured either once its first turn has begun, whatever its agent kind declares. |
+| `used_sessions` | Integer or `null`. The issue's completed sessions: the run-history count that [`agent.max_sessions`](/reference/workflow-config/#agent) is compared with. The running session is not counted, and a recorded CI result counts as a session. `null` when no read of the issue's run history has succeeded for this run. |
+| `budget_sessions` | Integer or `null`. `agent.max_sessions` as of the latest poll tick. `null` when `agent.max_sessions` is `0`, never `0`. Dispatch stops once the completed count reaches this value, and `used_sessions` leaves out the running session, so the issue can still be dispatched `budget_sessions` minus `used_sessions` minus `1` more times after the running session ends. Undefined when either key is `null`. |
+| `unmeasured_sessions` | Integer or `null`. Completed sessions whose token usage was never recorded, which `issue_tokens_completed` and `used_tokens` leave out. `null` exactly when `used_sessions` is. |
+| `issue_tokens_completed` | Integer or `null`. The summed `total_tokens` of the issue's completed sessions. `null` when no read of the run history has succeeded, and when the sum is `0` while a completed session is unmeasured or recorded a turn no figure covered. |
+| `used_tokens` | Integer or `null`. `issue_tokens_completed` plus this row's `tokens.total_tokens`, each counted as `0` when `null`. This is the sum [`agent.max_tokens`](/reference/workflow-config/#agent) is compared with, and it advances with each usage figure of the session. `null` when the sum is `0` and `used_tokens_complete` is `false`, so unknown spend never reads as zero. |
+| `used_tokens_complete` | Boolean. `true` exactly when `used_tokens` is the issue's whole spend: the completed sessions were read, none is unmeasured, none recorded a turn no figure covered, this session is measured, and it has recorded no such turn. When `false`, `used_tokens` is a lower bound. It ignores `tokens_pending`, which separately marks the turn in progress as not yet counted. |
+| `budget_tokens` | Integer or `null`. `agent.max_tokens` as of the latest poll tick. `null` when `agent.max_tokens` is `0`, never `0`. Token headroom: `budget_tokens` minus `used_tokens`, undefined when either is `null`, and negative when the session overshot the ceiling. The API serves no headroom key. |
+| `estimated_cost_usd` | Number or `null`. Estimated cost of this session from `tokens` and the [`token_rates`](/reference/workflow-config/#token_rates) entry of `agent_kind`, unrounded. Non-`null` exactly when `cost_status` is `"estimated"`. |
+| `cost_status` | String. `"estimated"` (a zero rate also gives this); `"unpriced"` when the session is measured and `token_rates` holds no entry with both `input_per_mtok` and `output_per_mtok` for `agent_kind`, an absent `token_rates` included; `"unmeasured"` when `tokens_measured` is `false`. |
+| `issue_estimated_cost_usd` | Number or `null`. Estimated cost of the whole issue: the sum of the estimates of its priced parts, completed sessions and this one alike, at the rates Sortie started with. Unrounded. Non-`null` exactly when `issue_cost_status` is `"estimated"` or `"partial"`. |
+| `issue_cost_status` | String. `"estimated"` when the estimate covers the issue's whole spend, which requires `used_tokens_complete` to be `true`. `"partial"` when it is a lower bound because a part that spent tokens is left out. `"unpriced"` when no priced part spent tokens and a part that did has no rate. `"unmeasured"` when `used_tokens` is `null`, and when no part is priced or unpriced. A session measured at zero tokens leaves nothing out, so a missing rate for its kind does not make an otherwise complete issue `"partial"`. |
+
+The issue-level keys are always present on a running row. A limit key (`budget_tokens`, `budget_sessions`) set to `null` means no limit is configured. A usage key (`used_sessions`, `unmeasured_sessions`, `issue_tokens_completed`, `used_tokens`) set to `null` means unknown. The [`cost_budget` tool](/reference/agent-extensions/#cost_budget) reports figures under some of the same names to the agent; there a limit that is not configured reads `0`.
 
 The same row on a session that has measured nothing, showing only the fields that differ:
 
@@ -241,7 +266,10 @@ The same row on a session that has measured nothing, showing only the fields tha
   },
   "api_request_count": null,
   "tokens_measured": false,
-  "api_requests_measured": false
+  "api_requests_measured": false,
+  "used_tokens_complete": false,
+  "estimated_cost_usd": null,
+  "cost_status": "unmeasured"
 }
 ```
 
@@ -274,9 +302,10 @@ A retry keeps the title and link it was scheduled with. Sortie stores them with 
 | `display_identifier` | Human-facing identifier when the tracker distinguishes it from `issue_identifier`. Omitted when empty. |
 | `issue_title`, `issue_url` | The tracker's title and web link, as read by the poll that last rebuilt the held set, or by the retry the hold was found on until the next poll. Each omitted when empty. Masked like the running row's. |
 | `reason` | `session_budget` or `token_budget`: which ceiling stopped dispatch. |
-| `used_sessions`, `budget_sessions` | Completed sessions for the issue against the configured `agent.max_sessions`. |
-| `used_tokens`, `budget_tokens` | Measured cumulative tokens against the configured `agent.max_tokens`. `used_tokens` is `null` only on a `session_budget` entry, and there only when the token ceiling has not been evaluated for the issue: `agent.max_tokens` is `0`, or reading the issue's token spend failed. |
+| `used_sessions`, `budget_sessions` | Completed sessions for the issue against the configured `agent.max_sessions`. `budget_sessions` is `0` when no session budget is set, unlike the same key on a `running[]` entry, where it is `null`. |
+| `used_tokens`, `budget_tokens` | Measured cumulative tokens against the configured `agent.max_tokens`. `budget_tokens` is `0` when no token ceiling is set, unlike the same key on a `running[]` entry, where it is `null`. `used_tokens` is `null` only on a `session_budget` entry, and there only when the token ceiling has not been evaluated for the issue: `agent.max_tokens` is `0`, or reading the issue's token spend failed. |
 | `unmeasured_sessions` | Count of the issue's sessions whose agent reported no token usage. `null` exactly when `used_tokens` is `null`. |
+| `stopped_in_flight` | Count of the issue's sessions that the token ceiling stopped while they were running, recorded with status `budget_stopped`. `null` exactly when `used_tokens` is `null`. |
 | `exhausted_at` | When the hold began. |
 
 **`agent_totals`:** Cumulative across all sessions since Sortie's database was created, carried over when Sortie restarts; a session whose coding agent has reported no token usage, running or completed, adds nothing to its five token counts. `seconds_running` includes elapsed time from currently active sessions, not only completed ones. Three further fields disclose, by reason, how many sessions those counts leave out:
@@ -287,9 +316,9 @@ A retry keeps the title and link it was scheduled with. Sortie stores them with 
 | `running_unreported` | Currently running sessions whose agent kind reports usage, which have reported no figure yet and can still report one. |
 | `running_non_reporting` | Currently running sessions that will contribute no figure: `usage_arrival` is `"none"`, or it reports figures and the moment one could have arrived has passed with nothing counted. The two counts partition the running sessions the token totals exclude, so a session moves from `running_unreported` to this one rather than staying in limbo. |
 
-**`active_estimated_cost_usd`:** Estimated total cost across currently running sessions, computed from configured [token rates](/reference/workflow-config/#token_rates) and each running session's agent adapter kind. Sessions whose `tokens_measured` is `false` are excluded. Omitted when no running, measured session matches an entry containing both input and output rates. This is a presentation-layer estimate, not provider billing data.
+**`active_estimated_cost_usd`:** Estimated total cost across currently running sessions, computed from configured [token rates](/reference/workflow-config/#token_rates) and each running session's agent adapter kind. Sessions whose `tokens_measured` is `false` are excluded. Omitted when no running, measured session matches an entry containing both input and output rates. It equals the sum of `estimated_cost_usd` over the `running[]` entries whose `cost_status` is `"estimated"`. This is a presentation-layer estimate, not provider billing data.
 
-**`cost_unpriced_running`:** Count of running, measured sessions that `active_estimated_cost_usd` leaves out because their agent kind has no `token_rates` entry or its entry lacks `input_per_mtok` or `output_per_mtok`. Present, zero included, whenever `token_rates` holds any agent-kind entry, complete or not; omitted when `token_rates` is absent or empty.
+**`cost_unpriced_running`:** Count of running, measured sessions that `active_estimated_cost_usd` leaves out because their agent kind has no `token_rates` entry or its entry lacks `input_per_mtok` or `output_per_mtok`. Present, zero included, whenever `token_rates` holds any agent-kind entry, complete or not; omitted when `token_rates` is absent or empty. When present, it equals the number of `running[]` entries whose `cost_status` is `"unpriced"`. Without `token_rates`, every measured `running[]` entry reads `"unpriced"` while this key is absent.
 
 **`rate_limits`:** Reserved for future use. Currently an empty object.
 
@@ -364,7 +393,18 @@ curl http://localhost:7678/api/v1/MT-649
     "usage_attribution": "per_model",
     "tokens_pending": false,
     "tokens_awaited": false,
-    "api_requests_measured": true
+    "api_requests_measured": true,
+    "used_sessions": 2,
+    "budget_sessions": 5,
+    "issue_tokens_completed": 105000,
+    "unmeasured_sessions": 0,
+    "used_tokens": 120700,
+    "used_tokens_complete": true,
+    "budget_tokens": 500000,
+    "estimated_cost_usd": 0.06372,
+    "cost_status": "estimated",
+    "issue_estimated_cost_usd": 0.49872,
+    "issue_cost_status": "estimated"
   },
   "retry": null,
   "budget_exhausted": null,
@@ -432,6 +472,7 @@ When an issue has neither a running session nor a pending retry, but is held out
     "used_tokens": null,
     "budget_tokens": 0,
     "unmeasured_sessions": null,
+    "stopped_in_flight": null,
     "exhausted_at": "2026-03-26T14:12:00Z"
   },
   "recent_events": [],

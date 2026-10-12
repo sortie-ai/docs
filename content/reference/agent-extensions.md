@@ -663,6 +663,8 @@ The fields below are returned under `data` in the standard success envelope:
 
 The orchestrator enforces the same ceiling against a fresher figure than this one. `used_tokens` carries the running session's spend as last written to `session_metadata`, at most one write per issue every two seconds, while the check that stops a session in flight adds that session's live in-memory total instead. The reading an agent gets back therefore trails the enforced figure by up to one write interval, and never leads it. When the sum reaches a non-zero `budget_tokens`, the running session is cancelled and the next re-dispatch for the issue is blocked. See [how to control agent costs](/guides/control-costs/) for the enforcement behavior and budget strategy.
 
+The [JSON API](/reference/http-api/#get-apiv1state-system-state) serves a running issue's spend under the same key names, taken from the orchestrator's live state rather than from the stored row. It differs from this tool: `budget_tokens` and `budget_sessions` are `null`, not `0`, when no limit is set, and there is no `remaining_tokens`.
+
 ### Example response
 
 **Success with a configured budget:**

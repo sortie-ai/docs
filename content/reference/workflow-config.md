@@ -1543,7 +1543,7 @@ Per-adapter token pricing for cost estimation on the [dashboard](/reference/dash
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `token_rates` | map | _(absent)_ | Top-level extension key. Keys are agent adapter kind strings. With rates configured, the dashboard shows estimated cost and the [`sortie stats`](/reference/cli/#stats) subcommand prices the runs it aggregates from run history. When absent or empty, the dashboard shows raw token counts without cost estimates, and `sortie stats` reports no cost figures. |
+| `token_rates` | map | _(absent)_ | Top-level extension key. Keys are agent adapter kind strings. With rates configured, the dashboard shows estimated cost, the [JSON API](/reference/http-api/#get-apiv1state-system-state) prices each running session and its issue, and the [`sortie stats`](/reference/cli/#stats) subcommand prices the runs it aggregates from run history. When absent or empty, the dashboard shows raw token counts without cost estimates, the JSON API reads `unpriced` for every measured running session, and `sortie stats` reports no cost figures. |
 | `token_rates.<kind>.input_per_mtok` | number | _(not set)_ | USD per million fresh input tokens, and the fallback rate for either cache class when its rate is omitted. Required with `output_per_mtok` for this kind to produce cost estimates. |
 | `token_rates.<kind>.output_per_mtok` | number | _(not set)_ | USD per million output tokens. Required with `input_per_mtok` for this kind to produce cost estimates. |
 | `token_rates.<kind>.cache_read_per_mtok` | number | `input_per_mtok` | USD per million cache-read tokens. |

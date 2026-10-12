@@ -225,7 +225,7 @@ These are worst cases in the sense that the system stops itself once it reaches 
 
 ## Monitor spending
 
-Five tools give you cost visibility without any extra infrastructure.
+These surfaces give you cost visibility without any extra infrastructure.
 
 **Dashboard.** Each running session's expandable detail panel carries an `Est. Cost` field, which holds a figure once its agent kind has both an input and output rate in WORKFLOW.md and an em dash otherwise. An `Active Est. Cost (USD)` card aggregates the priced active sessions. The same panel's `Usage reporting` field states whether that session's agent kind reports token figures at all, which is what tells a blank cost apart from a missing rate. The run history table is a different surface: its columns are `Identifier`, `Status`, `Started`, and `Duration`, and expanding a row adds attempt, turns, workflow, and error. No cost or token figure appears there for a completed session, because the cost figures the dashboard renders describe live and aggregate state. For spend against runs that have already finished, reach for [`sortie stats`](/reference/cli/#stats) below. The HTTP server runs by default on `http://localhost:7678`. See the [dashboard reference](/reference/dashboard/#cost-estimation) for details.
 
@@ -242,6 +242,34 @@ token_rates:
 ```
 
 Without `token_rates`, the dashboard shows raw token counts only. See the [`token_rates` reference](/reference/workflow-config/#token_rates) for the full schema.
+
+**JSON API.** To see what one issue has spent and how much of its budget is left while a session runs, read the issue's running entry:
+
+```sh
+curl -s http://localhost:7678/api/v1/MT-649 | jq '.running | {
+  used_tokens,
+  tokens_left: (if .budget_tokens != null and .used_tokens != null then .budget_tokens - .used_tokens else null end),
+  sessions_after_this: (if .budget_sessions != null and .used_sessions != null then .budget_sessions - .used_sessions - 1 else null end),
+  used_tokens_complete,
+  issue_estimated_cost_usd,
+  issue_cost_status
+}'
+```
+
+With `max_tokens: 500000` and `max_sessions: 5`, an issue whose third session is running (two have finished) might print:
+
+```json
+{
+  "used_tokens": 120700,
+  "tokens_left": 379300,
+  "sessions_after_this": 2,
+  "used_tokens_complete": true,
+  "issue_estimated_cost_usd": 0.49872,
+  "issue_cost_status": "estimated"
+}
+```
+
+`used_tokens` counts the running session as it goes, so it matches the figure the ceiling stops on. `sessions_after_this` is how many more sessions the issue can get once the running one ends: the session budget counts finished sessions only, so the running one is subtracted separately, and `0` or less means this is the last session. A limit that is not configured comes back as `null`, which the `if` turns into a `null` headroom instead of an error. When `used_tokens_complete` is `false`, some of the issue's spend went unrecorded and `tokens_left` is an upper bound. The cost is `null` unless `token_rates` prices the agent, and `issue_cost_status` says why. An issue the ceiling already holds has no `running` entry; its `budget_exhausted` entry carries `used_tokens`, `budget_tokens`, and `stopped_in_flight`. Replace `/api/v1/MT-649` with `/api/v1/state` and `.running` with `.running[]` to list every running issue. The [HTTP API reference](/reference/http-api/#get-apiv1state-system-state) defines each key and every `cost_status` value.
 
 **Prometheus.** The `sortie_tokens_total` counter tracks cumulative token consumption with a `type` label (`input`, `output`, `cache_read`, `cache_write`). Cache reads and writes are subsets of input, so don't sum every type. A PromQL query for hourly input token rate:
 
