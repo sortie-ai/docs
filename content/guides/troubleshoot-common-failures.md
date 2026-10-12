@@ -380,6 +380,8 @@ Sortie is polling but finds nothing to dispatch.
 
 9. **The issue is parked.** A parked issue stays in its active tracker state and is skipped on every poll until a person releases it. Check the `parked` list of `GET /api/v1/state`, or `GET /api/v1/{identifier}` for `status: "parked"`; the entry names the reason and the parking label. See [release a parked issue](/guides/configure-retry-behavior/#park-issues-stuck-in-a-loop-of-empty-runs) for how a park lifts.
 
+10. **The running configuration is not the file you edited.** A reload that fails validation keeps the previous configuration in force, and Sortie logs the failure. Compare what the process applies with the file: `curl -s localhost:7678/api/v1/state | jq '.config.tracker.active_states, [.config.dispatch.rules[].name]'` prints the active states and the dispatch rule names in force. If they are the old ones, run `sortie validate` on the file and fix the error it reports. See the [HTTP API reference](/reference/http-api/#get-apiv1state-system-state) for the rest of `config`.
+
 ## Sortie won't start at all
 
 ```

@@ -315,6 +315,18 @@ You can see the reaction once it has been queued to run. A CI fix, a review resp
 
 When the continuation dispatches, the issue reappears as a running session for the duration of that turn, exactly like any other dispatch. Auto-merge and post-merge closure dispatch no turn at all, so they leave no trace on either surface; for those, read the logs, the fingerprint rows below, or the counters above. A park, if the issue gets one, is listed under `parked` in the status API but not on the dashboard. See the [dashboard reference](/reference/dashboard/) for what that surface carries.
 
+To confirm which reactions the running process applies, read the `config` object of the status API:
+
+```bash
+curl -s http://localhost:7678/api/v1/state | jq '.config.reactions | keys'
+```
+
+```json
+["auto_merge", "bot_review", "ci_failure"]
+```
+
+A kind you added or removed in `WORKFLOW.md` after startup does not change that list until the next restart, because every reaction except `ci_failure` is built once at startup. The [HTTP API reference](/reference/http-api/#get-apiv1state-system-state) lists the settings each kind reports.
+
 ### Prometheus metrics
 
 Auto-merge outcomes are recorded by one counter, available when the HTTP server is enabled:
