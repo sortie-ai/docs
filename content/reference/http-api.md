@@ -92,7 +92,7 @@ An unset value is an empty string, not `NULL`. All three columns are empty on ru
 
 ## GET /api/v1/state: System state
 
-Returns a full runtime snapshot: running sessions, retry queue, budget-exhausted and parked issues, aggregate totals, rate limits, and the workflow configuration in effect.
+Returns a full runtime snapshot: running sessions, retry queue, budget-exhausted and parked issues, pending pull request reactions, aggregate totals, rate limits, and the workflow configuration in effect.
 
 ```sh
 curl http://localhost:7678/api/v1/state
@@ -107,7 +107,8 @@ curl http://localhost:7678/api/v1/state
     "running": 1,
     "retrying": 1,
     "budget_exhausted": 1,
-    "parked": 1
+    "parked": 1,
+    "pending_reactions": 2
   },
   "running": [
     {
@@ -206,6 +207,64 @@ curl http://localhost:7678/api/v1/state
       "label": "needs-human",
       "label_applied": true,
       "parked_at": "2026-03-26T14:05:00Z"
+    }
+  ],
+  "pending_reactions": [
+    {
+      "issue_id": "mno345",
+      "issue_identifier": "MT-653",
+      "issue_title": "Add the export button",
+      "issue_url": "https://tracker.example.com/browse/MT-653",
+      "kind": "ci",
+      "config_key": "ci_failure",
+      "pull_request": {
+        "number": 931,
+        "repository": "acme/web",
+        "url": "https://github.com/acme/web/pull/931",
+        "branch": "sortie/MT-653",
+        "head_sha": "4f1c2a9e8b7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b"
+      },
+      "created_at": "2026-03-26T14:09:30Z",
+      "next_poll_at": "2026-03-26T14:31:40Z",
+      "wait": "poll_interval",
+      "used_attempts": 2,
+      "max_attempts": 2,
+      "escalated_at": "2026-03-26T14:26:40Z",
+      "last_check": {
+        "observed_at": "2026-03-26T14:26:40Z",
+        "head_sha": "9b7e3d1c0a2f4e6b8d0c1a3e5f7b9d2c4e6a8f0b",
+        "status": "failing",
+        "failing_checks": ["Test"],
+        "failing": 1,
+        "pending": 0,
+        "passing": 4
+      }
+    },
+    {
+      "issue_id": "mno345",
+      "issue_identifier": "MT-653",
+      "issue_title": "Add the export button",
+      "issue_url": "https://tracker.example.com/browse/MT-653",
+      "kind": "review",
+      "config_key": "review_comments",
+      "pull_request": {
+        "number": 931,
+        "repository": "acme/web",
+        "url": "https://github.com/acme/web/pull/931",
+        "branch": "sortie/MT-653",
+        "head_sha": "4f1c2a9e8b7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b"
+      },
+      "created_at": "2026-03-26T14:09:30Z",
+      "next_poll_at": "2026-03-26T14:30:55Z",
+      "wait": "debounce",
+      "used_attempts": 1,
+      "max_attempts": 3,
+      "escalated_at": null,
+      "last_check": {
+        "observed_at": "2026-03-26T14:29:58Z",
+        "actionable_comments": 3,
+        "new_comments": 1
+      }
     }
   ],
   "agent_totals": {
@@ -352,7 +411,7 @@ curl http://localhost:7678/api/v1/state
 | `tokens_awaited` | `true` only when the session has recorded no token figure and the moment its `usage_arrival` names for one has not passed. A session whose `usage_arrival` reports figures and whose `tokens_awaited` is `false` has recorded nothing and will record nothing. |
 | `tokens_pending` | `true` only when `usage_arrival` is `"turn_end"`, `tokens_measured` is `true`, and the turn whose figure is still to settle has not ended. The counts in `tokens` then exclude the turn in progress rather than being final. |
 | `api_requests_measured` | `true` exactly when `api_request_count` is non-null. It requires `usage_arrival` to be `"incremental"`, and then either a figure already counted or no turn yet begun. A `"turn_end"` session is never measured, because its counter settles at most once per turn rather than once per request; an `"incremental"` session with nothing counted is not measured either once its first turn has begun, whatever its agent kind declares. |
-| `used_sessions` | Integer or `null`. The issue's completed sessions: the run-history count that [`agent.max_sessions`](/reference/workflow-config/#agent) is compared with. The running session is not counted, and a recorded CI result counts as a session. `null` when no read of the issue's run history has succeeded for this run. |
+| `used_sessions` | Integer or `null`. The issue's completed sessions: the run-history count that [`agent.max_sessions`](/reference/workflow-config/#agent) is compared with. The running session is not counted, and a recorded CI result counts as a session, except that rechecking a head that already escalated records none. `null` when no read of the issue's run history has succeeded for this run. |
 | `budget_sessions` | Integer or `null`. `agent.max_sessions` as of the latest poll tick. `null` when `agent.max_sessions` is `0`, never `0`. Dispatch stops once the completed count reaches this value, and `used_sessions` leaves out the running session, so the issue can still be dispatched `budget_sessions` minus `used_sessions` minus `1` more times after the running session ends. Undefined when either key is `null`. |
 | `unmeasured_sessions` | Integer or `null`. Completed sessions whose token usage was never recorded, which `issue_tokens_completed` and `used_tokens` leave out. `null` exactly when `used_sessions` is. |
 | `issue_tokens_completed` | Integer or `null`. The summed `total_tokens` of the issue's completed sessions. `null` when no read of the run history has succeeded, and when the sum is `0` while a completed session is unmeasured or recorded a turn no figure covered. |
@@ -454,6 +513,68 @@ A retry keeps the title and link it was scheduled with. Sortie stores them with 
 | `label` | The parking label Sortie applied. |
 | `label_applied` | `true` once a read showed the label on the issue. |
 | `parked_at` | When the park was recorded, as an RFC 3339 timestamp in UTC. |
+
+**`pending_reactions[]` entries:** Pull request [reactions](/reference/reactions/) that Sortie keeps watching after a run hands off, one row per issue and reaction kind. The list is always present, `[]` when no reaction is pending, and sorted by `issue_identifier`, then `issue_id`, then `kind`. `counts.pending_reactions` equals its length. An issue appears in every list that holds it, so an issue with a CI fix queued and a review check pending is in `retrying` and `pending_reactions` both. Pending reactions live in memory only. After a restart Sortie rebuilds them from run history, and a rebuilt row has no `wait`, `last_check`, or `escalated_at`, no pull request `url` until a check reads one, and a `created_at` of the restart.
+
+| Field | Description |
+|---|---|
+| `display_identifier` | Human-facing identifier when the tracker distinguishes it from `issue_identifier`. Omitted when empty. |
+| `issue_title`, `issue_url` | The tracker's title and web link, as read by the run that created the reaction, or as restored from run history after a restart. Each omitted when empty. Masked like the running row's. |
+| `kind` | `ci`, `review`, `bot-review`, `merge`, `merge-conflict`, `label-review`, `label-fix`, or `merge-completion`. |
+| `config_key` | The `reactions` key in `WORKFLOW.md` that configures the kind: `ci_failure`, `review_comments`, `bot_review`, `auto_merge`, `merge_conflicts`, `label_commands` (for both `label-review` and `label-fix`), or `merge_completion`. The kind's settings are at `config.reactions[config_key]` while the reaction is applied. |
+| `pull_request` | The pull request the reaction watches. Always present; keys below. |
+| `created_at` | When this process created the reaction, at the worker exit that seeded it or at the startup that rebuilt it, as an RFC 3339 timestamp in UTC. A wait for the retry slot does not change it. |
+| `next_poll_at` | When the next check is due, in UTC. The check runs on the first reconcile pass at or after it, so a value at or before `generated_at` means the next pass checks the reaction. |
+| `wait` | Why the reaction waits for that check; see the table below. Omitted until a pass first returns the reaction to the pending set, because a reaction no pass has taken is due at once. |
+| `used_attempts` | Integer or `null`. What the kind counts; see the table below. `null` for `label-review` and `label-fix`, which count nothing. |
+| `max_attempts` | Integer or `null`. The budget the kind's pass applies, as of the latest poll tick. `null` when the pass applies none: for `label-review` and `label-fix`, and for `merge` when `max_retries` is `0`. |
+| `escalated_at` | String or `null`. When the reaction escalated for its current head, in UTC. Always present. Only `ci` stays pending after it escalates, so for every other kind the value is `null` for as long as the row exists. A change of the pull request head clears it. When `config.reactions[config_key].escalation` is `"label"`, the label an escalation applies is that block's `escalation_label`. |
+| `last_check` | Object or `null`. What the latest completed check observed; keys below. Always present. `null` before the first check completes, and always `null` for `merge`, `merge-completion`, `label-review`, and `label-fix`. A new result replaces the previous one. For `ci` it is cleared when the head changes. |
+
+`pull_request` keys:
+
+| Field | Description |
+|---|---|
+| `number` | The pull request number. |
+| `repository` | `owner/repo`, as the pull request record the run left in its workspace holds them. Masked. |
+| `url` | The pull request's web page as the provider reported it on the latest read. Omitted until a read reports one. Masked. |
+| `branch` | The head branch that record holds. Omitted for `label-review` and `merge-completion`, which keep none. Masked. |
+| `head_sha` | The head commit that record holds. Omitted when none was recorded, and for `label-review`, `label-fix`, and `merge-completion`. Masked. A later push does not change it; `last_check.head_sha` reports the head a check read. |
+
+`last_check` keys. The object is flat, and its members follow the kind:
+
+| Field | Kinds | Description |
+|---|---|---|
+| `observed_at` | every kind that records a check | When the check completed, in UTC. |
+| `head_sha` | `ci`, `merge-conflict` | The head commit the check read. Omitted when the provider reported none. Masked. |
+| `status` | `ci` | The verdict the reaction acted on: `passing`, `pending`, or `failing`. |
+| `failing_checks` | `ci` | Names of the check runs the verdict counts as failing, in the provider's order. `[]` when none. Masked. |
+| `failing`, `pending`, `passing` | `ci` | The check runs by outcome. |
+| `actionable_comments` | `review`, `bot-review` | The comments the check found actionable: not outdated and, for `review`, not authored by an account in `reactions.bot_review.bot_usernames`. A comment a run was already given counts until the forge reports it outdated. |
+| `new_comments` | `review`, `bot-review` | Those of `actionable_comments` the reaction acts on next: no run was given them, the reaction has not already reported them, and the running turn does not carry them. |
+| `mergeable` | `merge-conflict` | `false` when the provider reports merge conflicts, `true` when it reports none, `null` while the provider has not computed mergeability. A branch-protection block is not a conflict. |
+
+`wait` values, set by the pass that last returned the reaction to the pending set:
+
+| `wait` | Meaning |
+|---|---|
+| `poll_interval` | The check completed and the reaction keeps watching, because there was nothing to act on yet or it has already acted for this subject. The next check follows the kind's poll cadence. |
+| `debounce` | `review` only. The check found actionable comments within `debounce_ms` of the newest one. `next_poll_at` ends the window. |
+| `backoff` | The check could not complete: a provider, tracker, or store call failed, or the provider answered without a value the check needs. The reaction retries with backoff. |
+| `retry_slot` | The pass found work to dispatch while another retry holds the issue's retry slot. For `merge-completion`, the issue is claimed. |
+| `triage` | The reaction waits on its [triage command](/reference/reactions/#triage-command): a run for the current subject is in flight or was just started. |
+
+`used_attempts` and `max_attempts` by kind:
+
+| `kind` | `used_attempts` counts | `max_attempts` |
+|---|---|---|
+| `ci` | CI-fix continuations dispatched since a passing verdict, or a head change that Sortie establishes is not its own work, last reset the count. | `reactions.ci_failure.max_retries` |
+| `review` | Review-fix continuations dispatched. | `reactions.review_comments.max_continuation_turns` |
+| `bot-review` | Bot-review-fix continuations dispatched. | `reactions.bot_review.max_continuation_turns` |
+| `merge-conflict` | Rebase continuations dispatched in the current conflict episode. | `reactions.merge_conflicts.max_retries` |
+| `merge` | Merge calls made. | `reactions.auto_merge.max_retries`, `null` at `0` |
+| `merge-completion` | Tracker transitions that failed. | `reactions.merge_completion.max_retries` |
+| `label-review`, `label-fix` | `null` | `null` |
 
 **`agent_totals`:** Cumulative across all sessions since Sortie's database was created, carried over when Sortie restarts; a session whose coding agent has reported no token usage, running or completed, adds nothing to its five token counts. `seconds_running` includes elapsed time from currently active sessions, not only completed ones. Three further fields disclose, by reason, how many sessions those counts leave out:
 
@@ -606,6 +727,7 @@ curl http://localhost:7678/api/v1/MT-649
   "retry": null,
   "budget_exhausted": null,
   "parked": null,
+  "pending_reactions": [],
   "recent_events": [],
   "last_error": null,
   "tracked": {}
@@ -642,6 +764,7 @@ When an issue is in the retry queue rather than actively running, `status` is `"
   },
   "budget_exhausted": null,
   "parked": null,
+  "pending_reactions": [],
   "recent_events": [],
   "last_error": "no available orchestrator slots",
   "tracked": {}
@@ -679,6 +802,7 @@ When an issue has neither a running session nor a pending retry, but is held out
     "exhausted_at": "2026-03-26T14:12:00Z"
   },
   "parked": null,
+  "pending_reactions": [],
   "recent_events": [],
   "last_error": null,
   "tracked": {}
@@ -713,6 +837,59 @@ When an issue has no running session, no pending retry, and no budget hold, but 
     "label_applied": true,
     "parked_at": "2026-03-26T14:05:00Z"
   },
+  "pending_reactions": [],
+  "recent_events": [],
+  "last_error": null,
+  "tracked": {}
+}
+```
+
+### Response (issue waiting on a reaction)
+
+When an issue has no running session, no pending retry, no budget hold, and is not parked, but a pull request reaction is pending for it, `status` is `"pending_reactions"`, `running`, `retry`, `budget_exhausted`, and `parked` are all `null`, and `pending_reactions` lists the issue's rows:
+
+```json
+{
+  "issue_identifier": "MT-654",
+  "issue_id": "pqr678",
+  "status": "pending_reactions",
+  "workspace": null,
+  "attempts": {
+    "restart_count": 0,
+    "current_retry_attempt": 0
+  },
+  "running": null,
+  "retry": null,
+  "budget_exhausted": null,
+  "parked": null,
+  "pending_reactions": [
+    {
+      "issue_id": "pqr678",
+      "issue_identifier": "MT-654",
+      "issue_title": "Cache the price list",
+      "issue_url": "https://tracker.example.com/browse/MT-654",
+      "kind": "merge-conflict",
+      "config_key": "merge_conflicts",
+      "pull_request": {
+        "number": 944,
+        "repository": "acme/web",
+        "url": "https://github.com/acme/web/pull/944",
+        "branch": "sortie/MT-654",
+        "head_sha": "c0ffee1d2e3f405162738495a6b7c8d9e0f1a2b3"
+      },
+      "created_at": "2026-03-26T14:20:00Z",
+      "next_poll_at": "2026-03-26T14:31:00Z",
+      "wait": "poll_interval",
+      "used_attempts": 0,
+      "max_attempts": 1,
+      "escalated_at": null,
+      "last_check": {
+        "observed_at": "2026-03-26T14:30:00Z",
+        "head_sha": "c0ffee1d2e3f405162738495a6b7c8d9e0f1a2b3",
+        "mergeable": true
+      }
+    }
+  ],
   "recent_events": [],
   "last_error": null,
   "tracked": {}
@@ -723,14 +900,15 @@ When an issue has no running session, no pending retry, and no budget hold, but 
 
 | Field | Description |
 |---|---|
-| `status` | One of `"running"`, `"retrying"`, `"budget_exhausted"`, or `"parked"`. Derived from which set the issue appears in; `running` takes precedence over `retrying`, which takes precedence over `budget_exhausted`, which takes precedence over `parked`. |
-| `workspace` | Contains `path` when the issue has an active workspace. `null` for retrying, budget-exhausted, and parked issues, or when the workspace path is unknown. |
+| `status` | One of `"running"`, `"retrying"`, `"budget_exhausted"`, `"parked"`, or `"pending_reactions"`. Derived from which set the issue appears in; `running` takes precedence over `retrying`, which takes precedence over `budget_exhausted`, which takes precedence over `parked`, which takes precedence over `pending_reactions`. |
+| `workspace` | Contains `path` when the issue has an active workspace. `null` for retrying, budget-exhausted, parked, and pending-reaction issues, or when the workspace path is unknown. |
 | `attempts.restart_count` | How many times this issue has been restarted (attempt minus one, floored at zero). |
-| `attempts.current_retry_attempt` | The current attempt number. `0` for running, budget-exhausted, and parked issues that have no pending retry. |
+| `attempts.current_retry_attempt` | The current attempt number. `0` for running, budget-exhausted, parked, and pending-reaction issues that have no pending retry. |
 | `running` | Full running entry (same shape as entries in `/api/v1/state`), or `null`. |
 | `retry` | Full retry entry (same shape as entries in the `retrying` array on `/api/v1/state`), or `null`. |
 | `budget_exhausted` | Full budget-exhausted entry (same shape as entries in the `budget_exhausted` array on `/api/v1/state`), or `null`. |
 | `parked` | Full parked entry (same shape as entries in the `parked` array on `/api/v1/state`), or `null`. Always present. Populated whenever the issue is parked, whatever `status` reads. |
+| `pending_reactions` | The issue's rows in the record shape and order of the `pending_reactions` array on `/api/v1/state`, `[]` when it has none. Always present, whatever `status` reads. |
 | `recent_events` | Reserved for future use. Currently an empty array. |
 | `last_error` | The `error` of the issue's retry entry, or `null` when it has none. After a reschedule this is the reschedule reason. |
 | `tracked` | Reserved for future use. Currently an empty object. |
@@ -740,7 +918,7 @@ When an issue has no running session, no pending retry, and no budget hold, but 
 | Code | Meaning |
 |---|---|
 | `200 OK` | Issue found and returned. |
-| `404 Not Found` | Identifier not present in the running set, the retry queue, the budget-exhausted set, or the parked set. The issue may have completed, or it may not exist. |
+| `404 Not Found` | Identifier not present in the running set, the retry queue, the budget-exhausted set, the parked set, or the pending reactions. The issue may have completed, or it may not exist. |
 | `503 Service Unavailable` | Orchestrator state snapshot could not be produced. |
 
 ---
@@ -899,7 +1077,7 @@ All JSON API errors use a consistent structure:
 
 | Code | HTTP Status | Meaning |
 |---|---|---|
-| `issue_not_found` | 404 | The requested issue identifier is not running, retrying, budget-exhausted, or parked. |
+| `issue_not_found` | 404 | The requested issue identifier is not running, retrying, budget-exhausted, parked, or waiting on a pending reaction. |
 | `snapshot_unavailable` | 503 | The orchestrator could not produce a state snapshot. |
 | `method_not_allowed` | 405 | The HTTP method is not supported on this endpoint. |
 | `internal_error` | 500 | Unexpected server error (e.g., JSON serialization failure). |

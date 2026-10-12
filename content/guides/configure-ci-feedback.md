@@ -50,7 +50,7 @@ reactions:
 
 `max_retries` controls how many CI-fix continuation dispatches Sortie attempts per issue before escalating. Default: 2. Set to 0 to escalate on the first CI failure without retrying.
 
-Each CI failure that triggers a new dispatch increments the counter. If the agent fixes the issue and CI passes, the counter resets to zero. When the counter exceeds `max_retries`, Sortie escalates via the configured strategy and releases its claim on the issue. A commit landing on the pull request afterward restores the attempt budget when Sortie can establish that the commit is not its own work, so an agent cannot extend its own budget by pushing; applying the configured fix label re-arms an escalated pull request by hand.
+Each CI failure that triggers a new dispatch increments the counter. If the agent fixes the issue and CI passes, the counter resets to zero. When the counter reaches `max_retries` and CI is still red, Sortie escalates via the configured strategy and releases its claim on the issue, unless a worker is running for it. The counter stops at `max_retries`. Sortie keeps watching the pull request after it escalates, but applies the escalation once per commit: while the checks stay red on the same commit, a recheck repeats nothing and does not count as a session against `agent.max_sessions`. A commit landing on the pull request afterward restores the attempt budget when Sortie can establish that the commit is not its own work, so an agent cannot extend its own budget by pushing; applying the configured fix label re-arms an escalated pull request by hand.
 
 ## Configure log fetching
 
@@ -84,7 +84,7 @@ When CI-fix retries are exhausted, Sortie escalates. Two strategies are availabl
 | `label` (default) | Adds `escalation_label` (default `needs-human`) to the issue. The Gitea and GitLab adapters create the label on demand if the tracker does not already have it; on GitHub, the label must already exist. |
 | `none` | Adds no label. |
 
-Both strategies release the claim on the issue and cancel any pending retry. The issue won't be re-dispatched until its tracker state changes.
+Both strategies cancel any pending retry and release the claim on the issue, unless a worker is running for it; that worker's exit then decides the claim. The issue won't be re-dispatched until its tracker state changes.
 
 Every escalation also emits the `escalation.ci_failure` event. To get a comment on the issue with failure details (how many CI-fix attempts were made, which checks failed, and links to their detail pages), list the event in a `tracker_comment` entry. The same event can go to Slack or a webhook:
 
@@ -357,9 +357,11 @@ grep "scheduling CI fix dispatch" sortie.log
 grep "CI fix retries exhausted" sortie.log
 ```
 
-### Dashboard
+### Dashboard and status API
 
 When the HTTP server is running (default on port 7678), the web dashboard shows entries in `Retrying` state with a `ci_fix` trigger label. Run history entries with status `ci_failed` indicate CI failures that were detected. See the [dashboard reference](/reference/dashboard/).
+
+The status API shows the watch itself. The row with `kind` `ci` in the `pending_reactions` list of `GET /api/v1/state` names the pull request, the verdict and failing checks of the last check (`last_check`), the fixes dispatched against `max_retries` (`used_attempts` and `max_attempts`), and `escalated_at` once the reaction has escalated for the current commit. See the [HTTP API reference](/reference/http-api/#get-apiv1state-system-state) for the fields.
 
 ### Prometheus metrics
 

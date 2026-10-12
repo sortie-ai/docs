@@ -61,9 +61,9 @@ reactions:
 | `escalation` | `"label"` | Action when the retry budget is exhausted: `"label"`, `"none"`, or the deprecated `"comment"`. |
 | `escalation_label` | `"needs-human"` | Label applied when `escalation` is `"label"`. Created on demand if the tracker does not already have it. |
 
-The retry budget for this kind is `max_continuation_turns`, configured below, not `max_retries`: `review_comments` accepts `max_retries` for schema consistency with the other reaction kinds but does not consume it, so setting it here has no effect. `max_continuation_turns` counts continuation turns triggered specifically by review comments, independent of the agent's `max_sessions` budget and CI feedback's retry counter. If the agent addresses all comments within this budget, the loop ends. If a new comment arrives after the budget is spent, Sortie escalates and releases its claim. Comments an earlier run was given do not escalate on their own.
+The retry budget for this kind is `max_continuation_turns`, configured below, not `max_retries`: `review_comments` accepts `max_retries` for schema consistency with the other reaction kinds but does not consume it, so setting it here has no effect. `max_continuation_turns` counts continuation turns triggered specifically by review comments, independent of the agent's `max_sessions` budget and CI feedback's retry counter. If the agent addresses all comments within this budget, the loop ends. If a new comment arrives after the budget is spent, Sortie escalates and releases its claim unless a worker is running for the issue. Comments an earlier run was given do not escalate on their own.
 
-With `label`, Sortie adds the configured label to the issue. With `none`, it adds no label. Every escalation emits the `escalation.review_comments` event, and a `tracker_comment` entry that lists it posts a comment noting how many turns were attempted and that remaining comments need human attention; see [how to route notifications](/guides/route-notifications/). The deprecated `comment` value posts that comment without an entry. Every strategy cancels any pending retry and releases the claim.
+With `label`, Sortie adds the configured label to the issue. With `none`, it adds no label. Every escalation emits the `escalation.review_comments` event, and a `tracker_comment` entry that lists it posts a comment noting how many turns were attempted and that remaining comments need human attention; see [how to route notifications](/guides/route-notifications/). The deprecated `comment` value posts that comment without an entry. Every strategy cancels any pending retry and releases the claim, unless a worker is running for the issue; that worker's exit then decides the claim.
 
 Create the label in advance if using label escalation:
 
@@ -106,7 +106,7 @@ Debounce prevents premature dispatch while a reviewer is still commenting. A rev
 8. Otherwise Sortie dispatches a continuation turn with all remaining review comments as structured prompt context.
 9. The agent addresses the comments, commits, and pushes fixes.
 10. If the reviewer approves, polling stops on the next state change. If the reviewer requests more changes, the cycle repeats from step 3, up to `max_continuation_turns`.
-11. If the turn cap is spent and a new comment arrives, Sortie escalates and releases the claim.
+11. If the turn cap is spent and a new comment arrives, Sortie escalates and releases the claim unless a worker is running for the issue.
 
 ## What the agent sees
 
@@ -343,7 +343,7 @@ grep "fresh run not given review comments" sortie.log
 
 ### Dashboard and status API
 
-When the HTTP server is running, the runtime snapshot shows `PendingReactions` entries with kind `review`. Issues with active review polling appear with their current debounce state and attempt count.
+When the HTTP server is running, each issue with an active review watch has a row with `kind` `review` in the `pending_reactions` list of `GET /api/v1/state`. The row shows why the watch waits (`wait`, which reads `debounce` while the debounce window is open), when it checks next (`next_poll_at`), how many continuation turns it has used (`used_attempts` of `max_attempts`), and how many comments the last check found (`last_check`). See the [HTTP API reference](/reference/http-api/#get-apiv1state-system-state) for the fields.
 
 ### Prometheus metrics
 
@@ -386,7 +386,7 @@ All `reactions.review_comments` fields in one place:
 | `poll_interval_ms` | integer | `120000` | Minimum ms between review polls per issue. Min: `30000`. |
 | `debounce_ms` | integer | `60000` | Ms to wait after newest comment before dispatching. |
 | `max_continuation_turns` | integer | `3` | Hard cap on review-triggered continuation turns before escalation. |
-| `watch_window_ms` | integer | `1800000` | Ms a pending entry is kept, from the entry's creation. Non-negative, not above `9223372036854`; `0` removes the bound. |
+| `watch_window_ms` | integer | `1800000` | Ms a pending entry is kept, from the last time it waited for the issue's retry slot, or from its creation when it never has. Non-negative, not above `9223372036854`; `0` removes the bound. |
 
 `max_retries` is also accepted, for schema consistency with the other reaction kinds, but `review_comments` does not consume it; the retry budget above is `max_continuation_turns`.
 
