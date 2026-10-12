@@ -75,7 +75,7 @@ The design philosophy: collect the data once, at the source, so any governance s
 
 ## Further reading
 
-- [Architecture overview](/concepts/architecture/) for the single-binary, zero-dependency design rationale
+- [Architecture overview](/concepts/architecture/) for the single-binary, no-runtime-dependency design rationale
 - [Orchestration](/concepts/orchestration/) for retry strategies, reconciliation, and the turn model
 - [Workflow file reference](/reference/workflow-config/) for database path and retry-related config fields
 - [Resume sessions across restarts](/guides/resume-sessions-across-restarts/) for the practical how-to

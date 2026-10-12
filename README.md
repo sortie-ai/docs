@@ -15,7 +15,7 @@ This repository contains all the source code and content for the Sortie document
 
 ## About Sortie
 
-Sortie is an autonomous coding agent orchestrator. Engineers manage work at the ticket level - Sortie handles the rest: isolated workspaces, retry logic, state reconciliation, tracker integration, and cost tracking. Single binary, zero dependencies, SQLite persistence.
+Sortie is an autonomous coding agent orchestrator. Engineers manage work at the ticket level - Sortie handles the rest: isolated workspaces, retry logic, state reconciliation, tracker integration, and cost tracking. Single binary, no runtime dependencies, SQLite persistence.
 
 For a full overview, see the [product documentation](https://docs.sortie-ai.com).
 

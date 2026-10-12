@@ -8,7 +8,7 @@ cascade:
   type: docs
 ---
 
-Sortie turns issue tracker tickets into autonomous coding agent sessions. Engineers manage work at the ticket level. Agents handle implementation. Single binary, zero dependencies, SQLite persistence.
+Sortie turns issue tracker tickets into autonomous coding agent sessions. Engineers manage work at the ticket level. Agents handle implementation. Single binary, no runtime dependencies, SQLite persistence.
 
 Sortie assumes your coding agent already produces useful results when you run it manually. It handles scheduling, retry, isolation, and persistence around that agent. It does not improve the agent's output.
 

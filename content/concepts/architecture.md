@@ -7,15 +7,15 @@ weight: 10
 ---
 Sortie orchestrates autonomous coding agents against issue trackers. This document explains the design decisions behind it: what trade-offs were made, what alternatives were rejected, and why the system works the way it does. If you're evaluating Sortie for your team or planning to contribute, this is where you build the mental model.
 
-## One binary, zero dependencies
+## One binary, no runtime dependencies
 
-The single most consequential design choice in Sortie is the deployment model: one statically-linked binary, no runtime dependencies, no external services. You copy a file to a machine and run it. That's the entire deployment story.
+The single most consequential design choice in Sortie is the deployment model: one statically-linked binary, no runtime dependencies, no external services. You copy a file to a machine and run it. That's the entire deployment story. The constraint governs what an operator runs, not how Sortie is built: development and build tooling never ships in the binary.
 
 This drove the choice of Go over Node.js, Python, Elixir, and Rust. Go produces a static binary with cross-compilation built in. Goroutines map naturally to the orchestrator's workload: one per agent session, coordinated through channels, with `context.Context` cancellation propagating through process trees. Fast startup matters because Sortie is a daemon: you want it running in seconds, not minutes.
 
 The alternatives had real strengths. Elixir's OTP supervision trees are arguably the best fit for this workload. OpenAI's Symphony reference implementation uses Elixir for good reason. But the Elixir ecosystem is small, and LLM code generation quality for Elixir trails Go and TypeScript significantly. That matters when coding agents write and maintain the codebase. Node.js has the strongest AI generation quality today, but its single-threaded event loop serializes all orchestration logic: heavy JSON parsing or token accounting would block stall detection and reconciliation. Rust offers superior safety guarantees but creates long iteration cycles for agent-written code. Go's uniformity (`gofmt`, one error-handling idiom, minimal stylistic variation) partially compensates for lower generation quality by reducing the space for inconsistent output.
 
-The zero-dependency constraint extends to persistence. Sortie uses SQLite as its only storage layer: no Postgres, no Redis, no message queue. Operators should not need to provision infrastructure to run an orchestration tool. An orchestrator that requires a running database server contradicts the single-binary philosophy.
+The no-runtime-dependency constraint extends to persistence. Sortie uses SQLite as its only storage layer: no Postgres, no Redis, no message queue. Operators should not need to provision infrastructure to run an orchestration tool. An orchestrator that requires a running database server contradicts the single-binary philosophy.
 
 The specific SQLite library matters too. Sortie uses `modernc.org/sqlite`, a pure Go transpilation of the SQLite C source. The more popular `mattn/go-sqlite3` uses CGo, which breaks cross-compilation, complicates CI pipelines, and requires a C toolchain on the build host. The trade-off is slight performance overhead from the transpilation layer. For a single-instance orchestrator with write patterns measured in dozens of transactions per minute, that overhead is invisible.
 

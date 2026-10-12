@@ -79,7 +79,7 @@ Go has a plugin system: `plugin.Open` loads shared objects at runtime. It was co
 
 **ABI fragility.** A Go plugin and its host binary must be built with the exact same Go toolchain version. A mismatch, even a patch-level difference, crashes at load time. In practice, this means every plugin release must be coordinated with the host release, eliminating most of the flexibility that plugins are supposed to provide.
 
-**Breaks the single-binary model.** Plugins are separate `.so` files. You go from "copy one file to a server" to "manage a directory of files with version compatibility requirements." The zero-dependency deployment story, Sortie's most distinctive operational property, would be lost.
+**Breaks the single-binary model.** Plugins are separate `.so` files. You go from "copy one file to a server" to "manage a directory of files with version compatibility requirements." The single-file deployment story, Sortie's most distinctive operational property, would be lost.
 
 **Platform limitations.** Go plugins work on Linux and macOS. No Windows, no other targets. Sortie's pure-Go, CGo-free build compiles for any platform Go targets.
 

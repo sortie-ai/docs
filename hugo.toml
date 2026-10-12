@@ -41,7 +41,7 @@ publishDate = ['date', ':default']
 
 [params]
 description = "Sortie turns issue tracker tickets into autonomous coding agent sessions. A single Go binary with pluggable adapters for trackers, agents, and Git forges."
-llmsDescription = "Sortie is an autonomous coding agent orchestrator. It picks up issues from your tracker, runs a coding agent against each one in an isolated workspace, and writes the result back to the ticket. Engineers manage work at the ticket level — Sortie handles retry logic, state reconciliation, and cost tracking. A single Go binary with zero dependencies and SQLite persistence. Trackers, coding agents, and Git forges are all pluggable adapters; the Reference section below lists the ones that ship today. Apache-2.0. The binary sends no telemetry."
+llmsDescription = "Sortie is an autonomous coding agent orchestrator. It picks up issues from your tracker, runs a coding agent against each one in an isolated workspace, and writes the result back to the ticket. Engineers manage work at the ticket level — Sortie handles retry logic, state reconciliation, and cost tracking. A single Go binary with no runtime dependencies and SQLite persistence. Trackers, coding agents, and Git forges are all pluggable adapters; the Reference section below lists the ones that ship today. Apache-2.0. The binary sends no telemetry."
 
 # Version announcement banner. Set to false to disable entirely.
 # message: custom text; leave empty to use the default "Sortie vX.Y.Z is here!" message.
