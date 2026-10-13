@@ -92,7 +92,7 @@ An unset value is an empty string, not `NULL`. All three columns are empty on ru
 
 ## GET /api/v1/state: System state
 
-Returns a full runtime snapshot: running sessions, retry queue, budget-exhausted and parked issues, pending pull request reactions, issues between stages, aggregate totals, rate limits, and the workflow configuration in effect.
+Returns a full runtime snapshot: running sessions, retry queue, budget-exhausted and parked issues, pending pull request reactions, issues between stages, aggregate totals, rate limits, the workflow configuration in effect, the health of Sortie's own checks, the Sortie version, and the time the process started.
 
 ```sh
 curl http://localhost:7678/api/v1/state
@@ -103,6 +103,8 @@ curl http://localhost:7678/api/v1/state
 ```json
 {
   "generated_at": "2026-03-26T14:30:00Z",
+  "version": "1.19.0",
+  "started_at": "2026-03-26T13:28:10Z",
   "counts": {
     "running": 1,
     "retrying": 1,
@@ -419,6 +421,13 @@ curl http://localhost:7678/api/v1/state
         "complete": false
       }
     }
+  },
+  "health": {
+    "database": {"status": "pass", "checked_at": "2026-03-26T14:29:58Z", "last_success_at": "2026-03-26T14:29:58Z", "consecutive_failures": 0, "failing_since": null},
+    "preflight": {"status": "fail", "checked_at": "2026-03-26T14:29:58Z", "last_success_at": "2026-03-26T14:29:28Z", "consecutive_failures": 1, "failing_since": "2026-03-26T14:29:58Z", "error": "dispatch preflight failed: workflow file cannot be loaded: config: agent.turn_timeout_ms: must be greater than 0"},
+    "workflow": {"file": "WORKFLOW.md", "status": "fail", "checked_at": "2026-03-26T14:29:58Z", "last_success_at": "2026-03-26T14:29:28Z", "consecutive_failures": 2, "failing_since": "2026-03-26T14:29:41Z", "error": "config: agent.turn_timeout_ms: must be greater than 0"},
+    "poll": {"status": "fail", "checked_at": "2026-03-26T14:29:58Z", "last_success_at": "2026-03-26T14:29:28Z", "consecutive_failures": 1, "failing_since": "2026-03-26T14:29:58Z", "outcome": "preflight_failed", "next_poll_at": "2026-03-26T14:30:28Z"},
+    "scm": {"provider": "github", "status": "pass", "checked_at": "2026-03-26T14:29:58Z", "last_success_at": "2026-03-26T14:29:58Z", "consecutive_failures": 0, "failing_since": null}
   }
 }
 ```
@@ -742,6 +751,29 @@ Most members follow the last successful load of `WORKFLOW.md`; a reload that fai
 | `token_rates` | A member per agent kind, keyed as written in [`token_rates`](/reference/workflow-config/#token_rates), or `null` when `token_rates` is absent or empty. |
 | `token_rates.<kind>.input_per_mtok`, `output_per_mtok`, `cache_read_per_mtok`, `cache_write_per_mtok` | Number, or `null` when the rate is not set or was rejected as invalid. An unset cache rate prices that token class at the input rate; `config` serves the configured `null`, not the substituted rate. |
 | `token_rates.<kind>.complete` | `true` exactly when `input_per_mtok` and `output_per_mtok` are both set, which is the condition for pricing a session of the kind. |
+
+**`version` and `started_at`:** `version` is the Sortie version, the same value `/readyz` serves. `started_at` is when the process started, in UTC, so it and the `uptime_seconds` of `/readyz` count from one instant.
+
+**`health`:** The health of Sortie's own checks, so a client sees a failed reload, a failed preflight, or a failing tracker without reading the log. It holds a member per check: `database`, `preflight`, `workflow`, `poll`, and `scm`. Every check carries the members of the first table, and `workflow`, `poll`, and `scm` add members of their own. A time Sortie does not have is `null`.
+
+| Field | Type | Description |
+|---|---|---|
+| `status` | string | `fail` exactly when `consecutive_failures` is above `0`, otherwise `pass`. A check that has not run yet reads `pass`. |
+| `checked_at` | string or `null` | When the latest run ended, in UTC. `null` until the check has run. |
+| `last_success_at` | string or `null` | When a run last passed, in UTC. `null` until one has. |
+| `consecutive_failures` | integer | The runs that failed since `last_success_at`, the latest one included. `0` while the check passes. |
+| `failing_since` | string or `null` | When the first of those runs ended, in UTC. `null` while the check passes. |
+| `error` | string or absent | The latest failure's text. A value registered as a secret reads `[redacted]`, and the workflow file's full path is shortened to its base name. Absent while the check passes. |
+
+| Check | What feeds it | Members of its own |
+|---|---|---|
+| `database` | A ping of the database, made once per poll tick. | None. |
+| `preflight` | The dispatch preflight that each poll tick runs. `error` joins every failure found, after `dispatch preflight failed:`. Warnings neither fail the check nor appear in it. The preflight at startup is not recorded. | None. |
+| `workflow` | Every load of the workflow file: the file watcher's, and the reload each poll tick forces before its preflight. `checked_at` is the latest load, successful or not. `last_success_at` is the latest load whose configuration took effect, the one `config` serves. `failing_since` is the first failed load since then, normally the edit that broke the file. | `file`: the base name of the workflow file in effect, for example `WORKFLOW.md`. |
+| `poll` | One run per poll tick, whether the timer or `POST /api/v1/refresh` started it. `error` is the text of the latest failed read of candidate issues since the last successful poll. It can be present beside a `preflight_failed` outcome and absent beside a failing status. | `outcome`: `succeeded`, `tracker_failed` when the candidate read returned an error, or `preflight_failed` when the tick ended before the read because preflight failed. Omitted before the first poll. `next_poll_at`: when the poll timer fires next, in UTC, or `null` once shutdown stops it. A refresh does not move it. A value at or before `generated_at` means a poll is due or running. |
+| `scm` | The reads Sortie makes of the pull request provider for [reactions](/reference/reactions/): reviews, review comments, the review decision, CI status, mergeability, label events, and the auto-merge token-scope check. It reflects the most recent read across every pull request, so a read that fails for one pull request can be followed by one that passes for another. Writes such as merging or removing a label are not recorded, and neither are reads that shutdown canceled. | `provider`: the provider kind, for example `github`. The whole member is `null` when no reaction uses a source control provider. |
+
+A reload that fails to load changes nothing else: the previous configuration stays in effect and `config` keeps serving it. The tick's `preflight` fails with the load error after `workflow file cannot be loaded:`, and its `poll` ends as `preflight_failed`, so the tick dispatches nothing. `/readyz` keeps reporting `workflow: pass` beside a failing `health.workflow`.
 
 A running, retry, or budget-exhausted row records its `rule_name` and its `stage_lineage.previous`, and a running or retry row its `reaction_config_key`, when the run was dispatched or the row was stored, while `config` follows the rules above. A row can therefore name a rule or reaction that `config` no longer holds: after a reload that renames or removes a rule, after a restart on an edited file for a restored retry, or, for a row whose `rule_name` is `default`, once `dispatch.default` reads `null`. Read such a row from its own fields.
 
@@ -1242,13 +1274,13 @@ curl http://localhost:7678/readyz
 }
 ```
 
-Each check is independent. `status` is `"pass"` only when every individual check passes.
+Each check is independent. `status` is `"pass"` only when every individual check passes. `uptime_seconds` counts from the process start, the same instant as `started_at` in `GET /api/v1/state`.
 
 | Check | What it validates |
 |---|---|
 | `database` | SQLite database is accessible and responds to a ping. |
 | `preflight` | Dispatch preflight validation is passing (agent binary exists, workspace root is writable, etc.). |
-| `workflow` | Workflow file has been successfully loaded at least once. |
+| `workflow` | Workflow file has been successfully loaded at least once. It keeps passing when a later edit fails to load, because Sortie keeps running on the last configuration that loaded. `health.workflow` in `GET /api/v1/state` reports that failure. |
 
 ### Status codes
 

@@ -468,6 +468,8 @@ kubectl port-forward svc/sortie 7678:7678
 curl -s http://localhost:7678/readyz | jq .
 ```
 
+The state endpoint explains a failing check: `curl -s http://localhost:7678/api/v1/state | jq .health` gives each check's error text, last success, and consecutive failures. See the [HTTP API reference](/reference/http-api/#get-apiv1state-system-state).
+
 **Permission denied on the data volume:** The `fsGroup: 1000` setting should handle ownership, but some storage drivers ignore it. Verify with:
 
 ```sh

@@ -747,7 +747,7 @@ A block must be a mapping. An empty block is written `{}`; a bare `claude-code:`
 
 ### Validation
 
-Errors fail the load, so `sortie validate` exits non-zero and Sortie does not start. A reload with an error keeps the last good configuration.
+Errors fail the load, so `sortie validate` exits non-zero and Sortie does not start. A reload with an error keeps the last good configuration, and the failure appears in `health.workflow` of [`GET /api/v1/state`](/reference/http-api/#get-apiv1state-system-state).
 
 - `dispatch` is not a mapping, `dispatch.rules` is not a sequence, or `dispatch.default` is not a mapping; a rule is not a mapping or carries none of `match`, `stage`, `agent`, `template`, or a settings block.
 - `dispatch.default` carries a key other than `agent` or `template`, `stage` and `next` included.
