@@ -92,7 +92,7 @@ An unset value is an empty string, not `NULL`. All three columns are empty on ru
 
 ## GET /api/v1/state: System state
 
-Returns a full runtime snapshot: running sessions, retry queue, budget-exhausted and parked issues, pending pull request reactions, aggregate totals, rate limits, and the workflow configuration in effect.
+Returns a full runtime snapshot: running sessions, retry queue, budget-exhausted and parked issues, pending pull request reactions, issues between stages, aggregate totals, rate limits, and the workflow configuration in effect.
 
 ```sh
 curl http://localhost:7678/api/v1/state
@@ -108,7 +108,8 @@ curl http://localhost:7678/api/v1/state
     "retrying": 1,
     "budget_exhausted": 1,
     "parked": 1,
-    "pending_reactions": 2
+    "pending_reactions": 2,
+    "between_stages": 1
   },
   "running": [
     {
@@ -126,6 +127,7 @@ curl http://localhost:7678/api/v1/state
       "last_event": "turn_completed",
       "last_message": "",
       "started_at": "2026-03-26T14:10:12Z",
+      "dispatched_at": "2026-03-26T13:41:08Z",
       "last_event_at": "2026-03-26T14:29:59Z",
       "workspace_path": "/tmp/sortie_workspaces/MT-649",
       "tokens": {
@@ -137,6 +139,8 @@ curl http://localhost:7678/api/v1/state
       },
       "model_name": "<model-id-reported-by-the-agent>",
       "rule_name": "bugfix",
+      "stage_lineage": null,
+      "stage_position": null,
       "configured_model": "claude-sonnet-4-5",
       "configured_effort": "medium",
       "workflow_file": "WORKFLOW.md",
@@ -175,12 +179,25 @@ curl http://localhost:7678/api/v1/state
       "issue_type": "Task",
       "issue_labels": ["export"],
       "state": "In Progress",
+      "dispatched_at": "2026-03-26T14:02:41Z",
       "attempt": 3,
       "due_at": "2026-03-26T14:35:00Z",
       "error": "no available orchestrator slots",
       "trigger": "timer",
-      "rule_name": "bugfix",
-      "stage_lineage": null,
+      "rule_name": "implement",
+      "agent_kind": "claude-code",
+      "configured_model": "claude-sonnet-4-5",
+      "stage_lineage": {
+        "chain_id": "7q2m4x9b1k5d8f3h6j0n2p4rst",
+        "previous": "specify",
+        "previous_outcome": "succeeded"
+      },
+      "stage_position": {
+        "chain": ["specify", "implement"],
+        "current": "implement",
+        "hop_count": 1,
+        "hop_ceiling": 10
+      },
       "paused": false
     }
   ],
@@ -193,6 +210,7 @@ curl http://localhost:7678/api/v1/state
       "issue_type": "Task",
       "issue_labels": [],
       "state": "In Progress",
+      "dispatched_at": "2026-03-26T13:31:07Z",
       "reason": "session_budget",
       "used_sessions": 3,
       "budget_sessions": 3,
@@ -200,7 +218,11 @@ curl http://localhost:7678/api/v1/state
       "budget_tokens": 0,
       "unmeasured_sessions": null,
       "stopped_in_flight": null,
-      "exhausted_at": "2026-03-26T14:12:00Z"
+      "exhausted_at": "2026-03-26T14:12:00Z",
+      "stage_lineage": null,
+      "stage_position": null,
+      "agent_kind": "claude-code",
+      "configured_model": "claude-sonnet-4-5"
     }
   ],
   "parked": [
@@ -232,6 +254,7 @@ curl http://localhost:7678/api/v1/state
         "head_sha": "4f1c2a9e8b7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b"
       },
       "created_at": "2026-03-26T14:09:30Z",
+      "dispatched_at": "2026-03-26T13:58:03Z",
       "next_poll_at": "2026-03-26T14:31:40Z",
       "wait": "poll_interval",
       "used_attempts": 2,
@@ -262,6 +285,7 @@ curl http://localhost:7678/api/v1/state
         "head_sha": "4f1c2a9e8b7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b"
       },
       "created_at": "2026-03-26T14:09:30Z",
+      "dispatched_at": "2026-03-26T13:58:03Z",
       "next_poll_at": "2026-03-26T14:30:55Z",
       "wait": "debounce",
       "used_attempts": 1,
@@ -272,6 +296,19 @@ curl http://localhost:7678/api/v1/state
         "actionable_comments": 3,
         "new_comments": 1
       }
+    }
+  ],
+  "between_stages": [
+    {
+      "issue_id": "stu901",
+      "issue_identifier": "MT-655",
+      "issue_title": "Plan the export schema",
+      "issue_url": "https://tracker.example.com/browse/MT-655",
+      "source_rule": "specify",
+      "target_rule": "implement",
+      "target_label": "stage-implement",
+      "hopped_at": "2026-03-26T14:28:15Z",
+      "dispatched_at": "2026-03-26T14:03:41Z"
     }
   ],
   "agent_totals": {
@@ -401,6 +438,10 @@ curl http://localhost:7678/api/v1/state
 | `ssh_host` | The [SSH host](/reference/workflow-config/#worker) the session runs on. Omitted for a session that runs on the machine running Sortie. |
 | `workflow_file` | Base filename of the `WORKFLOW.md` in force at dispatch. Omitted when unset. |
 | `agent_kind` | The agent kind the session runs, from the configuration in force at dispatch. Omitted when unset. |
+| `reaction_kind` | Present when the session continues a pull request [reaction](/reference/reactions/): `ci`, `review`, `bot-review`, `merge-conflict`, `label-review`, or `label-fix`. A session that continues none carries none of `reaction_kind`, `reaction_config_key`, `reaction_attempt`, and `pull_request`. |
+| `reaction_config_key` | Present exactly when `reaction_kind` is. The `reactions` key in `WORKFLOW.md` that configures the kind, by the mapping of the `retrying[]` entries' `reaction_config_key`. |
+| `reaction_attempt` | Which try of its reaction the session is, counted as `used_attempts` counts it on a pending reaction row. Present for `ci`, `review`, `bot-review`, and `merge-conflict`. Omitted for `label-review` and `label-fix`, which count nothing. |
+| `pull_request` | Present exactly when `reaction_kind` is. An object with `number` and `repository` (`owner/repo`, masked), named as in a pending reaction's `pull_request`. |
 | `self_review_active` | `true` while the session is in its self-review phase. |
 | `self_review_iteration` | Self-review iterations completed in the current phase: `0` while the first one runs, and whenever `self_review_active` is `false`. |
 | `turn_count` | Number of turns this session has run: the coding turns plus any review and fix turns from self-review. Advances by one the instant a turn starts, the same way for every agent kind, and resets to `0` at the start of each attempt. [`agent.max_turns`](/reference/workflow-config/#agent) caps only the coding turns, so this figure can run higher once self-review is active. |
@@ -409,6 +450,9 @@ curl http://localhost:7678/api/v1/state
 | `workspace_path` | Absolute filesystem path to the issue's workspace directory. |
 | `model_name` | LLM model the runtime reported running. Omitted when unknown, and when `usage_arrival` is `"none"`. It can differ from `configured_model`; see [configured and reported model](#configured-and-reported-model). |
 | `rule_name` | Name of the [dispatch rule](/reference/workflow-config/#dispatch) that routed this session. Omitted when no rule routed it. |
+| `dispatched_at` | When Sortie dispatched the first run of the issue's current pass, in UTC. Always present and never `null` on a running row. A retry, a reaction continuation, the next stage of a hop, and a restart continue the pass, so the value stays fixed across them. See [dispatch time and stage position](#dispatch-time-and-stage-position). |
+| `stage_lineage` | Always present. `null` unless a [stage hop](/reference/state-machine/#stage-hop) reached the run, under the rule of the `retrying[]` entries. |
+| `stage_position` | Always present. Where `rule_name` stands on its [stage chain](/reference/workflow-config/#stage-chains), or `null` when the rule is on no chain. See [dispatch time and stage position](#dispatch-time-and-stage-position). |
 | `configured_model` | The `model` this attempt's resolved settings carry, the model Sortie asked the agent to run. Omitted when none is configured, which leaves the choice to the runtime's own default. |
 | `configured_effort` | The `effort` this attempt's resolved settings carry. Omitted when none is configured. |
 | `api_request_count` | Count of LLM API requests, one per `token_usage` event received during this session. Integer or `null`, and `null` exactly when `api_requests_measured` is `false`. |
@@ -456,6 +500,17 @@ The same row on a session that has measured nothing, showing only the fields tha
 
 `model_name` and `requests_by_model` are absent from that row rather than empty. A `null` figure is the absence of a measurement, not a measurement of zero: a consumer aggregating figures across rows must skip a `null` rather than add it as `0`.
 
+A session that continues a CI fix adds these keys, and a session that continues no reaction has none of them:
+
+```json
+{
+  "reaction_kind": "ci",
+  "reaction_config_key": "ci_failure",
+  "reaction_attempt": 1,
+  "pull_request": {"number": 936, "repository": "acme/web"}
+}
+```
+
 #### Configured and reported model
 
 A running row carries two answers to "which model is this?". `configured_model` and `configured_effort` are what the attempt was asked to run. Sortie resolves them when the attempt starts: the agent kind's top-level block with the matching dispatch rule's block laid over it. They stay fixed for the session, and the next attempt of the same issue resolves them again from the workflow in force at that moment, so a retry after an edit to `WORKFLOW.md` can show different values. `model_name` is what the runtime reported running, taken from its token usage events.
@@ -476,11 +531,15 @@ The dashboard shows the same values as **Configured model**, **Configured effort
 | `issue_type` | The tracker's issue type. Omitted when empty or unread. Masked like the running row's. |
 | `issue_labels` | The issue's labels, lowercase and in the tracker's order. `[]` when the issue was read and carries none. Omitted while the retry holds no read of its labels, so an unread issue never reads as one without labels. Masked like the running row's. |
 | `state` | The tracker state of the issue. Omitted when empty or unread. Masked like the running row's. |
+| `dispatched_at` | When Sortie dispatched the first run of the pass the retry continues, in UTC. Always present; `null` when the pass cannot be dated. See [dispatch time and stage position](#dispatch-time-and-stage-position). |
 | `trigger` | The `sortie_retries_total` label of the schedule that created the retry: `error`, `continuation`, `timer`, `stall`, or `ci_fix`. See the [metrics reference](/reference/prometheus-metrics/#counters). Omitted for a review, bot review, merge conflict, or label command continuation, which `reaction_kind` names instead, and for a retry restored from a row stored by an earlier release until it next comes due. |
 | `reaction_kind` | The reaction behind the retry: `ci`, `review`, `bot-review`, `merge`, `merge-conflict`, `label-review`, `label-fix`, or `merge-completion`. Omitted when the retry carries none. An `error` or `stall` retry of a run that a reaction dispatched carries that run's kind, and a `timer` row keeps the kind of the retry it replaced. |
 | `reaction_config_key` | The key under [`reactions`](/reference/reactions/) in `WORKFLOW.md` that configures `reaction_kind`: `ci_failure`, `review_comments`, `bot_review`, `auto_merge`, `merge_conflicts`, `label_commands` (for both `label-review` and `label-fix`), or `merge_completion`. Omitted whenever `reaction_kind` is. |
 | `rule_name` | Name of the [dispatch rule](/reference/workflow-config/#dispatch) of the run the retry follows, frozen with the retry. Omitted when no rule routed that run. If the configuration in force no longer reaches that rule when the retry fires, the retry dispatches on another one. |
-| `stage_lineage` | Always present. `null` unless a [stage hop](/reference/state-machine/#stage-hop) reached the run the retry follows. Otherwise an object with `previous` (the rule whose hop reached the run), `previous_outcome` (`succeeded` or `no_change`), and `chain_id` (the [stage chain](/reference/workflow-config/#stage-chains) the run belongs to). Each member is omitted when empty. |
+| `agent_kind` | The agent kind of the run the retry follows. Omitted when empty. |
+| `configured_model` | The `model` that run's resolved settings carried. Omitted when none was set. |
+| `stage_lineage` | Always present. `null` unless a [stage hop](/reference/state-machine/#stage-hop) reached the run the retry follows. Otherwise an object with `previous` (the rule whose hop reached the run), `previous_outcome` (`succeeded` or `no_change`), and `chain_id` (the [stage chain](/reference/workflow-config/#stage-chains) the run belongs to). Each member is omitted when empty. Running and budget-exhausted entries serve the key under the same rule. |
+| `stage_position` | Always present. Where `rule_name` stands on its stage chain, or `null` when the rule is on no chain. See [dispatch time and stage position](#dispatch-time-and-stage-position). |
 | `paused` | Always present. `true` when the retry was last put back because its issue's state does not permit dispatching it, which is when `error` is `reaction retry paused by an open blocking issue` or `reaction retry paused by issue state`. |
 
 When a retry comes due and cannot start, Sortie puts it back with `trigger` set to `timer` and `error` set to the reason from the table below. The error of the run before it is not kept on the row; it stays in the logs and in that run's run history. A retry that has not yet come due still carries the error of the run that scheduled it.
@@ -499,7 +558,7 @@ When a retry comes due and cannot start, Sortie puts it back with `trigger` set 
 
 A retry that is rescheduled this way and advances its attempt waits the backoff delay of the new attempt number, per the [backoff formula](/reference/state-machine/#backoff-formula). A reaction retry that stays paused is eventually dropped; see the retry timer row of the [transition triggers](/reference/state-machine/#transition-triggers).
 
-A retry keeps the title, link, type, labels, and state it was scheduled with. Sortie stores them with the retry and restores them at startup, so a restart serves what was served before it. A retry stored by an earlier release has none of them until the next poll whose candidates include its issue, or until the retry next fires. A read never replaces a title or link the retry already holds.
+A retry keeps the title, link, type, labels, and state it was scheduled with. Sortie stores them with the retry and restores them at startup, so a restart serves what was served before it. A retry stored by an earlier release has none of them until the next poll whose candidates include its issue, or until the retry next fires. A read never replaces a title or link the retry already holds. The retry stores `configured_model` and `dispatched_at` the same way.
 
 **`budget_exhausted[]` entries:** Issues held out of dispatch by a per-issue budget ceiling ([`agent.max_sessions`](/reference/workflow-config/#agent) or [`agent.max_tokens`](/reference/workflow-config/#agent)).
 
@@ -514,6 +573,11 @@ A retry keeps the title, link, type, labels, and state it was scheduled with. So
 | `unmeasured_sessions` | Count of the issue's sessions whose agent reported no token usage. `null` exactly when `used_tokens` is `null`. |
 | `stopped_in_flight` | Count of the issue's sessions that the token ceiling stopped while they were running, recorded with status `budget_stopped`. `null` exactly when `used_tokens` is `null`. |
 | `exhausted_at` | When the hold began. |
+| `rule_name`, `agent_kind`, `configured_model` | The dispatch rule, agent kind, and model of the dispatch the hold blocks. Each omitted when empty. |
+| `stage_lineage`, `stage_position` | Always present. The lineage and chain position of the blocked dispatch, under the rules of the `retrying[]` entries and [dispatch time and stage position](#dispatch-time-and-stage-position). |
+| `dispatched_at` | When the first run of the blocked dispatch's pass was dispatched, in UTC. Always present; `null` when the hold has no dispatch context or its pass cannot be dated. |
+
+A hold found on a retry carries the retry's dispatch context, and a later poll keeps it. A hold the poll finds first takes its context from the target rule of a stage hop still waiting for its next dispatch, resolved from the configuration in force, and otherwise from the issue's latest agent run in run history, never from the tracker. A hold without a context is one for an issue with no agent run, or one whose run history read failed; it reads `null` for `dispatched_at`, `stage_lineage`, and `stage_position` and omits the other three keys until a later poll reads again.
 
 **`parked[]` entries:** Issues held out of dispatch until a person acts on them. The list is always present, `[]` when no issue is parked, and sorted by `issue_identifier`, then `issue_id`. `counts.parked` equals its length. An issue appears in every list that holds it, so a parked issue that also has a reaction continuation queued is in `parked` and `retrying` both. For how a park is recorded and lifted, see [agent communication](/concepts/agent-communication/).
 
@@ -537,6 +601,7 @@ A retry keeps the title, link, type, labels, and state it was scheduled with. So
 | `config_key` | The `reactions` key in `WORKFLOW.md` that configures the kind: `ci_failure`, `review_comments`, `bot_review`, `auto_merge`, `merge_conflicts`, `label_commands` (for both `label-review` and `label-fix`), or `merge_completion`. The kind's settings are at `config.reactions[config_key]` while the reaction is applied. |
 | `pull_request` | The pull request the reaction watches. Always present; keys below. |
 | `created_at` | When this process created the reaction, at the worker exit that seeded it or at the startup that rebuilt it, as an RFC 3339 timestamp in UTC. A wait for the retry slot does not change it. |
+| `dispatched_at` | When Sortie dispatched the first run of the pass of the run the reaction follows, in UTC. Always present; `null` when the pass cannot be dated. After a restart it comes from the run history row the reaction is rebuilt from. See [dispatch time and stage position](#dispatch-time-and-stage-position). |
 | `next_poll_at` | When the next check is due, in UTC. The check runs on the first reconcile pass at or after it, so a value at or before `generated_at` means the next pass checks the reaction. |
 | `wait` | Why the reaction waits for that check; see the table below. Omitted until a pass first returns the reaction to the pending set, because a reaction no pass has taken is due at once. |
 | `used_attempts` | Integer or `null`. What the kind counts; see the table below. `null` for `label-review` and `label-fix`, which count nothing. |
@@ -588,6 +653,33 @@ A retry keeps the title, link, type, labels, and state it was scheduled with. So
 | `merge` | Merge calls made. | `reactions.auto_merge.max_retries`, `null` at `0` |
 | `merge-completion` | Tracker transitions that failed. | `reactions.merge_completion.max_retries` |
 | `label-review`, `label-fix` | `null` | `null` |
+
+**`between_stages[]` entries:** Issues that a [stage hop](/reference/state-machine/#stage-hop) moved to their next stage and that no run has picked up yet. The list is always present, `[]` when no issue is between stages, and sorted by `issue_identifier`, then `issue_id`. `counts.between_stages` equals its length. An issue joins the list when its hop is made. It leaves when a run of the issue is dispatched, whichever way, or when a reset of the issue's hop count drops the hop. An issue with a running session or a queued retry is never listed, so no issue is in `between_stages` and in `running` or `retrying` at once; an issue is in every other list that holds it. The hop is stored in the database, so a restart serves the rows it served before.
+
+| Field | Description |
+|---|---|
+| `display_identifier` | Human-facing identifier when the tracker distinguishes it from `issue_identifier`. Omitted when empty. |
+| `issue_title`, `issue_url` | The tracker's title and web link, as read by the run that made the hop. Each omitted when empty. Masked like the running row's. |
+| `source_rule` | The rule whose run made the hop. |
+| `target_rule` | The rule the hop targeted. |
+| `target_label` | The stage label the hop added to the issue. |
+| `hopped_at` | When the hop was made, in UTC. |
+| `dispatched_at` | When Sortie dispatched the first run of the pass of the run that made the hop, in UTC. The next stage's run continues that pass. Always present; `null` when the pass cannot be dated. |
+
+#### Dispatch time and stage position
+
+`dispatched_at` is on running, retrying, budget-exhausted, pending reaction, and between-stages entries, and always present. It is when Sortie dispatched the first run of the issue's current pass. A pass is the runs of one issue that share a stage chain identifier: a dispatch that no stage hop reached starts one, and a retry, a reaction continuation, the next stage of a hop, and a restart continue it. The value therefore stays fixed across those events, where a running row's `started_at` is the start of the session in flight. It is `null` where Sortie cannot date the pass: a retry or hop stored without a stage chain identifier, a pass with no agent run in run history, and a budget-exhausted entry with no dispatch context. Rows dispatched in one poll tick can share a value, so `issue_identifier`, then `issue_id`, order them further.
+
+`stage_position` is on running, retrying, and budget-exhausted entries, and always present. It is `null` exactly when the entry's rule is on no stage chain, so every entry of a workflow without stage chains serves `null`. Otherwise it is an object:
+
+| Field | Description |
+|---|---|
+| `chain` | The chain's rule names in `next` order, equal to a member of `config.dispatch.chains`. When several chains hold the rule, the first one that lists `stage_lineage.previous` immediately before it, and otherwise the first that holds the rule. |
+| `current` | The entry's rule. A chain's first rule is included, so an issue on a chain's first stage serves a `stage_position` object beside a `null` `stage_lineage`. |
+| `hop_count` | The issue's consecutive automatic hops. `0` when the issue has no hop record. |
+| `hop_ceiling` | The limit on consecutive hops, as `config.dispatch.hop_ceiling` reports it. |
+
+`chain` and `hop_ceiling` follow the configuration as of the latest poll tick, as a running row's `budget_tokens` does, while `rule_name` and `stage_lineage` stay as they were when the dispatch was selected. After a reload removes the rule from every chain, the entry serves `null` and keeps its `rule_name`.
 
 **`agent_totals`:** Cumulative across all sessions since Sortie's database was created, carried over when Sortie restarts; a session whose coding agent has reported no token usage, running or completed, adds nothing to its five token counts. `seconds_running` includes elapsed time from currently active sessions, not only completed ones. Three further fields disclose, by reason, how many sessions those counts leave out:
 
@@ -651,7 +743,7 @@ Most members follow the last successful load of `WORKFLOW.md`; a reload that fai
 | `token_rates.<kind>.input_per_mtok`, `output_per_mtok`, `cache_read_per_mtok`, `cache_write_per_mtok` | Number, or `null` when the rate is not set or was rejected as invalid. An unset cache rate prices that token class at the input rate; `config` serves the configured `null`, not the substituted rate. |
 | `token_rates.<kind>.complete` | `true` exactly when `input_per_mtok` and `output_per_mtok` are both set, which is the condition for pricing a session of the kind. |
 
-A running or retry row records its `rule_name`, its `stage_lineage.previous`, and its `reaction_config_key` when the run was dispatched or the row was stored, while `config` follows the rules above. A row can therefore name a rule or reaction that `config` no longer holds: after a reload that renames or removes a rule, after a restart on an edited file for a restored retry, or, for a row whose `rule_name` is `default`, once `dispatch.default` reads `null`. Read such a row from its own fields.
+A running, retry, or budget-exhausted row records its `rule_name` and its `stage_lineage.previous`, and a running or retry row its `reaction_config_key`, when the run was dispatched or the row was stored, while `config` follows the rules above. A row can therefore name a rule or reaction that `config` no longer holds: after a reload that renames or removes a rule, after a restart on an edited file for a restored retry, or, for a row whose `rule_name` is `default`, once `dispatch.default` reads `null`. Read such a row from its own fields.
 
 ### Status codes
 
@@ -706,6 +798,7 @@ curl http://localhost:7678/api/v1/MT-649
     "last_event": "turn_completed",
     "last_message": "Working on tests",
     "started_at": "2026-03-26T14:10:12Z",
+    "dispatched_at": "2026-03-26T13:41:08Z",
     "last_event_at": "2026-03-26T14:29:59Z",
     "workspace_path": "/tmp/sortie_workspaces/MT-649",
     "tokens": {
@@ -717,6 +810,8 @@ curl http://localhost:7678/api/v1/MT-649
     },
     "model_name": "<model-id-reported-by-the-agent>",
     "rule_name": "bugfix",
+    "stage_lineage": null,
+    "stage_position": null,
     "configured_model": "claude-sonnet-4-5",
     "configured_effort": "medium",
     "workflow_file": "WORKFLOW.md",
@@ -749,6 +844,7 @@ curl http://localhost:7678/api/v1/MT-649
   "budget_exhausted": null,
   "parked": null,
   "pending_reactions": [],
+  "between_stages": null,
   "recent_events": [],
   "last_error": null,
   "tracked": {}
@@ -785,17 +881,31 @@ When an issue is in the retry queue rather than actively running, `status` is `"
     "issue_type": "Task",
     "issue_labels": ["export"],
     "state": "In Progress",
+    "dispatched_at": "2026-03-26T14:02:41Z",
     "attempt": 3,
     "due_at": "2026-03-26T14:35:00Z",
     "error": "no available orchestrator slots",
     "trigger": "timer",
-    "rule_name": "bugfix",
-    "stage_lineage": null,
+    "rule_name": "implement",
+    "agent_kind": "claude-code",
+    "configured_model": "claude-sonnet-4-5",
+    "stage_lineage": {
+      "chain_id": "7q2m4x9b1k5d8f3h6j0n2p4rst",
+      "previous": "specify",
+      "previous_outcome": "succeeded"
+    },
+    "stage_position": {
+      "chain": ["specify", "implement"],
+      "current": "implement",
+      "hop_count": 1,
+      "hop_ceiling": 10
+    },
     "paused": false
   },
   "budget_exhausted": null,
   "parked": null,
   "pending_reactions": [],
+  "between_stages": null,
   "recent_events": [],
   "last_error": "no available orchestrator slots",
   "tracked": {}
@@ -833,6 +943,7 @@ When an issue has neither a running session nor a pending retry, but is held out
     "issue_type": "Task",
     "issue_labels": [],
     "state": "In Progress",
+    "dispatched_at": "2026-03-26T13:31:07Z",
     "reason": "session_budget",
     "used_sessions": 3,
     "budget_sessions": 3,
@@ -840,10 +951,15 @@ When an issue has neither a running session nor a pending retry, but is held out
     "budget_tokens": 0,
     "unmeasured_sessions": null,
     "stopped_in_flight": null,
-    "exhausted_at": "2026-03-26T14:12:00Z"
+    "exhausted_at": "2026-03-26T14:12:00Z",
+    "stage_lineage": null,
+    "stage_position": null,
+    "agent_kind": "claude-code",
+    "configured_model": "claude-sonnet-4-5"
   },
   "parked": null,
   "pending_reactions": [],
+  "between_stages": null,
   "recent_events": [],
   "last_error": null,
   "tracked": {}
@@ -884,6 +1000,7 @@ When an issue has no running session, no pending retry, and no budget hold, but 
     "parked_at": "2026-03-26T14:05:00Z"
   },
   "pending_reactions": [],
+  "between_stages": null,
   "recent_events": [],
   "last_error": null,
   "tracked": {}
@@ -928,6 +1045,7 @@ When an issue has no running session, no pending retry, no budget hold, and is n
         "head_sha": "c0ffee1d2e3f405162738495a6b7c8d9e0f1a2b3"
       },
       "created_at": "2026-03-26T14:20:00Z",
+      "dispatched_at": "2026-03-26T14:06:52Z",
       "next_poll_at": "2026-03-26T14:31:00Z",
       "wait": "poll_interval",
       "used_attempts": 0,
@@ -940,6 +1058,47 @@ When an issue has no running session, no pending retry, no budget hold, and is n
       }
     }
   ],
+  "between_stages": null,
+  "recent_events": [],
+  "last_error": null,
+  "tracked": {}
+}
+```
+
+### Response (issue between stages)
+
+When an issue has no running session, no pending retry, no budget hold, is not parked, and has no pending reaction, but a stage hop moved it to its next stage and no run has been dispatched since, `status` is `"between_stages"`, `running`, `retry`, `budget_exhausted`, and `parked` are all `null`, and `between_stages` is populated:
+
+```json
+{
+  "issue_identifier": "MT-655",
+  "issue_id": "stu901",
+  "status": "between_stages",
+  "issue": {
+    "title": "Plan the export schema",
+    "url": "https://tracker.example.com/browse/MT-655"
+  },
+  "workspace": null,
+  "attempts": {
+    "restart_count": 0,
+    "current_retry_attempt": 0
+  },
+  "running": null,
+  "retry": null,
+  "budget_exhausted": null,
+  "parked": null,
+  "pending_reactions": [],
+  "between_stages": {
+    "issue_id": "stu901",
+    "issue_identifier": "MT-655",
+    "issue_title": "Plan the export schema",
+    "issue_url": "https://tracker.example.com/browse/MT-655",
+    "source_rule": "specify",
+    "target_rule": "implement",
+    "target_label": "stage-implement",
+    "hopped_at": "2026-03-26T14:28:15Z",
+    "dispatched_at": "2026-03-26T14:03:41Z"
+  },
   "recent_events": [],
   "last_error": null,
   "tracked": {}
@@ -950,16 +1109,17 @@ When an issue has no running session, no pending retry, no budget hold, and is n
 
 | Field | Description |
 |---|---|
-| `status` | One of `"running"`, `"retrying"`, `"budget_exhausted"`, `"parked"`, or `"pending_reactions"`. Derived from which set the issue appears in; `running` takes precedence over `retrying`, which takes precedence over `budget_exhausted`, which takes precedence over `parked`, which takes precedence over `pending_reactions`. |
-| `issue` | The tracker's view of the issue, taken from whichever entry decides `status`. Present on every `200` response. Its members use the names of the [`.issue` template variable](/reference/workflow-config/#issue): `title`, `url`, `issue_type`, `labels`, and `state`. Each is omitted when that entry holds none, so the object is `{}` when it holds none of them. `labels` is `[]` when the entry was read and the issue carries none, and omitted when the entry holds no read of the labels. Masked like the running row's `issue_title`. For `running`, `retrying`, and `budget_exhausted` the members come from the entry's `issue_title`, `issue_url`, `issue_type`, `issue_labels`, and `state`. For `parked` they are `title` and `url` of the parked entry and `state` from its `parked_state`. For `pending_reactions` they are `title` and `url` of the issue's first row. |
-| `workspace` | Contains `path` when the issue has an active workspace. `null` for retrying, budget-exhausted, parked, and pending-reaction issues, or when the workspace path is unknown. |
+| `status` | One of `"running"`, `"retrying"`, `"budget_exhausted"`, `"parked"`, `"pending_reactions"`, or `"between_stages"`. Derived from which set the issue appears in; `running` takes precedence over `retrying`, which takes precedence over `budget_exhausted`, which takes precedence over `parked`, which takes precedence over `pending_reactions`, which takes precedence over `between_stages`. |
+| `issue` | The tracker's view of the issue, taken from whichever entry decides `status`. Present on every `200` response. Its members use the names of the [`.issue` template variable](/reference/workflow-config/#issue): `title`, `url`, `issue_type`, `labels`, and `state`. Each is omitted when that entry holds none, so the object is `{}` when it holds none of them. `labels` is `[]` when the entry was read and the issue carries none, and omitted when the entry holds no read of the labels. Masked like the running row's `issue_title`. For `running`, `retrying`, and `budget_exhausted` the members come from the entry's `issue_title`, `issue_url`, `issue_type`, `issue_labels`, and `state`. For `parked` they are `title` and `url` of the parked entry and `state` from its `parked_state`. For `pending_reactions` they are `title` and `url` of the issue's first row, and for `between_stages` those of the issue's row. |
+| `workspace` | Contains `path` when the issue has an active workspace. `null` for retrying, budget-exhausted, parked, pending-reaction, and between-stages issues, or when the workspace path is unknown. |
 | `attempts.restart_count` | How many times this issue has been restarted (attempt minus one, floored at zero). |
-| `attempts.current_retry_attempt` | The current attempt number. `0` for running, budget-exhausted, parked, and pending-reaction issues that have no pending retry. |
+| `attempts.current_retry_attempt` | The current attempt number. `0` for running, budget-exhausted, parked, pending-reaction, and between-stages issues that have no pending retry. |
 | `running` | Full running entry (same shape as entries in `/api/v1/state`), or `null`. |
 | `retry` | Full retry entry (same shape as entries in the `retrying` array on `/api/v1/state`), or `null`. |
 | `budget_exhausted` | Full budget-exhausted entry (same shape as entries in the `budget_exhausted` array on `/api/v1/state`), or `null`. |
 | `parked` | Full parked entry (same shape as entries in the `parked` array on `/api/v1/state`), or `null`. Always present. Populated whenever the issue is parked, whatever `status` reads. |
 | `pending_reactions` | The issue's rows in the record shape and order of the `pending_reactions` array on `/api/v1/state`, `[]` when it has none. Always present, whatever `status` reads. |
+| `between_stages` | Full between-stages entry (same shape as entries in the `between_stages` array on `/api/v1/state`), or `null`. Always present. Populated whenever the issue is between stages, whatever `status` reads. |
 | `recent_events` | Reserved for future use. Currently an empty array. |
 | `last_error` | The `error` of the issue's retry entry, or `null` when it has none. After a reschedule this is the reschedule reason. |
 | `tracked` | Reserved for future use. Currently an empty object. |
@@ -969,7 +1129,7 @@ When an issue has no running session, no pending retry, no budget hold, and is n
 | Code | Meaning |
 |---|---|
 | `200 OK` | Issue found and returned. |
-| `404 Not Found` | Identifier not present in the running set, the retry queue, the budget-exhausted set, the parked set, or the pending reactions. The issue may have completed, or it may not exist. |
+| `404 Not Found` | Identifier not present in the running set, the retry queue, the budget-exhausted set, the parked set, the pending reactions, or the issues between stages. The issue may have completed, or it may not exist. |
 | `503 Service Unavailable` | Orchestrator state snapshot could not be produced. |
 
 ---

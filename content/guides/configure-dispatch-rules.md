@@ -463,6 +463,7 @@ Run `sortie validate WORKFLOW.md`, start Sortie, and label a test issue `stage-s
 
 - The issue carries `stage-implement` instead of `stage-specify` and is still in its active state.
 - The log has a `stage hop made` record with `source_rule=specify`, `target_rule=implement`, and the `hop_count`. Within one poll interval, the next run's `issue dispatched` record carries `rule_name=implement`.
+- From the hop until that run is dispatched, `GET /api/v1/{identifier}` answers for the issue with `status` `between_stages`, and `GET /api/v1/state` lists it under `between_stages`. Once the run is going, its entry has a `stage_position` with `current` `implement` and `hop_count` `1`. The [HTTP API reference](/reference/http-api/#get-apiv1identifier-issue-detail) defines the keys.
 - The dashboard's [run history](/reference/dashboard/#run-history-table) shows the rule, chain, and stage of each run, and [`sortie stats`](/reference/cli/#stats) groups runs by chain.
 
 To be told about every hop, add `stage.advanced` and `stage.not_advanced` to the `events` list of a [notification entry](/reference/workflow-config/#event-catalog). No entry receives them unless it lists them.

@@ -213,7 +213,7 @@ A hop that is made:
 3. Cancels the issue's queued retry, including its persisted entry, and its pending reactions, and releases the claim. The run that hopped seeds no new reaction.
 4. Removes every other configured stage label the issue carried when the run was dispatched.
 
-The hop writes no tracker state. The issue stays in its active state, `tracker.handoff_state` and `tracker.no_change_state` are not written, and `sortie_handoff_transitions_total` is not incremented. The next stage's dispatch performs the in-progress write like any dispatch.
+The hop writes no tracker state. The issue stays in its active state, `tracker.handoff_state` and `tracker.no_change_state` are not written, and `sortie_handoff_transitions_total` is not incremented. The next stage's dispatch performs the in-progress write like any dispatch. From the hop until a run of the issue is dispatched, the [status API](/reference/http-api/#get-apiv1state-system-state) lists the issue under `between_stages`; the stored hop record keeps that listing across a restart.
 
 The run that reaches a hop decision records the target rule and one of these results on its run history row:
 
