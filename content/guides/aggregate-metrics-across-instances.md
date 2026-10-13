@@ -1,7 +1,7 @@
 ---
 title: "How to Aggregate Metrics Across Multiple Sortie Instances"
 linkTitle: "Aggregate Across Instances"
-description: "See dispatch, token, and cost figures across every Sortie process you run using Prometheus federation or the sortie stats export pipe. No new Sortie feature required."
+description: "See dispatch, token, and cost figures across every Sortie process you run using Prometheus federation or the sortie stats report, from the command line or over HTTP. No new Sortie feature required."
 author: Sortie AI
 date: 2026-08-08
 weight: 175
@@ -76,6 +76,16 @@ done
 
 Run it from cron, a systemd timer, or whatever already schedules jobs in your environment. There is no Sortie feature involved past emitting the document. Scheduling, retries, and authenticating to your endpoint (add a header or query parameter to the `curl` call) are entirely your responsibility, the same as any script you write yourself.
 
+To collect without shell access to the host, request the same document from the instance's HTTP server. [`GET /api/v1/stats`](/reference/http-api/#get-apiv1stats-run-statistics) takes `since` and `until` with the same values as the flags:
+
+```sh
+curl -sS 'http://localhost:7678/api/v1/stats?since=24h' \
+  | curl -sS -X POST -H 'Content-Type: application/json' --data-binary @- \
+      https://metrics.internal.example/sortie
+```
+
+The server listens on `127.0.0.1` unless you set `--host`, so a collector on another machine needs an address it can reach. The body carries `workflow_path` and `db_path` and applies no masking, so expose the port only to collectors you trust. The route prices runs with the `token_rates` the process started with, and the command reads the workflow file on each run, so the two differ after an edit until the restart.
+
 A few fields in the envelope matter to whatever receives it:
 
 | Field | Why it matters |
@@ -105,6 +115,7 @@ Neither mechanism turns your fleet into a managed system. Each instance still se
 - [Monitor with Prometheus](/guides/monitor-with-prometheus/) for single-instance scrape setup, alerting queries, and the shipped dashboard
 - [Prometheus metrics reference](/reference/prometheus-metrics/) for every metric, label, and PromQL example
 - [`sortie stats` CLI reference](/reference/cli/#stats) for every flag, field, and exit code of the command behind the export pipe
+- [`GET /api/v1/stats`](/reference/http-api/#get-apiv1stats-run-statistics) for the route that serves the same document over HTTP
 - [Control agent costs](/guides/control-costs/#monitor-spending) for the other places cost and token figures surface
 - [Architecture](/concepts/architecture/#what-sortie-does-not-do) for why cross-instance aggregation does not conflict with the single-tenant design
 - [Security model](/concepts/security/#outbound-data-posture) for what Sortie does and does not send off the host on its own initiative

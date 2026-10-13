@@ -1665,7 +1665,7 @@ Per-adapter token pricing for cost estimation on the [dashboard](/reference/dash
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `token_rates` | map | _(absent)_ | Top-level extension key. Keys are agent adapter kind strings. With rates configured, the dashboard shows estimated cost, the [JSON API](/reference/http-api/#get-apiv1state-system-state) prices each running session and its issue, and the [`sortie stats`](/reference/cli/#stats) subcommand prices the runs it aggregates from run history. When absent or empty, the dashboard shows raw token counts without cost estimates, the JSON API reads `unpriced` for every measured running session, and `sortie stats` reports no cost figures. |
+| `token_rates` | map | _(absent)_ | Top-level extension key. Keys are agent adapter kind strings. With rates configured, the dashboard shows estimated cost, the [JSON API](/reference/http-api/#get-apiv1state-system-state) prices each running session and its issue, and the [`sortie stats`](/reference/cli/#stats) subcommand and [`GET /api/v1/stats`](/reference/http-api/#get-apiv1stats-run-statistics) price the runs they aggregate from run history. When absent or empty, the dashboard shows raw token counts without cost estimates, the JSON API reads `unpriced` for every measured running session, and `sortie stats` and `GET /api/v1/stats` report no cost figures. |
 | `token_rates.<kind>.input_per_mtok` | number | _(not set)_ | USD per million fresh input tokens, and the fallback rate for either cache class when its rate is omitted. Required with `output_per_mtok` for this kind to produce cost estimates. |
 | `token_rates.<kind>.output_per_mtok` | number | _(not set)_ | USD per million output tokens. Required with `input_per_mtok` for this kind to produce cost estimates. |
 | `token_rates.<kind>.cache_read_per_mtok` | number | `input_per_mtok` | USD per million cache-read tokens. |
@@ -1688,9 +1688,9 @@ Validation rules:
 - An entry missing `input_per_mtok` or `output_per_mtok` produces a warning and prices nothing.
 - An entry keyed to the empty string is dropped with a warning. It prices no kind.
 
-These warnings are configuration advisories under the `token_rates` check. They appear in `sortie validate` without changing `valid` or the exit status, in a dry run, and once per applicable configuration in the running orchestrator's log. `sortie stats` also includes the warnings in its report because they affect which runs it can price.
+These warnings are configuration advisories under the `token_rates` check. They appear in `sortie validate` without changing `valid` or the exit status, in a dry run, and once per applicable configuration in the running orchestrator's log. `sortie stats` and `GET /api/v1/stats` also include the warnings in their report because they affect which runs they can price.
 
-Token rates do not reload dynamically. Changes require a process restart, consistent with `server.port` and `server.host`.
+Token rates do not reload dynamically. Changes require a process restart, consistent with `server.port` and `server.host`. `GET /api/v1/stats` prices at the rates the process started with, while `sortie stats` reads the workflow file on each run, so after an edit the two price differently until the restart.
 
 ```yaml
 token_rates:

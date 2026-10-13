@@ -1119,6 +1119,153 @@ A poll tick that dispatches the issue again clears the outcome, so `issue_outcom
 
 ---
 
+## GET /api/v1/stats: Run statistics
+
+Returns the report that [`sortie stats --format json`](/reference/cli/#stats) prints: run and issue counts, success rate, duration percentiles, token sums, and estimated cost over the runs completed in a range, with breakdowns by outcome, coding agent, dispatch rule, prompt template, configured model, stage chain, and retry trigger. The route and the command share one aggregation, so for one database and absolute bounds the two bodies differ only in `generated_at`, apart from the pricing difference [described below](#pricing-and-reload).
+
+```sh
+curl 'http://localhost:7678/api/v1/stats?since=24h'
+```
+
+### Query parameters
+
+Every parameter is optional. An empty value is the same as an absent one, and an absent bound is open, so a request without parameters covers every run on record.
+
+| Parameter | Value | Selects |
+|---|---|---|
+| `since` | A range bound | Runs completed at or after it. |
+| `until` | A range bound | Runs completed before it. When both bounds are given, `since` must be before `until`. |
+
+A range bound is one of:
+
+| Form | Example | Meaning |
+|---|---|---|
+| RFC 3339 timestamp, any UTC offset | `2026-07-01T00:00:00Z` | That instant. |
+| Calendar date | `2026-07-01` | `00:00:00Z` on that date. |
+| Positive Go duration | `24h`, `90m` | That long before the instant of the request. |
+
+A timestamp without an offset, a zero or negative duration, a duration in days such as `7d`, and any other text are malformed. These are the values `sortie stats` takes for `--since` and `--until`; the `since` and `until` of [`GET /api/v1/runs`](#get-apiv1runs-run-history) accept RFC 3339 timestamps only.
+
+Sortie checks every parameter before it reads anything, so a malformed request never returns an unbounded report in place of a bounded one.
+
+### Response
+
+The body is compact JSON with the shape of the command's `--format json` output. [Output formats](/reference/cli/#output-formats) in the CLI reference defines every field, including `summary.issues` and `by_trigger`. The example is trimmed to the `by_status` and `by_trigger` breakdowns; the other breakdowns have the same shape.
+
+```json
+{
+  "generated_at": "2026-02-01T09:00:00Z",
+  "workflow_path": "/srv/sortie/WORKFLOW.md",
+  "db_path": "/srv/sortie/.sortie.db",
+  "since": "2026-01-01T00:00:00Z",
+  "until": "2026-02-01T00:00:00Z",
+  "schema_tier": "full",
+  "warnings": [],
+  "summary": {
+    "runs": 6,
+    "issues": 5,
+    "succeeded": 3,
+    "success_rate": 0.5,
+    "duration_seconds": {"p50": 1200, "p95": 1800, "mean": 1200, "samples": 3},
+    "mean_turns_succeeded": 4,
+    "tokens": {"input": 3900000, "output": 760000, "total": 4660000, "cache_read": 50000, "cache_write": 10000},
+    "cost_usd": 19.52,
+    "cost_per_succeeded_run_usd": 6.51,
+    "zero_duration_runs": 1,
+    "duration_excluded_runs": 1,
+    "cost_unpriced_runs": 1,
+    "tokens_unmeasured_runs": 1
+  },
+  "by_status": [
+    {
+      "name": "succeeded",
+      "runs": 3,
+      "succeeded": 3,
+      "success_rate": 1,
+      "share": 0.5,
+      "duration_seconds": {"p50": 1200, "p95": 1800, "mean": 1200, "samples": 3},
+      "mean_turns": 4,
+      "tokens": {"input": 3500000, "output": 700000, "total": 4200000, "cache_read": 50000, "cache_write": 10000},
+      "cost_usd": 17.87,
+      "cost_per_succeeded_run_usd": 5.96,
+      "tokens_unmeasured_runs": 0
+    }
+  ],
+  "by_trigger": [
+    {
+      "name": "<unknown>",
+      "runs": 4,
+      "succeeded": 2,
+      "success_rate": 0.5,
+      "share": 0.6667,
+      "duration_seconds": {"p50": 600, "p95": 1200, "mean": 700, "samples": 3},
+      "mean_turns": 2.5,
+      "tokens": {"input": 1800000, "output": 350000, "total": 2150000, "cache_read": 50000, "cache_write": 10000},
+      "cost_usd": 7.52,
+      "cost_per_succeeded_run_usd": 3.76,
+      "tokens_unmeasured_runs": 1
+    },
+    {
+      "name": "<none>",
+      "runs": 1,
+      "succeeded": 0,
+      "success_rate": 0,
+      "share": 0.1667,
+      "duration_seconds": {"p50": 0, "p95": 0, "mean": 0, "samples": 1},
+      "mean_turns": 0,
+      "tokens": {"input": 100000, "output": 10000, "total": 110000, "cache_read": 0, "cache_write": 0},
+      "cost_usd": null,
+      "cost_per_succeeded_run_usd": null,
+      "tokens_unmeasured_runs": 0
+    },
+    {
+      "name": "ci_fix",
+      "runs": 1,
+      "succeeded": 1,
+      "success_rate": 1,
+      "share": 0.1667,
+      "duration_seconds": {"p50": 1800, "p95": 1800, "mean": 1800, "samples": 1},
+      "mean_turns": 5,
+      "tokens": {"input": 2000000, "output": 400000, "total": 2400000, "cache_read": 0, "cache_write": 0},
+      "cost_usd": 12,
+      "cost_per_succeeded_run_usd": 12,
+      "tokens_unmeasured_runs": 0
+    }
+  ]
+}
+```
+
+`since` and `until` echo the resolved bounds in UTC, `null` when open. `generated_at` is the instant of the request, and a duration bound counts back from it.
+
+### Pricing and reload
+
+The route prices runs with the [`token_rates`](/reference/workflow-config/#token_rates) the process started with, the same rates `config.token_rates` of [`GET /api/v1/state`](#get-apiv1state-system-state) serves, and `warnings` lists the advisories of those rates. `sortie stats` reads the workflow file each time it runs. After an edit of `token_rates`, the command and the route therefore price differently until the process restarts.
+
+Each request opens its own read-only connection to the database and closes it once the report is built. It never uses the connection the orchestrator holds, so a report over a long history does not delay the orchestrator's writes. The scan covers every run in the range, so a request without bounds on a long history takes longer than a bounded one.
+
+### Exposure
+
+The route applies no masking. The body holds no issue titles, error text, or agent output. It holds the host paths `workflow_path` and `db_path`, the issue identifier of each `by_chain` entry, and the rule, template, and model names your workflow defines. A template name can be a path. Anyone who can reach the port can read them.
+
+### Status codes
+
+| Code | Error code | Meaning |
+|---|---|---|
+| `200 OK` | | Report returned, including a report over a range that holds no runs. |
+| `400 Bad Request` | `invalid_parameter` | A parameter other than `since` and `until`, a parameter given more than once, a value that is not a range bound, or `since` not before `until`. No run is read. |
+| `405 Method Not Allowed` | `method_not_allowed` | Any method other than `GET`. |
+| `503 Service Unavailable` | `history_unavailable` | The database could not be opened or read. |
+
+The message of a `400` names the parameter and the rule:
+
+```json
+{"error": {"code": "invalid_parameter", "message": "parameter \"since\" must be an RFC 3339 timestamp, a date such as 2026-07-01, or a positive duration such as 24h"}}
+```
+
+A parameter that is not a range bound reads `parameter "<name>" is not a parameter of this route`, a repeated one `parameter "<name>" is given more than once`, and a misordered pair `parameter "since" must be before until`. The text differs from the error `sortie stats` prints for the same value. A client that disconnects during the read gets no response, and the read stops.
+
+---
+
 ## GET /api/v1/{identifier}: Issue detail
 
 Returns issue-specific runtime and debug details, and the issue's run history. The `{identifier}` path parameter is the issue identifier (e.g., `MT-649`), not the internal issue ID. An issue that is no longer active is answered from run history.
@@ -1130,6 +1277,8 @@ curl http://localhost:7678/api/v1/MT-649
 ### Lookup by identifier
 
 The path identifier is matched against live entries first. When none carries it, Sortie reads the newest run recorded under that identifier and takes the issue ID from it. If a live entry carries that issue ID, the response is that entry's live detail, with `issue_identifier` set to the identifier the entry carries now. This finds an issue the tracker renamed. `history` always covers the issue by its ID, so runs recorded under an earlier identifier stay in it.
+
+The fixed paths `/api/v1/state`, `/api/v1/runs`, `/api/v1/stats`, and `/api/v1/refresh` take precedence over this route, so an issue whose identifier is one of `state`, `runs`, `stats`, or `refresh` cannot be read here.
 
 Every `200` response carries `history`. The running and finished examples show it in full; the other examples omit it to keep the members that differ by status in view.
 
@@ -2011,9 +2160,9 @@ All JSON API errors use a consistent structure:
 | Code | HTTP Status | Meaning |
 |---|---|---|
 | `issue_not_found` | 404 | Neither the current state nor run history holds the requested issue identifier. |
-| `invalid_parameter` | 400 | `GET /api/v1/runs` rejected a query parameter, or a misordered pair of bounds. The message names the parameter and the rule. |
+| `invalid_parameter` | 400 | `GET /api/v1/runs` or `GET /api/v1/stats` rejected a query parameter, or a misordered pair of bounds. The message names the parameter and the rule. |
 | `snapshot_unavailable` | 503 | The orchestrator could not produce a state snapshot. |
-| `history_unavailable` | 503 | Run history or the issue outcomes could not be read. |
+| `history_unavailable` | 503 | Run history or the issue outcomes could not be read, or the database behind `GET /api/v1/stats` could not be opened or read. |
 | `method_not_allowed` | 405 | The HTTP method is not supported on this endpoint. |
 | `internal_error` | 500 | Unexpected server error (e.g., JSON serialization failure). |
 
@@ -2045,6 +2194,7 @@ The response includes the header `Allow: GET` (or `Allow: POST` for the refresh 
 | GET | `/readyz` | Readiness probe | `application/json` |
 | GET | `/api/v1/state` | Full system state snapshot | `application/json` |
 | GET | `/api/v1/runs` | Run history, newest first, filtered and paged | `application/json` |
+| GET | `/api/v1/stats` | Run statistics over a completion-time range | `application/json` |
 | GET | `/api/v1/{identifier}` | Per-issue detail and run history | `application/json` |
 | POST | `/api/v1/refresh` | Trigger immediate poll cycle | `application/json` |
 | GET | `/metrics` | Prometheus metrics | `text/plain` |
