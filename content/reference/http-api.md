@@ -287,6 +287,7 @@ curl http://localhost:7678/api/v1/state
       "used_attempts": 2,
       "max_attempts": 2,
       "escalated_at": "2026-03-26T14:26:40Z",
+      "watch_ends_at": "2026-03-27T14:26:40Z",
       "last_check": {
         "observed_at": "2026-03-26T14:26:40Z",
         "head_sha": "9b7e3d1c0a2f4e6b8d0c1a3e5f7b9d2c4e6a8f0b",
@@ -332,6 +333,7 @@ curl http://localhost:7678/api/v1/state
       "used_attempts": 1,
       "max_attempts": 3,
       "escalated_at": null,
+      "watch_ends_at": "2026-03-26T14:39:30Z",
       "last_check": {
         "observed_at": "2026-03-26T14:29:58Z",
         "actionable_comments": 3,
@@ -450,6 +452,15 @@ curl http://localhost:7678/api/v1/state
     "reactions": {
       "ci_failure": {
         "max_retries": 2,
+        "triage": false,
+        "escalation": "label",
+        "escalation_label": "needs-human"
+      },
+      "review_comments": {
+        "max_continuation_turns": 3,
+        "debounce_ms": 60000,
+        "poll_interval_ms": 120000,
+        "triage": false,
         "escalation": "label",
         "escalation_label": "needs-human"
       },
@@ -457,7 +468,15 @@ curl http://localhost:7678/api/v1/state
         "max_continuation_turns": 5,
         "poll_interval_ms": 60000,
         "bot_usernames": ["review-bot"],
+        "triage": false,
         "escalation": "none"
+      },
+      "merge_conflicts": {
+        "max_retries": 1,
+        "poll_interval_ms": 60000,
+        "triage": false,
+        "escalation": "label",
+        "escalation_label": "needs-human"
       },
       "auto_merge": {
         "strategy": "squash",
@@ -707,6 +726,7 @@ Pending reactions live in memory only. After a restart Sortie rebuilds them from
 | `used_attempts` | Integer or `null`. What the kind counts; see the table below. `null` for `label-review` and `label-fix`, which count nothing. |
 | `max_attempts` | Integer or `null`. The budget the kind's pass applies, as of the latest poll tick. `null` when the pass applies none: for `label-review` and `label-fix`, and for `merge` when `max_retries` is `0`. |
 | `escalated_at` | String or `null`. When the reaction escalated for its current head, in UTC. Always present. Only `ci` stays pending after it escalates, so for every other kind the value is `null` for as long as the row exists. A change of the pull request head clears it. When `config.reactions[config_key].escalation` is `"label"`, the label an escalation applies is that block's `escalation_label`. |
+| `watch_ends_at` | String or `null`. When the reaction stops watching the pull request unless its watch restarts first, in UTC: the kind's `watch_window_ms`, as the process applies it, added to the instant the kind measures the window from. Always present. `ci` measures from when it last recorded a new head commit, or from `created_at` while it has recorded none, so a new head moves the value. `review`, `bot-review`, and `merge-conflict` measure from their latest wait for the retry slot, which restarts the watch, or from `created_at` when they have not waited. `merge` measures from `created_at`. `null` for `merge-completion`, `label-review`, and `label-fix`, which have no watch window, and when `watch_window_ms` is `0`. |
 | `last_check` | Object or `null`. What the latest completed check observed; keys below. Always present. `null` before the first check completes, and always `null` for `merge`, `merge-completion`, `label-review`, and `label-fix`. A new result replaces the previous one. For `ci` it is cleared when the head changes. |
 | `rule_name` | Name of the [dispatch rule](/reference/workflow-config/#dispatch) of the run the reaction follows. Omitted when no rule routed that run. |
 | `agent_kind` | The agent kind of the run the reaction follows. Omitted when empty. |
@@ -743,7 +763,7 @@ Pending reactions live in memory only. After a restart Sortie rebuilds them from
 | `poll_interval` | The check completed and the reaction keeps watching, because there was nothing to act on yet or it has already acted for this subject. The next check follows the kind's poll cadence. |
 | `debounce` | `review` only. The check found actionable comments within `debounce_ms` of the newest one. `next_poll_at` ends the window. |
 | `backoff` | The check could not complete: a provider, tracker, or store call failed, or the provider answered without a value the check needs. The reaction retries with backoff. |
-| `retry_slot` | The pass found work to dispatch while another retry holds the issue's retry slot. For `merge-completion`, the issue is claimed. |
+| `retry_slot` | The pass found work to dispatch while another retry holds the issue's retry slot. For `merge-completion`, the issue is claimed. For `label-review` and `label-fix`, also while a session of another kind runs for the issue: the confirmed command waits for it to end. |
 | `triage` | The reaction waits on its [triage command](/reference/reactions/#triage-command): a run for the current subject is in flight or was just started. |
 
 `used_attempts` and `max_attempts` by kind:
@@ -870,15 +890,16 @@ Most members follow the last successful load of `WORKFLOW.md`; a reload that fai
 | `dispatch.max_consecutive_hops` | The value `dispatch.max_consecutive_hops` is written with, or `null` when the key is absent. |
 | `dispatch.hop_ceiling` | The limit on consecutive automatic hops per issue in force: the written `dispatch.max_consecutive_hops`, or the larger of `10` and the hops in the longest chain. Always an integer, `10` in a workflow without chains. |
 | `reactions` | A member per reaction kind the process applies, keyed as under [`reactions`](/reference/reactions/) in `WORKFLOW.md`. A kind is present only while the process applies it, and `{}` means it applies none. |
-| `reactions.ci_failure` | Present while the CI check runs, which needs both a CI provider and a source control adapter. Holds `max_retries` and the escalation members. |
-| `reactions.review_comments` | Holds `max_continuation_turns`, `debounce_ms`, `poll_interval_ms`, and the escalation members. |
-| `reactions.bot_review` | Holds `max_continuation_turns`, `poll_interval_ms`, `bot_usernames` (`[]` when empty), and the escalation members. |
-| `reactions.merge_conflicts` | Holds `max_retries`, `poll_interval_ms`, and the escalation members. A `max_retries` of `0` escalates on the first detection. |
+| `reactions.ci_failure` | Present while the CI check runs, which needs both a CI provider and a source control adapter. Holds `max_retries`, `triage`, and the escalation members. |
+| `reactions.review_comments` | Holds `max_continuation_turns`, `debounce_ms`, `poll_interval_ms`, `triage`, and the escalation members. |
+| `reactions.bot_review` | Holds `max_continuation_turns`, `poll_interval_ms`, `bot_usernames` (`[]` when empty), `triage`, and the escalation members. |
+| `reactions.merge_conflicts` | Holds `max_retries`, `poll_interval_ms`, `triage`, and the escalation members. A `max_retries` of `0` escalates on the first detection. |
 | `reactions.auto_merge` | Holds `strategy`, `require_ci`, `delete_branch`, `poll_interval_ms`, `max_retries`, and the escalation members. `max_retries` is `null` when configured as `0`, which turns count-based escalation off. |
 | `reactions.merge_completion` | Holds `target_state`, `max_retries`, `poll_interval_ms`, and the escalation members. |
 | `reactions.label_commands` | Present when the review command or the fix command is configured. Holds `review_label` while the review command is configured, `fix_label` while the fix command is, and the `poll_interval_ms` both share. It has no escalation members. |
 | `escalation` | A member of every reaction that escalates: `"label"`, `"comment"`, or `"none"`. A reaction configured without a mode reads `"none"`. |
 | `escalation_label` | Present only when `escalation` is `"label"`: the configured label, or `needs-human` when the block names none. |
+| `triage` | A member of `ci_failure`, `review_comments`, `bot_review`, and `merge_conflicts`. `true` when the kind runs a [triage command](/reference/reactions/#triage-command) before it dispatches a fix. It reports the block the process started with, for `ci_failure` too. |
 | `token_rates` | A member per agent kind, keyed as written in [`token_rates`](/reference/workflow-config/#token_rates), or `null` when `token_rates` is absent or empty. |
 | `token_rates.<kind>.input_per_mtok`, `output_per_mtok`, `cache_read_per_mtok`, `cache_write_per_mtok` | Number, or `null` when the rate is not set or was rejected as invalid. An unset cache rate prices that token class at the input rate; `config` serves the configured `null`, not the substituted rate. |
 | `token_rates.<kind>.complete` | `true` exactly when `input_per_mtok` and `output_per_mtok` are both set, which is the condition for pricing a session of the kind. |
@@ -1121,6 +1142,11 @@ Every `200` response carries `history`. The running and finished examples show i
   "status": "running",
   "status_text": "Turn 7",
   "status_text_full": "MT-649 is running, turn 7.",
+  "next_outcomes": [
+    {"condition": "If the run succeeds", "text": "Sortie moves MT-649 to In Review, and a pull request the run leaves gets the CI failure, review comments, bot review, merge conflicts, and auto-merge reactions."},
+    {"condition": "If the run fails", "text": "Sortie retries MT-649 with exponential backoff."},
+    {"condition": "If MT-649's token use reaches 500K", "text": "Sortie stops the session and holds MT-649 at its token budget."}
+  ],
   "issue": {
     "title": "Fix the flaky login test",
     "url": "https://tracker.example.com/browse/MT-649",
@@ -1306,6 +1332,9 @@ When an issue is in the retry queue rather than actively running, `status` is `"
   "status": "retrying",
   "status_text": "Retry 3 in 5m: no agent slot was free",
   "status_text_full": "MT-650's retry came due and was not dispatched: no agent slot was free. Retry 3 in 5m.",
+  "next_outcomes": [
+    {"condition": "When retry 3 comes due", "text": "Sortie dispatches MT-650 on stage implement in a new session if it is still in an active state."}
+  ],
   "issue": {
     "title": "Retry the export job",
     "url": "https://tracker.example.com/browse/MT-650",
@@ -1371,6 +1400,7 @@ When an issue has neither a running session nor a pending retry, but is held out
   "status": "budget_exhausted",
   "status_text": "Held: session budget reached",
   "status_text_full": "MT-651 is held at its session budget of 3. Sessions used: 3.",
+  "next_outcomes": [],
   "issue": {
     "title": "Migrate the billing tables",
     "url": "https://tracker.example.com/browse/MT-651",
@@ -1429,6 +1459,7 @@ When an issue has no running session, no pending retry, and no budget hold, but 
   "status": "parked",
   "status_text": "Parked: the agent needs a person",
   "status_text_full": "MT-652 is parked: the agent stopped because it cannot go on without a person. Parking label: `needs-human`.",
+  "next_outcomes": [],
   "issue": {
     "title": "Rotate the signing keys",
     "url": "https://tracker.example.com/browse/MT-652",
@@ -1484,6 +1515,9 @@ When an issue has no running session, no pending retry, no budget hold, and is n
   "status": "pending_reactions",
   "status_text": "Watching #944 for merge conflicts",
   "status_text_full": "MT-654: Sortie watches PR #944 for merge conflicts; the last check found none; next check in 1m. Rebase runs used: 0 of 1.",
+  "next_outcomes": [
+    {"condition": "If a check in the next 20m finds a new merge conflict on PR #944", "text": "Sortie dispatches rebase 1 of 1."}
+  ],
   "issue": {
     "title": "Cache the price list",
     "url": "https://tracker.example.com/browse/MT-654",
@@ -1525,6 +1559,7 @@ When an issue has no running session, no pending retry, no budget hold, and is n
       "used_attempts": 0,
       "max_attempts": 1,
       "escalated_at": null,
+      "watch_ends_at": "2026-03-26T14:50:00Z",
       "last_check": {
         "observed_at": "2026-03-26T14:30:00Z",
         "head_sha": "c0ffee1d2e3f405162738495a6b7c8d9e0f1a2b3",
@@ -1556,6 +1591,9 @@ When an issue has no running session, no pending retry, no budget hold, is not p
   "status": "between_stages",
   "status_text": "Between stages: specify to implement",
   "status_text_full": "MT-655 moved from stage specify to stage implement, and Sortie added `stage-implement`; implement starts when a poll tick reads that label on the issue.",
+  "next_outcomes": [
+    {"condition": "When a poll tick reads `stage-implement` on MT-655", "text": "Stage implement starts in a new session."}
+  ],
   "issue": {
     "title": "Plan the export schema",
     "url": "https://tracker.example.com/browse/MT-655",
@@ -1615,6 +1653,7 @@ When no live entry holds the issue but run history does, `status` is `"history"`
   "status": "history",
   "status_text": "Handed off to Human Review",
   "status_text_full": "MT-648 was handed off: Sortie moved it to Human Review.",
+  "next_outcomes": [],
   "issue": {
     "title": "Add pagination to the export endpoint",
     "url": "https://tracker.example.com/browse/MT-648"
@@ -1722,6 +1761,7 @@ When no live entry holds the issue but run history does, `status` is `"history"`
 |---|---|
 | `status` | One of `"running"`, `"retrying"`, `"budget_exhausted"`, `"parked"`, `"pending_reactions"`, `"between_stages"`, or `"history"`. Derived from which set the issue appears in; `running` takes precedence over `retrying`, which takes precedence over `budget_exhausted`, which takes precedence over `parked`, which takes precedence over `pending_reactions`, which takes precedence over `between_stages`, which takes precedence over `history`, the status of an issue only run history knows. |
 | `status_text`, `status_text_full` | The issue's [status sentences](#status-sentences). Always present. They are the pair of the entry that decides `status`. For `"pending_reactions"` they are the pair of the first row in `pending_reactions` whose `escalated_at` is not `null`, and of the first row when none is. For `"history"` they word how the issue ended from `history.issue_outcome` and the newest run's `stage_target` and `stage_result`: a handoff after a hop that was not made (`"failed"` or `"ceiling"`) names the stage it did not reach, and an issue without an outcome reads `Not active; no ending recorded`. |
+| `next_outcomes` | What Sortie does next for the issue, as condition and sentence pairs. Always present; `[]` when no pair applies. See [Next outcomes](#next-outcomes). |
 | `issue` | The tracker's view of the issue, taken from whichever entry decides `status`. Present on every `200` response. Its members use the names of the [`.issue` template variable](/reference/workflow-config/#issue): `title`, `url`, `issue_type`, `labels`, and `state`. Each is omitted when that entry holds none, so the object is `{}` when it holds none of them. `labels` is `[]` when the entry was read and the issue carries none, and omitted when the entry holds no read of the labels. Masked like the running row's `issue_title`. For `running`, `retrying`, and `budget_exhausted` the members come from the entry's `issue_title`, `issue_url`, `issue_type`, `issue_labels`, and `state`. For `parked` they come from the parked entry's `issue_title`, `issue_url`, `issue_type`, and `issue_labels`, with `state` from its `parked_state`. For `pending_reactions` they come from the same members of the issue's first row, and for `between_stages` from those of the issue's row. |
 | `workspace` | Contains `path` when the issue has an active workspace. `null` for retrying, budget-exhausted, parked, pending-reaction, and between-stages issues, or when the workspace path is unknown. |
 | `attempts.restart_count` | How many times this issue has been restarted (attempt minus one, floored at zero). |
@@ -1736,6 +1776,29 @@ When no live entry holds the issue but run history does, `status` is `"history"`
 | `last_error` | The `error` of the issue's retry entry, or `null` when it has none. After a reschedule this is the reschedule reason. |
 | `tracked` | Reserved for future use. Currently an empty object. |
 | `history` | `null` when the issue has no recorded run, otherwise an object. See [History member](#history-member). |
+
+### Next outcomes
+
+Every `200` response carries `next_outcomes`: the branches ahead of the issue, each as the condition that leads to it and what Sortie then does. A client shows them as written and reads no Sortie state to build them.
+
+| Member | Description |
+|---|---|
+| `condition` | What leads to the outcome, for example `If the run fails`. It starts with a capital letter and ends without a period. |
+| `text` | What Sortie then does, in one or two sentences that each end with a period. |
+
+The list follows the workflow in effect, in this order:
+
+1. A running work session yields what follows if the run succeeds and if it fails, and, when `agent.max_tokens` is set and the session's agent reports token usage, what follows if the issue's token use reaches that budget. A retry queued beside the session drops the failure pair, and also the success pair when `tracker.handoff_state` is unset. A session that runs a reaction continuation or a label command yields none of these, because the issue's pending reactions say what follows it.
+2. Otherwise, a retry that is not `paused` yields what happens when it comes due, and an issue between stages yields what happens when a poll tick reads its stage label.
+3. Each pending reaction then yields what happens when a check finds its event, in the order `ci`, `review`, `bot-review`, `merge-conflict`, `merge`, `merge-completion`, `label-review`, `label-fix`.
+
+An issue with none of these serves `[]`, as a `"history"` response always does.
+
+- A pair never names a reaction that `config.reactions` of [`GET /api/v1/state`](#get-apiv1state-system-state) lacks, nor a stage the dispatch rules do not hold. A reaction whose `escalated_at` is not `null` yields no pair.
+- The condition of a watched reaction carries the time left in which a check can still lead to the outcome: the time to its `watch_ends_at`, measured from the time the snapshot was generated. For `review` it also leaves out the wait a found comment still has, one `polling.interval_ms` and, unless the comments already wait to settle, `debounce_ms`. A reaction with less than one second left yields no pair.
+- An outcome that would start a session names the hold instead when the session budget or the token budget would stop it. A reaction configured with a triage command says that the command runs, in place of the fix, and one whose fixes are used up says how Sortie escalates, in the order the reaction's own pass decides them.
+- The list is not exhaustive. It leaves out what the configuration does not decide: a stop the agent requests, a person's tracker or pull request edit other than a label command, a failed tracker, forge, or database call, a withheld handoff and the park it leads to, and a wait for a free agent slot. A branch missing from the list can still happen.
+- The wording follows the rules of the [status sentences](#status-sentences): English, rendered on each request and stored nowhere, masked, with no clock time, date, or cost, and with stage wording only when the workflow has stage chains. A pair that cannot be rendered is left out of the list, and Sortie logs the failure.
 
 ### History member
 

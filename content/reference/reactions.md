@@ -68,7 +68,7 @@ A budget of `0` escalates `ci_failure` and `merge_conflicts` on the first action
 
 Polling is bounded, for every kind, by `watch_window_ms`, a shared and configurable field: once it elapses, the orchestrator drops the entry and logs a warning instead of escalating, so the reaction goes silent with no tracker-visible signal. `review_comments`, `bot_review`, `merge_conflicts`, and `auto_merge` default to thirty minutes. For `auto_merge` the window is measured from the entry's creation. For the other three it is measured from the last time the entry waited for the issue's retry slot, or from the entry's creation when it never has.
 
-`ci_failure` defaults instead to twenty-four hours, measured from the last recorded head change rather than from entry creation. Every kind's value must be non-negative and must not exceed `9223372036854` (about 292 years); `0` removes the bound entirely, and where the bound does apply, the entry drops with the same silent warning and no escalation.
+`ci_failure` defaults instead to twenty-four hours, measured from the last recorded head change rather than from entry creation. Every kind's value must be non-negative and must not exceed `9223372036854` (about 292 years); `0` removes the bound entirely, and where the bound does apply, the entry drops with the same silent warning and no escalation. A pending reaction's `watch_ends_at` in the [HTTP API](/reference/http-api/#field-notes) reports when its window ends.
 
 An authentication-class or payload-class merge error still escalates `auto_merge` immediately regardless of the budget. To get near-immediate escalation on a failed merge, set `auto_merge.max_retries: 1`, the lowest budget its count-based check honors, which escalates after the first failed attempt.
 

@@ -182,7 +182,11 @@ A command that exits on its own is cleaned up the same way: Sortie terminates an
 
 **`fallback=exit_status` on a script that seems to work.** `set -e` plus a command that legitimately returns non-zero, such as a `grep` that matches nothing, ends the script before it writes. Guard those calls with `|| true`.
 
-**The command never runs at all.** Check that the block is under one of the four kinds that accept it, and that Sortie was restarted after the edit. [`sortie validate`](/reference/cli/#validate) rejects a `triage` block under any other reaction kind before dispatch.
+**The command never runs at all.** Check that the block is under one of the four kinds that accept it, and that Sortie was restarted after the edit. [`sortie validate`](/reference/cli/#validate) rejects a `triage` block under any other reaction kind before dispatch. To see whether the running process has the block, read `triage` from its configuration; `false` means it started without one:
+
+```bash
+curl -s http://localhost:7678/api/v1/state | jq '.config.reactions.ci_failure.triage'
+```
 
 **The reaction escalated on a spent budget without running the script.** `review_comments` and `bot_review` check their continuation-turn cap before triage, so a new comment that arrives with the budget already gone escalates without invoking the command. A set that holds no comment an earlier run was given neither escalates nor runs the script, on a spent budget or not. `ci_failure` and `merge_conflicts` run the command first. The [reactions reference](/reference/reactions/#retry-budgets) has the exact rule.
 

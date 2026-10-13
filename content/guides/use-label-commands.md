@@ -139,7 +139,7 @@ grep "label-fix dispatched" sortie.log
 
 ## Cancel, repeat, and batch
 
-- **Cancel before acceptance.** To take back a command, remove the label before Sortie's next poll. When Sortie polls and finds the label already gone, it treats the gesture as retracted and dispatches nothing. The cancellation window is one poll interval.
+- **Cancel before acceptance.** To take back a command, remove the label before Sortie's next poll. When Sortie polls and finds the label already gone, it treats the gesture as retracted and dispatches nothing. The cancellation window is one poll interval, and it stays open for as long as the command waits behind another run.
 - **No cancel after acceptance.** Once the label has disappeared, Sortie has accepted the command and the session is queued or running. Removing anything at that point cancels nothing.
 - **Repeat.** Re-apply the label after a command completes to issue the next one. Each fresh application is a new command.
 - **Batch.** Applying the label several times between two polls collapses into a single command.
@@ -149,6 +149,14 @@ grep "label-fix dispatched" sortie.log
 **Nothing happens after you apply the label.** Check, in order: the `label_commands` block is present and its `provider` is non-empty; the applied label name matches `review_label` or `fix_label` (matching is case-insensitive); the PR is Sortie-managed, with `.sortie/scm.json` carrying `pr_number`, `owner`, and `repo`; and the linked issue has not reached a terminal state, after which commands on its PR are ignored.
 
 If none of those apply, check the logs for a repeating warning about the label-event read on that PR: an entry the forge serves with an unreadable timestamp fails the whole read, and Sortie retries it indefinitely without dispatching anything.
+
+**The label stays on the PR after a poll interval.** Another run holds the issue, such as a CI fix or the other label command, queued or running. Sortie keeps the command and starts it once that run ends, and the label disappears then. To confirm, read the wait of the command's pending reaction (`label-review` for the review command):
+
+```bash
+curl -s http://localhost:7678/api/v1/MT-649 | jq '.pending_reactions[] | select(.kind == "label-fix") | .wait'
+```
+
+`"retry_slot"` means the command waits for that run. Remove the label to cancel it.
 
 **The session runs but no review or fix appears.** The prompt template is missing the `{{ if .label_review }}` (or `{{ if .label_fix }}`) branch, so the dispatch rendered your normal work prompt. Run `sortie validate` to see the advisory offline: it reports `reactions.label_commands.review_branch_missing` (or `..._fix_branch_missing`) every time you run it, unlike the run log, which prints the matching warning only once. Add the branch from the shipped example, and reload.
 

@@ -319,7 +319,7 @@ The `auto_merge deferred:` messages name the unmet precondition (`review decisio
 
 ### Dashboard and status API
 
-While Sortie watches a pull request, the status API lists the watch under `pending_reactions` in `GET /api/v1/state`, and under `pending_reactions` of `GET /api/v1/{identifier}` for one issue. Each row names the kind, the `reactions` key that configures it (`config_key`), why it waits (`wait`), when it checks next (`next_poll_at`), the attempts used against the budget (`used_attempts` and `max_attempts`), what the last check saw (`last_check`), and `escalated_at`.
+While Sortie watches a pull request, the status API lists the watch under `pending_reactions` in `GET /api/v1/state`, and under `pending_reactions` of `GET /api/v1/{identifier}` for one issue. Each row names the kind, the `reactions` key that configures it (`config_key`), why it waits (`wait`), when it checks next (`next_poll_at`), the attempts used against the budget (`used_attempts` and `max_attempts`), what the last check saw (`last_check`), `escalated_at`, and when the watch ends unless it restarts (`watch_ends_at`). For one issue, `next_outcomes` of `GET /api/v1/{identifier}` also says in plain English what Sortie does next, for example if a check finds CI failing on the pull request before the watch ends.
 
 An issue that only waits on a reaction answers `GET /api/v1/{identifier}` with `status` `"pending_reactions"`. The dashboard does not show these rows. See the [HTTP API reference](/reference/http-api/#get-apiv1state-system-state) for the fields.
 
