@@ -163,7 +163,9 @@ fi
 
 Two properties make this safe, and both are worth copying into any script that writes:
 
-**It survives being killed at any instruction.** Sortie kills the command and everything it started when `timeout_ms` elapses, when a new commit changes the subject underneath it, when the episode ends, and at shutdown. The `git rebase --abort` on entry means a run killed mid-rebase leaves nothing for the next one to trip over. A command that exits on its own is cleaned up the same way: Sortie terminates anything it leaves running in its process group, because the same command runs again for the next subject, and a process an earlier run backgrounded and forgot would still be there to collide with it. See [why hooks do not keep processes alive](/concepts/isolation/#why-hooks-do-not-keep-processes-alive); the triage command follows the same rule.
+**It survives being killed at any instruction.** Sortie kills the command and everything it started when `timeout_ms` elapses, when a new commit changes the subject underneath it, when the episode ends, and at shutdown. The `git rebase --abort` on entry means a run killed mid-rebase leaves nothing for the next one to trip over.
+
+A command that exits on its own is cleaned up the same way: Sortie terminates anything it leaves running in its process group, because the same command runs again for the next subject, and a process an earlier run backgrounded and forgot would still be there to collide with it. See [why hooks do not keep processes alive](/concepts/isolation/#why-hooks-do-not-keep-processes-alive); the triage command follows the same rule.
 
 **It can be run twice for the same work.** A killed run, a run whose subject moved, and any run that was in flight when the process restarted are each followed by a fresh run. Triage state is never written to the database, so a restart re-triages the subject from scratch. A rebase that finds nothing to rebase is a no-op, which is what makes repetition harmless here.
 

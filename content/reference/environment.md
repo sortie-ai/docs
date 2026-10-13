@@ -268,7 +268,9 @@ That inheritance belongs to a local launch. An agent Sortie starts on a remote h
 
 **A missing `ANTHROPIC_API_KEY` is the most common `claude-code` deployment failure.** Sortie starts and polls the tracker normally, but every agent session fails at credential verification with an auth error. The Sortie logs show a worker exit with `exit_type=error`; the root cause is only visible in the agent's stderr output.
 
-**For `copilot-cli`, a missing GitHub token is the equivalent failure.** The Copilot CLI itself implements try-and-fallback across `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, and `GITHUB_TOKEN`; precedence matters only when multiple sources hold different valid tokens. Sortie runs no preflight of its own here: whether one of these variables resolves to a working credential is settled by the [credential-verification step](/reference/workflow-config/#credential-verification), which fails before any work starts when none of them does: with error kind `credential_unverified`, or with the [early exit report](/reference/errors/#early-exit-report) under `port_exit`, carrying the CLI's own message, when the CLI prints that message and exits.
+**For `copilot-cli`, a missing GitHub token is the equivalent failure.** The Copilot CLI itself implements try-and-fallback across `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, and `GITHUB_TOKEN`; precedence matters only when multiple sources hold different valid tokens.
+
+Sortie runs no preflight of its own here: whether one of these variables resolves to a working credential is settled by the [credential-verification step](/reference/workflow-config/#credential-verification), which fails before any work starts when none of them does: with error kind `credential_unverified`, or with the [early exit report](/reference/errors/#early-exit-report) under `port_exit`, carrying the CLI's own message, when the CLI prints that message and exits.
 
 {{< callout type="warning" >}}
 **Classic PATs do not work with Copilot CLI**
@@ -276,7 +278,9 @@ That inheritance belongs to a local launch. An agent Sortie starts on a remote h
 Copilot CLI requires a **fine-grained personal access token** (prefix `github_pat_`) with the **Copilot Requests** permission enabled. Classic PATs (prefix `ghp_`) fail authentication silently: the CLI falls through all three token variables and reports no valid credential. OAuth tokens (`gho_` from `copilot auth login`) and GitHub App user-to-server tokens (`ghu_`) also work. If you see authentication failures despite having a token set, check the token prefix.
 {{< /callout >}}
 
-**For `codex`, a missing `CODEX_API_KEY` produces the same pattern as Claude Code.** Sortie starts normally, but every agent session fails with an authentication error during the app-server initialization handshake. If `CODEX_API_KEY` is unset, the adapter attempts to use cached credentials from `~/.codex/auth.json`; if those are also absent or expired, the session fails to start with `response_error`. A remote session works the same way: the login travels as a protocol message over the SSH connection, so the key never enters the remote agent's environment and never needs to be present on the host.
+**For `codex`, a missing `CODEX_API_KEY` produces the same pattern as Claude Code.** Sortie starts normally, but every agent session fails with an authentication error during the app-server initialization handshake. If `CODEX_API_KEY` is unset, the adapter attempts to use cached credentials from `~/.codex/auth.json`; if those are also absent or expired, the session fails to start with `response_error`.
+
+A remote session works the same way: the login travels as a protocol message over the SSH connection, so the key never enters the remote agent's environment and never needs to be present on the host.
 
 **For `opencode`, authentication is provider-specific and the adapter does not preflight it.** OpenCode resolves credentials from its own environment, auth store, project `.env`, or `opencode.json` provider config, while the Sortie adapter injects or overrides a small managed `OPENCODE_*` set on every `run` and usage-recovery subprocess. See the [OpenCode adapter reference](/reference/adapter-opencode/#managed-environment) for what each carries.
 
@@ -285,11 +289,21 @@ Copilot CLI requires a **fine-grained personal access token** (prefix `github_pa
 | `OPENCODE_DISABLE_AUTOUPDATE` | Self-update | Sortie-managed runs force this to `true`. |
 | `OPENCODE_CONFIG_CONTENT` | Inline configuration | Set on every turn, carrying the permission policy (from `opencode.allowed_tools`, `opencode.denied_tools`, and, when `opencode.dangerously_skip_permissions` is `false`, the `external_directory` setting), sharing (always `"disabled"`), compaction (from `opencode.disable_autocompact`), and the switch that disables the title agent. A local turn also carries the tool servers; a remote turn does not. |
 
-On a local launch the adapter removes an inherited `OPENCODE_AUTO_SHARE`, `OPENCODE_DISABLE_AUTOCOMPACT`, `OPENCODE_DISABLE_LSP_DOWNLOAD`, or `OPENCODE_PERMISSION` so an operator-side value never reaches OpenCode, and it replaces an inherited `OPENCODE_DISABLE_AUTOUPDATE` and `OPENCODE_CONFIG_CONTENT` with its own. In local mode the adapter injects only the managed `OPENCODE_*` values above; every provider credential, and any OpenCode config-discovery variable such as `OPENCODE_CONFIG`, comes from the parent environment or from OpenCode's own auth and config state, unmanaged by Sortie. A remote session receives `OPENCODE_DISABLE_AUTOUPDATE` and `OPENCODE_CONFIG_CONTENT` and nothing else of Sortie's own. The adapter strips nothing there and leaves the remote host's own variables, `OPENCODE_PERMISSION` included, as they are. The provider credentials your model selection needs must already exist on the remote host, or be named under [`worker.ssh_pass_env`](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent).
+On a local launch the adapter removes an inherited `OPENCODE_AUTO_SHARE`, `OPENCODE_DISABLE_AUTOCOMPACT`, `OPENCODE_DISABLE_LSP_DOWNLOAD`, or `OPENCODE_PERMISSION` so an operator-side value never reaches OpenCode, and it replaces an inherited `OPENCODE_DISABLE_AUTOUPDATE` and `OPENCODE_CONFIG_CONTENT` with its own.
 
-**For `agent-client-protocol`, Sortie manages no credential at all.** This kind names no default runtime, so there is no fixed variable to preflight or document here: whichever binary `agent.command` names reads its own credential from the inherited environment, exactly like every other agent adapter's subprocess. It still runs the [credential-verification step](/reference/workflow-config/#credential-verification) like every other kind, and a runtime that answers its handshake with a protocol-level authentication error there fails the run with `credential_unverified` before any work starts. See the [Agent Client Protocol adapter reference](/reference/adapter-agent-client-protocol/) for the kind itself, and [Gemini CLI](/reference/agent-client-protocol-gemini/) or [Kiro CLI](/reference/agent-client-protocol-kiro/) on that route for what each of those two runtimes actually reads.
+In local mode the adapter injects only the managed `OPENCODE_*` values above; every provider credential, and any OpenCode config-discovery variable such as `OPENCODE_CONFIG`, comes from the parent environment or from OpenCode's own auth and config state, unmanaged by Sortie.
 
-A local launch of Gemini CLI specifically does carry something Sortie sets, though it is not a credential: Sortie's own [measurement source](/reference/agent-client-protocol-gemini/#token-accounting-reads-local-files-and-its-in-turn-signal-understates) sets four variables to redirect the runtime's own telemetry to a file it reads for token accounting. They are appended to the environment Sortie itself started from, so they override any value already set there, and they reach nothing but that session's runtime. Sortie sets them only when `agent.command` names Gemini CLI or the handshake reports it; the process a session runs on for any other runtime on this kind carries none of them.
+A remote session receives `OPENCODE_DISABLE_AUTOUPDATE` and `OPENCODE_CONFIG_CONTENT` and nothing else of Sortie's own. The adapter strips nothing there and leaves the remote host's own variables, `OPENCODE_PERMISSION` included, as they are. The provider credentials your model selection needs must already exist on the remote host, or be named under [`worker.ssh_pass_env`](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent).
+
+**For `agent-client-protocol`, Sortie manages no credential at all.** This kind names no default runtime, so there is no fixed variable to preflight or document here: whichever binary `agent.command` names reads its own credential from the inherited environment, exactly like every other agent adapter's subprocess.
+
+It still runs the [credential-verification step](/reference/workflow-config/#credential-verification) like every other kind, and a runtime that answers its handshake with a protocol-level authentication error there fails the run with `credential_unverified` before any work starts.
+
+See the [Agent Client Protocol adapter reference](/reference/adapter-agent-client-protocol/) for the kind itself, and [Gemini CLI](/reference/agent-client-protocol-gemini/) or [Kiro CLI](/reference/agent-client-protocol-kiro/) on that route for what each of those two runtimes actually reads.
+
+A local launch of Gemini CLI specifically does carry something Sortie sets, though it is not a credential: Sortie's own [measurement source](/reference/agent-client-protocol-gemini/#token-accounting-reads-local-files-and-its-in-turn-signal-understates) sets four variables to redirect the runtime's own telemetry to a file it reads for token accounting.
+
+They are appended to the environment Sortie itself started from, so they override any value already set there, and they reach nothing but that session's runtime. Sortie sets them only when `agent.command` names Gemini CLI or the handshake reports it; the process a session runs on for any other runtime on this kind carries none of them.
 
 | Variable | Purpose | Description |
 |---|---|---|
@@ -477,7 +491,13 @@ When the same variable name exists in both the parent environment (via `SORTIE_*
 
 ## MCP server environment
 
-The MCP tool server (`sortie mcp-server`) runs as a child process of the agent runtime, not of the Sortie orchestrator. The agent runtime builds the MCP server's environment from the names in the `env` field of `.sortie/mcp.json`: a variable not listed in that block does not reach the server. Where the adapter re-expresses the file rather than handing over its path, a listed name can be delivered as a name alone, its value resolved from the agent runtime's own process environment: see [translated delivery](#translated-delivery-and-the-env-block). The worker writes per-session context variables and all `SORTIE_*`-prefixed process environment variables into this block before launching the agent. It writes the file for every agent kind, but the chain runs end to end only where the adapter delivers those servers to its runtime, either directly as the file's path or re-expressed in the form that runtime parses. Where it delivers neither, nothing spawns the server and the `env` block reaches nobody; see [delivery by agent kind](/reference/agent-extensions/#delivery-by-agent-kind).
+The MCP tool server (`sortie mcp-server`) runs as a child process of the agent runtime, not of the Sortie orchestrator. The agent runtime builds the MCP server's environment from the names in the `env` field of `.sortie/mcp.json`: a variable not listed in that block does not reach the server.
+
+Where the adapter re-expresses the file rather than handing over its path, a listed name can be delivered as a name alone, its value resolved from the agent runtime's own process environment: see [translated delivery](#translated-delivery-and-the-env-block).
+
+The worker writes per-session context variables and all `SORTIE_*`-prefixed process environment variables into this block before launching the agent. It writes the file for every agent kind, but the chain runs end to end only where the adapter delivers those servers to its runtime, either directly as the file's path or re-expressed in the form that runtime parses.
+
+Where it delivers neither, nothing spawns the server and the `env` block reaches nobody; see [delivery by agent kind](/reference/agent-extensions/#delivery-by-agent-kind).
 
 ### Environment composition
 
@@ -511,7 +531,11 @@ The `.sortie/mcp.json` file is written with `0o600` permissions (owner read/writ
 
 ### Controlled environment
 
-Unlike the [hook subprocess environment](#hook-subprocess-environment), which uses a POSIX allowlist plus `SORTIE_*` prefix filter on the parent process, the MCP server's environment is the one the `env` block names. Where an adapter re-expresses the configuration rather than passing its path, a name in that block can be resolved against the agent runtime's own process environment instead of against a value written into the configuration; see [translated delivery](#translated-delivery-and-the-env-block). Either way the names come from the `env` block. Sortie writes no variable outside the `SORTIE_*` namespace into the configuration and asks for none by name, so a non-`SORTIE_*` variable of the orchestrator's process (e.g., `PATH`, `HOME`, `ANTHROPIC_API_KEY`) is not one Sortie hands to the MCP server. The prefix acts as a bounded namespace: no non-Sortie secrets leak into the config file.
+Unlike the [hook subprocess environment](#hook-subprocess-environment), which uses a POSIX allowlist plus `SORTIE_*` prefix filter on the parent process, the MCP server's environment is the one the `env` block names.
+
+Where an adapter re-expresses the configuration rather than passing its path, a name in that block can be resolved against the agent runtime's own process environment instead of against a value written into the configuration; see [translated delivery](#translated-delivery-and-the-env-block). Either way the names come from the `env` block.
+
+Sortie writes no variable outside the `SORTIE_*` namespace into the configuration and asks for none by name, so a non-`SORTIE_*` variable of the orchestrator's process (e.g., `PATH`, `HOME`, `ANTHROPIC_API_KEY`) is not one Sortie hands to the MCP server. The prefix acts as a bounded namespace: no non-Sortie secrets leak into the config file.
 
 ### Translated delivery and the `env` block
 
@@ -521,7 +545,9 @@ The reason is the delivery route. That adapter's configuration travels on the ap
 
 ### Relationship to hook variables
 
-Four per-session variables (`SORTIE_ISSUE_ID`, `SORTIE_ISSUE_IDENTIFIER`, `SORTIE_WORKSPACE`, `SORTIE_ATTEMPT`) are shared with the [hook subprocess environment](#hook-subprocess-environment). `SORTIE_DB_PATH`, `SORTIE_DISPATCH_ID`, and `SORTIE_SESSION_AGENT_KIND` are specific to the MCP execution channel: hooks don't receive them. In hooks, `SORTIE_ATTEMPT` is always present (defaulting to `0` on the first dispatch). In the MCP env block, `SORTIE_ATTEMPT` is written only when the orchestrator has attempt information (retries and continuations); on the very first dispatch it is absent from the per-session set, though it may still appear if the operator's process environment contains a `SORTIE_ATTEMPT` variable captured by the `SORTIE_*` prefix scan.
+Four per-session variables (`SORTIE_ISSUE_ID`, `SORTIE_ISSUE_IDENTIFIER`, `SORTIE_WORKSPACE`, `SORTIE_ATTEMPT`) are shared with the [hook subprocess environment](#hook-subprocess-environment). `SORTIE_DB_PATH`, `SORTIE_DISPATCH_ID`, and `SORTIE_SESSION_AGENT_KIND` are specific to the MCP execution channel: hooks don't receive them.
+
+In hooks, `SORTIE_ATTEMPT` is always present (defaulting to `0` on the first dispatch). In the MCP env block, `SORTIE_ATTEMPT` is written only when the orchestrator has attempt information (retries and continuations); on the very first dispatch it is absent from the per-session set, though it may still appear if the operator's process environment contains a `SORTIE_ATTEMPT` variable captured by the `SORTIE_*` prefix scan.
 
 ---
 

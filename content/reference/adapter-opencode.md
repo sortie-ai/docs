@@ -20,7 +20,9 @@ The adapter reads from two configuration sections in [WORKFLOW.md front matter](
 
 ### Version check
 
-Session start runs the configured command with `--version`, bounded the same way the post-turn `export` launch is (see `read_timeout_ms` below), and reads only the first non-empty line of the output. It scans that line's whitespace-separated fields, dropping one leading `v` from each, for the first one that matches a bare semantic version, and requires that version's leading number to be `2`. A version on a later line is never found: if the first non-empty line carries no such field, or the output was truncated, the check fails. The check runs once per session, over SSH when the launch is remote, and is never repeated or cached. A later major than 2 fails the check like any other, so install `@opencode/cli@2` to stay on a supported major.
+Session start runs the configured command with `--version`, bounded the same way the post-turn `export` launch is (see `read_timeout_ms` below), and reads only the first non-empty line of the output. It scans that line's whitespace-separated fields, dropping one leading `v` from each, for the first one that matches a bare semantic version, and requires that version's leading number to be `2`.
+
+A version on a later line is never found: if the first non-empty line carries no such field, or the output was truncated, the check fails. The check runs once per session, over SSH when the launch is remote, and is never repeated or cached. A later major than 2 fails the check like any other, so install `@opencode/cli@2` to stay on a supported major.
 
 **Errors:**
 
@@ -164,7 +166,9 @@ This is the set this version of the adapter knows about, not a catalogue of Open
 
 #### Access outside the workspace
 
-With `dangerously_skip_permissions: false`, the agent cannot read or write files outside the session workspace unless you allow it. The runtime refuses the access and reports it to the model like any other refused tool call. To allow it, name `external_directory` in `allowed_tools`. A non-empty `allowed_tools` denies every known key it does not list, so list each tool the agent needs (`read`, `edit`, `bash`, and so on) alongside `external_directory`. The other way to allow it is `dangerously_skip_permissions: true`, which approves every permissioned call and not only this one.
+With `dangerously_skip_permissions: false`, the agent cannot read or write files outside the session workspace unless you allow it. The runtime refuses the access and reports it to the model like any other refused tool call. To allow it, name `external_directory` in `allowed_tools`.
+
+A non-empty `allowed_tools` denies every known key it does not list, so list each tool the agent needs (`read`, `edit`, `bash`, and so on) alongside `external_directory`. The other way to allow it is `dangerously_skip_permissions: true`, which approves every permissioned call and not only this one.
 
 The adapter decides `external_directory` as follows:
 
@@ -186,7 +190,11 @@ The adapter sets one environment variable on every subprocess it launches, the v
 |---|---|
 | `OPENCODE_DISABLE_AUTOUPDATE` | `true` |
 
-Sharing, compaction, the permission policy, and tool servers ride together in one inline configuration document, delivered through `OPENCODE_CONFIG_CONTENT` on every turn, local or remote, whether or not the session carries tool servers. `share` is always `"disabled"`. `compaction.auto` is `false` only when `opencode.disable_autocompact` is `true`. `permission` carries the policy above and `mcp` carries the translated tool servers, a member present on a local launch only; see [MCP](#mcp). `agent.title.disable` is `true`, the title-agent switch described in [Token accounting](#token-accounting). A remote turn carries the same document without `mcp`. The version check, usage export, and `session delete` invocations never carry it, on either kind of launch.
+Sharing, compaction, the permission policy, and tool servers ride together in one inline configuration document, delivered through `OPENCODE_CONFIG_CONTENT` on every turn, local or remote, whether or not the session carries tool servers.
+
+`share` is always `"disabled"`. `compaction.auto` is `false` only when `opencode.disable_autocompact` is `true`. `permission` carries the policy above and `mcp` carries the translated tool servers, a member present on a local launch only; see [MCP](#mcp). `agent.title.disable` is `true`, the title-agent switch described in [Token accounting](#token-accounting).
+
+A remote turn carries the same document without `mcp`. The version check, usage export, and `session delete` invocations never carry it, on either kind of launch.
 
 On a local launch, before adding its managed values, the adapter strips `OPENCODE_AUTO_SHARE`, `OPENCODE_DISABLE_AUTOCOMPACT`, `OPENCODE_DISABLE_AUTOUPDATE`, `OPENCODE_DISABLE_LSP_DOWNLOAD`, `OPENCODE_PERMISSION`, and `OPENCODE_CONFIG_CONTENT` out of the inherited environment, so an operator-side value never reaches the subprocess. It does not remove permission rules from `opencode.json`, so OpenCode still deep-merges the adapter policy with on-disk configuration, the adapter's own document loading last.
 
@@ -281,7 +289,13 @@ Safe to call when no subprocess is active.
 
 ## Process shutdown
 
-Before start, the subprocess is isolated in its own process group. A graceful process-group signal is armed for cancellation, bounded by `stop_grace_ms`. On Unix, graceful shutdown is `SIGTERM` and force kill is `SIGKILL` to the process group. On Windows, graceful shutdown is `CTRL_BREAK_EVENT` to the process group, and the subprocess is assigned to a Job Object with `KILL_ON_JOB_CLOSE` so force termination kills the full descendant tree. The subprocess starts suspended and is resumed only after that assignment succeeds, so nothing it spawns can run before the job takes effect; this covers the auxiliary launches described below, not only turns. A failed assignment logs WARN `process group assignment failed` and the launch runs without a job; a failed resume logs WARN `process resume failed` and reports `response_error`. A launch whose context is already done when the resume is reached, by cancellation or by its deadline, is never resumed: Sortie terminates the subprocess before it runs and logs no resume warning. A turn ends this way as `turn_cancelled`.
+Before start, the subprocess is isolated in its own process group. A graceful process-group signal is armed for cancellation, bounded by `stop_grace_ms`. On Unix, graceful shutdown is `SIGTERM` and force kill is `SIGKILL` to the process group.
+
+On Windows, graceful shutdown is `CTRL_BREAK_EVENT` to the process group, and the subprocess is assigned to a Job Object with `KILL_ON_JOB_CLOSE` so force termination kills the full descendant tree.
+
+The subprocess starts suspended and is resumed only after that assignment succeeds, so nothing it spawns can run before the job takes effect; this covers the auxiliary launches described below, not only turns. A failed assignment logs WARN `process group assignment failed` and the launch runs without a job; a failed resume logs WARN `process resume failed` and reports `response_error`.
+
+A launch whose context is already done when the resume is reached, by cancellation or by its deadline, is never resumed: Sortie terminates the subprocess before it runs and logs no resume warning. A turn ends this way as `turn_cancelled`.
 
 Shutdown is turn-scoped, not session-scoped. Session stop performs an explicit graceful-to-force sequence. Turn cancellation is stricter: when the turn is cancelled, the graceful signal fires immediately, and the adapter's cancellation path also force-kills the process group during teardown if the process is still alive. After the subprocess exits, the adapter performs a best-effort group kill to clean up surviving children.
 
@@ -301,7 +315,11 @@ Two behaviours are the adapter's own. Every stdout line that fails to parse beco
 
 ## Token accounting
 
-The adapter does not trust `step_finish.part.tokens` as the final turn total. It recovers authoritative usage from a second subprocess once the turn's subprocess is gone, not only when the turn ran to completion; see [Accumulation logic](#accumulation-logic) for which endings recover a figure. Reported counts are cumulative over the whole session the orchestrator opened, across every turn of it, and never decrease. The adapter disables OpenCode's title agent by setting `agent.title.disable` to `true` in the `OPENCODE_CONFIG_CONTENT` document, so a turn makes no session-title request. That request is billed by the provider but recorded in no assistant message, so the per-message sum below would not have counted it. The session keeps OpenCode's default title. A remote turn carries the same document, so it makes no title request either. For this kind's declaration beside every other kind's, see the [usage reporting table](/reference/workflow-config/#usage-reporting-by-agent-kind).
+The adapter does not trust `step_finish.part.tokens` as the final turn total. It recovers authoritative usage from a second subprocess once the turn's subprocess is gone, not only when the turn ran to completion; see [Accumulation logic](#accumulation-logic) for which endings recover a figure. Reported counts are cumulative over the whole session the orchestrator opened, across every turn of it, and never decrease.
+
+The adapter disables OpenCode's title agent by setting `agent.title.disable` to `true` in the `OPENCODE_CONFIG_CONTENT` document, so a turn makes no session-title request. That request is billed by the provider but recorded in no assistant message, so the per-message sum below would not have counted it. The session keeps OpenCode's default title. A remote turn carries the same document, so it makes no title request either.
+
+For this kind's declaration beside every other kind's, see the [usage reporting table](/reference/workflow-config/#usage-reporting-by-agent-kind).
 
 ### Accumulation logic
 
@@ -370,7 +388,11 @@ The adapter never trusts exit code `0` as sufficient proof of success. A termina
 
 ### Free-tier refusals
 
-OpenCode's hosted free-tier model refuses any request whose tool set lacks its shell tool or its read tool, and that refusal reaches the adapter as the stdout `error` envelope row above rather than as the permission-refusal notice. When the session's own `opencode.allowed_tools` or `opencode.denied_tools` is what denied one or both of `bash` and `read`, the adapter appends a clause naming the denied tool (or tools) to the vendor's own refusal text; a refusal from a model that is not free-tier limited, or from tool settings that do not touch either required tool, gets no such clause. The recognition depends on the vendor's current error wording, so an upstream rewording can make the clause stop appearing without changing the underlying refusal.
+OpenCode's hosted free-tier model refuses any request whose tool set lacks its shell tool or its read tool, and that refusal reaches the adapter as the stdout `error` envelope row above rather than as the permission-refusal notice.
+
+When the session's own `opencode.allowed_tools` or `opencode.denied_tools` is what denied one or both of `bash` and `read`, the adapter appends a clause naming the denied tool (or tools) to the vendor's own refusal text; a refusal from a model that is not free-tier limited, or from tool settings that do not touch either required tool, gets no such clause.
+
+The recognition depends on the vendor's current error wording, so an upstream rewording can make the clause stop appearing without changing the underlying refusal.
 
 ### Masked failures
 
@@ -456,9 +478,13 @@ Sortie does not manage OpenCode credentials and runs no authentication preflight
 
 ## MCP
 
-The OpenCode CLI accepts no MCP configuration path as an argument, and it does not read the `mcpServers` key the generated `.sortie/mcp.json` is written under. The adapter delivers the servers rather than the file: on a local launch, session start reads the generated configuration and parses its servers into OpenCode's own server-entry shape, keyed under `mcp`, with a stdio server becoming a local entry and an HTTP server a remote one. A server entry that omits its enable flag is rendered enabled, matching the runtime's own default.
+The OpenCode CLI accepts no MCP configuration path as an argument, and it does not read the `mcpServers` key the generated `.sortie/mcp.json` is written under.
 
-The turn sets those entries on the turn subprocess through the runtime's inline-configuration environment variable, `OPENCODE_CONFIG_CONTENT`. The `mcp` entries live inside the one inline document that also carries the tool policy, sharing, and compaction (see [managed environment](#managed-environment)), so the variable is set whether or not the session carries servers. The runtime merges the document with whatever project or global configuration the operator already has, rather than replacing it, and the auxiliary `export` and `session delete` invocations the adapter also runs rebuild their environment without it, so none of them spawns a tool sidecar of its own. Any `OPENCODE_CONFIG_CONTENT` inherited from the orchestrator's own environment is stripped first, on every one of those.
+The adapter delivers the servers rather than the file: on a local launch, session start reads the generated configuration and parses its servers into OpenCode's own server-entry shape, keyed under `mcp`, with a stdio server becoming a local entry and an HTTP server a remote one. A server entry that omits its enable flag is rendered enabled, matching the runtime's own default.
+
+The turn sets those entries on the turn subprocess through the runtime's inline-configuration environment variable, `OPENCODE_CONFIG_CONTENT`. The `mcp` entries live inside the one inline document that also carries the tool policy, sharing, and compaction (see [managed environment](#managed-environment)), so the variable is set whether or not the session carries servers.
+
+The runtime merges the document with whatever project or global configuration the operator already has, rather than replacing it, and the auxiliary `export` and `session delete` invocations the adapter also runs rebuild their environment without it, so none of them spawns a tool sidecar of its own. Any `OPENCODE_CONFIG_CONTENT` inherited from the orchestrator's own environment is stripped first, on every one of those.
 
 ### SSH mode delivers no tool servers
 
@@ -472,7 +498,9 @@ The run projection this adapter reads carries no MCP startup signal, so a server
 
 `opencode.mcp_config` names an operator-supplied MCP server configuration file. The worker reads it, merges its servers with the `sortie-tools` entry into the generated copy, and the adapter translates the merged result, so an operator's own servers reach a local OpenCode session alongside Sortie's. A relative path resolves against the directory containing `WORKFLOW.md`. An unreadable path, a file that is not valid JSON, or a file already declaring a server named `sortie-tools` fails the attempt before the session starts.
 
-Two more conditions fail the session with `response_error` when the merged configuration reaches the adapter, and the message names the offending server: an entry that carries neither `command` nor `url`, carries both, or declares a `type` contradicting the fields it carries; and an entry carrying a key outside the modeled set, which is `type`, `command`, `args`, `env`, `url`, `headers`, and `enabled`. Both come from shared validation, so a file that fails here fails a `codex` session the same way. A header on an HTTP entry is carried into the document as written, which a `codex` session does not do; see the [Codex adapter reference](/reference/adapter-codex/#http-headers).
+Two more conditions fail the session with `response_error` when the merged configuration reaches the adapter, and the message names the offending server: an entry that carries neither `command` nor `url`, carries both, or declares a `type` contradicting the fields it carries; and an entry carrying a key outside the modeled set, which is `type`, `command`, `args`, `env`, `url`, `headers`, and `enabled`.
+
+Both come from shared validation, so a file that fails here fails a `codex` session the same way. A header on an HTTP entry is carried into the document as written, which a `codex` session does not do; see the [Codex adapter reference](/reference/adapter-codex/#http-headers).
 
 ---
 

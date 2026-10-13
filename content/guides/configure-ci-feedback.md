@@ -50,7 +50,11 @@ reactions:
 
 `max_retries` controls how many CI-fix continuation dispatches Sortie attempts per issue before escalating. Default: 2. Set to 0 to escalate on the first CI failure without retrying.
 
-Each CI failure that triggers a new dispatch increments the counter. If the agent fixes the issue and CI passes, the counter resets to zero. When the counter reaches `max_retries` and CI is still red, Sortie escalates via the configured strategy and releases its claim on the issue, unless a worker is running for it. The counter stops at `max_retries`. Sortie keeps watching the pull request after it escalates, but applies the escalation once per commit: while the checks stay red on the same commit, a recheck repeats nothing and does not count as a session against `agent.max_sessions`. A commit landing on the pull request afterward restores the attempt budget when Sortie can establish that the commit is not its own work, so an agent cannot extend its own budget by pushing; applying the configured fix label re-arms an escalated pull request by hand.
+Each CI failure that triggers a new dispatch increments the counter. If the agent fixes the issue and CI passes, the counter resets to zero. When the counter reaches `max_retries` and CI is still red, Sortie escalates via the configured strategy and releases its claim on the issue, unless a worker is running for it. The counter stops at `max_retries`.
+
+Sortie keeps watching the pull request after it escalates, but applies the escalation once per commit: while the checks stay red on the same commit, a recheck repeats nothing and does not count as a session against `agent.max_sessions`.
+
+A commit landing on the pull request afterward restores the attempt budget when Sortie can establish that the commit is not its own work, so an agent cannot extend its own budget by pushing; applying the configured fix label re-arms an escalated pull request by hand.
 
 ## Configure log fetching
 
@@ -225,7 +229,9 @@ Both `reactions.ci_failure.max_retries` and `agent.max_sessions` are evaluated i
 
 If the agent signals `blocked` via `.sortie/status` during a CI-fix run, the orchestrator respects that signal and stops running further CI checks. A CI-fix continuation runs as an ordinary agent session, so it drives the issue's state like any normal dispatch, and the issue is [parked](/concepts/agent-communication/) with the escalation label rather than merely released. For details on the agent-to-orchestrator protocol, see the [agent extensions reference](/reference/agent-extensions/).
 
-Self-review and CI feedback address different failure classes at different points in the pipeline. Self-review runs inside the worker before exit, catching local issues (test failures, lint errors) with verification commands you configure. CI feedback runs after the worker exits and the code is pushed, catching integration failures reported through the CI provider's status API. Both features can be active simultaneously with independent counters. Self-review runs first; CI feedback runs later. If self-review passes but CI later fails, the CI feedback loop triggers normally. For self-review configuration, see [how to configure self-review](/guides/configure-self-review/).
+Self-review and CI feedback address different failure classes at different points in the pipeline. Self-review runs inside the worker before exit, catching local issues (test failures, lint errors) with verification commands you configure. CI feedback runs after the worker exits and the code is pushed, catching integration failures reported through the CI provider's status API.
+
+Both features can be active simultaneously with independent counters. Self-review runs first; CI feedback runs later. If self-review passes but CI later fails, the CI feedback loop triggers normally. For self-review configuration, see [how to configure self-review](/guides/configure-self-review/).
 
 Unattended CI recovery follows the pull request's head for as long as the watch window allows. A commit that lands on the pull request after a passing result is evaluated like any other.
 

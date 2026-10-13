@@ -43,7 +43,11 @@ level=WARN msg="effort budget exhausted, blocking re-dispatch" issue_id="PROJ-42
 
 At that point, the issue is no longer Sortie's problem. Check the [dashboard](/reference/dashboard/) run history to see what each session accomplished.
 
-A second ceiling guards cost rather than attempts. When [`agent.max_tokens`](/reference/workflow-config/#agent) is set, Sortie also sums the tokens consumed across the issue's completed sessions before every re-dispatch and blocks the issue once the sum reaches the budget. The effect at that point is identical to session exhaustion: claim released, retry entry dropped, issue left for human review. It differs in one way that matters here: this ceiling does not wait for a session boundary. Reaching it during a session cancels that session, and when that cancellation is what ends the attempt, it is recorded `budget_stopped` with no retry scheduled. The two ceilings are independent and whichever fills first wins; when one evaluation finds both exhausted, the logged reason names the token budget (`token_budget`). If the token query fails, the pre-dispatch check fails open and dispatch proceeds. For choosing a budget and the cost math, see [how to control agent costs](/guides/control-costs/).
+A second ceiling guards cost rather than attempts. When [`agent.max_tokens`](/reference/workflow-config/#agent) is set, Sortie also sums the tokens consumed across the issue's completed sessions before every re-dispatch and blocks the issue once the sum reaches the budget. The effect at that point is identical to session exhaustion: claim released, retry entry dropped, issue left for human review.
+
+It differs in one way that matters here: this ceiling does not wait for a session boundary. Reaching it during a session cancels that session, and when that cancellation is what ends the attempt, it is recorded `budget_stopped` with no retry scheduled.
+
+The two ceilings are independent and whichever fills first wins; when one evaluation finds both exhausted, the logged reason names the token budget (`token_budget`). If the token query fails, the pre-dispatch check fails open and dispatch proceeds. For choosing a budget and the cost math, see [how to control agent costs](/guides/control-costs/).
 
 ```yaml
 agent:
@@ -60,7 +64,9 @@ level=WARN msg="token budget exhausted, blocking re-dispatch" issue_id="PROJ-42"
 
 Sortie distinguishes a run that produced nothing observable in the workspace from a run that failed outright. Under [`tracker.handoff_evidence`](/reference/workflow-config/#tracker) at its default, `observed` (and under `strict`), a run whose workspace shows no evidence of work does not advance the issue. It is retried on the same exponential backoff as an error, not the 1-second continuation delay below. See the [state machine reference](/reference/state-machine/#handoff-evidence) for the full three-verdict rule this follows.
 
-Left alone, an issue stuck in that loop would retry forever. Sortie counts consecutive runs whose handoff was withheld this way and stops once the count reaches a ceiling: [`agent.max_consecutive_absences`](/reference/workflow-config/#agent), which defaults to `3` and is a separate setting from `agent.max_sessions`. Raising or lowering one does not move the other. Unlike `max_sessions`, `0` does not mean unlimited here: `0` and negative values are rejected as a configuration error, because an unbounded absence sequence is exactly what this ceiling exists to prevent. With the default, an issue that never shows evidence of work gets the initial run plus two retries, then parks on the third absence.
+Left alone, an issue stuck in that loop would retry forever. Sortie counts consecutive runs whose handoff was withheld this way and stops once the count reaches a ceiling: [`agent.max_consecutive_absences`](/reference/workflow-config/#agent), which defaults to `3` and is a separate setting from `agent.max_sessions`. Raising or lowering one does not move the other.
+
+Unlike `max_sessions`, `0` does not mean unlimited here: `0` and negative values are rejected as a configuration error, because an unbounded absence sequence is exactly what this ceiling exists to prevent. With the default, an issue that never shows evidence of work gets the initial run plus two retries, then parks on the third absence.
 
 ```yaml
 agent:
@@ -93,7 +99,9 @@ If [`tracker.query_filter`](/reference/workflow-config/#tracker) excludes the pa
 
 To find out which issues are parked right now, read the `parked` list of `GET /api/v1/state`, or ask for one issue with `GET /api/v1/{identifier}`, which answers with `status` `parked`. Each entry gives the title, link, reason, and parking label, plus the dispatch rule, agent, and model of the run that led to the park, so you can tell which stage got stuck. See the [HTTP API reference](/reference/http-api/#get-apiv1state-system-state).
 
-A review-comment or CI continuation retry is never stopped by this ceiling; it runs on its own retry budget. The consecutive-absence count is neither kept nor consulted when `tracker.handoff_evidence` is `off`. And a run that ends with no evidence verdict at all, such as an agent that reports itself blocked, leaves the count exactly where it stood: it neither advances it nor resets it. So does a run whose withheld verdict Sortie discarded because the issue had reached a terminal state by the time the outcome was recorded. A finished issue does not move toward the ceiling.
+A review-comment or CI continuation retry is never stopped by this ceiling; it runs on its own retry budget. The consecutive-absence count is neither kept nor consulted when `tracker.handoff_evidence` is `off`.
+
+And a run that ends with no evidence verdict at all, such as an agent that reports itself blocked, leaves the count exactly where it stood: it neither advances it nor resets it. So does a run whose withheld verdict Sortie discarded because the issue had reached a terminal state by the time the outcome was recorded. A finished issue does not move toward the ceiling.
 
 ## Tune backoff timing
 

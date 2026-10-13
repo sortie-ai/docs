@@ -7,7 +7,9 @@ date: 2026-07-10
 weight: 165
 url: /guides/use-label-commands/
 ---
-Apply a label to a Sortie-managed pull request and Sortie dispatches an agent session in response: `sortie:review` requests a read-only code review of the diff, and `sortie:fix` requests a session that checks out the branch and pushes fixes for the accumulated review feedback. Sortie removes the label once it accepts the command, so the label works as a one-shot button rather than a standing state. Label commands are human-triggered, which sets them apart from [reactions](/reference/reactions/), the event-driven loops that fire on their own; for the full behavioral contract, session posture, and authorization model, see the [label commands reference](/reference/label-commands/).
+Apply a label to a Sortie-managed pull request and Sortie dispatches an agent session in response: `sortie:review` requests a read-only code review of the diff, and `sortie:fix` requests a session that checks out the branch and pushes fixes for the accumulated review feedback.
+
+Sortie removes the label once it accepts the command, so the label works as a one-shot button rather than a standing state. Label commands are human-triggered, which sets them apart from [reactions](/reference/reactions/), the event-driven loops that fire on their own; for the full behavioral contract, session posture, and authorization model, see the [label commands reference](/reference/label-commands/).
 
 ## Prerequisites
 
@@ -144,7 +146,9 @@ grep "label-fix dispatched" sortie.log
 
 ## Troubleshooting
 
-**Nothing happens after you apply the label.** Check, in order: the `label_commands` block is present and its `provider` is non-empty; the applied label name matches `review_label` or `fix_label` (matching is case-insensitive); the PR is Sortie-managed, with `.sortie/scm.json` carrying `pr_number`, `owner`, and `repo`; and the linked issue has not reached a terminal state, after which commands on its PR are ignored. If none of those apply, check the logs for a repeating warning about the label-event read on that PR: an entry the forge serves with an unreadable timestamp fails the whole read, and Sortie retries it indefinitely without dispatching anything.
+**Nothing happens after you apply the label.** Check, in order: the `label_commands` block is present and its `provider` is non-empty; the applied label name matches `review_label` or `fix_label` (matching is case-insensitive); the PR is Sortie-managed, with `.sortie/scm.json` carrying `pr_number`, `owner`, and `repo`; and the linked issue has not reached a terminal state, after which commands on its PR are ignored.
+
+If none of those apply, check the logs for a repeating warning about the label-event read on that PR: an entry the forge serves with an unreadable timestamp fails the whole read, and Sortie retries it indefinitely without dispatching anything.
 
 **The session runs but no review or fix appears.** The prompt template is missing the `{{ if .label_review }}` (or `{{ if .label_fix }}`) branch, so the dispatch rendered your normal work prompt. Run `sortie validate` to see the advisory offline: it reports `reactions.label_commands.review_branch_missing` (or `..._fix_branch_missing`) every time you run it, unlike the run log, which prints the matching warning only once. Add the branch from the shipped example, and reload.
 

@@ -6,7 +6,9 @@ author: Sortie AI
 date: 2026-07-16
 weight: 110
 ---
-In this tutorial, we will connect Sortie to Gitea and the OpenCode CLI, then watch the full unattended cycle: Gitea offers a `backlog` issue, Sortie clones your repository, OpenCode writes and commits code, Sortie pushes a branch, and Gitea moves the issue to a review state. This builds on the [Gitea integration tutorial](/getting-started/gitea-integration/) and adds three pieces: the OpenCode CLI adapter, workspace hooks for git operations, and a prompt template. The agent is the same one the [Jira + OpenCode tutorial](/getting-started/jira-opencode-end-to-end/) drives; only the tracker changed, from Jira to Gitea.
+In this tutorial, we will connect Sortie to Gitea and the OpenCode CLI, then watch the full unattended cycle: Gitea offers a `backlog` issue, Sortie clones your repository, OpenCode writes and commits code, Sortie pushes a branch, and Gitea moves the issue to a review state. This builds on the [Gitea integration tutorial](/getting-started/gitea-integration/) and adds three pieces: the OpenCode CLI adapter, workspace hooks for git operations, and a prompt template.
+
+The agent is the same one the [Jira + OpenCode tutorial](/getting-started/jira-opencode-end-to-end/) drives; only the tracker changed, from Jira to Gitea.
 
 The pairing is deliberate. Gitea is self-hosted, and OpenCode can run against a model you serve yourself, so the whole loop lives on infrastructure you control: a self-hosted tracker, the Sortie orchestrator, the OpenCode agent, and a local model backend, with no cloud model provider in the path. That is the stack the community asked for when they requested the Gitea adapter.
 
@@ -161,13 +163,19 @@ One tracker detail is worth stating where you set the states. `handoff_state: re
 
 ### Workspace and hooks
 
-Nothing about the hooks is OpenCode-specific. `workspace.root` gives each Gitea issue its own clone, and the three hooks clone the repository, cut a clean branch, commit the agent's work, and push it upstream. One detail follows from Gitea being both your tracker and your git host: `$SORTIE_REPO_URL` points at the same instance you poll, and the Gitea access token doubles as the HTTP push password. For the hook-by-hook walkthrough and the hook environment variables, read the [workspace and hooks section of the Claude Code tutorial](/getting-started/jira-claude-end-to-end/#workspace-and-hooks).
+Nothing about the hooks is OpenCode-specific. `workspace.root` gives each Gitea issue its own clone, and the three hooks clone the repository, cut a clean branch, commit the agent's work, and push it upstream.
+
+One detail follows from Gitea being both your tracker and your git host: `$SORTIE_REPO_URL` points at the same instance you poll, and the Gitea access token doubles as the HTTP push password. For the hook-by-hook walkthrough and the hook environment variables, read the [workspace and hooks section of the Claude Code tutorial](/getting-started/jira-claude-end-to-end/#workspace-and-hooks).
 
 ### Agent configuration
 
 #### Agent: OpenCode CLI
 
-`agent.kind: opencode` selects the OpenCode adapter, registered under the `opencode` kind. `agent.command: opencode` names the binary, which the adapter resolves from `PATH` when the session starts. The `opencode:` block is small because OpenCode folds provider selection into the model string: `local/your-model` means "use the `local` provider, then that model." There is no separate provider field to set. `dangerously_skip_permissions: true` is the unattended switch, the equivalent of Claude Code's bypass mode: it tells the CLI to approve each permissioned action itself. It is also the default. Setting it to `false` does not make the run interactive, because there is nobody to be interactive with: the runtime refuses every permissioned tool call instead of performing it, and Sortie warns about that before the run. The adapter also exposes finer tool scoping through `allowed_tools` and `denied_tools`, which is reference territory. When you need it, the [OpenCode adapter reference](/reference/adapter-opencode/) covers the full surface.
+`agent.kind: opencode` selects the OpenCode adapter, registered under the `opencode` kind. `agent.command: opencode` names the binary, which the adapter resolves from `PATH` when the session starts. The `opencode:` block is small because OpenCode folds provider selection into the model string: `local/your-model` means "use the `local` provider, then that model." There is no separate provider field to set.
+
+`dangerously_skip_permissions: true` is the unattended switch, the equivalent of Claude Code's bypass mode: it tells the CLI to approve each permissioned action itself. It is also the default. Setting it to `false` does not make the run interactive, because there is nobody to be interactive with: the runtime refuses every permissioned tool call instead of performing it, and Sortie warns about that before the run.
+
+The adapter also exposes finer tool scoping through `allowed_tools` and `denied_tools`, which is reference territory. When you need it, the [OpenCode adapter reference](/reference/adapter-opencode/) covers the full surface.
 
 #### A locally served model backend
 
@@ -179,7 +187,9 @@ The adapter reinforces that posture. On every run it sets `OPENCODE_DISABLE_AUTO
 
 #### Inner turn budget
 
-`agent.max_turns: 3` is Sortie's outer budget. It tells the orchestrator how many times it may invoke OpenCode for this issue before it gives up or retries later. OpenCode exposes no inner turn field to Sortie, so each Sortie turn launches one `opencode run` process and lets it work until it exits or `turn_timeout_ms`, one hour here, elapses. For the health check task, one run is usually enough. The headroom lets the first session read the codebase, write the change, and run tests without racing a short timeout.
+`agent.max_turns: 3` is Sortie's outer budget. It tells the orchestrator how many times it may invoke OpenCode for this issue before it gives up or retries later. OpenCode exposes no inner turn field to Sortie, so each Sortie turn launches one `opencode run` process and lets it work until it exits or `turn_timeout_ms`, one hour here, elapses.
+
+For the health check task, one run is usually enough. The headroom lets the first session read the codebase, write the change, and run tests without racing a short timeout.
 
 ### Prompt template
 

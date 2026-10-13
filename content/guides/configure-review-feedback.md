@@ -7,7 +7,9 @@ date: 2026-04-10
 weight: 160
 url: /guides/configure-review-feedback/
 ---
-Review feedback routing closes the outer loop of agent-driven development. When a human reviewer leaves inline comments on a Sortie-created PR and submits the review with the "Request changes" verdict in the forge's review UI, Sortie detects those comments, assembles structured context (file paths, line ranges, reviewer names, comment bodies), and dispatches a continuation turn so the agent can address the feedback and push fixes. Without it, review comments sit on the PR until someone manually re-assigns the issue. With it, turnaround drops from hours to minutes.
+Review feedback routing closes the outer loop of agent-driven development. When a human reviewer leaves inline comments on a Sortie-created PR and submits the review with the "Request changes" verdict in the forge's review UI, Sortie detects those comments, assembles structured context (file paths, line ranges, reviewer names, comment bodies), and dispatches a continuation turn so the agent can address the feedback and push fixes.
+
+Without it, review comments sit on the PR until someone manually re-assigns the issue. With it, turnaround drops from hours to minutes.
 
 ## Prerequisites
 
@@ -44,7 +46,9 @@ Your `after_run` hook or agent workflow writes these fields. Here's what `.sorti
 
 The `branch` and `sha` fields drive CI feedback (if configured). The `pr_number`, `owner`, and `repo` fields drive review feedback. Both features read from the same file.
 
-The optional `pushed_at` field is an ISO-8601/RFC3339 UTC timestamp of the last push. Sortie reads it on startup when it reconstructs handoff-stage pending reactions, so review polling for an open PR survives a restart instead of waiting for the next push or active-state transition. If `pushed_at` is missing, recovery falls back to the agent run's `completed_at` time. Long-lived PRs age out after 30 days of inactivity. Write `pushed_at` from the same hook that pushes the branch so the age-out reflects the latest push, not the agent run. See [Resume sessions across restarts](/guides/resume-sessions-across-restarts/) for the recovery model and bounds.
+The optional `pushed_at` field is an ISO-8601/RFC3339 UTC timestamp of the last push. Sortie reads it on startup when it reconstructs handoff-stage pending reactions, so review polling for an open PR survives a restart instead of waiting for the next push or active-state transition. If `pushed_at` is missing, recovery falls back to the agent run's `completed_at` time.
+
+Long-lived PRs age out after 30 days of inactivity. Write `pushed_at` from the same hook that pushes the branch so the age-out reflects the latest push, not the agent run. See [Resume sessions across restarts](/guides/resume-sessions-across-restarts/) for the recovery model and bounds.
 
 ## Configure retry limits and escalation
 
@@ -61,7 +65,9 @@ reactions:
 | `escalation` | `"label"` | Action when the retry budget is exhausted: `"label"`, `"none"`, or the deprecated `"comment"`. |
 | `escalation_label` | `"needs-human"` | Label applied when `escalation` is `"label"`. Created on demand if the tracker does not already have it. |
 
-The retry budget for this kind is `max_continuation_turns`, configured below, not `max_retries`: `review_comments` accepts `max_retries` for schema consistency with the other reaction kinds but does not consume it, so setting it here has no effect. `max_continuation_turns` counts continuation turns triggered specifically by review comments, independent of the agent's `max_sessions` budget and CI feedback's retry counter. If the agent addresses all comments within this budget, the loop ends. If a new comment arrives after the budget is spent, Sortie escalates and releases its claim unless a worker is running for the issue. Comments an earlier run was given do not escalate on their own.
+The retry budget for this kind is `max_continuation_turns`, configured below, not `max_retries`: `review_comments` accepts `max_retries` for schema consistency with the other reaction kinds but does not consume it, so setting it here has no effect. `max_continuation_turns` counts continuation turns triggered specifically by review comments, independent of the agent's `max_sessions` budget and CI feedback's retry counter.
+
+If the agent addresses all comments within this budget, the loop ends. If a new comment arrives after the budget is spent, Sortie escalates and releases its claim unless a worker is running for the issue. Comments an earlier run was given do not escalate on their own.
 
 With `label`, Sortie adds the configured label to the issue. With `none`, it adds no label. Every escalation emits the `escalation.review_comments` event, and a `tracker_comment` entry that lists it posts a comment noting how many turns were attempted and that remaining comments need human attention; see [how to route notifications](/guides/route-notifications/). The deprecated `comment` value posts that comment without an entry. Every strategy cancels any pending retry and releases the claim, unless a worker is running for the issue; that worker's exit then decides the claim.
 

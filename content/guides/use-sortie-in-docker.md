@@ -394,7 +394,9 @@ docker inspect --format='{{.State.Health.Status}}' <container-id>
 
 **SQLite database locked:** Two containers are sharing the same database file. Each Sortie instance needs its own `.sortie.db`. Use separate named volumes or `--db` paths for each container.
 
-**Kiro CLI fails with authentication errors:** Kiro CLI reads `KIRO_API_KEY` or a stored login. A fresh container holds no stored login, so forward the key with `-e KIRO_API_KEY`. With no credential at all, the session fails at start with `You are not logged in, please log in with kiro-cli login` on standard error. A run authenticated with the key starts sessions and runs turns, but none of Sortie's tools reach the agent; [Kiro CLI on the Agent Client Protocol](/reference/agent-client-protocol-kiro/) explains how to confirm which credential a run uses and how to get the tools.
+**Kiro CLI fails with authentication errors:** Kiro CLI reads `KIRO_API_KEY` or a stored login. A fresh container holds no stored login, so forward the key with `-e KIRO_API_KEY`. With no credential at all, the session fails at start with `You are not logged in, please log in with kiro-cli login` on standard error.
+
+A run authenticated with the key starts sessions and runs turns, but none of Sortie's tools reach the agent; [Kiro CLI on the Agent Client Protocol](/reference/agent-client-protocol-kiro/) explains how to confirm which credential a run uses and how to get the tools.
 
 **OpenCode fails with provider authentication errors:** Forward the provider variables that match the selected OpenCode model. For direct providers, this is typically `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GOOGLE_API_KEY`. Vertex-backed runs also need `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CLOUD_PROJECT`, and usually `VERTEX_LOCATION`. In SSH mode, OpenCode carries no provider credential of its own, so those variables must already exist on the remote host or be named under [`worker.ssh_pass_env`](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent).
 

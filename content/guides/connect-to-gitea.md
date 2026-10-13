@@ -44,7 +44,9 @@ tracker:
   api_key: $SORTIE_GITEA_TOKEN
 ```
 
-`endpoint` is your instance's base URL (for example `https://gitea.example.com`), set in the next section. Sortie sends the token in the `Authorization` header as `token <key>`, with a lowercase `token` scheme rather than `Bearer`, and passes the value through unchanged. The value in `SORTIE_GITEA_TOKEN` must therefore be the bare token with no surrounding whitespace: a leading or trailing space becomes part of the credential and fails authentication. `sortie validate` warns when the resolved key carries surrounding whitespace, and when `api_key` is empty while `SORTIE_GITEA_TOKEN` is set, it points you at `api_key: $SORTIE_GITEA_TOKEN`.
+`endpoint` is your instance's base URL (for example `https://gitea.example.com`), set in the next section. Sortie sends the token in the `Authorization` header as `token <key>`, with a lowercase `token` scheme rather than `Bearer`, and passes the value through unchanged.
+
+The value in `SORTIE_GITEA_TOKEN` must therefore be the bare token with no surrounding whitespace: a leading or trailing space becomes part of the credential and fails authentication. `sortie validate` warns when the resolved key carries surrounding whitespace, and when `api_key` is empty while `SORTIE_GITEA_TOKEN` is set, it points you at `api_key: $SORTIE_GITEA_TOKEN`.
 
 Prove the token works before you wire it in. `GET /api/v1/user` is the cheapest call that both validates the token and returns the automation identity, and it is the same call the adapter runs at startup:
 
@@ -115,11 +117,15 @@ Names match case-insensitively, so `In-Progress` and `in-progress` behave identi
 
 To hand an issue to Sortie, add one of the `active_states` labels to it. Create those labels in the repository (or the owning organization) first, because you apply them yourself. At the first poll, Sortie logs a warning, `configured active label missing from tracker labels`, for each `active_states` label that neither has.
 
-You do not have to pre-create the other state labels. When Sortie transitions an issue into a state whose label does not yet exist in the repository, it creates the label on demand with a neutral gray color and then applies it, so expect your configured state labels to appear in the repository the first time issues move through them. This is deliberate: Gitea silently ignores a request to attach a label that does not exist and still returns success, so there is no fail-loud path to lean on, and creating the label first is what makes the transition actually take effect.
+You do not have to pre-create the other state labels. When Sortie transitions an issue into a state whose label does not yet exist in the repository, it creates the label on demand with a neutral gray color and then applies it, so expect your configured state labels to appear in the repository the first time issues move through them.
+
+This is deliberate: Gitea silently ignores a request to attach a label that does not exist and still returns success, so there is no fail-loud path to lean on, and creating the label first is what makes the transition actually take effect.
 
 A transition also reconciles the issue's open or closed status. Moving an issue to a terminal state (`done` or `wontfix`) closes it, and moving a closed issue back to an active state reopens it. A handoff to `review` leaves the issue open, because `review` is not a terminal state.
 
-Two rules constrain `handoff_state`: it must not appear in `active_states`, or the issue would be dispatched again on the next poll, and it must not appear in `terminal_states`, because a handoff is not a close. If you use `review` as your handoff label, keep it out of `active_states`, as the snippet above does. Neither rule is advisory: `sortie validate` reports either collision as an error and Sortie refuses to start. A label shared between `active_states` and `terminal_states` is a warning by contrast, and startup continues.
+Two rules constrain `handoff_state`: it must not appear in `active_states`, or the issue would be dispatched again on the next poll, and it must not appear in `terminal_states`, because a handoff is not a close. If you use `review` as your handoff label, keep it out of `active_states`, as the snippet above does.
+
+Neither rule is advisory: `sortie validate` reports either collision as an error and Sortie refuses to start. A label shared between `active_states` and `terminal_states` is a warning by contrast, and startup continues.
 
 For the full `tracker.*` field contract, types, and validation rules, see the [Gitea adapter reference](/reference/adapter-gitea/) and the [WORKFLOW.md reference](/reference/workflow-config/).
 
@@ -159,9 +165,13 @@ A key outside Gitea's known issue-list parameters (`labels`, `q`, `milestones`, 
 
 ## React to pull requests
 
-Once your agents open pull requests, the same `gitea` kind reacts to them: a "Request changes" review or a failing CI check dispatches a fix continuation turn, review-bot comments route back to the agent, and an approved, mergeable, CI-green PR merges automatically with its branch cleaned up. The mechanics are provider-agnostic and live elsewhere: [how to set up PR reactions](/guides/setup-pr-reactions/) covers the shared machinery, including the `.sortie/scm.json` PR metadata your hook writes, and the [reactions reference](/reference/reactions/) documents every kind, field, and default. This section is the Gitea-specific wiring.
+Once your agents open pull requests, the same `gitea` kind reacts to them: a "Request changes" review or a failing CI check dispatches a fix continuation turn, review-bot comments route back to the agent, and an approved, mergeable, CI-green PR merges automatically with its branch cleaned up.
 
-Activate a reaction kind by giving it `provider: gitea`. Every active SCM reaction in one workflow must name the same provider. Because the tracker is already `kind: gitea`, the reactions reuse the tracker's `endpoint`, `api_key`, and `project`, so you repeat no credentials; to point them at a different instance or repository, set overrides in a top-level `gitea:` block ([adapter pass-through configuration](/reference/workflow-config/#adapter-pass-through-configuration)). A malformed `endpoint` in that block is rejected the moment Sortie starts, the same check `tracker.endpoint` gets. But since `sortie validate` only inspects `tracker.endpoint`, an override here is not caught offline.
+The mechanics are provider-agnostic and live elsewhere: [how to set up PR reactions](/guides/setup-pr-reactions/) covers the shared machinery, including the `.sortie/scm.json` PR metadata your hook writes, and the [reactions reference](/reference/reactions/) documents every kind, field, and default. This section is the Gitea-specific wiring.
+
+Activate a reaction kind by giving it `provider: gitea`. Every active SCM reaction in one workflow must name the same provider. Because the tracker is already `kind: gitea`, the reactions reuse the tracker's `endpoint`, `api_key`, and `project`, so you repeat no credentials; to point them at a different instance or repository, set overrides in a top-level `gitea:` block ([adapter pass-through configuration](/reference/workflow-config/#adapter-pass-through-configuration)).
+
+A malformed `endpoint` in that block is rejected the moment Sortie starts, the same check `tracker.endpoint` gets. But since `sortie validate` only inspects `tracker.endpoint`, an override here is not caught offline.
 
 ```yaml
 reactions:
@@ -180,7 +190,9 @@ reactions:
 
 `bot_usernames` is what makes `bot_review` work on Gitea. Gitea users carry no platform bot marker, so the allowlist is the only bot signal: a comment is routed only when its author's login matches an entry, case-insensitively, and an empty or absent list selects nothing. On GitHub, platform-typed bots match without an allowlist; on Gitea, list every review bot's login.
 
-Auto-merge and branch deletion are the two operations the tracker scopes do not cover: grant the token `write:repository` and give the token's user write access to the repository, as described in [Create an access token](#create-an-access-token). The startup preflight checks the user's repository role, not the token's scopes, because Gitea offers no scope introspection. It disables auto-merge when the token's user lacks write access; a wrongly scoped token whose user has write access passes startup and fails on the first merge or branch delete with a 403 that Sortie rewrites to name `write:repository`.
+Auto-merge and branch deletion are the two operations the tracker scopes do not cover: grant the token `write:repository` and give the token's user write access to the repository, as described in [Create an access token](#create-an-access-token).
+
+The startup preflight checks the user's repository role, not the token's scopes, because Gitea offers no scope introspection. It disables auto-merge when the token's user lacks write access; a wrongly scoped token whose user has write access passes startup and fails on the first merge or branch delete with a 403 that Sortie rewrites to name `write:repository`.
 
 For the routes behind these operations and the full token-scope detail, see the [Gitea adapter reference](/reference/adapter-gitea/#scm-and-ci-surface).
 
@@ -248,7 +260,9 @@ You are a senior engineer. Your work is tracked by Sortie.
 {{ end }}
 ```
 
-This configuration polls every 60 seconds, picks up issues assigned to `hermes-bot` in `backlog` or `in-progress`, runs up to 3 agent turns per issue, and moves completed issues to the `review` label. Once a run opens a PR and records its coordinates, review feedback routes back to the agent and an approved, CI-green PR is squash-merged with its branch deleted. Issues reaching `done` or `wontfix` are closed automatically. For every tracker field and its validation rules, see the [Gitea adapter reference](/reference/adapter-gitea/) and the [WORKFLOW.md reference](/reference/workflow-config/). For prompt template syntax, see [How to write a prompt template](/guides/write-prompt-template/).
+This configuration polls every 60 seconds, picks up issues assigned to `hermes-bot` in `backlog` or `in-progress`, runs up to 3 agent turns per issue, and moves completed issues to the `review` label. Once a run opens a PR and records its coordinates, review feedback routes back to the agent and an approved, CI-green PR is squash-merged with its branch deleted. Issues reaching `done` or `wontfix` are closed automatically.
+
+For every tracker field and its validation rules, see the [Gitea adapter reference](/reference/adapter-gitea/) and the [WORKFLOW.md reference](/reference/workflow-config/). For prompt template syntax, see [How to write a prompt template](/guides/write-prompt-template/).
 
 ## Verify the connection
 
@@ -258,7 +272,9 @@ This configuration polls every 60 seconds, picks up issues assigned to `hermes-b
 sortie validate ./WORKFLOW.md
 ```
 
-`sortie validate` parses the front matter, compiles the prompt template, and runs the offline Gitea checks: `endpoint` is present and shaped like an absolute `http(s)` URL, `project` is `owner/repo` with non-empty halves, no state label is empty or padded with whitespace, `terminal_states` is not empty, `active_states` and `terminal_states` do not overlap, and `handoff_state` collides with neither list. That last one is an error rather than a warning: Sortie will not start on it. It also warns on an `http` endpoint, on an `endpoint` that already ends in `/api/v1`, and, when `api_key` is empty, points you at `SORTIE_GITEA_TOKEN`. It does not contact Gitea, so it cannot tell you whether the token works or whether the repository exists. Those are construction-time checks.
+`sortie validate` parses the front matter, compiles the prompt template, and runs the offline Gitea checks: `endpoint` is present and shaped like an absolute `http(s)` URL, `project` is `owner/repo` with non-empty halves, no state label is empty or padded with whitespace, `terminal_states` is not empty, `active_states` and `terminal_states` do not overlap, and `handoff_state` collides with neither list. That last one is an error rather than a warning: Sortie will not start on it.
+
+It also warns on an `http` endpoint, on an `endpoint` that already ends in `/api/v1`, and, when `api_key` is empty, points you at `SORTIE_GITEA_TOKEN`. It does not contact Gitea, so it cannot tell you whether the token works or whether the repository exists. Those are construction-time checks.
 
 With the `reactions` block present, validation also covers the forge configuration offline: an `auto_merge` `strategy` outside `merge`, `squash`, and `rebase`, a `bot_usernames` value that is not a list of strings, and a reaction `provider` that names no registered adapter or differs across the active reactions.
 

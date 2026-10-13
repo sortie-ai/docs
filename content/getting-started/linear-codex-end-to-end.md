@@ -172,7 +172,9 @@ The one change for this tutorial is `handoff_state: Done`. When the agent finish
 
 ### Workspace and hooks
 
-`workspace.root: ./workspaces` creates a per-issue workspace directory named after the issue identifier, such as `workspaces/ENG-42/`. Three git hooks run at lifecycle points: `after_create` clones the repository into the fresh workspace, `before_run` fetches `main` and creates the branch `sortie/ENG-42`, and `after_run` commits any changes and pushes the branch with `--force-with-lease`. The hooks read `SORTIE_ISSUE_IDENTIFIER` to name the branch, and `timeout_ms: 120000` gives each hook two minutes. This is the same hook setup as the Jira + Codex tutorial. See its [Workspace and hooks](/getting-started/jira-codex-end-to-end/#workspace-and-hooks) section for the per-hook walk-through, and [how to use hook environment variables](/guides/setup-workspace-hooks/#use-hook-environment-variables) for the complete variable set.
+`workspace.root: ./workspaces` creates a per-issue workspace directory named after the issue identifier, such as `workspaces/ENG-42/`. Three git hooks run at lifecycle points: `after_create` clones the repository into the fresh workspace, `before_run` fetches `main` and creates the branch `sortie/ENG-42`, and `after_run` commits any changes and pushes the branch with `--force-with-lease`. The hooks read `SORTIE_ISSUE_IDENTIFIER` to name the branch, and `timeout_ms: 120000` gives each hook two minutes.
+
+This is the same hook setup as the Jira + Codex tutorial. See its [Workspace and hooks](/getting-started/jira-codex-end-to-end/#workspace-and-hooks) section for the per-hook walk-through, and [how to use hook environment variables](/guides/setup-workspace-hooks/#use-hook-environment-variables) for the complete variable set.
 
 ### Agent configuration
 
@@ -186,7 +188,9 @@ The `agent` section configures the orchestrator's scheduling behavior, and every
 
 ### The `codex` extension block
 
-The `codex:` section is adapter-specific pass-through configuration forwarded to the app-server. We set `model: o3` (replace with your preferred model), `effort: medium` (the reasoning level; the names a model accepts depend on the model), `approval_policy: never` (the default, under which the app-server asks for nothing before running a command or applying an edit, which unattended operation requires), and `thread_sandbox: workspaceWrite` (restricts writes to the workspace and disables network by default). These four fields are the same ones the Jira + Codex tutorial sets. For the full list of `codex.*` fields, see the [Codex adapter reference](/reference/adapter-codex/), and for the field-by-field explanation see the Jira + Codex tutorial's [codex extension block](/getting-started/jira-codex-end-to-end/#the-codex-extension-block).
+The `codex:` section is adapter-specific pass-through configuration forwarded to the app-server. We set `model: o3` (replace with your preferred model), `effort: medium` (the reasoning level; the names a model accepts depend on the model), `approval_policy: never` (the default, under which the app-server asks for nothing before running a command or applying an edit, which unattended operation requires), and `thread_sandbox: workspaceWrite` (restricts writes to the workspace and disables network by default).
+
+These four fields are the same ones the Jira + Codex tutorial sets. For the full list of `codex.*` fields, see the [Codex adapter reference](/reference/adapter-codex/), and for the field-by-field explanation see the Jira + Codex tutorial's [codex extension block](/getting-started/jira-codex-end-to-end/#the-codex-extension-block).
 
 ### Inner turn budget
 

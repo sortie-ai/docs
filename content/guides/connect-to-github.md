@@ -184,7 +184,9 @@ Check your configuration without making API calls:
 sortie validate ./WORKFLOW.md
 ```
 
-This parses front matter, compiles the prompt template, and runs preflight checks. It catches missing fields, a malformed `endpoint`, bad `owner/repo` format, env vars that resolve to empty strings, an empty `terminal_states`, blank or whitespace-padded state labels, an empty `active_states` (a warning, because nothing is dispatched), state overlap between `active_states` and `terminal_states`, and a `handoff_state` that appears in either list. When `GITHUB_TOKEN` is set but `api_key` is empty, it hints at the available token. See [validate-time checks](/reference/adapter-github/#validate-time-checks) for the full list of GitHub-specific diagnostics.
+This parses front matter, compiles the prompt template, and runs preflight checks. It catches missing fields, a malformed `endpoint`, bad `owner/repo` format, env vars that resolve to empty strings, an empty `terminal_states`, blank or whitespace-padded state labels, an empty `active_states` (a warning, because nothing is dispatched), state overlap between `active_states` and `terminal_states`, and a `handoff_state` that appears in either list.
+
+When `GITHUB_TOKEN` is set but `api_key` is empty, it hints at the available token. See [validate-time checks](/reference/adapter-github/#validate-time-checks) for the full list of GitHub-specific diagnostics.
 
 ### Test connectivity
 

@@ -245,7 +245,9 @@ The adapter composes a JQL query from the configured project, the active states,
 
 ### Batched state reads
 
-Reconciling many issues at once is batched rather than sequential: IDs are grouped into batches of 40 to keep the request URI inside a safe length, and one query serves each batch. Two consequences are worth knowing. `query_filter` is deliberately not applied to these reads, because reconciliation asks what became of an issue Sortie already claimed, not whether it still matches the filter. And an ID that is not a Jira numeric ID is skipped without an error, so a malformed ID disappears from the result rather than failing the batch.
+Reconciling many issues at once is batched rather than sequential: IDs are grouped into batches of 40 to keep the request URI inside a safe length, and one query serves each batch.
+
+Two consequences are worth knowing. `query_filter` is deliberately not applied to these reads, because reconciliation asks what became of an issue Sortie already claimed, not whether it still matches the filter. And an ID that is not a Jira numeric ID is skipped without an error, so a malformed ID disappears from the result rather than failing the batch.
 
 An issue that has been deleted or moved out of the project is omitted from the result map rather than reported as an error.
 
@@ -255,11 +257,15 @@ A transition resolves the available transitions for the issue and then applies t
 
 Comment bodies differ by API version: the newer surface takes a structured document, which the adapter builds around the orchestrator's text, while the older one takes the text verbatim. Reading works in the other direction, flattening a structured body back to plain text so a prompt template sees the same shape whichever deployment is behind it.
 
-A comment that carries the agent's [stop statement](/reference/agent-extensions/#stop-statement) ends in a literal block. On version `"3"` the block is a code block node holding the statement as one text node. On version `"2"` it is a `{noformat}` block. The adapter inserts a zero-width space (U+200B) after every `{` that starts the word `noformat`, in any letter case, so the statement cannot end the block early, and after every `[` that opens a `[~user]` mention, because Jira Server parses mentions inside `{noformat}`. Those two spots show an invisible character.
+A comment that carries the agent's [stop statement](/reference/agent-extensions/#stop-statement) ends in a literal block. On version `"3"` the block is a code block node holding the statement as one text node. On version `"2"` it is a `{noformat}` block.
+
+The adapter inserts a zero-width space (U+200B) after every `{` that starts the word `noformat`, in any letter case, so the statement cannot end the block early, and after every `[` that opens a `[~user]` mention, because Jira Server parses mentions inside `{noformat}`. Those two spots show an invisible character.
 
 A comment failure is not fatal to the run. The orchestrator logs a warning and continues, so a token that can read but not comment degrades the run rather than ending it.
 
-Adding a label sends a single `PUT` to the issue resource with an `update.labels` add operation naming the label as written; the adapter does not look the label up or create it first. Removing a label reads the issue's `labels` field, collects every label that equals the name ignoring letter case, and removes them all in one `PUT` with an `update.labels` remove operation for each. An issue that carries no such label gets no write, so removing an absent label succeeds and changes nothing. Neither write replaces the label list, so a label someone adds between the read and the write stays on the issue.
+Adding a label sends a single `PUT` to the issue resource with an `update.labels` add operation naming the label as written; the adapter does not look the label up or create it first.
+
+Removing a label reads the issue's `labels` field, collects every label that equals the name ignoring letter case, and removes them all in one `PUT` with an `update.labels` remove operation for each. An issue that carries no such label gets no write, so removing an absent label succeeds and changes nothing. Neither write replaces the label list, so a label someone adds between the read and the write stays on the issue.
 
 Jira answers a label edit with an empty body, so the adapter reads the issue's labels after every add and every removal. An add that leaves the label missing, or a removal that leaves it in place, fails with `tracker_payload_error`. A label failure is not fatal to the run, the same as a comment failure. These two writes are also how a [stage label](/reference/workflow-config/#dispatch) moves on a Jira issue, so stage chains work on Jira.
 

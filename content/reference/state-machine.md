@@ -65,7 +65,11 @@ A worker exit is not the only way an entry gets queued: a [reaction reconcile pa
 
 An issue holds at most one queued retry. When any of these outcomes finds one already queued (a reaction continuation scheduled while the session was still running, for example), the queued entry is left in place and the claim is kept, rather than the queued work being replaced. The queued entry runs on its own timer, and the outcome that deferred to it takes no further action.
 
-**RetryQueued → Running.** The retry timer fires. The orchestrator reads that one issue from the tracker by ID (not the candidate list), confirms it is still eligible, acquires a slot, and launches a new worker. If no slot is available, the entry is rescheduled at the next attempt number, so its delay grows by one backoff step rather than repeating, and its `error` becomes `no available orchestrator slots`. The worker runs the agent kind and template recorded on the entry, unless the configuration in force no longer reaches that kind or no longer holds that template; then the current dispatch rules route the issue again and the worker starts a new session instead of resuming the earlier one. An entry whose agent kind has no adapter is rescheduled with backoff and keeps its claim.
+**RetryQueued → Running.** The retry timer fires. The orchestrator reads that one issue from the tracker by ID (not the candidate list), confirms it is still eligible, acquires a slot, and launches a new worker.
+
+If no slot is available, the entry is rescheduled at the next attempt number, so its delay grows by one backoff step rather than repeating, and its `error` becomes `no available orchestrator slots`.
+
+The worker runs the agent kind and template recorded on the entry, unless the configuration in force no longer reaches that kind or no longer holds that template; then the current dispatch rules route the issue again and the worker starts a new session instead of resuming the earlier one. An entry whose agent kind has no adapter is rescheduled with backoff and keeps its claim.
 
 **Claimed → Released.** The claim is removed and no retry is scheduled:
 
@@ -162,13 +166,25 @@ A write belongs in the table below when it decides where the issue goes next: it
 | Stage label | In place of the handoff write, when the run's rule carries `next`. Adds the next stage's label and removes the issue's other stage labels. See [stage hop](#stage-hop). | `next` on a dispatch rule, naming a rule that carries `stage` |
 | Terminal state | When a Sortie-managed pull request merges while the linked issue is still parked in the handoff state. | `reactions.merge_completion.target_state` |
 
-Any other write the orchestrator makes decides nothing about where the issue goes: the dispatch comment, the completion and failure comments, the auto-merge success comment, and a reaction's escalation label or comment are not transitions. The governing boundary is not between reading and writing, it is between a write that reports an event the orchestrator observed and a write that expresses a judgment about the work; the orchestrator makes only the first kind. The stage-label write is of the first kind as well: it follows a successful exit the orchestrator observed, and the stage it selects is the one you named in `next`. A case that turns on judgment, such as choosing between a completion state and an abandonment state for a pull request closed unmerged, is left to you or to the coding agent.
+Any other write the orchestrator makes decides nothing about where the issue goes: the dispatch comment, the completion and failure comments, the auto-merge success comment, and a reaction's escalation label or comment are not transitions.
+
+The governing boundary is not between reading and writing, it is between a write that reports an event the orchestrator observed and a write that expresses a judgment about the work; the orchestrator makes only the first kind.
+
+The stage-label write is of the first kind as well: it follows a successful exit the orchestrator observed, and the stage it selects is the one you named in `next`. A case that turns on judgment, such as choosing between a completion state and an abandonment state for a pull request closed unmerged, is left to you or to the coding agent.
 
 The coding agent has a path of its own, separate from these writes: the [`tracker_api` tool](/reference/agent-extensions/#tracker_api) performs a `transition_issue` the agent asked for, within the configured project scope.
 
 Each write stays off until its field is configured, and the stage-label write until a rule carries `next`. The terminal write needs `reactions.merge_completion.provider` on top of its target state; a deployment that does not configure it sees no terminal write from the orchestrator at all.
 
-The handoff write carries one extra guard, because it is the write most likely to race a person. If you close or cancel an issue while its final turn is still finishing, the handoff write would otherwise overwrite your decision with `handoff_state`. So the exit path tests the issue against `terminal_states` using the freshest observation it has, preferring one made by reconciliation, then one made by the worker's own per-turn refresh, then the state recorded at dispatch. A terminal observation suppresses the write, releases the claim, and cancels any pending retry. Because that observation can itself go stale while the worker tears down, Sortie performs one more state read immediately before the write and applies the same test. If that read fails, the write proceeds: an unreachable tracker is not evidence that the issue is closed. The read is skipped entirely when `terminal_states` is empty, since with no terminal state configured no value could classify as one and the call would cost a tracker request without ever suppressing anything. Only a terminal state suppresses. Any other state, including `handoff_state` itself when the agent already applied it through the `tracker_api` tool, leaves the write and everything downstream of it unchanged. A stage hop is decided only after this read, so a terminal result suppresses the hop as well.
+The handoff write carries one extra guard, because it is the write most likely to race a person. If you close or cancel an issue while its final turn is still finishing, the handoff write would otherwise overwrite your decision with `handoff_state`.
+
+So the exit path tests the issue against `terminal_states` using the freshest observation it has, preferring one made by reconciliation, then one made by the worker's own per-turn refresh, then the state recorded at dispatch. A terminal observation suppresses the write, releases the claim, and cancels any pending retry.
+
+Because that observation can itself go stale while the worker tears down, Sortie performs one more state read immediately before the write and applies the same test. If that read fails, the write proceeds: an unreachable tracker is not evidence that the issue is closed.
+
+The read is skipped entirely when `terminal_states` is empty, since with no terminal state configured no value could classify as one and the call would cost a tracker request without ever suppressing anything.
+
+Only a terminal state suppresses. Any other state, including `handoff_state` itself when the agent already applied it through the `tracker_api` tool, leaves the write and everything downstream of it unchanged. A stage hop is decided only after this read, so a terminal result suppresses the hop as well.
 
 ### Handoff evidence
 
@@ -180,23 +196,39 @@ The handoff write is subject to one further condition beyond those in the table 
 | `strict` | Handoff proceeds | Withheld | Withheld |
 | `off` | No verdict is computed; the conditions in the table above stand | n/a | n/a |
 
-The default withholds only on a positively observed absence and abstains everywhere it cannot measure the workspace: a workspace that is not a Git work tree, and a workspace inspection that itself fails, which includes one still waiting on output a descendant process kept open past a bounded wait. A deployment whose workspaces are never version-controlled trees sees no behavioral change under the default and configures nothing. `strict` has no partial form: in such a deployment it withholds every transition and stops the pipeline, which is the operator's own choice to make.
+The default withholds only on a positively observed absence and abstains everywhere it cannot measure the workspace: a workspace that is not a Git work tree, and a workspace inspection that itself fails, which includes one still waiting on output a descendant process kept open past a bounded wait.
+
+A deployment whose workspaces are never version-controlled trees sees no behavioral change under the default and configures nothing. `strict` has no partial form: in such a deployment it withholds every transition and stops the pipeline, which is the operator's own choice to make.
 
 One legitimate configuration is misread by the default. A primary dispatch whose entire product is a write to the tracker presents a measurable workspace and no movement in it, so it reads as an absence. A write made through the [`tracker_api` tool](/reference/agent-extensions/#tracker_api) goes straight to the tracker, not to the workspace, so it is invisible to the inspection above and cannot rescue the case. That is the case `off` exists for.
 
 The verdict describes what survived the run, not whether the agent acted: it can withhold a handoff write and it can never cause one, and it cannot see work that was produced and then reverted.
 
-A verdict that withholds the handoff is checked against the tracker once before it takes effect, the same guard the handoff write itself carries. Immediately before recording anything, Sortie reads the issue's state and tests it against `terminal_states`. A terminal result discards the verdict and routes the exit into the terminal disposition instead: the claim is released, any pending retry is cancelled, no failed run is recorded, no failure comment is posted, no retry is scheduled, and the consecutive-absence count does not advance. Any other state leaves the withheld outcome exactly as it was, and so does a read that fails, because an unreachable tracker is not evidence that the issue is closed. Like the write path's read, this one is skipped entirely when `terminal_states` is empty, since no value could then classify as terminal. It is what keeps Sortie from reporting a failure and promising a retry on an issue that finished during the run (through the agent's own [`tracker_api` tool](/reference/agent-extensions/#tracker_api), through an `after_run` hook, or through a person moving it).
+A verdict that withholds the handoff is checked against the tracker once before it takes effect, the same guard the handoff write itself carries. Immediately before recording anything, Sortie reads the issue's state and tests it against `terminal_states`. A terminal result discards the verdict and routes the exit into the terminal disposition instead: the claim is released, any pending retry is cancelled, no failed run is recorded, no failure comment is posted, no retry is scheduled, and the consecutive-absence count does not advance.
+
+Any other state leaves the withheld outcome exactly as it was, and so does a read that fails, because an unreachable tracker is not evidence that the issue is closed. Like the write path's read, this one is skipped entirely when `terminal_states` is empty, since no value could then classify as terminal.
+
+It is what keeps Sortie from reporting a failure and promising a retry on an issue that finished during the run (through the agent's own [`tracker_api` tool](/reference/agent-extensions/#tracker_api), through an `after_run` hook, or through a person moving it).
 
 A withheld handoff that survives that check records the run as failed, naming the verdict as the reason, even though the agent process exited normally.
 
-This bears on what a recorded run status of `succeeded` asserts on the handoff path. It means the worker exited without error and the evidence policy did not withhold the transition, or withheld it and the read above then found the issue terminal. It does not assert that work was positively observed: an undeterminable verdict under `observed`, every normal exit under `off`, and a withheld verdict discarded by that read all record `succeeded`. So does a [no-change declaration](#declaring-that-nothing-needed-changing) that stood, which asserts a claim the agent made and self-review checked where enabled, not a positive workspace observation. Rows written before the evidence policy took effect keep the older exit-kind-only meaning and are not rewritten, so a success rate computed across the whole history spans three definitions of `succeeded` rather than one.
+This bears on what a recorded run status of `succeeded` asserts on the handoff path. It means the worker exited without error and the evidence policy did not withhold the transition, or withheld it and the read above then found the issue terminal.
+
+It does not assert that work was positively observed: an undeterminable verdict under `observed`, every normal exit under `off`, and a withheld verdict discarded by that read all record `succeeded`. So does a [no-change declaration](#declaring-that-nothing-needed-changing) that stood, which asserts a claim the agent made and self-review checked where enabled, not a positive workspace observation.
+
+Rows written before the evidence policy took effect keep the older exit-kind-only meaning and are not rewritten, so a success rate computed across the whole history spans three definitions of `succeeded` rather than one.
 
 ### Declaring that nothing needed changing
 
-A run can also state the verdict directly instead of leaving it to the workspace inspection above. Writing `no-change-needed` to [`.sortie/status`](/reference/agent-extensions/#sortiestatus-file-protocol) declares that the requested outcome already held and the agent changed nothing. The declaration is admitted to the [self-review phase](/guides/configure-self-review/) on the same terms as `needs-human-review`. If that phase does not confirm it (anything other than exactly one iteration ending on a `pass` verdict, with no failing verification result), the declaration is retracted and the run falls back to the ordinary evidence-based verdict above, as if it had made no declaration. On a deployment with self-review disabled, no such check runs and the declaration stands unverified.
+A run can also state the verdict directly instead of leaving it to the workspace inspection above. Writing `no-change-needed` to [`.sortie/status`](/reference/agent-extensions/#sortiestatus-file-protocol) declares that the requested outcome already held and the agent changed nothing. The declaration is admitted to the [self-review phase](/guides/configure-self-review/) on the same terms as `needs-human-review`.
 
-A declaration that stands always yields work observed, ahead of and bypassing the workspace inspection above entirely: it cannot be withheld and cannot be undeterminable. Under `observed` and `strict`, it resets the consecutive-absence count and releases a park held for consecutive absences. Under `off`, no verdict is computed and neither the reset nor the park release happens; resolving the transition target is the declaration's only effect there. In every case, including `off`, the target is `tracker.no_change_state` where that field is configured, falling back to `tracker.handoff_state` otherwise; see [the `tracker.no_change_state` field](/reference/workflow-config/#tracker). On a rule that carries `next`, that target applies only when no [stage hop](#stage-hop) is made. Where no handoff path applies (the dispatch does not drive issue state, or `tracker.handoff_state` is unset), the declaration changes no issue state.
+If that phase does not confirm it (anything other than exactly one iteration ending on a `pass` verdict, with no failing verification result), the declaration is retracted and the run falls back to the ordinary evidence-based verdict above, as if it had made no declaration. On a deployment with self-review disabled, no such check runs and the declaration stands unverified.
+
+A declaration that stands always yields work observed, ahead of and bypassing the workspace inspection above entirely: it cannot be withheld and cannot be undeterminable. Under `observed` and `strict`, it resets the consecutive-absence count and releases a park held for consecutive absences.
+
+Under `off`, no verdict is computed and neither the reset nor the park release happens; resolving the transition target is the declaration's only effect there. In every case, including `off`, the target is `tracker.no_change_state` where that field is configured, falling back to `tracker.handoff_state` otherwise; see [the `tracker.no_change_state` field](/reference/workflow-config/#tracker).
+
+On a rule that carries `next`, that target applies only when no [stage hop](#stage-hop) is made. Where no handoff path applies (the dispatch does not drive issue state, or `tracker.handoff_state` is unset), the declaration changes no issue state.
 
 A run that produces nothing and declares nothing keeps the ordinary absence outcome above in full: handoff withheld, failure recorded, consecutive-absence count advanced. An undeterminable run that declares nothing keeps its policy-dependent outcome: proceeds under `observed`, withheld under `strict`. A terminal state observed at exit is not a declaration and is tested first, so a declaration on an already-terminal issue changes nothing.
 
@@ -204,7 +236,9 @@ A continuation turn dispatched by a reaction runs as an ordinary agent session a
 
 ### Stage hop
 
-A rule that carries `next` makes a stage hop in place of the handoff write (see [dispatch configuration](/reference/workflow-config/#dispatch) for `stage`, `next`, and `dispatch.max_consecutive_hops`). A hop is due on exactly the exits that would otherwise take the handoff write, after the terminal tests and the evidence verdict above have let the exit through. A `needs-human-review` soft stop and a `no-change-needed` declaration that stood both qualify. A blocked soft stop, a failed, timed-out, stalled, or cancelled run, a terminal exit, a withheld verdict, a label-command session, and an issue no longer in an active state never hop.
+A rule that carries `next` makes a stage hop in place of the handoff write (see [dispatch configuration](/reference/workflow-config/#dispatch) for `stage`, `next`, and `dispatch.max_consecutive_hops`). A hop is due on exactly the exits that would otherwise take the handoff write, after the terminal tests and the evidence verdict above have let the exit through.
+
+A `needs-human-review` soft stop and a `no-change-needed` declaration that stood both qualify. A blocked soft stop, a failed, timed-out, stalled, or cancelled run, a terminal exit, a withheld verdict, a label-command session, and an issue no longer in an active state never hop.
 
 A hop that is made:
 
@@ -279,7 +313,9 @@ Issues are sorted for dispatch: priority ascending (issues with no priority sort
 
 ### Blocker resolution
 
-Jira and Linear return each issue's blockers together with the candidate list, so nothing extra is read. GitHub and Gitea do not: a candidate from either tracker is held until a separate per-issue read resolves its blocker list, and that read is bounded to four per poll, shared across every candidate that needs one. GitHub's candidate payload can prove an issue has zero dependencies without spending a read; Gitea's cannot, so every Gitea candidate needing resolution costs one. GitLab declares that it has no blocking relation to read at all, so its issues carry an authoritative empty list from the candidate fetch and are never held for this reason. See the [GitHub](/reference/adapter-github/#blocker-extraction) and [Gitea](/reference/adapter-gitea/#blocker-extraction) adapter references for the read cost and how a failed read is handled.
+Jira and Linear return each issue's blockers together with the candidate list, so nothing extra is read. GitHub and Gitea do not: a candidate from either tracker is held until a separate per-issue read resolves its blocker list, and that read is bounded to four per poll, shared across every candidate that needs one. GitHub's candidate payload can prove an issue has zero dependencies without spending a read; Gitea's cannot, so every Gitea candidate needing resolution costs one.
+
+GitLab declares that it has no blocking relation to read at all, so its issues carry an authoritative empty list from the candidate fetch and are never held for this reason. See the [GitHub](/reference/adapter-github/#blocker-extraction) and [Gitea](/reference/adapter-gitea/#blocker-extraction) adapter references for the read cost and how a failed read is handled.
 
 A held candidate is not silent: it logs one record and increments the `sortie_candidate_holds_total` counter with a `reason` label, one of:
 

@@ -55,13 +55,17 @@ This tells Sortie to run agents on `build01` and `build02` instead of locally. E
 If you also have `agent.max_concurrent_agents` set, total concurrency is the lower of the two limits. With `max_concurrent_agents: 3` and two hosts at 2 each, you get 3 concurrent agents. The global cap wins.
 
 > [!WARNING]
-> **On `codex` and `opencode`, moving to SSH removes Sortie's agent tools.** Both runtimes accept no MCP configuration path, so Sortie normally hands them the servers by writing them into the launch itself, and it does that on a local launch only. For `codex` the remaining route is the remote command string, which is the local `ssh` process's argument list, readable by every other user of the orchestrator host, and the configuration carries your tracker credential; Sortie declines to publish it. A remote session on either kind reaches no tool, and Sortie withholds the first-turn tool advertisement rather than name one the agent cannot call. Nothing fails; the agent works without `tracker_api`, `sortie_status`, `workspace_history`, `cost_budget`, and `notify_operator` if you configured it.
+> **On `codex` and `opencode`, moving to SSH removes Sortie's agent tools.** Both runtimes accept no MCP configuration path, so Sortie normally hands them the servers by writing them into the launch itself, and it does that on a local launch only. For `codex` the remaining route is the remote command string, which is the local `ssh` process's argument list, readable by every other user of the orchestrator host, and the configuration carries your tracker credential; Sortie declines to publish it.
+>
+> A remote session on either kind reaches no tool, and Sortie withholds the first-turn tool advertisement rather than name one the agent cannot call. Nothing fails; the agent works without `tracker_api`, `sortie_status`, `workspace_history`, `cost_budget`, and `notify_operator` if you configured it.
 >
 > If your prompts depend on those tools, keep the host pool on `claude-code` or `copilot-cli`, which hand over the generated file itself and are unaffected. See [delivery by agent kind](/reference/agent-extensions/#delivery-by-agent-kind).
 
 ## Give the remote agent its credentials
 
-`ssh` does not hand your shell's environment to the remote host, so an agent there starts with whatever that host holds. For the credential its own runtime reads, you need no configuration: every agent kind declares its credential variable names, and Sortie sends those from its own environment on each remote launch. A `claude-code` pool picks up the orchestrator's `ANTHROPIC_API_KEY`, a `copilot-cli` pool its `GH_TOKEN`. An `agent-client-protocol` pool declares none, so its runtime reads the credential or login the remote host already holds, or a variable you name below. The [environment reference](/reference/environment/#variables-carried-to-a-remote-agent) has the full per-kind list.
+`ssh` does not hand your shell's environment to the remote host, so an agent there starts with whatever that host holds. For the credential its own runtime reads, you need no configuration: every agent kind declares its credential variable names, and Sortie sends those from its own environment on each remote launch.
+
+A `claude-code` pool picks up the orchestrator's `ANTHROPIC_API_KEY`, a `copilot-cli` pool its `GH_TOKEN`. An `agent-client-protocol` pool declares none, so its runtime reads the credential or login the remote host already holds, or a variable you name below. The [environment reference](/reference/environment/#variables-carried-to-a-remote-agent) has the full per-kind list.
 
 Anything else is opt-in. Name it under `ssh_pass_env`:
 

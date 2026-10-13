@@ -8,7 +8,9 @@ url: /reference/adapter-agent-client-protocol/
 ---
 The Agent Client Protocol adapter connects Sortie to any runtime that speaks the [Agent Client Protocol](https://agentclientprotocol.com/), a newline-delimited JSON-RPC 2.0 protocol several coding-agent CLIs implement. It launches the runtime named by `agent.command` as a persistent subprocess, local or over SSH, performs an `initialize` handshake, and drives a session that survives across turns. Registered under kind `"agent-client-protocol"`.
 
-Unlike every other agent kind, this one names no default runtime. `claude-code` launches `claude` and `copilot-cli` launches `copilot` unless `agent.command` names another program; this kind launches whatever `agent.command` names, together with the flag or subcommand that puts that binary into protocol mode. One operator build of this adapter can therefore drive several different vendor runtimes, and this page describes only what the protocol and the adapter guarantee across all of them. What one specific runtime does with a capability the protocol leaves optional, and the launch switches that runtime needs, are covered on that runtime's own page: see [Gemini CLI on the Agent Client Protocol](/reference/agent-client-protocol-gemini/) and [Kiro CLI on the Agent Client Protocol](/reference/agent-client-protocol-kiro/).
+Unlike every other agent kind, this one names no default runtime. `claude-code` launches `claude` and `copilot-cli` launches `copilot` unless `agent.command` names another program; this kind launches whatever `agent.command` names, together with the flag or subcommand that puts that binary into protocol mode.
+
+One operator build of this adapter can therefore drive several different vendor runtimes, and this page describes only what the protocol and the adapter guarantee across all of them. What one specific runtime does with a capability the protocol leaves optional, and the launch switches that runtime needs, are covered on that runtime's own page: see [Gemini CLI on the Agent Client Protocol](/reference/agent-client-protocol-gemini/) and [Kiro CLI on the Agent Client Protocol](/reference/agent-client-protocol-kiro/).
 
 Session start launches the subprocess once and keeps it alive for the whole session; each turn sends one `session/prompt` request on that same session rather than spawning a new process.
 
@@ -149,11 +151,19 @@ Runs a fixed teardown order regardless of how far the session progressed, so a s
 | Drain stderr and reap | Collects diagnostics and reaps the process, bounded so this step never holds teardown open indefinitely. |
 | Release the pipes | Closes both read ends the session owns. It runs last because the session owns them for its whole lifetime: closing either one earlier would cut off the stderr drain above while it is still reading buffered output, and a session that failed during startup reports its collected stderr after teardown finishes. |
 
-On Unix, graceful termination is `SIGTERM` and force kill is `SIGKILL` to the process group. On Windows, graceful termination is `CTRL_BREAK_EVENT` to the process group, and the subprocess is assigned to a Job Object with `KILL_ON_JOB_CLOSE` so force termination kills the full descendant tree. The subprocess starts suspended and is resumed only after that assignment succeeds, so nothing it spawns can run before the job takes effect. A failed assignment logs WARN `process group assignment failed` and the runtime subprocess runs without a job; a failed resume logs WARN `process resume failed` and fails session start with error kind `port_exit`, the same row the errors table above gives for any subprocess that fails to start. A session start whose context is already done when the resume is reached, by cancellation or by its deadline, is never resumed: Sortie terminates the subprocess before it runs, logs no resume warning, and ends the start as `turn_cancelled`. Since this adapter launches the runtime once and keeps it alive for the whole session, a resume failure here means no turn for that session ever reaches the runtime.
+On Unix, graceful termination is `SIGTERM` and force kill is `SIGKILL` to the process group. On Windows, graceful termination is `CTRL_BREAK_EVENT` to the process group, and the subprocess is assigned to a Job Object with `KILL_ON_JOB_CLOSE` so force termination kills the full descendant tree. The subprocess starts suspended and is resumed only after that assignment succeeds, so nothing it spawns can run before the job takes effect.
+
+A failed assignment logs WARN `process group assignment failed` and the runtime subprocess runs without a job; a failed resume logs WARN `process resume failed` and fails session start with error kind `port_exit`, the same row the errors table above gives for any subprocess that fails to start.
+
+A session start whose context is already done when the resume is reached, by cancellation or by its deadline, is never resumed: Sortie terminates the subprocess before it runs, logs no resume warning, and ends the start as `turn_cancelled`. Since this adapter launches the runtime once and keeps it alive for the whole session, a resume failure here means no turn for that session ever reaches the runtime.
 
 A runtime that has already received its answer by the time the graceful signal reaches it can act on that answer and exit inside `stop_grace_ms` on its own, rather than still waiting on it once the force-terminate step runs. A runtime that never reads the answer still leaves teardown on schedule: the answer step completes within its own bound regardless, and the rest of the order runs as listed.
 
-The runtime process can exit while a descendant it spawned still holds its standard-output handle open. Reaping the process does not close that handle, so a handshake call or a turn already waiting on the runtime's output keeps waiting; Sortie gives it up to five seconds past the reap, then stops waiting and closes standard output and the connection itself. A turn ended this way reports `port_exit` with the message `the agent runtime exited before the session finished collecting its output`; a turn started after this has already happened is refused with the same message before it reaches the runtime. Sortie logs `agent stdout was not fully collected before the session ended` at WARN, with the five-second bound in its `drain_bound` attribute. On a remote launch, the process watched for exit is the local `ssh` relay rather than the runtime on the far end. Stopping the session afterward still runs the fixed order above in full.
+The runtime process can exit while a descendant it spawned still holds its standard-output handle open. Reaping the process does not close that handle, so a handshake call or a turn already waiting on the runtime's output keeps waiting; Sortie gives it up to five seconds past the reap, then stops waiting and closes standard output and the connection itself.
+
+A turn ended this way reports `port_exit` with the message `the agent runtime exited before the session finished collecting its output`; a turn started after this has already happened is refused with the same message before it reaches the runtime. Sortie logs `agent stdout was not fully collected before the session ended` at WARN, with the five-second bound in its `drain_bound` attribute.
+
+On a remote launch, the process watched for exit is the local `ssh` relay rather than the runtime on the far end. Stopping the session afterward still runs the fixed order above in full.
 
 ---
 
@@ -192,15 +202,23 @@ The `session/prompt` response's `stopReason` decides how the turn ends, unless t
 | `cancelled`, and neither side asked for it | `turn_failed` | `turn_failed`, message `agent reported a cancelled stop reason without a cancellation on either side` |
 | Any other value | `turn_failed` | `turn_outcome_unknown` |
 
-Whether a runtime's own implementation actually produces every one of these five values, and what each one means for that runtime specifically, is that runtime's to document; see the runtime-specific pages linked at the top of this page. `refusal` and `max_tokens` are treated as non-retryable classification decisions rather than transport failures: a retry of the same input would meet the same refusal or the same limit. `max_turn_requests` is retryable with exponential backoff, since a fresh turn starts a new request budget on the runtime's side.
+Whether a runtime's own implementation actually produces every one of these five values, and what each one means for that runtime specifically, is that runtime's to document; see the runtime-specific pages linked at the top of this page.
 
-Two conditions precede a `stopReason` read at all: a protocol-level error on the response reports `response_error`, and a lost connection reports `port_exit`. A lost connection covers the subprocess exiting, the stream ending, and a write to the runtime failing while a turn is active, when the connection's own end of stream does not follow within `read_timeout_ms` of that failure; a line exceeding the connection's bound reports `turn_outcome_unknown` instead, because it is a different failure from losing the process. A lost connection also covers a runtime that exits while a descendant still holds its standard output open: rather than run until `stall_timeout_ms` or `turn_timeout_ms` catches it, this ends within a five-second bound; see [process shutdown](#process-shutdown) for the mechanism and message.
+`refusal` and `max_tokens` are treated as non-retryable classification decisions rather than transport failures: a retry of the same input would meet the same refusal or the same limit. `max_turn_requests` is retryable with exponential backoff, since a fresh turn starts a new request budget on the runtime's side.
+
+Two conditions precede a `stopReason` read at all: a protocol-level error on the response reports `response_error`, and a lost connection reports `port_exit`.
+
+A lost connection covers the subprocess exiting, the stream ending, and a write to the runtime failing while a turn is active, when the connection's own end of stream does not follow within `read_timeout_ms` of that failure; a line exceeding the connection's bound reports `turn_outcome_unknown` instead, because it is a different failure from losing the process.
+
+A lost connection also covers a runtime that exits while a descendant still holds its standard output open: rather than run until `stall_timeout_ms` or `turn_timeout_ms` catches it, this ends within a five-second bound; see [process shutdown](#process-shutdown) for the mechanism and message.
 
 ---
 
 ## Token accounting
 
-Whether a session on this kind reports token usage depends on the runtime it launches and on where that runtime runs. The protocol carries no spend counter, so a figure can only come from a measurement source Sortie ships for one specific runtime and reads outside the wire. Where such a source applies, figures arrive when a turn ends and attribute to a model. Where none applies, the session reports nothing and `agent.turn_timeout_ms` is the bound that applies instead. For this kind's declaration beside every other kind's, see the [usage reporting table](/reference/workflow-config/#usage-reporting-by-agent-kind).
+Whether a session on this kind reports token usage depends on the runtime it launches and on where that runtime runs. The protocol carries no spend counter, so a figure can only come from a measurement source Sortie ships for one specific runtime and reads outside the wire.
+
+Where such a source applies, figures arrive when a turn ends and attribute to a model. Where none applies, the session reports nothing and `agent.turn_timeout_ms` is the bound that applies instead. For this kind's declaration beside every other kind's, see the [usage reporting table](/reference/workflow-config/#usage-reporting-by-agent-kind).
 
 A source supplies a figure only when two checks pass before the session is created, plus a third that plays out during it.
 
@@ -209,13 +227,21 @@ A source supplies a figure only when two checks pass before the session is creat
 
 A session that leaves the first two checks without a confirmed source is unmeasured for the whole of its life, decided before a turn runs.
 
-The third check plays out on whichever turn's own wait for the source is the first to run to the source's own conclusion, and only when [`agent.read_timeout_ms`](#agent-section) gives that wait enough time to let the source answer at all: a turn whose own wait ends first, before the source has answered, ends unmeasured itself but leaves the source in place for the next turn, since the source was never actually asked and answered within that turn. Only a turn whose wait does let the source answer, and gets nothing back before any turn has had a figure out of it, drops the source for the rest of the session; a later turn then never gets its own chance to prove the source works. Once one turn has had a figure, the source stays for the session, and a later turn that gets nothing back costs that turn its own figure and nothing more. Which way any of this went is observable rather than inferred: the once-per-session capability notice names `token counts` exactly when no figure will arrive, described under [capability tracking](#capability-tracking); a drop that happens after that notice already went out is logged at `Warn` instead, per the same section. Sortie ships one such source today, for Gemini CLI.
+The third check plays out on whichever turn's own wait for the source is the first to run to the source's own conclusion, and only when [`agent.read_timeout_ms`](#agent-section) gives that wait enough time to let the source answer at all: a turn whose own wait ends first, before the source has answered, ends unmeasured itself but leaves the source in place for the next turn, since the source was never actually asked and answered within that turn.
+
+Only a turn whose wait does let the source answer, and gets nothing back before any turn has had a figure out of it, drops the source for the rest of the session; a later turn then never gets its own chance to prove the source works. Once one turn has had a figure, the source stays for the session, and a later turn that gets nothing back costs that turn its own figure and nothing more.
+
+Which way any of this went is observable rather than inferred: the once-per-session capability notice names `token counts` exactly when no figure will arrive, described under [capability tracking](#capability-tracking); a drop that happens after that notice already went out is logged at `Warn` instead, per the same section. Sortie ships one such source today, for Gemini CLI.
 
 The transport carries no per-turn token counter the orchestrator can record as spend. `session/prompt`'s response carries a stop reason. The one usage notification the protocol defines, `usage_update`, reports the tokens currently in context, the context window's total size, and an optional cumulative session cost, none of which is the per-turn input and output count Sortie records; the adapter logs that notification at debug level and takes no figure from it.
 
 A session no source measures emits no `token_usage` event. It is recorded unmeasured, contributes nothing to `agent.max_tokens`, advances no `sortie_tokens_total` series, is excluded from `sortie stats` token and cost figures, and is counted in that command's `tokens_unmeasured_runs`.
 
-What the dashboard shows for it depends on which way it went unmeasured, because the Usage reporting field states the declaration the session was dispatched under rather than what its runtime turned out to deliver. An SSH session is declared non-reporting before it starts: Usage reporting reads `this session reports no token usage`, and the Model, API Requests, Tokens, and Est. Cost fields below it show an em dash rather than a zero. A local session carries the reporting declaration whatever runtime it launches, so one no source measures reads `figures arrive when a turn ends, per model` all the same, with Model on `not reported yet`, API Requests on `not measured`, Tokens moving from `not reported yet` to `not reported` once its first turn ends, and Est. Cost on an em dash. Set `agent.max_tokens` and such a run also closes with `run reported no token usage, token ceiling could not bound it`; no dispatch-time warning precedes it, because the declaration the session was dispatched under said a figure would arrive.
+What the dashboard shows for it depends on which way it went unmeasured, because the Usage reporting field states the declaration the session was dispatched under rather than what its runtime turned out to deliver. An SSH session is declared non-reporting before it starts: Usage reporting reads `this session reports no token usage`, and the Model, API Requests, Tokens, and Est. Cost fields below it show an em dash rather than a zero.
+
+A local session carries the reporting declaration whatever runtime it launches, so one no source measures reads `figures arrive when a turn ends, per model` all the same, with Model on `not reported yet`, API Requests on `not measured`, Tokens moving from `not reported yet` to `not reported` once its first turn ends, and Est. Cost on an em dash.
+
+Set `agent.max_tokens` and such a run also closes with `run reported no token usage, token ceiling could not bound it`; no dispatch-time warning precedes it, because the declaration the session was dispatched under said a figure would arrive.
 
 [`sortie validate`](/reference/cli/#validate) sees only the first of those two offline, because it reads the workflow and not the runtime: `agent.kind.no_usage_reporting` and `agent.kind.no_cost_estimate` fire for a configuration that launches over SSH, and not for the same one running locally.
 
@@ -253,7 +279,9 @@ An operator neither answers a permission request nor configures the answer. The 
 
 A request arriving between turns is answered the same way, and an ending it produces is held until the next turn: that turn starts, delivers the notification, and ends immediately without sending a prompt. A request ending the attempt releases the claim instead of scheduling a retry, and the run is recorded with status `needs_person` rather than `failed`.
 
-A session that delivered at least one declared tool server, and then meets a permission request answered by refusal, is told once per session that any tool gated the same way cannot be called: the adapter emits one `notification` and logs one `Warn` record. A posture that never asks in the first place leaves no such signal on this path; see the runtime-specific pages for what each runtime's own configuration needs to reach that posture, and [what a delivered tool server needs to be callable](#tool-call-tracking).
+A session that delivered at least one declared tool server, and then meets a permission request answered by refusal, is told once per session that any tool gated the same way cannot be called: the adapter emits one `notification` and logs one `Warn` record.
+
+A posture that never asks in the first place leaves no such signal on this path; see the runtime-specific pages for what each runtime's own configuration needs to reach that posture, and [what a delivered tool server needs to be callable](#tool-call-tracking).
 
 ---
 
@@ -263,7 +291,9 @@ Sortie's tools reach the session as MCP servers declared on `session/new` (or a 
 
 Every tool call's declared kind is normalized to a closed, ten-value set for the orchestrator's tool-call metric: `read`, `edit`, `delete`, `move`, `search`, `execute`, `think`, `fetch`, `switch_mode`, and `other`, substituting `other` for an absent or unrecognized value.
 
-Delivery and discovery are not the same as callability. The session-creation request carries the declaration and the runtime launches the server and reads its tool list, but a runtime that asks for consent before invoking a tool meets this adapter's refusal, and the tool is never invoked. The protocol's stdio server declaration carries no trust or pre-authorization field, so a declared server cannot be marked pre-authorized on the wire; the only lever is the runtime's own configuration, reached through `agent.command` and whatever configuration file that runtime reads. See the runtime-specific pages for what each runtime's own switches grant.
+Delivery and discovery are not the same as callability. The session-creation request carries the declaration and the runtime launches the server and reads its tool list, but a runtime that asks for consent before invoking a tool meets this adapter's refusal, and the tool is never invoked.
+
+The protocol's stdio server declaration carries no trust or pre-authorization field, so a declared server cannot be marked pre-authorized on the wire; the only lever is the runtime's own configuration, reached through `agent.command` and whatever configuration file that runtime reads. See the runtime-specific pages for what each runtime's own switches grant.
 
 ---
 
@@ -292,7 +322,9 @@ Every session keeps a record of four capabilities this transport can deliver, ea
 | Session continuation | Delivered | The handshake advertises neither `session/load` nor `session/resume`, or an attempted continuation call is not confirmed. See [session resume mechanism](#session-resume-mechanism). |
 | Agent version | Delivered | The handshake's `initialize` response carries no `agentInfo`. |
 
-The first time a turn starts, the adapter emits one `notification` naming every entry then in the gap state, in this fixed order. The token counts entry starts there unless a measurement source claimed the launch, so a session no source measures carries this notice on that entry alone and reads `this session started with a declared capability gap in: token counts`. A source that claims the launch and is then turned away by the handshake has the launch started again without it, and the notice reads the same way. A capability lowered afterward is logged at `Warn` instead of producing a second notice, so an unfamiliar line in the run log after that point is recognizable as a declared limit rather than as an unreported error.
+The first time a turn starts, the adapter emits one `notification` naming every entry then in the gap state, in this fixed order. The token counts entry starts there unless a measurement source claimed the launch, so a session no source measures carries this notice on that entry alone and reads `this session started with a declared capability gap in: token counts`.
+
+A source that claims the launch and is then turned away by the handshake has the launch started again without it, and the notice reads the same way. A capability lowered afterward is logged at `Warn` instead of producing a second notice, so an unfamiliar line in the run log after that point is recognizable as a declared limit rather than as an unreported error.
 
 ---
 
@@ -306,7 +338,11 @@ Before either continuation call, the adapter sends one request naming a vendor-n
 
 Whichever continuation route is attempted, an error response, a timeout on that call or on the negative control before it, or (for `session/load`) no observed replay lowers the session continuation capability entry and falls back to `session/new` within the same session-start call; none of these outcomes fails the session on their own account.
 
-A `session/load` call for a session this adapter's own process created is held until the wall clock leaves the UTC minute in which that creation happened, bounded at one minute. This spacing exists to protect against a class of runtime defect where a load issued too soon after a session's own creation destroys that session's resumability outright, including every later attempt to load it; a runtime with this defect is documented on its own page. The wait is measured in process memory, so it does not cover a session created by a previous process, and on an SSH launch it is measured on the orchestrator host's clock rather than the runtime host's.
+A `session/load` call for a session this adapter's own process created is held until the wall clock leaves the UTC minute in which that creation happened, bounded at one minute.
+
+This spacing exists to protect against a class of runtime defect where a load issued too soon after a session's own creation destroys that session's resumability outright, including every later attempt to load it; a runtime with this defect is documented on its own page.
+
+The wait is measured in process memory, so it does not cover a session created by a previous process, and on an SSH launch it is measured on the orchestrator host's clock rather than the runtime host's.
 
 ---
 
@@ -314,7 +350,11 @@ A `session/load` call for a session this adapter's own process created is held u
 
 `session/close` is sent during teardown when the handshake's `initialize` response advertises `sessionCapabilities.close`. A handshake advertising no `sessionCapabilities` object at all, or one that omits `close`, means this adapter never selects it: the session then ends only through process termination, described in [process shutdown](#process-shutdown). The call is bounded at half of whatever remains of the graceful teardown window, so it can never itself consume the whole window at the expense of the signal that follows it.
 
-A [credential-verification](/reference/workflow-config/#credential-verification) session's own teardown sends `session/delete` in its place, on the same bound, when the handshake advertises `sessionCapabilities.delete`; a runtime that advertises `close` but not `delete` still gets an ordinary `session/close` for its verification session. A failed delete is logged at Warn rather than Debug, since a failed close only means an already-going-away process is a little slower to notice, while a failed delete means the verification conversation is left stored on the runtime's side. A runtime whose handshake advertises neither method leaves that conversation in its own store on every worker attempt, whatever the outcome. Both documented runtimes on this kind are in that position: neither Gemini CLI nor Kiro CLI on this route advertises a close or delete method. [Gemini CLI's own page](/reference/agent-client-protocol-gemini/#sessions-are-not-closed-through-the-protocol) names where that leaves the conversation; no location is established for Kiro CLI on this route.
+A [credential-verification](/reference/workflow-config/#credential-verification) session's own teardown sends `session/delete` in its place, on the same bound, when the handshake advertises `sessionCapabilities.delete`; a runtime that advertises `close` but not `delete` still gets an ordinary `session/close` for its verification session.
+
+A failed delete is logged at Warn rather than Debug, since a failed close only means an already-going-away process is a little slower to notice, while a failed delete means the verification conversation is left stored on the runtime's side.
+
+A runtime whose handshake advertises neither method leaves that conversation in its own store on every worker attempt, whatever the outcome. Both documented runtimes on this kind are in that position: neither Gemini CLI nor Kiro CLI on this route advertises a close or delete method. [Gemini CLI's own page](/reference/agent-client-protocol-gemini/#sessions-are-not-closed-through-the-protocol) names where that leaves the conversation; no location is established for Kiro CLI on this route.
 
 ---
 

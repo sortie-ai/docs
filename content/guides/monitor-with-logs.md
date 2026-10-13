@@ -101,7 +101,11 @@ This is the heartbeat. It fires every poll interval and tells you how many issue
 time=2026-03-26T14:30:02.100+00:00 level=INFO msg="issue dispatched" issue_id=abc123 issue_identifier=MT-649 agent_kind=claude-code rule_name=bugfix model=claude-sonnet-4-5 effort=medium
 ```
 
-This is the line to look for when you want to know which model an issue was given. `agent_kind` and `rule_name` are the selection Sortie made for the issue, and `model` and `effort` are the settings the session starts with: the agent kind's top-level block with the matching [dispatch rule's](/guides/configure-dispatch-rules/) block laid over it. An empty `rule_name` means no rule routed the issue. An empty `model` or `effort` means nothing is configured, so the runtime uses its own default. These are the configured values. The model the runtime reports running can differ, and is on the [dashboard](/reference/dashboard/#running-sessions-table) and in the [state API](/reference/http-api/#configured-and-reported-model).
+This is the line to look for when you want to know which model an issue was given. `agent_kind` and `rule_name` are the selection Sortie made for the issue, and `model` and `effort` are the settings the session starts with: the agent kind's top-level block with the matching [dispatch rule's](/guides/configure-dispatch-rules/) block laid over it.
+
+An empty `rule_name` means no rule routed the issue. An empty `model` or `effort` means nothing is configured, so the runtime uses its own default.
+
+These are the configured values. The model the runtime reports running can differ, and is on the [dashboard](/reference/dashboard/#running-sessions-table) and in the [state API](/reference/http-api/#configured-and-reported-model).
 
 A retry logs the same four fields, beside the attempt number:
 
@@ -174,7 +178,9 @@ An agent runtime can also change its own session id after the session has alread
 time=2026-03-26T14:31:46.010+00:00 level=INFO msg="agent session id accepted" issue_id=abc123 issue_identifier=MT-649 session_id=session-abc-001 previous_session_id=session-abc-001 accepted_session_id=session-abc-001b
 ```
 
-The `session_id` field on this line, like on every other line for the run, still names the id from `agent session started`: it identifies the run in the logs and never changes, so the recipes below keep working against it. `accepted_session_id` is the new value, and it is what the run's tracker comment, its operator notifications, and a continuation retry's resume attempt carry from this point on. Copilot CLI's adapter is one example: it captures the session id from each turn's own result and reports it back as that turn's session id, so a runtime-side change can reach Sortie this way.
+The `session_id` field on this line, like on every other line for the run, still names the id from `agent session started`: it identifies the run in the logs and never changes, so the recipes below keep working against it. `accepted_session_id` is the new value, and it is what the run's tracker comment, its operator notifications, and a continuation retry's resume attempt carry from this point on.
+
+Copilot CLI's adapter is one example: it captures the session id from each turn's own result and reports it back as that turn's session id, so a runtime-side change can reach Sortie this way.
 
 On the `agent-client-protocol` kind, Sortie can start the runtime a second time before the session begins, to find out which runtime `agent.command` really starts. It logs why at `Info`, on the credential check and on the working session alike:
 
@@ -182,7 +188,9 @@ On the `agent-client-protocol` kind, Sortie can start the runtime a second time 
 time=2026-03-26T14:30:03.300+00:00 level=INFO msg="agent relaunched so its token usage can be measured: agent.command does not name the runtime it starts" component=clientprotocol-adapter name=gemini-cli
 ```
 
-This line means `agent.command` hides the runtime, as a wrapper script does, and Sortie found Gemini CLI behind it and started it again with token measurement switched on. Nothing is failing. To skip the extra start, name the runtime in `agent.command`; the [Gemini CLI reference](/reference/agent-client-protocol-gemini/#token-accounting-reads-local-files-and-its-in-turn-signal-understates) lists what counts as naming it. The other message, `agent relaunched without usage settings meant for another runtime`, means the command line names Gemini CLI but the runtime that answered is another one. Sortie started it again without Gemini's telemetry settings, and that session reports no token usage. See [restart to settle the measurement source](/reference/adapter-agent-client-protocol/#restart-to-settle-the-measurement-source).
+This line means `agent.command` hides the runtime, as a wrapper script does, and Sortie found Gemini CLI behind it and started it again with token measurement switched on. Nothing is failing. To skip the extra start, name the runtime in `agent.command`; the [Gemini CLI reference](/reference/agent-client-protocol-gemini/#token-accounting-reads-local-files-and-its-in-turn-signal-understates) lists what counts as naming it.
+
+The other message, `agent relaunched without usage settings meant for another runtime`, means the command line names Gemini CLI but the runtime that answered is another one. Sortie started it again without Gemini's telemetry settings, and that session reports no token usage. See [restart to settle the measurement source](/reference/adapter-agent-client-protocol/#restart-to-settle-the-measurement-source).
 
 A session's agent kind can declare that it reports no token usage at all and then have its runtime send a usage figure anyway, contradicting its own declaration. Sortie discards the figure and logs it once per run, on the first occurrence:
 
@@ -190,7 +198,11 @@ A session's agent kind can declare that it reports no token usage at all and the
 time=2026-03-26T14:32:10.100+00:00 level=WARN msg="token usage discarded: agent kind declares this session reports none" issue_id=abc123 issue_identifier=MT-649 session_id=session-abc-003 agent_kind=acme
 ```
 
-None of Sortie's built-in agent kinds can produce this line today: each one's own code never sends a usage figure once its declared arrival is `none`. Seeing it means a [custom adapter](/guides/write-custom-agent-adapter/#surface-capabilities-and-budgeting) is running whose code doesn't yet honor its own declaration that this session reports no usage. What happens to the figure is covered under [usage reporting by agent kind](/reference/workflow-config/#usage-reporting-by-agent-kind): nothing changes for this session's numbers, because they already read as a kind that reports nothing. The action is on the adapter, not on your workflow configuration: fix it to stop sending a figure it declared it never would, or drop the `none` declaration if it genuinely can report usage.
+None of Sortie's built-in agent kinds can produce this line today: each one's own code never sends a usage figure once its declared arrival is `none`. Seeing it means a [custom adapter](/guides/write-custom-agent-adapter/#surface-capabilities-and-budgeting) is running whose code doesn't yet honor its own declaration that this session reports no usage.
+
+What happens to the figure is covered under [usage reporting by agent kind](/reference/workflow-config/#usage-reporting-by-agent-kind): nothing changes for this session's numbers, because they already read as a kind that reports nothing.
+
+The action is on the adapter, not on your workflow configuration: fix it to stop sending a figure it declared it never would, or drop the `none` declaration if it genuinely can report usage.
 
 ### Tool calls
 
@@ -252,7 +264,11 @@ If the issue had already reached a terminal state by the time the worker exited,
 time=2026-03-26T14:35:21.480+00:00 level=INFO msg="handoff suppressed for terminal issue" issue_id=abc123 issue_identifier=MT-649 state=Done state_source=verified handoff_state="In Review"
 ```
 
-This is the line to look for when an issue you closed mid-run did not get overwritten, and the line to look for when you expected a handoff and did not get one. `state` is the state Sortie saw, and `state_source` tells you where it saw it: `reconcile` from a reconciliation pass, `worker` from the worker's own per-turn refresh, `snapshot` from the state recorded at dispatch, or `verified` from an extra read Sortie takes before acting, either immediately before the write or immediately before recording a withheld handoff. The claim is released and no retry is scheduled. Each of these also increments `sortie_handoff_transitions_total` with `result="skipped"`.
+This is the line to look for when an issue you closed mid-run did not get overwritten, and the line to look for when you expected a handoff and did not get one.
+
+`state` is the state Sortie saw, and `state_source` tells you where it saw it: `reconcile` from a reconciliation pass, `worker` from the worker's own per-turn refresh, `snapshot` from the state recorded at dispatch, or `verified` from an extra read Sortie takes before acting, either immediately before the write or immediately before recording a withheld handoff.
+
+The claim is released and no retry is scheduled. Each of these also increments `sortie_handoff_transitions_total` with `result="skipped"`.
 
 That extra read can fail on its own, and Sortie proceeds with the handoff rather than assuming the issue is closed:
 
@@ -323,7 +339,9 @@ A session whose coding agent reported no token usage at all is recorded as unmea
 time=2026-03-26T14:35:22.000+00:00 level=WARN msg="token budget cannot be fully evaluated, allowing dispatch" issue_id=abc123 issue_identifier=MT-649 used_tokens=31000 budget_tokens=50000 unmeasured_sessions=2 unaccounted_turns=0
 ```
 
-Two counts say what the sum leaves out, and the record carries both every time. `unmeasured_sessions` is how many of the issue's recorded sessions carry no spend figure. `unaccounted_turns` is how many turns reached the model without a figure that covered them, which a session can accumulate even when every one of its figures arrived. Either count above `0` makes `used_tokens` a lower bound rather than the whole story. The ceiling message above takes precedence: an issue whose measured total already reaches the ceiling is blocked and logs that instead.
+Two counts say what the sum leaves out, and the record carries both every time. `unmeasured_sessions` is how many of the issue's recorded sessions carry no spend figure. `unaccounted_turns` is how many turns reached the model without a figure that covered them, which a session can accumulate even when every one of its figures arrived.
+
+Either count above `0` makes `used_tokens` a lower bound rather than the whole story. The ceiling message above takes precedence: an issue whose measured total already reaches the ceiling is blocked and logs that instead.
 
 If Sortie can't read the token total at all, it fails open rather than blocking a retry on a persistence error:
 
@@ -577,4 +595,6 @@ journalctl -u sortie -p err
 
 ## What we covered
 
-You now know how to read Sortie's structured logs in both text and JSON formats, follow specific issues through the dispatch lifecycle, distinguish between warnings (automatic recovery) and errors (needs your attention), switch to JSON for log aggregation, filter JSON logs with `jq`, find tool call failures, and persist logs to a file. For the complete error catalog, see the [error reference](/reference/errors/). For metric-based monitoring with Prometheus and Grafana, see [Monitor with Prometheus](/guides/monitor-with-prometheus/). For real-time visual monitoring, see the [dashboard reference](/reference/dashboard/).
+You now know how to read Sortie's structured logs in both text and JSON formats, follow specific issues through the dispatch lifecycle, distinguish between warnings (automatic recovery) and errors (needs your attention), switch to JSON for log aggregation, filter JSON logs with `jq`, find tool call failures, and persist logs to a file.
+
+For the complete error catalog, see the [error reference](/reference/errors/). For metric-based monitoring with Prometheus and Grafana, see [Monitor with Prometheus](/guides/monitor-with-prometheus/). For real-time visual monitoring, see the [dashboard reference](/reference/dashboard/).

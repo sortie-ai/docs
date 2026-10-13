@@ -8,7 +8,9 @@ url: /reference/label-commands/
 ---
 Label commands turn a label on a Sortie-managed pull request into a one-shot instruction: an operator applies a configured label, Sortie dispatches an agent session in response, and Sortie removes the label once it accepts the command. Two commands share one configuration block. The review command (`sortie:review` by default) dispatches a read-only, no-clone session that reads the PR diff and posts review comments. The fix command (`sortie:fix` by default) dispatches a full session that checks out the PR head branch, addresses the accumulated review feedback, and pushes fixes.
 
-Where [reactions](/reference/reactions/) watch an external signal and fire on their own when it changes, label commands fire only on a human gesture. A command label is consumed rather than standing: applying it requests one action, and Sortie removes it on acceptance, unlike a label that stays on the PR to describe a desired steady state. The configuration block lives under `reactions` in `WORKFLOW.md`, but a label command is not a reaction kind: the block parses through a dedicated path, carries no escalation fields, and never appears in the generic reactions map.
+Where [reactions](/reference/reactions/) watch an external signal and fire on their own when it changes, label commands fire only on a human gesture. A command label is consumed rather than standing: applying it requests one action, and Sortie removes it on acceptance, unlike a label that stays on the PR to describe a desired steady state.
+
+The configuration block lives under `reactions` in `WORKFLOW.md`, but a label command is not a reaction kind: the block parses through a dedicated path, carries no escalation fields, and never appears in the generic reactions map.
 
 See also: [reactions reference](/reference/reactions/) for the event-driven feedback loops that share the reconcile tick; [workflow configuration reference](/reference/workflow-config/) for the `reactions` block and the `agent.max_turns` ceiling; [GitHub adapter reference](/reference/adapter-github/) for the SCM provider and token; [agent extensions reference](/reference/agent-extensions/) for the `.sortie/status` completion signal.
 
@@ -47,7 +49,9 @@ Label commands are configured in a single `reactions.label_commands` block in `W
 
 **No escalation machinery.** The block carries no `max_retries`, `escalation`, or `escalation_label`, and detection has no retry budget. A human is in the loop; when nothing visibly happens, the operator re-applies the label.
 
-**Validation.** Setting `provider` while both `review_label` and `fix_label` are empty strings is a configuration error, a loud misconfiguration rather than a silently inert block. Because this is a config-shape check, it surfaces offline through `sortie validate`. A `provider` naming an unregistered SCM adapter is also a validate error, reported under the check name `scm_adapter`. When more than one SCM reaction kind is active (label commands, `ci_failure`, `review_comments`, `bot_review`, `merge_conflicts`, `auto_merge`, or `merge_completion`), every active kind must name the same `provider`; a mismatch is fatal at startup and `sortie validate` reports it offline under `reactions.scm_provider_conflict`.
+**Validation.** Setting `provider` while both `review_label` and `fix_label` are empty strings is a configuration error, a loud misconfiguration rather than a silently inert block. Because this is a config-shape check, it surfaces offline through `sortie validate`.
+
+A `provider` naming an unregistered SCM adapter is also a validate error, reported under the check name `scm_adapter`. When more than one SCM reaction kind is active (label commands, `ci_failure`, `review_comments`, `bot_review`, `merge_conflicts`, `auto_merge`, or `merge_completion`), every active kind must name the same `provider`; a mismatch is fatal at startup and `sortie validate` reports it offline under `reactions.scm_provider_conflict`.
 
 **Example** (defaults):
 
@@ -64,7 +68,11 @@ reactions:
 
 ## How detection works
 
-A snapshot of the current labels cannot see a label applied and removed between two ticks, cannot tell a removed-and-reapplied label from an unchanged one, and names no actor. Sortie polls the PR's label-event journal instead. On GitHub the journal is the per-issue events API (pull requests are issues for that API family), whose `labeled` and `unlabeled` entries each carry a unique id, the label name, the acting user, and a timestamp. Gitea serves the same journal from the issue timeline route and GitLab from the merge request's resource label-event route; each adapter normalizes its own shape into the same entry. Each labeling gesture is a durable journal record, so a missed tick loses nothing: the record is re-readable on the next poll. Label names compare lowercased.
+A snapshot of the current labels cannot see a label applied and removed between two ticks, cannot tell a removed-and-reapplied label from an unchanged one, and names no actor. Sortie polls the PR's label-event journal instead.
+
+On GitHub the journal is the per-issue events API (pull requests are issues for that API family), whose `labeled` and `unlabeled` entries each carry a unique id, the label name, the acting user, and a timestamp. Gitea serves the same journal from the issue timeline route and GitLab from the merge request's resource label-event route; each adapter normalizes its own shape into the same entry.
+
+Each labeling gesture is a durable journal record, so a missed tick loses nothing: the record is re-readable on the next poll. Label names compare lowercased.
 
 Deduplication is a persisted per-PR position, a high-water mark over the journal, stored in the `reaction_fingerprints` table under the command's kind (`label-review` or `label-fix`). Each due tick reads the journal and considers only events that sort strictly after the stored mark, then advances the mark past every examined event, including foreign labels and `unlabeled` entries. The mark tracks journal position, not command history.
 
@@ -79,9 +87,13 @@ The command semantics follow from that model:
 - **Acknowledgment by removal.** After scheduling a dispatch, Sortie removes the command label. Present means queued and not yet picked up; disappearance means accepted (or retracted by you); re-applying is the single gesture for the next command. A failed removal (a missing write scope or a transport error) is a logged warning only: correctness rests on the journal position, so deduplication is already committed, but the stale label lingers and must be removed manually before the next command.
 - **No cancel after dispatch.** Once a dispatch is scheduled, removing the label does not cancel the running session. The retraction window closes at detection time.
 
-The journal read is bounded, but the bound and the traversal direction are provider-specific because each provider's journal endpoint paginates differently. GitHub's issue-events endpoint has no since-filter and returns oldest-first, so the adapter walks from the newest page backward and stops after a fixed number of pages, keeping the tail where a command and its retraction signal live. Gitea's issue timeline and GitLab's resource-label-event route page forward from the oldest entry instead, each under its own page ceiling. Every adapter logs a warning identifying the pull request when a fetch hits its cap, so a real command is never silently dropped on an event-heavy PR.
+The journal read is bounded, but the bound and the traversal direction are provider-specific because each provider's journal endpoint paginates differently. GitHub's issue-events endpoint has no since-filter and returns oldest-first, so the adapter walks from the newest page backward and stops after a fixed number of pages, keeping the tail where a command and its retraction signal live.
 
-A journal entry the adapter retains but cannot read fails the whole poll. An entry whose timestamp is absent or is not a valid RFC 3339 value is never assigned a substituted time, because the timestamp is half of the stored position and a substituted value would sort the entry behind the mark and drop the command it carries. Sortie logs a warning naming the PR and the error, backs the PR off, and re-reads on the next due tick; no command on that PR dispatches while the forge keeps serving that entry. The retry carries no budget and escalates nothing. It ends when the forge serves a parseable value, or when the linked issue reaches a terminal state and the pending entry is discarded.
+Gitea's issue timeline and GitLab's resource-label-event route page forward from the oldest entry instead, each under its own page ceiling. Every adapter logs a warning identifying the pull request when a fetch hits its cap, so a real command is never silently dropped on an event-heavy PR.
+
+A journal entry the adapter retains but cannot read fails the whole poll. An entry whose timestamp is absent or is not a valid RFC 3339 value is never assigned a substituted time, because the timestamp is half of the stored position and a substituted value would sort the entry behind the mark and drop the command it carries.
+
+Sortie logs a warning naming the PR and the error, backs the PR off, and re-reads on the next due tick; no command on that PR dispatches while the forge keeps serving that entry. The retry carries no budget and escalates nothing. It ends when the forge serves a parseable value, or when the linked issue reaches a terminal state and the pending entry is discarded.
 
 ---
 
@@ -112,7 +124,9 @@ The dispatch injects the PR coordinates on turn one through the `label_review` c
 | `actor`        | string  | login that applied the review label                          |
 | `requested_at` | string  | RFC 3339 timestamp of the confirmed labeling gesture          |
 
-**Template contract.** The prompt template must contain a `{{ if .label_review }}` branch instructing the agent to fetch the diff and post its review. Without that branch, a review dispatch renders the normal work prompt against the scratch directory and posts no review. Go templates give no signal of which keys a template referenced, so the missing branch cannot be detected at render time. The workflow loader logs an advisory warning at load when `label_commands` is active with a non-empty review label but the template text does not reference `label_review`. The warning never fails the load.
+**Template contract.** The prompt template must contain a `{{ if .label_review }}` branch instructing the agent to fetch the diff and post its review. Without that branch, a review dispatch renders the normal work prompt against the scratch directory and posts no review.
+
+Go templates give no signal of which keys a template referenced, so the missing branch cannot be detected at render time. The workflow loader logs an advisory warning at load when `label_commands` is active with a non-empty review label but the template text does not reference `label_review`. The warning never fails the load.
 
 **Credentials.** The reviewing agent inherits the orchestrator's process environment, so SCM credentials present there (the standard token or CLI-auth deployment) reach a no-clone session even with the setup hooks skipped. Auth provisioned solely by a workspace setup hook (for example a checkout-scoped git credential helper written during `after_create`) does not exist in a review session, because no such hook runs. An operator relying on hook-local auth must also expose the credential in the orchestrator's environment for review sessions.
 
@@ -122,7 +136,11 @@ The dispatch injects the PR coordinates on turn one through the `label_review` c
 
 ## The fix command
 
-A confirmed fix command dispatches a fresh session that checks out the PR head branch and pushes review-feedback fixes to it. Unlike the review posture, the fix session pushes commits, so it takes the same workspace path a normal dispatch takes: the operator `after_create` and `before_run` setup hooks run, cloning the per-issue directory when it is absent and reusing the existing checkout when it is present, and the `after_run` teardown hook runs on every exit path, including panic recovery. Sortie never checks out a branch itself; the agent checks out the PR head branch with its own git tooling, told the branch through the `label_fix` continuation key. A stale `.sortie/status` in the reused directory is cleared before the first turn. The session starts with no resume identifier.
+A confirmed fix command dispatches a fresh session that checks out the PR head branch and pushes review-feedback fixes to it.
+
+Unlike the review posture, the fix session pushes commits, so it takes the same workspace path a normal dispatch takes: the operator `after_create` and `before_run` setup hooks run, cloning the per-issue directory when it is absent and reusing the existing checkout when it is present, and the `after_run` teardown hook runs on every exit path, including panic recovery. Sortie never checks out a branch itself; the agent checks out the PR head branch with its own git tooling, told the branch through the `label_fix` continuation key.
+
+A stale `.sortie/status` in the reused directory is cleared before the first turn. The session starts with no resume identifier.
 
 The fix command requires the content-write scope. At startup the orchestrator runs a one-shot scope preflight for the fix command: the push needs `contents:write` and `pull_requests:write`. The preflight is advisory. A missing scope or a transport failure is a logged warning, not an error, because the fix command is on by default; a provider that returns no scope information passes the preflight, and a genuine gap surfaces later as the fix session's push failure and a label-removal warning.
 
@@ -134,7 +152,9 @@ The fix path suppresses the same issue-work side effects the review path suppres
 - the self-review loop;
 - the worker-exit handoff transition and the active-issue continuation retry, so a clean fix exit neither hands off nor re-dispatches. A `blocked` signal releases the claim rather than parking the issue, for the same reason.
 
-The `after_run` teardown hook does run on a fix exit, because the setup hooks ran; this is the one dispatch-lifecycle difference from the review posture, which runs no hooks at all. Because the fix turn loop is not gated on issue state, its turn budget rests on `agent.max_turns` plus the agent's completion signal, and every turn also carries the [`agent.turn_timeout_ms`](/reference/workflow-config/#agent) wall-clock bound regardless of posture. A fix is naturally multi-turn (fetch the comments, apply changes, push, post the summary), so the completion signal matters more here than for a review: without it a completed fix session runs to `agent.max_turns`.
+The `after_run` teardown hook does run on a fix exit, because the setup hooks ran; this is the one dispatch-lifecycle difference from the review posture, which runs no hooks at all.
+
+Because the fix turn loop is not gated on issue state, its turn budget rests on `agent.max_turns` plus the agent's completion signal, and every turn also carries the [`agent.turn_timeout_ms`](/reference/workflow-config/#agent) wall-clock bound regardless of posture. A fix is naturally multi-turn (fetch the comments, apply changes, push, post the summary), so the completion signal matters more here than for a review: without it a completed fix session runs to `agent.max_turns`.
 
 ### The `label_fix` continuation key
 
@@ -149,7 +169,9 @@ The dispatch injects the PR coordinates and the head branch through the `label_f
 | `actor`        | string  | login that applied the fix label                             |
 | `requested_at` | string  | RFC 3339 timestamp of the confirmed labeling gesture          |
 
-**Template contract.** The prompt template must contain a `{{ if .label_fix }}` branch instructing the agent to check out the branch, address the review comments, push fixes, and post a summary comment. The workflow loader logs an advisory warning at load when `label_commands` is active with a non-empty fix label but the template text does not reference `label_fix`. Unlike a misfired review dispatch, which runs against a scratch directory and structurally pushes and posts nothing, a misfired fix dispatch runs the normal work prompt against a real checkout with push capability, so it cannot be assumed to be inert. The warning stays advisory (it never fails the load), because a text scan over template source is a heuristic.
+**Template contract.** The prompt template must contain a `{{ if .label_fix }}` branch instructing the agent to check out the branch, address the review comments, push fixes, and post a summary comment. The workflow loader logs an advisory warning at load when `label_commands` is active with a non-empty fix label but the template text does not reference `label_fix`.
+
+Unlike a misfired review dispatch, which runs against a scratch directory and structurally pushes and posts nothing, a misfired fix dispatch runs the normal work prompt against a real checkout with push capability, so it cannot be assumed to be inert. The warning stays advisory (it never fails the load), because a text scan over template source is a heuristic.
 
 **Credentials.** The fix agent inherits the orchestrator's process environment and any checkout-scoped credential the operator setup hooks provision during `after_create`. Because the fix session runs those hooks, it has more credential paths available than a review session, not fewer.
 
@@ -159,7 +181,9 @@ The dispatch injects the PR coordinates and the head branch through the `label_f
 
 ## Authorization
 
-The platform's own label permission is the authorization gate, and Sortie adds none of its own: any account the forge permits to apply the label can issue the command. On every supported forge that permission is separable from push access, so a user who cannot push code can command an agent session that pushes to the PR head branch through the fix command. Consult the forge's permission documentation for which roles carry it. The risk is bounded: the branch lands only through the ordinary review and merge gates, and the per-issue session and token ceilings cap the compute a PR can be commanded into. Sortie records the acting user, read from the journal, in the dispatch context and the informational dispatch log.
+The platform's own label permission is the authorization gate, and Sortie adds none of its own: any account the forge permits to apply the label can issue the command. On every supported forge that permission is separable from push access, so a user who cannot push code can command an agent session that pushes to the PR head branch through the fix command. Consult the forge's permission documentation for which roles carry it.
+
+The risk is bounded: the branch lands only through the ordinary review and merge gates, and the per-issue session and token ceilings cap the compute a PR can be commanded into. Sortie records the acting user, read from the journal, in the dispatch context and the informational dispatch log.
 
 > [!WARNING]
 > Because a fix command dispatches a session that pushes to the PR branch, a user with only the label permission can direct code changes onto a PR they cannot push to directly. Confirm that the review and merge protections on Sortie-managed PRs match the trust level of everyone who can apply the `fix_label`.

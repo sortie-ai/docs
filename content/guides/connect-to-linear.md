@@ -193,7 +193,9 @@ This configuration polls every 60 seconds, picks up issues labeled `agent-ready`
 sortie validate ./WORKFLOW.md
 ```
 
-`sortie validate` parses the front matter, compiles the prompt template, and runs the offline Linear checks: an `api_key` is present, `endpoint` (if set) is a valid absolute http(s) URL with a host, `project` has no whitespace or stray `/`, state names are neither empty nor padded with whitespace, `active_states` and `terminal_states` do not overlap, and `handoff_state` collides with neither list. That last one is an error rather than a warning: Sortie will not start on it. It does not contact Linear. It cannot tell you whether the key works or whether the team and state names exist, because those are construction-time checks.
+`sortie validate` parses the front matter, compiles the prompt template, and runs the offline Linear checks: an `api_key` is present, `endpoint` (if set) is a valid absolute http(s) URL with a host, `project` has no whitespace or stray `/`, state names are neither empty nor padded with whitespace, `active_states` and `terminal_states` do not overlap, and `handoff_state` collides with neither list. That last one is an error rather than a warning: Sortie will not start on it.
+
+It does not contact Linear. It cannot tell you whether the key works or whether the team and state names exist, because those are construction-time checks.
 
 ### Run one read-only poll
 

@@ -587,7 +587,9 @@ A session that continues a CI fix adds these keys, and a session that continues 
 
 #### Configured and reported model
 
-A running row carries two answers to "which model is this?". `configured_model` and `configured_effort` are what the attempt was asked to run. Sortie resolves them when the attempt starts: the agent kind's top-level block with the matching dispatch rule's block laid over it. They stay fixed for the session, and the next attempt of the same issue resolves them again from the workflow in force at that moment, so a retry after an edit to `WORKFLOW.md` can show different values. `model_name` is what the runtime reported running, taken from its token usage events.
+A running row carries two answers to "which model is this?". `configured_model` and `configured_effort` are what the attempt was asked to run. Sortie resolves them when the attempt starts: the agent kind's top-level block with the matching dispatch rule's block laid over it.
+
+They stay fixed for the session, and the next attempt of the same issue resolves them again from the workflow in force at that moment, so a retry after an edit to `WORKFLOW.md` can show different values. `model_name` is what the runtime reported running, taken from its token usage events.
 
 Nothing compares the two, and a reported model never replaces a configured one. They differ legitimately: a routing alias in `configured_model` resolves to a dated model name in `model_name`, and a runtime can fall back to another model when the configured one is unavailable. A mismatch is therefore not a fault by itself. Read `model_name` as what ran and `configured_model` as what the workflow asked for. The cost and quality of the work belong to the model that ran.
 
@@ -653,7 +655,9 @@ A retry keeps the title, link, type, labels, and state it was scheduled with. So
 | `stage_lineage`, `stage_position` | Always present. The lineage and chain position of the blocked dispatch, under the rules of the `retrying[]` entries and [dispatch time and stage position](#dispatch-time-and-stage-position). |
 | `dispatched_at` | When the first run of the blocked dispatch's pass was dispatched, in UTC. Always present; `null` when the hold has no dispatch context or its pass cannot be dated. |
 
-A hold found on a retry carries the retry's dispatch context, and a later poll keeps it. A hold the poll finds first takes its context from the target rule of a stage hop still waiting for its next dispatch, resolved from the configuration in force, and otherwise from the issue's latest agent run in run history, never from the tracker. A hold without a context is one for an issue with no agent run, or one whose run history read failed; it reads `null` for `dispatched_at`, `stage_lineage`, and `stage_position` and omits the other three keys until a later poll reads again.
+A hold found on a retry carries the retry's dispatch context, and a later poll keeps it. A hold the poll finds first takes its context from the target rule of a stage hop still waiting for its next dispatch, resolved from the configuration in force, and otherwise from the issue's latest agent run in run history, never from the tracker.
+
+A hold without a context is one for an issue with no agent run, or one whose run history read failed; it reads `null` for `dispatched_at`, `stage_lineage`, and `stage_position` and omits the other three keys until a later poll reads again.
 
 **`parked[]` entries:** Issues held out of dispatch until a person acts on them. The list is always present, `[]` when no issue is parked, and sorted by `issue_identifier`, then `issue_id`. `counts.parked` equals its length. An issue appears in every list that holds it, so a parked issue that also has a reaction continuation queued is in `parked` and `retrying` both. For how a park is recorded and lifted, see [agent communication](/concepts/agent-communication/).
 
@@ -678,9 +682,13 @@ A hold found on a retry carries the retry's dispatch context, and a later poll k
 
 The run a park follows is the run whose exit or retry led to the park. When a poll tick parks an issue for reaching the handoff-absence ceiling, it is the issue's newest agent run. If Sortie cannot read that run, the issue is parked anyway and serves no run: `dispatched_at` and `stage_position` are `null`, and `rule_name`, `agent_kind`, and `configured_model` are omitted until the park is released.
 
-Sortie stores the run, the issue type, and the labels with the park and restores them at startup, so a restart serves what was served before it. A park stored by an earlier release takes its run from the issue's newest agent run that started at or before the park, when Sortie upgrades its database, and has no type or labels until a poll whose candidates include its issue supplies them. That poll makes no extra tracker call. For a park that already holds a title or link, it adds the type and labels and changes nothing else.
+Sortie stores the run, the issue type, and the labels with the park and restores them at startup, so a restart serves what was served before it.
 
-**`pending_reactions[]` entries:** Pull request [reactions](/reference/reactions/) that Sortie keeps watching after a run hands off, one row per issue and reaction kind. The list is always present, `[]` when no reaction is pending, and sorted by `issue_identifier`, then `issue_id`, then `kind`. `counts.pending_reactions` equals its length. An issue appears in every list that holds it, so an issue with a CI fix queued and a review check pending is in `retrying` and `pending_reactions` both. Pending reactions live in memory only. After a restart Sortie rebuilds them from run history, and a rebuilt row has no `wait`, `last_check`, or `escalated_at`, no pull request `url` until a check reads one, and a `created_at` of the restart. It also holds the title and link only, with no `issue_type`, `issue_labels`, or `state`, because run history records none of them. Its `dispatched_at`, `rule_name`, `agent_kind`, and `configured_model` come from the run history row.
+A park stored by an earlier release takes its run from the issue's newest agent run that started at or before the park, when Sortie upgrades its database, and has no type or labels until a poll whose candidates include its issue supplies them. That poll makes no extra tracker call. For a park that already holds a title or link, it adds the type and labels and changes nothing else.
+
+**`pending_reactions[]` entries:** Pull request [reactions](/reference/reactions/) that Sortie keeps watching after a run hands off, one row per issue and reaction kind. The list is always present, `[]` when no reaction is pending, and sorted by `issue_identifier`, then `issue_id`, then `kind`. `counts.pending_reactions` equals its length. An issue appears in every list that holds it, so an issue with a CI fix queued and a review check pending is in `retrying` and `pending_reactions` both.
+
+Pending reactions live in memory only. After a restart Sortie rebuilds them from run history, and a rebuilt row has no `wait`, `last_check`, or `escalated_at`, no pull request `url` until a check reads one, and a `created_at` of the restart. It also holds the title and link only, with no `issue_type`, `issue_labels`, or `state`, because run history records none of them. Its `dispatched_at`, `rule_name`, `agent_kind`, and `configured_model` come from the run history row.
 
 | Field | Description |
 |---|---|
@@ -750,7 +758,13 @@ Sortie stores the run, the issue type, and the labels with the park and restores
 | `merge-completion` | Tracker transitions that failed. | `reactions.merge_completion.max_retries` |
 | `label-review`, `label-fix` | `null` | `null` |
 
-**`between_stages[]` entries:** Issues that a [stage hop](/reference/state-machine/#stage-hop) moved to their next stage and that no run has picked up yet. The list is always present, `[]` when no issue is between stages, and sorted by `issue_identifier`, then `issue_id`. `counts.between_stages` equals its length. An issue joins the list when its hop is made. It leaves when a run of the issue is dispatched, whichever way, or when a reset of the issue's hop count drops the hop. An issue with a running session or a queued retry is never listed, so no issue is in `between_stages` and in `running` or `retrying` at once; an issue is in every other list that holds it. The hop is stored in the database with its type, labels, and state, so a restart serves the rows it served before. A hop stored by an earlier release serves none of the three until its next stage is dispatched.
+**`between_stages[]` entries:** Issues that a [stage hop](/reference/state-machine/#stage-hop) moved to their next stage and that no run has picked up yet. The list is always present, `[]` when no issue is between stages, and sorted by `issue_identifier`, then `issue_id`. `counts.between_stages` equals its length.
+
+An issue joins the list when its hop is made. It leaves when a run of the issue is dispatched, whichever way, or when a reset of the issue's hop count drops the hop.
+
+An issue with a running session or a queued retry is never listed, so no issue is in `between_stages` and in `running` or `retrying` at once; an issue is in every other list that holds it.
+
+The hop is stored in the database with its type, labels, and state, so a restart serves the rows it served before. A hop stored by an earlier release serves none of the three until its next stage is dispatched.
 
 | Field | Description |
 |---|---|
@@ -790,7 +804,11 @@ The examples on this page show the sentences for the values they hold, with a sn
 
 #### Dispatch time and stage position
 
-`dispatched_at` is on every kind of entry, and always present. It is when Sortie dispatched the first run of the issue's current pass. A pass is the runs of one issue that share a stage chain identifier: a dispatch that no stage hop reached starts one, and a retry, a reaction continuation, the next stage of a hop, and a restart continue it. The value therefore stays fixed across those events, where a running row's `started_at` is the start of the session in flight. It is `null` where Sortie cannot date the pass: a retry or hop stored without a stage chain identifier, a pass with no agent run in run history, a park that follows no run, and a budget-exhausted entry with no dispatch context. Rows dispatched in one poll tick can share a value, so `issue_identifier`, then `issue_id`, order them further.
+`dispatched_at` is on every kind of entry, and always present. It is when Sortie dispatched the first run of the issue's current pass.
+
+A pass is the runs of one issue that share a stage chain identifier: a dispatch that no stage hop reached starts one, and a retry, a reaction continuation, the next stage of a hop, and a restart continue it. The value therefore stays fixed across those events, where a running row's `started_at` is the start of the session in flight.
+
+It is `null` where Sortie cannot date the pass: a retry or hop stored without a stage chain identifier, a pass with no agent run in run history, a park that follows no run, and a budget-exhausted entry with no dispatch context. Rows dispatched in one poll tick can share a value, so `issue_identifier`, then `issue_id`, order them further.
 
 `stage_position` is on every kind of entry, and always present. It is `null` exactly when the entry's rule is on no stage chain, or the entry has no rule, as a park that follows no run has none. Every entry of a workflow without stage chains serves `null`. Otherwise it is an object:
 

@@ -125,7 +125,9 @@ hooks:
 The `2>/dev/null || true` suppresses errors when the branch doesn't exist remotely (for example, if the run never pushed). `before_remove` failures are logged and ignored. Cleanup still proceeds.
 
 > [!NOTE]
-> Workspace removal does not happen instantly when an issue reaches a terminal state. If the worker has already exited, Sortie detects the terminal state through a periodic sweep that runs every 60 poll ticks. With the default `polling.interval_ms: 30000`, cleanup happens within approximately 30 minutes; with `polling.interval_ms: 60000`, within approximately 60 minutes. On startup Sortie runs the terminal check alone, so a restart clears the workspaces of issues the tracker reports terminal and leaves everything else in place. A startup pass that cannot read tracker state removes nothing, and the age bound is evaluated only by the periodic sweep, never at startup.
+> Workspace removal does not happen instantly when an issue reaches a terminal state. If the worker has already exited, Sortie detects the terminal state through a periodic sweep that runs every 60 poll ticks. With the default `polling.interval_ms: 30000`, cleanup happens within approximately 30 minutes; with `polling.interval_ms: 60000`, within approximately 60 minutes.
+>
+> On startup Sortie runs the terminal check alone, so a restart clears the workspaces of issues the tracker reports terminal and leaves everything else in place. A startup pass that cannot read tracker state removes nothing, and the age bound is evaluated only by the periodic sweep, never at startup.
 
 ## Use hook environment variables
 
@@ -152,7 +154,9 @@ Sortie terminates every process a hook's shell leaves running in its process gro
 
 If your `before_run` or `after_create` hook needs to start something that keeps running after the hook returns, such as a local database or a test double, start it through a supervisor outside the hook's process tree instead of backgrounding it.
 
-The example below runs unchanged whether Sortie runs interactively on a Linux host or under the systemd service from [how to run Sortie as a systemd service](/guides/run-as-systemd-service/), with no edit to that unit's `[Service]` section. It does not apply inside any image built in [how to use Sortie in Docker](/guides/use-sortie-in-docker/): none of those images installs a `docker` CLI or mounts a daemon socket, so a hook running there has no route to Docker at all. For macOS, for Windows, or for the systemd-user and Windows-service routes, see the full [hook process lifetime](/reference/workflow-config/#hook-process-lifetime) table.
+The example below runs unchanged whether Sortie runs interactively on a Linux host or under the systemd service from [how to run Sortie as a systemd service](/guides/run-as-systemd-service/), with no edit to that unit's `[Service]` section.
+
+It does not apply inside any image built in [how to use Sortie in Docker](/guides/use-sortie-in-docker/): none of those images installs a `docker` CLI or mounts a daemon socket, so a hook running there has no route to Docker at all. For macOS, for Windows, or for the systemd-user and Windows-service routes, see the full [hook process lifetime](/reference/workflow-config/#hook-process-lifetime) table.
 
 Reaching the daemon needs the account Sortie runs as to be a member of the `docker` group; [that group grants root-level privileges on the host](https://docs.docker.com/engine/install/linux-postinstall/), so add it deliberately:
 
@@ -162,7 +166,9 @@ sudo usermod -aG docker sortie   # or your own login, when running interactively
 
 Group membership is read once, at process start: an interactive shell needs a fresh login and the systemd service needs a restart (`sudo systemctl restart sortie`) before either picks up the change. No edit to the unit file itself: `Group=sortie` in that unit sets only the process's primary group, and systemd still initializes its supplementary groups, `docker` included, from the account's own membership in `/etc/group`.
 
-The example starts one PostgreSQL container shared by every workspace running concurrently on the host, the way a local integration-test database usually works; it is deliberately not workspace-scoped, so its name and port are fixed rather than unique per issue. Put the compose file at a fixed path outside every workspace and outside `/home`, since `ProtectHome=yes` hides `/home` from the systemd service entirely: `/etc/sortie/`, the directory that guide already uses for `WORKFLOW.md`, stays readable under `ProtectSystem=strict`, which makes the filesystem read-only rather than inaccessible.
+The example starts one PostgreSQL container shared by every workspace running concurrently on the host, the way a local integration-test database usually works; it is deliberately not workspace-scoped, so its name and port are fixed rather than unique per issue.
+
+Put the compose file at a fixed path outside every workspace and outside `/home`, since `ProtectHome=yes` hides `/home` from the systemd service entirely: `/etc/sortie/`, the directory that guide already uses for `WORKFLOW.md`, stays readable under `ProtectSystem=strict`, which makes the filesystem read-only rather than inaccessible.
 
 ```yaml
 # /etc/sortie/docker-compose.test-postgres.yml

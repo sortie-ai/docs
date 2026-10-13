@@ -316,7 +316,9 @@ The pipeline does **not** check:
 
 #### Advisory warnings
 
-Beyond the error-level checks above, `validate` runs static analysis on the front matter and the prompt templates, checks the resolved configuration for likely-wrong patterns, and reports the advisories recorded while that configuration was built or loaded, emitting **warnings** in every case. Warnings do not block validity: `valid` remains `true` and the exit code is `0` when only warnings are present. Runtime behavior is unchanged; warnings surface patterns that the orchestrator would silently accept, that would produce unexpected output, or that it would otherwise only report through the run log.
+Beyond the error-level checks above, `validate` runs static analysis on the front matter and the prompt templates, checks the resolved configuration for likely-wrong patterns, and reports the advisories recorded while that configuration was built or loaded, emitting **warnings** in every case.
+
+Warnings do not block validity: `valid` remains `true` and the exit code is `0` when only warnings are present. Runtime behavior is unchanged; warnings surface patterns that the orchestrator would silently accept, that would produce unexpected output, or that it would otherwise only report through the run log.
 
 `validate` groups these warnings by what produced them: static analysis of the front matter, static analysis of the prompt templates, checks on the resolved configuration, and advisories recorded while the configuration was built or loaded, plus adapter-specific warnings when the tracker adapter declares config validation (see [adapter-specific warning check values](#adapter-specific-warning-check-values)):
 
@@ -330,7 +332,9 @@ Beyond the error-level checks above, `validate` runs static analysis on the fron
 
 **Template static analysis:**
 
-Each template warning starts with the file and the line that hold the fault, in the form `<file> (line <n>): <message>`. The file is an absolute path. For the prompt body, the line counts from the top of `WORKFLOW.md`, front matter included. A fault inside a shared block is reported at its line in the partial, and the same fault reached from several templates is reported once. Dot-context, unknown-variable, and unknown-field warnings cover the body, the default template, and every rule template, and a call that passes the root data (`{{ template "name" . }}` outside a `{{ range }}` or `{{ with }}` body) carries the check into the shared block. A call that passes anything else does not. A template that fails to load produces the load error and no template warnings.
+Each template warning starts with the file and the line that hold the fault, in the form `<file> (line <n>): <message>`. The file is an absolute path. For the prompt body, the line counts from the top of `WORKFLOW.md`, front matter included. A fault inside a shared block is reported at its line in the partial, and the same fault reached from several templates is reported once.
+
+Dot-context, unknown-variable, and unknown-field warnings cover the body, the default template, and every rule template, and a call that passes the root data (`{{ template "name" . }}` outside a `{{ range }}` or `{{ with }}` body) carries the check into the shared block. A call that passes anything else does not. A template that fails to load produces the load error and no template warnings.
 
 - **Dot-context misuse** (`dot_context`). A reference to a top-level data key (such as `.issue`, `.run`, or `.stage`) inside a `{{ range }}` or `{{ with }}` block where the dot has been redefined. Almost always a bug. Use the `$` prefix (`$.issue.title`) to reach root data from inside these blocks.
 - **Unknown template variable** (`unknown_var`). A top-level variable reference not in the template data contract. For example, `{{ .config }}` or `{{ $.settings }}`. Valid top-level variables are `.issue`, `.attempt`, `.run`, `.stage`, and the variables reactions add, such as `.ci_failure`; the message lists them all.
@@ -692,7 +696,9 @@ When the database also predates the configured-model columns, only the configure
 
 Both formats carry the same figures. Breakdown rows are sorted by descending run count, with ties broken by ascending name. A run that recorded no dispatch rule, prompt template, or configured model appears under the sentinel name `<none>`, which also covers an empty agent adapter. Rounding is fixed so repeated runs over the same data produce identical output: rates and shares to four decimals, cost and mean turns to two, mean duration to one.
 
-The summary's duration and mean-turn figures cover **succeeded runs only**, so they describe the work that landed rather than the volume attempted. Token sums, and every cost figure derived from them, cover **measured runs only**: a run whose coding agent reported no token usage records that fact and is left out of those figures instead of counting as a run that spent nothing. A run counts as succeeded when its status is exactly `succeeded`. Cost is never stored; it is derived at report time from the token counts and the configured rates. See [control agent costs](/guides/control-costs/#monitor-spending) for where this fits among the other cost surfaces.
+The summary's duration and mean-turn figures cover **succeeded runs only**, so they describe the work that landed rather than the volume attempted. Token sums, and every cost figure derived from them, cover **measured runs only**: a run whose coding agent reported no token usage records that fact and is left out of those figures instead of counting as a run that spent nothing.
+
+A run counts as succeeded when its status is exactly `succeeded`. Cost is never stored; it is derived at report time from the token counts and the configured rates. See [control agent costs](/guides/control-costs/#monitor-spending) for where this fits among the other cost surfaces.
 
 **Text** (default): the report is written to stdout. Warnings are written to stderr, after a blank line, one per line, each prefixed `warning: `. The two streams can be redirected independently.
 

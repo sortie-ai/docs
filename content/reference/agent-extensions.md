@@ -36,7 +36,15 @@ To say why, write the reason on the lines after the value. See [stop statement](
 | `needs-human-review` | Work is complete but requires human review before merging or closing. |
 | `no-change-needed` | The requested outcome already held before the run started, and the agent made no change to reach it. |
 
-All three values suppress continuation retry and eventually release the issue claim, but they diverge at three points in the run: whether the self-review phase runs (`blocked` never enters it; `needs-human-review` and `no-change-needed` do, when self-review is enabled and the issue is still active), what each value means if written again inside that phase, and what happens to the issue on exit. `blocked` parks the issue where the dispatch drives issue state, or releases the claim otherwise; it performs no tracker transition. `needs-human-review` triggers a handoff transition to `tracker.handoff_state` when configured, the issue is still active, the dispatch drives issue state, and the [handoff-evidence verdict](/reference/state-machine/#handoff-evidence) permits it. `no-change-needed` triggers the same handoff transition under the same configuration and activity conditions, but targets `tracker.no_change_state` where that field is set (falling back to `tracker.handoff_state` otherwise) and is never withheld by the handoff-evidence verdict: a declaration that survives self-review always counts as work observed. On a dispatch rule that carries `next`, either value makes a [stage hop](/reference/state-machine/#stage-hop) in place of that transition: Sortie adds the next stage's label, writes no tracker state, and falls back to the transition only when the hop cannot be made. `blocked` never hops. See [handoff evidence: declaring that nothing needed changing](/reference/state-machine/#declaring-that-nothing-needed-changing) for the full mechanism, including what self-review confirmation requires and what happens with self-review disabled.
+All three values suppress continuation retry and eventually release the issue claim, but they diverge at three points in the run: whether the self-review phase runs (`blocked` never enters it; `needs-human-review` and `no-change-needed` do, when self-review is enabled and the issue is still active), what each value means if written again inside that phase, and what happens to the issue on exit.
+
+`blocked` parks the issue where the dispatch drives issue state, or releases the claim otherwise; it performs no tracker transition. `needs-human-review` triggers a handoff transition to `tracker.handoff_state` when configured, the issue is still active, the dispatch drives issue state, and the [handoff-evidence verdict](/reference/state-machine/#handoff-evidence) permits it.
+
+`no-change-needed` triggers the same handoff transition under the same configuration and activity conditions, but targets `tracker.no_change_state` where that field is set (falling back to `tracker.handoff_state` otherwise) and is never withheld by the handoff-evidence verdict: a declaration that survives self-review always counts as work observed.
+
+On a dispatch rule that carries `next`, either value makes a [stage hop](/reference/state-machine/#stage-hop) in place of that transition: Sortie adds the next stage's label, writes no tracker state, and falls back to the transition only when the hop cannot be made. `blocked` never hops.
+
+See [handoff evidence: declaring that nothing needed changing](/reference/state-machine/#declaring-that-nothing-needed-changing) for the full mechanism, including what self-review confirmation requires and what happens with self-review disabled.
 
 ### Orchestrator behavior
 
@@ -131,13 +139,17 @@ whole file under 1024 bytes.
 
 The last paragraph asks for a reason but does not require one: a file with a value alone is valid. Continuation turns do not repeat the instructions. You can include your own instructions in prompt templates too. Duplicates are harmless.
 
-During the self-review phase, a second injected instruction supersedes this one for the duration of the phase: it tells the agent to report through `.sortie/review_verdict.json` instead, that writing `needs-human-review` to `.sortie/status` there neither ends the phase nor substitutes for a verdict, and that `blocked` still ends the phase. This second instruction names only those two values; it says nothing about `no-change-needed`. In the loop itself, though, only `blocked` is read for anything: any other value written during the phase, `no-change-needed` included, is inert there the same way an in-phase `needs-human-review` is.
+During the self-review phase, a second injected instruction supersedes this one for the duration of the phase: it tells the agent to report through `.sortie/review_verdict.json` instead, that writing `needs-human-review` to `.sortie/status` there neither ends the phase nor substitutes for a verdict, and that `blocked` still ends the phase.
+
+This second instruction names only those two values; it says nothing about `no-change-needed`. In the loop itself, though, only `blocked` is read for anything: any other value written during the phase, `no-change-needed` included, is inert there the same way an in-phase `needs-human-review` is.
 
 ### Cleanup and protection
 
 Sortie deletes `.sortie/status` before each new dispatch, so a stale signal from a previous run cannot affect the new one.
 
-Sortie deletes it again at each point in a run where it acts on a recognized value: when a completion signal admits the run to the [self-review phase](/guides/configure-self-review/), and after every review turn and every fix turn inside that phase. Which value was read makes no difference at those points; `blocked`, `needs-human-review`, and `no-change-needed` are all removed. The read after a coding turn deletes nothing, so a recognized value written there stays on disk through teardown on a run that never enters the phase. Every deletion is best-effort and applies the same rejection as the read: a link or wrong-type entry at the workspace directory, `.sortie/`, or `status` leaves the file in place rather than following it; a deletion that fails is logged and changes nothing else about the run.
+Sortie deletes it again at each point in a run where it acts on a recognized value: when a completion signal admits the run to the [self-review phase](/guides/configure-self-review/), and after every review turn and every fix turn inside that phase. Which value was read makes no difference at those points; `blocked`, `needs-human-review`, and `no-change-needed` are all removed.
+
+The read after a coding turn deletes nothing, so a recognized value written there stays on disk through teardown on a run that never enters the phase. Every deletion is best-effort and applies the same rejection as the read: a link or wrong-type entry at the workspace directory, `.sortie/`, or `status` leaves the file in place rather than following it; a deletion that fails is logged and changes nothing else about the run.
 
 An absent or empty file therefore carries two meanings: the agent has written nothing, or Sortie has already acted on what it wrote. What an `after_run` hook or a later `cat` finds is a value Sortie has not acted on.
 
@@ -180,7 +192,9 @@ The three `local launch only` kinds withhold delivery on an SSH launch deliberat
 
 A session that reaches no tools receives no advertisement either, whichever row it falls in. That is what keeps the prompt and the channel consistent: Sortie does not name a tool it cannot deliver.
 
-For a kind whose adapter delivers the configuration in no form at all, an `mcp_config` value in that kind's own block cannot reach the agent. The worker still reads that file and merges its servers into the generated copy, so an unreadable path or a file declaring a `sortie-tools` server still fails the attempt, and what the merge produces goes nowhere. [`sortie validate`](/reference/cli/#validate) reports that combination as an `agent.mcp_config` warning naming the kind. Separately, it reports any kind with no channel as an `agent.kind.no_tool_channel` warning. Both leave the configuration valid, and the run proceeds.
+For a kind whose adapter delivers the configuration in no form at all, an `mcp_config` value in that kind's own block cannot reach the agent. The worker still reads that file and merges its servers into the generated copy, so an unreadable path or a file declaring a `sortie-tools` server still fails the attempt, and what the merge produces goes nowhere.
+
+[`sortie validate`](/reference/cli/#validate) reports that combination as an `agent.mcp_config` warning naming the kind. Separately, it reports any kind with no channel as an `agent.kind.no_tool_channel` warning. Both leave the configuration valid, and the run proceeds.
 
 ---
 
@@ -314,7 +328,13 @@ Lists active-state issues in the configured project. No parameters beyond `opera
 ]
 ```
 
-Each entry has the same shape as a `fetch_issue` response, with one exception: `blocked_by` can be `null` instead of `[]`. This operation lists tracker candidates directly and does not run the per-issue blocker read the dispatch loop performs before starting a session, so on a tracker that cannot carry blockers with its candidate list, an issue whose dependencies have not been read yet reports `null` rather than an empty list. On Gitea, every `search_issues` entry reports `blocked_by: null`, because that read never happens on this path. On GitHub, an entry reports `[]` when the tracker's own dependency count already proves the issue has no dependencies, and `null` otherwise. `fetch_issue` on the same issue always reads the dependencies route directly and returns `[]` or a populated array, never `null`. Jira, Linear, and the file adapter are unaffected: their candidate lists already carry a resolved `blocked_by`. Only issues matching the configured `active_states` are returned: the candidates for dispatch, not every issue in the project.
+Each entry has the same shape as a `fetch_issue` response, with one exception: `blocked_by` can be `null` instead of `[]`.
+
+This operation lists tracker candidates directly and does not run the per-issue blocker read the dispatch loop performs before starting a session, so on a tracker that cannot carry blockers with its candidate list, an issue whose dependencies have not been read yet reports `null` rather than an empty list. On Gitea, every `search_issues` entry reports `blocked_by: null`, because that read never happens on this path.
+
+On GitHub, an entry reports `[]` when the tracker's own dependency count already proves the issue has no dependencies, and `null` otherwise. `fetch_issue` on the same issue always reads the dependencies route directly and returns `[]` or a populated array, never `null`.
+
+Jira, Linear, and the file adapter are unaffected: their candidate lists already carry a resolved `blocked_by`. Only issues matching the configured `active_states` are returned: the candidates for dispatch, not every issue in the project.
 
 ---
 
@@ -615,7 +635,9 @@ The failure shape is the same structured envelope every built-in tool uses.
 
 ## `cost_budget`
 
-Read-only token accounting for the current issue. The agent calls this tool to check cumulative token spend across all of the issue's sessions and the remaining budget, then decide whether to skip an expensive step, return partial work, or hand off before the token ceiling cancels the session it is running in or blocks the next one. Where `sortie_status` reports token usage for the current session (read from `.sortie/state.json`), `cost_budget` reports cumulative spend across every session for the issue (read from SQLite) and compares it against the configured budget. When [`agent.token_warning_percent`](/reference/workflow-config/#agent) is set, the tool's own description also tells the agent to watch for `warning_reached` and wrap up before the ceiling stops the run.
+Read-only token accounting for the current issue. The agent calls this tool to check cumulative token spend across all of the issue's sessions and the remaining budget, then decide whether to skip an expensive step, return partial work, or hand off before the token ceiling cancels the session it is running in or blocks the next one.
+
+Where `sortie_status` reports token usage for the current session (read from `.sortie/state.json`), `cost_budget` reports cumulative spend across every session for the issue (read from SQLite) and compares it against the configured budget. When [`agent.token_warning_percent`](/reference/workflow-config/#agent) is set, the tool's own description also tells the agent to watch for `warning_reached` and wrap up before the ceiling stops the run.
 
 `cost_budget` is a **Tier 1** tool: queries the local SQLite database in read-only mode, no external calls. Registered when both `SORTIE_DB_PATH` and `SORTIE_ISSUE_ID` are set and the database can be opened in read-only mode. That is the same condition as `workspace_history`, and the two share the same read-only connection. If the database open fails, the MCP server continues without both tools (non-fatal). When `SORTIE_DISPATCH_ID` is also set, the reading includes the running session's recorded spend; without it, only completed sessions count.
 
@@ -639,7 +661,9 @@ A measured session can still leave spend out. When a turn reaches the model and 
 
 Run-history rows written before the token columns existed (migration 011) read as zero, so spend recorded before the upgrade is invisible to the budget. Rows written before the measurement flag existed (migration 012) count as measured, because their provenance is not recoverable.
 
-The row backing this reading updates on the throttle described above, except that two writes happen immediately, without waiting for the next throttled write: the write that carries the usage figure reaching the [`agent.token_warning_percent`](/reference/workflow-config/#agent) threshold, and the write that carries a newly reported unaccounted-turn count. A count reported before the row's first write waits for that write. Because `warning_reached` is computed from this same response's own `used_tokens`, the two never disagree within one result: a reading taken before the threshold write lands still reports `used_tokens` below the threshold and `warning_reached: false`.
+The row backing this reading updates on the throttle described above, except that two writes happen immediately, without waiting for the next throttled write: the write that carries the usage figure reaching the [`agent.token_warning_percent`](/reference/workflow-config/#agent) threshold, and the write that carries a newly reported unaccounted-turn count. A count reported before the row's first write waits for that write.
+
+Because `warning_reached` is computed from this same response's own `used_tokens`, the two never disagree within one result: a reading taken before the threshold write lands still reports `used_tokens` below the threshold and `warning_reached: false`.
 
 ### Response fields
 
@@ -661,7 +685,9 @@ The fields below are returned under `data` in the standard success envelope:
 
 `warning_tokens` and `warning_reached` appear together or not at all, so a deployment that never sets `agent.token_warning_percent` gets a result byte-identical to one from before the warning threshold existed.
 
-The orchestrator enforces the same ceiling against a fresher figure than this one. `used_tokens` carries the running session's spend as last written to `session_metadata`, at most one write per issue every two seconds, while the check that stops a session in flight adds that session's live in-memory total instead. The reading an agent gets back therefore trails the enforced figure by up to one write interval, and never leads it. When the sum reaches a non-zero `budget_tokens`, the running session is cancelled and the next re-dispatch for the issue is blocked. See [how to control agent costs](/guides/control-costs/) for the enforcement behavior and budget strategy.
+The orchestrator enforces the same ceiling against a fresher figure than this one. `used_tokens` carries the running session's spend as last written to `session_metadata`, at most one write per issue every two seconds, while the check that stops a session in flight adds that session's live in-memory total instead. The reading an agent gets back therefore trails the enforced figure by up to one write interval, and never leads it.
+
+When the sum reaches a non-zero `budget_tokens`, the running session is cancelled and the next re-dispatch for the issue is blocked. See [how to control agent costs](/guides/control-costs/) for the enforcement behavior and budget strategy.
 
 The [JSON API](/reference/http-api/#get-apiv1state-system-state) serves a running issue's spend under the same key names, taken from the orchestrator's live state rather than from the stored row. It differs from this tool: `budget_tokens` and `budget_sessions` are `null`, not `0`, when no limit is set, and there is no `remaining_tokens`.
 
@@ -763,7 +789,11 @@ The failure shape is the same structured envelope every built-in tool uses.
 
 Real-time notification to the operator's configured channels, the entries in `notifications` that receive the `agent.message` event. The agent calls this tool to escalate a decision it should not make alone, report progress on a long task, or flag a blocker, without terminating the session. Sending a notification changes nothing in orchestration: no retry suppression, no tracker transition, no claim release. To tell the orchestrator to stop, the agent writes `.sortie/status`; see the [agent communication model](/concepts/agent-communication/) for how the two surfaces relate.
 
-`notify_operator` is a **Tier 2** tool: it makes outbound HTTP POST calls to operator-configured endpoints. Sortie registers the tool only when at least one entry in the `notifications` list in [WORKFLOW.md](/reference/workflow-config/#notifications) receives `agent.message`. A `webhook` or `slack` entry with no `events` key receives it by default, which is deprecated. A list that is empty, absent, or holds only entries for other events leaves the tool unregistered, so the agent is never offered a tool whose messages reach no destination. An invalid entry among those that receive `agent.message` (unknown kind, missing endpoint URL, a secret that resolved to the empty string) is a fatal MCP server startup error, never a partial registration. A `tracker_comment` entry never receives `agent.message`: messages from the agent do not reach the issue.
+`notify_operator` is a **Tier 2** tool: it makes outbound HTTP POST calls to operator-configured endpoints. Sortie registers the tool only when at least one entry in the `notifications` list in [WORKFLOW.md](/reference/workflow-config/#notifications) receives `agent.message`.
+
+A `webhook` or `slack` entry with no `events` key receives it by default, which is deprecated. A list that is empty, absent, or holds only entries for other events leaves the tool unregistered, so the agent is never offered a tool whose messages reach no destination.
+
+An invalid entry among those that receive `agent.message` (unknown kind, missing endpoint URL, a secret that resolved to the empty string) is a fatal MCP server startup error, never a partial registration. A `tracker_comment` entry never receives `agent.message`: messages from the agent do not reach the issue.
 
 ### Input schema
 
@@ -782,13 +812,21 @@ No additional fields are accepted. Unknown fields, trailing content, out-of-enum
 
 Each accepted call produces one notification with two layers. The agent supplies the message (`severity`, `title`, `body`, optional `category`). The tool fills the envelope from session context the agent cannot set or forge: a generated UUID `notification_id`, an RFC3339 UTC `timestamp`, a `source` identifying the Sortie instance (the hostname), the `issue_id` and `identifier`, a `dispatch_id`, a `session_id`, the `attempt` (`null` on the first run), and the dispatch-frozen `agent` kind from `SORTIE_SESSION_AGENT_KIND`.
 
-`dispatch_id` and `session_id` come from different places and change on different schedules. `dispatch_id` arrives once, in the tool server's own environment (`SORTIE_DISPATCH_ID`), and stays fixed for every notification sent by that dispatch, including every retry and continuation of a resumed session. `session_id` is not an environment variable: the worker writes the session id it has accepted from the agent runtime into a `.sortie/dispatch.json` record, and the tool re-reads that record on every call, accepting the value only when the record's `dispatch_id` matches its own. Until the worker has accepted a session id, `session_id` is empty; an agent kind whose runtime never reports one leaves it empty for the whole dispatch. A record left behind by a different dispatch is rejected the same way a missing record is, so a tool server process that outlives its own dispatch never reports a session id that belongs to someone else.
+`dispatch_id` and `session_id` come from different places and change on different schedules. `dispatch_id` arrives once, in the tool server's own environment (`SORTIE_DISPATCH_ID`), and stays fixed for every notification sent by that dispatch, including every retry and continuation of a resumed session.
+
+`session_id` is not an environment variable: the worker writes the session id it has accepted from the agent runtime into a `.sortie/dispatch.json` record, and the tool re-reads that record on every call, accepting the value only when the record's `dispatch_id` matches its own.
+
+Until the worker has accepted a session id, `session_id` is empty; an agent kind whose runtime never reports one leaves it empty for the whole dispatch. A record left behind by a different dispatch is rejected the same way a missing record is, so a tool server process that outlives its own dispatch never reports a session id that belongs to someone else.
 
 Delivery goes to every entry that receives `agent.message`, in configuration order, and stops at the first one that fails, which yields a `send_failed` error. Partial delivery across backends is not reported in this version. Each backend call carries a 10-second timeout, so a slow endpoint cannot stall the turn indefinitely.
 
-Calls are capped per agent run (dispatch), not per `sortie mcp-server` process. The effective cap is the highest non-zero `max_per_session` across the entries that receive `agent.message`, falling back to 20 when every one is `0` or unset; `0` selects the default, never unlimited. Every turn and every tool server process the run spawns share one count, which Sortie keeps as files under the workspace's `.sortie/notification_slots/` directory rather than in a process's memory, so a runtime that starts a fresh tool server process for each turn still shares the run's count across every process it starts. A retry or a continuation of a resumed session mints a new dispatch ID, so it starts a new run and a new count; a `session_id` change on its own does not.
+Calls are capped per agent run (dispatch), not per `sortie mcp-server` process. The effective cap is the highest non-zero `max_per_session` across the entries that receive `agent.message`, falling back to 20 when every one is `0` or unset; `0` selects the default, never unlimited.
 
-A call counts once at least one backend has accepted the notification. If the first configured backend fails, nothing was delivered and the call does not consume the cap; if a later backend then fails after an earlier one succeeded, the call still counts even though delivery was partial. A call past the cap returns `rate_limited` and sends nothing. When the count cannot be established, the tool returns `state_unavailable` and sends nothing; see the error kinds table below for the exact conditions. This also covers a `sortie mcp-server` started by hand outside a dispatch: with no workspace path or dispatch ID in its environment, every `notify_operator` call it receives returns `state_unavailable`.
+Every turn and every tool server process the run spawns share one count, which Sortie keeps as files under the workspace's `.sortie/notification_slots/` directory rather than in a process's memory, so a runtime that starts a fresh tool server process for each turn still shares the run's count across every process it starts. A retry or a continuation of a resumed session mints a new dispatch ID, so it starts a new run and a new count; a `session_id` change on its own does not.
+
+A call counts once at least one backend has accepted the notification. If the first configured backend fails, nothing was delivered and the call does not consume the cap; if a later backend then fails after an earlier one succeeded, the call still counts even though delivery was partial.
+
+A call past the cap returns `rate_limited` and sends nothing. When the count cannot be established, the tool returns `state_unavailable` and sends nothing; see the error kinds table below for the exact conditions. This also covers a `sortie mcp-server` started by hand outside a dispatch: with no workspace path or dispatch ID in its environment, every `notify_operator` call it receives returns `state_unavailable`.
 
 The backends never log or echo the endpoint URL, the request body, or the response body. Delivery failures surface as fixed categories (`timeout`, `connection failure`, `unauthorized (HTTP <code>)`, `rate limited (HTTP 429)`, `server error (HTTP <code>)`, `unexpected response (HTTP <code>)`) in the `send_failed` message, so a secret-bearing webhook URL never reaches a log or the agent.
 

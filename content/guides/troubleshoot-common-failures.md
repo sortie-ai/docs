@@ -45,7 +45,9 @@ The agent binary isn't installed or isn't on `PATH`.
 level=WARN msg="worker run failed, scheduling retry" error="agent session start: agent: credential_unverified: the agent runtime did not complete a credential verification request: Not logged in · Please run /login" next_attempt=1 delay_ms=10000
 ```
 
-Workers never reach a real turn. Before it starts work on an issue, Sortie opens a short-lived session of its own and sends one request through the configured agent, to confirm the credential actually works; see [credential verification](/reference/workflow-config/#credential-verification). What that gives you is the failure happening immediately, before any real work starts, under a name that says it is a credential problem (`credential_unverified`) rather than a puzzling stall or a working session that quietly fails partway through its first turn. The message ends with what the agent itself reported, here Claude Code's answer to a missing `ANTHROPIC_API_KEY`, but it does not name the variable that is missing or wrong. The steps below find it.
+Workers never reach a real turn. Before it starts work on an issue, Sortie opens a short-lived session of its own and sends one request through the configured agent, to confirm the credential actually works; see [credential verification](/reference/workflow-config/#credential-verification). What that gives you is the failure happening immediately, before any real work starts, under a name that says it is a credential problem (`credential_unverified`) rather than a puzzling stall or a working session that quietly fails partway through its first turn.
+
+The message ends with what the agent itself reported, here Claude Code's answer to a missing `ANTHROPIC_API_KEY`, but it does not name the variable that is missing or wrong. The steps below find it.
 
 1. Verify the variable is set:
 
@@ -131,7 +133,9 @@ level=WARN msg="agent exited without producing output, treating as failure"
 level=WARN msg="worker run failed, scheduling retry" error="agent turn 1: agent: turn_failed: agent exited without producing output: no message from the agent and no tool call" next_attempt=1 delay_ms=10000
 ```
 
-The agent subprocess wrote output and exited with code 0, but reported no turn outcome, and the adapter found no evidence the model produced anything. Evidence is a message from the agent or a tool call, read from that turn's own stream, and the error line names the signals the adapter looked for after a colon. Claude Code, Copilot CLI, and OpenCode look for both, so their line ends `no message from the agent and no tool call`. Sortie treats every one of these as `turn_failed` and retries with exponential backoff. An agent that exited without writing anything to standard output fails as [agent exits before it responds](#agent-exits-before-it-responds) instead, with its own standard error in the message. Common causes:
+The agent subprocess wrote output and exited with code 0, but reported no turn outcome, and the adapter found no evidence the model produced anything. Evidence is a message from the agent or a tool call, read from that turn's own stream, and the error line names the signals the adapter looked for after a colon. Claude Code, Copilot CLI, and OpenCode look for both, so their line ends `no message from the agent and no tool call`.
+
+Sortie treats every one of these as `turn_failed` and retries with exponential backoff. An agent that exited without writing anything to standard output fails as [agent exits before it responds](#agent-exits-before-it-responds) instead, with its own standard error in the message. Common causes:
 
 1. **MCP config parsing failure.** The agent failed to parse `--additional-mcp-config` or `--mcp-config` and exited silently. Check the WARN-level log lines immediately above the error. Sortie emits the agent's stderr content, which contains the parse error. On `codex` and `opencode` a bad MCP configuration fails differently: those adapters read it themselves before the agent starts, so the session ends with a `response_error` naming the file rather than a silent exit.
 
@@ -147,7 +151,9 @@ Run with `--log-level debug` to see the full subprocess stderr. Fix the root cau
 level=WARN msg="worker run failed, scheduling retry" issue_id="PROJ-42" issue_identifier="PROJ-42" session_id="session-abc-001" error="agent turn 3: agent: port_exit: exit code -1: signal: killed" next_attempt=1 delay_ms=10000
 ```
 
-The agent process ended on a signal Sortie did not send, so the turn failed with `port_exit` and the error text names the signal. Sortie retries it on the usual exponential backoff. A signal Sortie did send, from stall detection, reconciliation, or shutdown, reports `turn_cancelled` instead; what happens to the claim afterward is in the [worker exit kinds](/reference/errors/#worker-exit-kinds) table. An agent killed before it wrote anything takes the early exit report described in [agent exits before it responds](#agent-exits-before-it-responds), whose status reads `signal: killed`.
+The agent process ended on a signal Sortie did not send, so the turn failed with `port_exit` and the error text names the signal. Sortie retries it on the usual exponential backoff.
+
+A signal Sortie did send, from stall detection, reconciliation, or shutdown, reports `turn_cancelled` instead; what happens to the claim afterward is in the [worker exit kinds](/reference/errors/#worker-exit-kinds) table. An agent killed before it wrote anything takes the early exit report described in [agent exits before it responds](#agent-exits-before-it-responds), whose status reads `signal: killed`.
 
 1. **Look for what else on the host sends signals.** On Linux, `signal: killed` with no one at the keyboard is most often the kernel's out-of-memory killer. Check `dmesg` or `journalctl -k` for an `Out of memory: Killed process` line near the failure time.
 
@@ -206,7 +212,9 @@ The agent asked for something no unattended run can supply: an answer to a quest
 level=WARN msg="run stopped by token ceiling" issue_id="PROJ-42" issue_identifier="PROJ-42" session_id="session-abc-002" reason=token_budget used_tokens=1503417 budget_tokens=1500000 issue_tokens_completed=1481200 session_tokens=22217 sum_source=confirmed_read ceiling_setting=agent.max_tokens unmeasured_sessions=0 unaccounted_turns=0
 ```
 
-The issue's cumulative token spend reached [`agent.max_tokens`](/reference/workflow-config/#agent) while a session was running, so Sortie cancelled the worker rather than let the session run to the end over budget. The attempt is recorded with status `budget_stopped`, the claim is released, and no retry is scheduled. If the stop landed while the run was in self-review, or before that phase started, the run is recorded the same way and makes no handoff transition, even where the phase would otherwise have passed. At the next poll tick the issue enters the budget-exhausted set, and that is what posts the comment naming the ceiling on the tracker.
+The issue's cumulative token spend reached [`agent.max_tokens`](/reference/workflow-config/#agent) while a session was running, so Sortie cancelled the worker rather than let the session run to the end over budget. The attempt is recorded with status `budget_stopped`, the claim is released, and no retry is scheduled.
+
+If the stop landed while the run was in self-review, or before that phase started, the run is recorded the same way and makes no handoff transition, even where the phase would otherwise have passed. At the next poll tick the issue enters the budget-exhausted set, and that is what posts the comment naming the ceiling on the tracker.
 
 1. **Tell it apart from a stall or a reconciliation kill.** Those cancel the same worker context, so the agent reports the same `turn_cancelled` error either way. The recorded status is what separates them: only the token ceiling records `budget_stopped`. See the [worker exit kinds](/reference/errors/#worker-exit-kinds) table.
 

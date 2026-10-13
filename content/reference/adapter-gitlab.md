@@ -6,7 +6,9 @@ date: 2026-08-06
 weight: 160
 url: /reference/adapter-gitlab/
 ---
-The GitLab adapter connects Sortie to GitLab over the GitLab REST API v4. It is registered under kind `"gitlab"`, fetches issues from the project issue-list route, derives Sortie states from project labels, follows `Link` header pagination, and normalizes responses to the same [issue object](/reference/workflow-config/#issue) fields. Two facts shape the rest of this page. GitLab ships both as SaaS and as a self-managed install, so `tracker.endpoint` is **optional** and defaults to `https://gitlab.com`; it is required only to reach a self-managed instance. And the adapter targets the **Community Edition** surface, so no Premium or Ultimate feature is on the contract. The canonical API documentation is [GitLab REST API](https://docs.gitlab.com/api/rest/).
+The GitLab adapter connects Sortie to GitLab over the GitLab REST API v4. It is registered under kind `"gitlab"`, fetches issues from the project issue-list route, derives Sortie states from project labels, follows `Link` header pagination, and normalizes responses to the same [issue object](/reference/workflow-config/#issue) fields.
+
+Two facts shape the rest of this page. GitLab ships both as SaaS and as a self-managed install, so `tracker.endpoint` is **optional** and defaults to `https://gitlab.com`; it is required only to reach a self-managed instance. And the adapter targets the **Community Edition** surface, so no Premium or Ultimate feature is on the contract. The canonical API documentation is [GitLab REST API](https://docs.gitlab.com/api/rest/).
 
 See also: [WORKFLOW.md configuration](/reference/workflow-config/) for the full tracker schema, [error reference](/reference/errors/) for all tracker error kinds, [environment variables](/reference/environment/) for `$VAR` expansion behavior.
 
@@ -50,7 +52,11 @@ tracker:
 
 ### `endpoint`
 
-The instance base URL, for example `https://gitlab.example.com`. Optional: an empty or whitespace-only value becomes `https://gitlab.com`, so a GitLab.com workflow omits the field entirely. The adapter validates a present value as an absolute `http` or `https` URL carrying a hostname, with neither a query nor a fragment, trims trailing slashes, and appends `/api/v4`, tolerating a value that already ends in `/api/v4` without appending it twice. A value that fails the URL check (including a port-only authority such as `http://:80`, which has no hostname, and a bare IPv6 host, which must be bracketed as `http://[fd00::1]:3000`) is rejected when the adapter is built, with `tracker_payload_error`, before any network call.
+The instance base URL, for example `https://gitlab.example.com`. Optional: an empty or whitespace-only value becomes `https://gitlab.com`, so a GitLab.com workflow omits the field entirely.
+
+The adapter validates a present value as an absolute `http` or `https` URL carrying a hostname, with neither a query nor a fragment, trims trailing slashes, and appends `/api/v4`, tolerating a value that already ends in `/api/v4` without appending it twice.
+
+A value that fails the URL check (including a port-only authority such as `http://:80`, which has no hostname, and a bare IPv6 host, which must be bracketed as `http://[fd00::1]:3000`) is rejected when the adapter is built, with `tracker_payload_error`, before any network call.
 
 Plain-`http` endpoints send the token in cleartext in the `PRIVATE-TOKEN` header. `sortie validate` warns on an `http` endpoint and on a value already ending in `/api/v4`.
 
@@ -153,13 +159,17 @@ The adapter collects every configured label present on the issue, scanning in th
 2. `handoff_state`, if set.
 3. `active_states`, in configuration order.
 
-When more than one matches on an open issue, the adapter logs a WARN, `issue carries more than one state label`, naming every matched label, carrying the issue's `iid` in the `issue_identifier` log attribute, then keeps the first. When none matches, a natively `closed` issue maps to the first `terminal_states` entry. A natively `opened` issue maps to no state: it is not dispatched, and the adapter logs `skipped open issues without a state label` at INFO with the number it skipped, and logs again only when that number changes. `sortie --dry-run` logs it too. All comparisons are case-insensitive.
+When more than one matches on an open issue, the adapter logs a WARN, `issue carries more than one state label`, naming every matched label, carrying the issue's `iid` in the `issue_identifier` log attribute, then keeps the first. When none matches, a natively `closed` issue maps to the first `terminal_states` entry.
+
+A natively `opened` issue maps to no state: it is not dispatched, and the adapter logs `skipped open issues without a state label` at INFO with the number it skipped, and logs again only when that number changes. `sortie --dry-run` logs it too. All comparisons are case-insensitive.
 
 A running issue whose state label is removed keeps running through one poll that reads no state, because editing labels by hand can pass through a moment with none. At the second consecutive poll that reads none, Sortie stops the worker and keeps its workspace.
 
 ### Transitions
 
-Transitioning an issue reads the issue, then changes its labels in **one** `PUT` request carrying `add_labels` and `remove_labels`. The request adds the target label and removes the labels of the other configured states. The adapter checks that the response carries the target label and none of the removed ones, because GitLab answers a label edit the token may not make with success. A close or reopen is a `PUT` of its own carrying `state_event`, because GitLab commits a `state_event` before the labels of the same request. The two requests are ordered so that every reading between them is the start state or the target.
+Transitioning an issue reads the issue, then changes its labels in **one** `PUT` request carrying `add_labels` and `remove_labels`. The request adds the target label and removes the labels of the other configured states. The adapter checks that the response carries the target label and none of the removed ones, because GitLab answers a label edit the token may not make with success.
+
+A close or reopen is a `PUT` of its own carrying `state_event`, because GitLab commits a `state_event` before the labels of the same request. The two requests are ordered so that every reading between them is the start state or the target.
 
 | Target | Requests |
 |---|---|
@@ -181,7 +191,9 @@ The label swap attaches the target label under its canonical stored casing and r
 
 GitLab **itself** creates a label named in `add_labels` that does not yet exist, returns 200, and attaches it as a project label. The adapter therefore needs no create-on-missing policy, no name-to-id resolution, and no default label color, and there is no silent no-op on an unknown name. A `remove_labels` naming a nonexistent label likewise returns 200 and changes nothing, so removal is idempotent.
 
-The hazard that follows is **duplication by case variant**, not a failed write. Label names are case-sensitive, so attaching `REVIEW` to an issue already carrying `review` leaves the issue with both labels and creates a second project label. Domain labels are lowercased, so both arrive as `review` and the derived state looks correct while the project has grown a phantom label. Nothing in the API reports this. The canonical-casing resolution performed by the [startup preflight](#startup-preflight) is the mitigation for configured state labels, and attaching an escalation label performs the same resolution per call.
+The hazard that follows is **duplication by case variant**, not a failed write. Label names are case-sensitive, so attaching `REVIEW` to an issue already carrying `review` leaves the issue with both labels and creates a second project label. Domain labels are lowercased, so both arrive as `review` and the derived state looks correct while the project has grown a phantom label.
+
+Nothing in the API reports this. The canonical-casing resolution performed by the [startup preflight](#startup-preflight) is the mitigation for configured state labels, and attaching an escalation label performs the same resolution per call.
 
 GitLab's `key::value` scoped labels do not enforce mutual exclusivity on Community Edition: a single request attaching `workflow::a` and `workflow::b` leaves the issue carrying both. The adapter never relies on scoped-label exclusivity and always removes the previous state label explicitly.
 
@@ -220,7 +232,9 @@ The adapter implements every method of the tracker contract against GitLab's iss
 
 ### Candidate polling
 
-The adapter constrains the candidate query rather than relying on the surface's defaults, and both constraints are load-bearing. It asks for open issues only, because the list surface returns every state by default and an unconstrained query would put terminal issues into the candidate set. It also asks for issues specifically, because the same surface returns tasks, incidents, and test cases alongside them, and an unconstrained query would dispatch agents against checklist items. Results come back oldest-first from the server, so the orchestrator does no client-side re-sort, and pages are requested at the server maximum.
+The adapter constrains the candidate query rather than relying on the surface's defaults, and both constraints are load-bearing. It asks for open issues only, because the list surface returns every state by default and an unconstrained query would put terminal issues into the candidate set.
+
+It also asks for issues specifically, because the same surface returns tasks, incidents, and test cases alongside them, and an unconstrained query would dispatch agents against checklist items. Results come back oldest-first from the server, so the orchestrator does no client-side re-sort, and pages are requested at the server maximum.
 
 State filtering stays on the client. The configured state labels are never pushed into a server-side label filter, because that filter is an AND across names while candidate selection needs an OR: an issue in any one active state is a candidate.
 
@@ -282,7 +296,9 @@ The notes route returns newest-first by default. The adapter requests `sort=asc`
 
 `tracker.query_filter` is a URL query fragment, parsed as standard `key=value` URL query-string syntax and merged into the issue-list request. A merged key **replaces** the adapter's own value for that key rather than appending to it, which is how a filter narrows polling to, for example, `scope=assigned_to_me`.
 
-This adapter validates the fragment against a **closed allowlist** when the adapter is built and fails on anything outside it. That strictness is required by GitLab's behavior: an unrecognized query parameter is **silently ignored** and the route returns an unfiltered result set with HTTP 200. A typo such as `assignee=` in place of `assignee_username=` would return every open issue and widen the candidate set with no visible signal. Invalid *values* on *recognized* keys behave in the opposite, safe way and return HTTP 400, so the danger is confined to key names.
+This adapter validates the fragment against a **closed allowlist** when the adapter is built and fails on anything outside it. That strictness is required by GitLab's behavior: an unrecognized query parameter is **silently ignored** and the route returns an unfiltered result set with HTTP 200.
+
+A typo such as `assignee=` in place of `assignee_username=` would return every open issue and widen the candidate set with no visible signal. Invalid *values* on *recognized* keys behave in the opposite, safe way and return HTTP 400, so the danger is confined to key names.
 
 Every rejection below happens when the adapter is built, before the first poll, with `tracker_payload_error`. `sortie validate` reports the same verdict offline by running the same validation.
 
@@ -448,7 +464,9 @@ For the full error taxonomy and operator guidance, see the [error reference](/re
 
 The `gitlab` kind also provides an SCM adapter and a CI status provider, so a GitLab-backed deployment drives the same pull-request reactions as a GitHub-backed one: review-comment feedback, CI-failure escalation, auto-merge, and branch cleanup. The reaction kinds and their lifecycle are provider-agnostic and documented in the [reactions reference](/reference/reactions/); `provider: gitlab` on a reaction block activates this adapter, and [how to set up PR reactions](/guides/setup-pr-reactions/) covers the operator procedure. This section documents only the GitLab-specific behavior.
 
-Both roles take `api_key` and `endpoint` from a top-level `gitlab:` block ([adapter pass-through configuration](/reference/workflow-config/#adapter-pass-through-configuration)), falling back to the `tracker` block's values for any key that block omits when `tracker.kind` is also `gitlab`. `endpoint` behaves exactly as it does for the tracker, defaulting to `https://gitlab.com` and taking the instance root rather than the API path. The CI status provider also requires `project`; the SCM adapter ignores it, because owner and repo arrive with each call. Neither role makes a network call when the adapter is built.
+Both roles take `api_key` and `endpoint` from a top-level `gitlab:` block ([adapter pass-through configuration](/reference/workflow-config/#adapter-pass-through-configuration)), falling back to the `tracker` block's values for any key that block omits when `tracker.kind` is also `gitlab`. `endpoint` behaves exactly as it does for the tracker, defaulting to `https://gitlab.com` and taking the instance root rather than the API path.
+
+The CI status provider also requires `project`; the SCM adapter ignores it, because owner and repo arrive with each call. Neither role makes a network call when the adapter is built.
 
 ### SCM read operations
 
@@ -496,7 +514,9 @@ The changes-requested rule is checked first and applies unconditionally, so a la
 
 ### Bot classification
 
-A note's embedded author carries no platform bot marker on GitLab; only `GET /users/{id}` reports one. The bot-review-comment read selects a comment when its author matches the [`bot_usernames`](/reference/reactions/#reactionsbot_review) allowlist with no lookup, and otherwise resolves the platform marker through that route; a lookup failure aborts the whole read, because the lookup only ever widens the selected comment set, and silently dropping a bot's comments there is worse than failing the call. The pending-review read excludes a `requested_changes` reviewer whose account resolves as a platform bot, but applies no `bot_usernames` allowlist of its own: a review tool that comments under a regular user identity still counts as a blocking reviewer there. A lookup failure there logs a WARN and treats the reviewer as not a bot rather than aborting.
+A note's embedded author carries no platform bot marker on GitLab; only `GET /users/{id}` reports one. The bot-review-comment read selects a comment when its author matches the [`bot_usernames`](/reference/reactions/#reactionsbot_review) allowlist with no lookup, and otherwise resolves the platform marker through that route; a lookup failure aborts the whole read, because the lookup only ever widens the selected comment set, and silently dropping a bot's comments there is worse than failing the call.
+
+The pending-review read excludes a `requested_changes` reviewer whose account resolves as a platform bot, but applies no `bot_usernames` allowlist of its own: a review tool that comments under a regular user identity still counts as a blocking reviewer there. A lookup failure there logs a WARN and treats the reviewer as not a bot rather than aborting.
 
 Resolved bot flags are cached for the adapter's lifetime, so a given author costs one `GET /users/{id}` call at most once per process. This differs from GitHub, whose embedded comment author carries its own account-type marker with no extra request, and from Gitea, which exposes no platform marker at all and relies solely on the `bot_usernames` allowlist.
 
@@ -506,7 +526,11 @@ The label-events read normalizes add and remove events from the merge request's 
 
 ### Pipeline status
 
-The CI status read starts from the merge request's embedded `head_pipeline` object and maps its status onto the merge-gate conclusion the [auto-merge CI precondition](/reference/reactions/#reactionsauto_merge) reads. The mapping applies only when `head_pipeline.sha` matches the merge request's own head SHA, compared case-insensitively, with one exemption: a merged-results or merge-train pipeline generated for this merge request, which runs on a ref whose commit exists in neither branch and carries no field relating it to the head. A head pipeline that fails the comparison describes a superseded commit and resolves to `pending`, with one warning naming both SHAs and the pipeline id, before `manual` is even considered; see [stale head pipeline](#stale-head-pipeline) below. The platform folds an externally reported commit status into the head pipeline, so for the twelve statuses the table below maps directly, the pipeline's own status already accounts for one and no second request is issued. `manual` is the exception, resolved after the table.
+The CI status read starts from the merge request's embedded `head_pipeline` object and maps its status onto the merge-gate conclusion the [auto-merge CI precondition](/reference/reactions/#reactionsauto_merge) reads.
+
+The mapping applies only when `head_pipeline.sha` matches the merge request's own head SHA, compared case-insensitively, with one exemption: a merged-results or merge-train pipeline generated for this merge request, which runs on a ref whose commit exists in neither branch and carries no field relating it to the head. A head pipeline that fails the comparison describes a superseded commit and resolves to `pending`, with one warning naming both SHAs and the pipeline id, before `manual` is even considered; see [stale head pipeline](#stale-head-pipeline) below.
+
+The platform folds an externally reported commit status into the head pipeline, so for the twelve statuses the table below maps directly, the pipeline's own status already accounts for one and no second request is issued. `manual` is the exception, resolved after the table.
 
 | `head_pipeline.status` | CI conclusion |
 |---|---|
@@ -526,9 +550,13 @@ A `manual` head pipeline is resolved separately: the adapter reads that pipeline
 | A job reports `failed` with `allow_failure: false` | `failing` |
 | A job is still queued or running, or a completed job reports `canceled` | `pending` |
 
-The first row is the correction: a `manual` head pipeline settling with nothing left but an untriggered manual job is merge-eligible, not stuck. The second row is also a correction: a manual job sharing the pipeline with a job that genuinely failed reports `failing`, not `pending`. The third row also covers a completed job that reports `canceled`: that job asserts no result about the commit, so it holds the verdict at `pending` alongside the ordinary case of later work that has been created but has not run yet. An unrecognized job status logs one warning naming it and its count, and folds the same way an in-progress job does.
+The first row is the correction: a `manual` head pipeline settling with nothing left but an untriggered manual job is merge-eligible, not stuck. The second row is also a correction: a manual job sharing the pipeline with a job that genuinely failed reports `failing`, not `pending`.
 
-A job set that folds to the empty verdict holds at `pending` instead, with one warning naming the pipeline: the platform never reports `manual` for a pipeline with no jobs, so an empty scoped result means the read itself was mis-addressed, not that the pipeline is clean. A `manual` head pipeline with no SHA of its own, or a pipeline id of zero, fails as a payload error before any request is issued, for the same reason: the platform answers a zero-scoped query with an empty result rather than an error, and failing loudly here is what keeps the anomaly visible instead of it masquerading as a clean pipeline. A failure of the job-set read itself surfaces unchanged, never degraded into a verdict.
+The third row also covers a completed job that reports `canceled`: that job asserts no result about the commit, so it holds the verdict at `pending` alongside the ordinary case of later work that has been created but has not run yet. An unrecognized job status logs one warning naming it and its count, and folds the same way an in-progress job does.
+
+A job set that folds to the empty verdict holds at `pending` instead, with one warning naming the pipeline: the platform never reports `manual` for a pipeline with no jobs, so an empty scoped result means the read itself was mis-addressed, not that the pipeline is clean.
+
+A `manual` head pipeline with no SHA of its own, or a pipeline id of zero, fails as a payload error before any request is issued, for the same reason: the platform answers a zero-scoped query with an empty result rather than an error, and failing loudly here is what keeps the anomaly visible instead of it masquerading as a clean pipeline. A failure of the job-set read itself surfaces unchanged, never degraded into a verdict.
 
 The job-set read is one request in the ordinary case, and more on a large job set, since it walks the same paginated route the [CI status provider](#ci-status-provider) uses for its own commit-status read. With `require_ci: true`, an auto-merge entry now merges once a `manual` head pipeline's job set genuinely settles clean, escalates when the set hides a failed job, and defers only while queued or running work remains, rather than deferring on every tick regardless of the job set.
 
@@ -538,7 +566,9 @@ GitLab exposes `head_pipeline` as a stored association on the merge request, not
 
 The adapter detects this by comparing `head_pipeline.sha` against the merge request's own SHA, case-insensitively, before classifying anything. A mismatch resolves to `pending`, with one warning naming both SHAs and the pipeline id, rather than reporting a status computed for a commit that is no longer current. The comparison runs before the `manual` job-set read, so a superseded `manual` pipeline never pays for one. No second request is issued for a stale head pipeline of any status: the merge-request read that already carries `head_pipeline` is the only one.
 
-Two pipeline shapes are exempt from the comparison: a merged-results pipeline and a merge-train pipeline generated for the merge request being read. Both run on a ref whose commit exists in neither the source nor the target branch, so their SHA can never equal the merge request's own head, and no field on the response relates one to the other. The adapter recognizes the shape by an exact match on both the pipeline's source and its ref anchored to the merge request being read, never by testing the ref alone: a branch can be named after a generated ref, but its source cannot be forged to match.
+Two pipeline shapes are exempt from the comparison: a merged-results pipeline and a merge-train pipeline generated for the merge request being read. Both run on a ref whose commit exists in neither the source nor the target branch, so their SHA can never equal the merge request's own head, and no field on the response relates one to the other.
+
+The adapter recognizes the shape by an exact match on both the pipeline's source and its ref anchored to the merge request being read, never by testing the ref alone: a branch can be named after a generated ref, but its source cannot be forged to match.
 
 The platform's own mergeability check is not a backstop here: a merge request with a demonstrably stale head pipeline still reported a mergeable, can-be-merged status, so a deployment cannot rely on mergeability alone to catch this.
 
@@ -562,11 +592,17 @@ Each status entry's `status` and `allow_failure` fields decide its check conclus
 | `running`, `canceling` | `pending` | In progress |
 | Any other value | `pending` | In progress, logged at WARN naming the observed value and the count |
 
-An allowed-to-fail job therefore never turns the aggregate red and is never counted as failing. A `canceled` job is a different kind of non-failing: it withholds a passing verdict without turning the aggregate red either, holding it at `pending` instead. The aggregate status and failing count come from the same shared rule the GitHub and Gitea providers use, the same rule the [merge gate](#pipeline-status) now folds a `manual` head pipeline's job set through, so the two readers agree on a `manual` verdict. They still differ on a stale head pipeline: the merge gate reads the SHA embedded on the merge request response and can hold at `pending` on one, the shape covered under [stale head pipeline](#stale-head-pipeline), while this provider resolves the commit it was asked about for itself and is never exposed to that staleness.
+An allowed-to-fail job therefore never turns the aggregate red and is never counted as failing. A `canceled` job is a different kind of non-failing: it withholds a passing verdict without turning the aggregate red either, holding it at `pending` instead.
+
+The aggregate status and failing count come from the same shared rule the GitHub and Gitea providers use, the same rule the [merge gate](#pipeline-status) now folds a `manual` head pipeline's job set through, so the two readers agree on a `manual` verdict.
+
+They still differ on a stale head pipeline: the merge gate reads the SHA embedded on the merge request response and can hold at `pending` on one, the shape covered under [stale head pipeline](#stale-head-pipeline), while this provider resolves the commit it was asked about for itself and is never exposed to that staleness.
 
 On a failing verdict, the log excerpt is built from the trace of the first failing job (`GET /projects/{id}/jobs/{job_id}/trace`); a `max_log_lines` of zero or less disables it. The [excerpt format](/reference/reactions/#reactionsci_failure) is shared by every provider.
 
-The runner wraps each stage of a job in section markers. The excerpt is the output of the last runner stage that started before the first post-script stage, which is the stage in which the job stopped. That is `step_script` for a job whose script failed, and an earlier stage such as `get_sources` for a job that failed before its script ran. The post-script stages are `after_script`, the cache archive, the artifact uploads, and `cleanup_file_variables`. Collapsible sections that the job's own script writes are never anchors. The opening note names the stage, and the output ends at the stage's end marker or where the first post-script stage starts.
+The runner wraps each stage of a job in section markers. The excerpt is the output of the last runner stage that started before the first post-script stage, which is the stage in which the job stopped. That is `step_script` for a job whose script failed, and an earlier stage such as `get_sources` for a job that failed before its script ran.
+
+The post-script stages are `after_script`, the cache archive, the artifact uploads, and `cleanup_file_variables`. Collapsible sections that the job's own script writes are never anchors. The opening note names the stage, and the output ends at the stage's end marker or where the first post-script stage starts.
 
 Each line loses the runner's timestamp and stream prefix and the section markers. The opening lines of a long stage are the last group of consecutive `$ ` command lines the runner printed in it.
 
@@ -598,7 +634,11 @@ Removing a label reads the merge request's own labels, matches the target name c
 
 `api` is the only classic scope that can merge a pull request, delete a branch, or remove a label; `read_api` performs every read this section documents and is refused on every write with `403 {"error":"insufficient_scope"}`. This is the same [scopes](#scopes) table the tracker surface uses; GitLab has one coarse write scope covering both surfaces, not a separate contents-and-pull-request split.
 
-The startup auto-merge preflight calls `GET /personal_access_tokens/self` once. A classic token reporting `api` in its scopes passes; one that omits it fails closed, blocking auto-merge for the process lifetime. A token whose scopes report as the opaque `["granular"]` value, an empty scopes array, an unreadable introspection response, or an instance whose introspection route answers 404, all fail open instead: the preflight cannot verify anything from them, so it lets auto-merge proceed rather than blocking a credential it cannot classify. A fine-grained ("granular") GitLab token is the practical case this covers, because its scopes carry no permission detail for the preflight to read; confirm a granular token's permissions directly rather than relying on this check.
+The startup auto-merge preflight calls `GET /personal_access_tokens/self` once. A classic token reporting `api` in its scopes passes; one that omits it fails closed, blocking auto-merge for the process lifetime.
+
+A token whose scopes report as the opaque `["granular"]` value, an empty scopes array, an unreadable introspection response, or an instance whose introspection route answers 404, all fail open instead: the preflight cannot verify anything from them, so it lets auto-merge proceed rather than blocking a credential it cannot classify.
+
+A fine-grained ("granular") GitLab token is the practical case this covers, because its scopes carry no permission detail for the preflight to read; confirm a granular token's permissions directly rather than relying on this check.
 
 ### Key differences from the GitHub adapter
 
@@ -662,7 +702,9 @@ An empty or whitespace-only state list element is not an adapter diagnostic: it 
 
 Community Edition is the compatibility floor: the adapter depends only on what Community Edition provides, and no minimum GitLab version is claimed. Every tracker operation works there, with one degradation in the normalized issue model.
 
-That degradation is `.issue.blocked_by`. GitLab's blocking issue-link type is not available on Community Edition, so the adapter normalizes blockers to an empty list and no issue is ever held out of dispatch for a blocker. Sortie does not synthesize a blocker from a generic relation, because a related issue is not a blocking one. A GitLab.com namespace on a lower subscription plan can hit the same gap through licence gating instead of absence, which fails differently for the same reason: the value exists but the license check rejects it, an authorization-shaped failure rather than a parameter-validation one.
+That degradation is `.issue.blocked_by`. GitLab's blocking issue-link type is not available on Community Edition, so the adapter normalizes blockers to an empty list and no issue is ever held out of dispatch for a blocker. Sortie does not synthesize a blocker from a generic relation, because a related issue is not a blocking one.
+
+A GitLab.com namespace on a lower subscription plan can hit the same gap through licence gating instead of absence, which fails differently for the same reason: the value exists but the license check rejects it, an authorization-shaped failure rather than a parameter-validation one.
 
 Which features each GitLab edition and tier includes is GitLab's to document, and the adapter avoids the licence-gated surface entirely rather than degrading against it.
 

@@ -29,11 +29,17 @@ The adapter reads its configuration from the `tracker` section of the [WORKFLOW.
 
 `user_agent` is not a Linear adapter config key an operator can set. Sortie sets the tracker role's value to its own version string, and `linear` fills no SCM or CI role, so a value supplied in a top-level `linear:` block is ignored.
 
-`tracker.in_progress_state` is validated and executed by the orchestrator the same way for every tracker kind: it drives a dispatch-time transition by transitioning the issue, gated on dispatch posture rather than on tracker kind, so it works under `kind: linear` the same way it does under Jira or GitHub. The one real difference is when each check runs. The Linear adapter reads `active_states`, `terminal_states`, and `handoff_state` when it is built and checks each against the team's workflow states (see [canonical-casing preflight](#canonical-casing-preflight)), but it never reads `in_progress_state` itself. A misconfigured `in_progress_state` therefore surfaces only at dispatch time, as a `tracker_payload_error` from the transition, rather than as a failure when the adapter is built.
+`tracker.in_progress_state` is validated and executed by the orchestrator the same way for every tracker kind: it drives a dispatch-time transition by transitioning the issue, gated on dispatch posture rather than on tracker kind, so it works under `kind: linear` the same way it does under Jira or GitHub.
+
+The one real difference is when each check runs. The Linear adapter reads `active_states`, `terminal_states`, and `handoff_state` when it is built and checks each against the team's workflow states (see [canonical-casing preflight](#canonical-casing-preflight)), but it never reads `in_progress_state` itself. A misconfigured `in_progress_state` therefore surfaces only at dispatch time, as a `tracker_payload_error` from the transition, rather than as a failure when the adapter is built.
 
 State names are compared case-insensitively at startup and resolved to the team's canonical casing. `active_states` and `terminal_states` must not overlap, and `handoff_state` must appear in neither list. See [state model](#state-model).
 
-`sortie validate` checks `endpoint`, `project`, and the state lists for this same shape without making network calls, reusing the rules enforced when the adapter is built. A malformed `endpoint` is reported as `tracker.endpoint.invalid`; an empty value is not, since the adapter substitutes the default host for it. Unlike the sibling forge adapters, there is no plain-`http` warning here, because Linear has no self-hosted deployment mode to make the distinction meaningful. A `project` value containing whitespace is an error, and one containing a slash draws a warning that it looks like a GitHub-style `owner/repo` value rather than a Linear team key. A padded state name is an error here, not a warning as on the sibling forge adapters, because the adapter matches a configured name against the team's workflow states exactly; an overlap between `active_states` and `terminal_states` is also an error. State collisions involving `handoff_state` or `in_progress_state` are rejected before Sortie starts, the same way for every tracker kind; see [startup and configuration errors](/reference/errors/#startup-and-configuration-errors).
+`sortie validate` checks `endpoint`, `project`, and the state lists for this same shape without making network calls, reusing the rules enforced when the adapter is built. A malformed `endpoint` is reported as `tracker.endpoint.invalid`; an empty value is not, since the adapter substitutes the default host for it. Unlike the sibling forge adapters, there is no plain-`http` warning here, because Linear has no self-hosted deployment mode to make the distinction meaningful.
+
+A `project` value containing whitespace is an error, and one containing a slash draws a warning that it looks like a GitHub-style `owner/repo` value rather than a Linear team key. A padded state name is an error here, not a warning as on the sibling forge adapters, because the adapter matches a configured name against the team's workflow states exactly; an overlap between `active_states` and `terminal_states` is also an error.
+
+State collisions involving `handoff_state` or `in_progress_state` are rejected before Sortie starts, the same way for every tracker kind; see [startup and configuration errors](/reference/errors/#startup-and-configuration-errors).
 
 ```yaml
 tracker:
@@ -147,7 +153,9 @@ The adapter normalizes Linear GraphQL responses to [issue object](/reference/wor
 
 Candidates are sorted client-side by normalized priority ascending, then by creation time ascending. Issues with no priority sort last. The server sort hint is not trusted.
 
-The nested `labels` connection returns the first 25 labels. For an issue that carries more, the adapter reads the rest with a separate paginated query, so `.issue.labels` holds every label of the issue on candidate polls, state queries, and single-issue reads. The nested `inverseRelations` connection is capped at the first 25 nodes and is not paginated. An issue that exceeds that cap emits a WARN (`nested connection truncated`) and is held out of dispatch: its blockers are marked unresolved, so `.issue.blocked_by` renders as `nil` rather than a possibly incomplete list. See [candidate eligibility](/reference/state-machine/#candidate-eligibility) for the dispatch-side effect.
+The nested `labels` connection returns the first 25 labels. For an issue that carries more, the adapter reads the rest with a separate paginated query, so `.issue.labels` holds every label of the issue on candidate polls, state queries, and single-issue reads.
+
+The nested `inverseRelations` connection is capped at the first 25 nodes and is not paginated. An issue that exceeds that cap emits a WARN (`nested connection truncated`) and is held out of dispatch: its blockers are marked unresolved, so `.issue.blocked_by` renders as `nil` rather than a possibly incomplete list. See [candidate eligibility](/reference/state-machine/#candidate-eligibility) for the dispatch-side effect.
 
 ### Comment normalization
 
@@ -202,7 +210,9 @@ When no label matches, the adapter creates one, always scoped to the configured 
 
 The label is attached through `addedLabelIds`, so the issue's other labels stay, except in the single-select case below. The mutation's response carries the issue's labels and the adapter checks the new label there; when the response holds more than one page of labels, it reads the issue's labels instead. An add that leaves the label off the issue fails with `tracker_payload_error`. A label failure is not fatal to the run.
 
-Removing a label reads every label on the issue together with its id, keeps the ones whose name equals the argument ignoring letter case, and detaches them by id through `removedLabelIds` in one mutation, so a team label and a workspace label of the same name both go. An issue that carries no such label gets no mutation, and removing an absent label succeeds without a change. The result is checked the same way as an add: a label still on the issue afterwards fails with `tracker_payload_error`.
+Removing a label reads every label on the issue together with its id, keeps the ones whose name equals the argument ignoring letter case, and detaches them by id through `removedLabelIds` in one mutation, so a team label and a workspace label of the same name both go.
+
+An issue that carries no such label gets no mutation, and removing an absent label succeeds without a change. The result is checked the same way as an add: a label still on the issue afterwards fails with `tracker_payload_error`.
 
 Linear can let a label inside a single-select label group (any group not set to multi-select) replace the group's other label on the issue. When the plain add leaves such a label off the issue, the adapter removes the group's other labels from the issue and adds the label again, so the add ends with the label attached whether Linear replaced, rejected, or dropped the first try. A request that fails between that removal and the second add leaves the issue with neither label.
 

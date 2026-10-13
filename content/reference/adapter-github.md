@@ -67,7 +67,9 @@ project: $SORTIE_GITHUB_PROJECT
 
 Label names that map to active Sortie states. An open issue carrying one of these labels is eligible for dispatch; an open issue carrying none is left alone (see [unlabeled issues](#unlabeled-issues)). Values are compared case-insensitively and stored lowercased when the adapter is built.
 
-There is no default list, and an empty list dispatches nothing. An entry cannot be blank. The labels must exist in the repository: GitHub has no built-in equivalents. At the first poll, and again after a reload changes the list, the adapter reads the repository's labels and logs a warning, `configured active label missing from tracker labels`, naming each active label the repository does not have, so a mistyped label shows up at the first poll. `in_progress_state` is not checked, because Sortie writes that label itself.
+There is no default list, and an empty list dispatches nothing. An entry cannot be blank. The labels must exist in the repository: GitHub has no built-in equivalents.
+
+At the first poll, and again after a reload changes the list, the adapter reads the repository's labels and logs a warning, `configured active label missing from tracker labels`, naming each active label the repository does not have, so a mistyped label shows up at the first poll. `in_progress_state` is not checked, because Sortie writes that label itself.
 
 ### `terminal_states`
 
@@ -219,7 +221,9 @@ A comment that carries the agent's [stop statement](/reference/agent-extensions/
 
 Adding a label, such as an escalation label or a [stage label](/reference/workflow-config/#dispatch), sends `POST /repos/{owner}/{repo}/issues/{number}/labels` with that one name, which leaves the issue's other labels alone. A name the repository has no label for is created by GitHub rather than rejected; see [pre-creating labels](#pre-creating-labels). GitHub answers with the issue's label list, and the adapter checks the new label in it.
 
-Removing a label first pages through the issue's labels and keeps every one whose name equals the argument ignoring letter case. Each match is deleted by name with its own `DELETE /repos/{owner}/{repo}/issues/{number}/labels/{name}`. An issue that carries no match gets no request, so removing an absent label succeeds and changes nothing. A delete that GitHub answers as not found or invalid does not stop the others, and a fresh read of the issue's labels decides whether the removal stands. The replace-all form of the labels route is never used, so a label someone adds between the read and the write survives.
+Removing a label first pages through the issue's labels and keeps every one whose name equals the argument ignoring letter case. Each match is deleted by name with its own `DELETE /repos/{owner}/{repo}/issues/{number}/labels/{name}`. An issue that carries no match gets no request, so removing an absent label succeeds and changes nothing.
+
+A delete that GitHub answers as not found or invalid does not stop the others, and a fresh read of the issue's labels decides whether the removal stands. The replace-all form of the labels route is never used, so a label someone adds between the read and the write survives.
 
 An add after which the issue does not carry the label, or a removal after which it still does, fails with `tracker_payload_error`. Removing needs the same token permission as adding: **Issues** write on a fine-grained token, `repo` on a classic one. Stage chains therefore run on GitHub with no extra setup.
 
@@ -278,7 +282,9 @@ A candidate whose summary reports `total_blocked_by: 0` is resolved from that fi
 
 `GET /repos/{owner}/{repo}/issues/{issue_number}/dependencies/blocked_by` returns a JSON array of full issue objects blocking the queried one. Each becomes a blocker entry with `.id` and `.identifier` set to the blocker's issue number, `.display_id` set to the qualified `owner/repo#N` form, and `.state` derived from the blocker's own labels the same way the adapter derives any issue's state.
 
-A 404, or any other non-2xx response, is a failure rather than an empty list: the route answers a genuinely empty blocker list with `200` and `[]`, so a 404 means the issue or the route itself is gone, which the adapter is not entitled to read as "no blockers." A candidate whose read fails this way is held out of dispatch and retried on a later poll. See [candidate eligibility](/reference/state-machine/#candidate-eligibility) for the dispatch-side effect and the [Prometheus metrics reference](/reference/prometheus-metrics/#counters) for the `sortie_candidate_holds_total` counter this produces.
+A 404, or any other non-2xx response, is a failure rather than an empty list: the route answers a genuinely empty blocker list with `200` and `[]`, so a 404 means the issue or the route itself is gone, which the adapter is not entitled to read as "no blockers."
+
+A candidate whose read fails this way is held out of dispatch and retried on a later poll. See [candidate eligibility](/reference/state-machine/#candidate-eligibility) for the dispatch-side effect and the [Prometheus metrics reference](/reference/prometheus-metrics/#counters) for the `sortie_candidate_holds_total` counter this produces.
 
 ---
 
@@ -360,7 +366,9 @@ The pull request read supplies the draft flag, the head SHA (the CI ref), the he
 
 The merge commit identifier comes from a second read, `PullRequest.mergeCommit.oid` on the GraphQL API. The pinned REST API version no longer carries `merge_commit_sha` on the pull request payload. The GraphQL read is issued only for a pull request the REST payload reports as merged, and a pull request GitHub reports with no merge commit yields an empty identifier rather than an error.
 
-The GraphQL endpoint is `/graphql` on the configured host, or `/api/graphql` when `endpoint` ends in the GitHub Enterprise Server `/api/v3` suffix. A deployment that configures the [`merge_completion` reaction](/reference/reactions/#reactionsmerge_completion) needs a credential that can reach it, since that kind latches on the merge commit identifier. A failed GraphQL read surfaces as an error, and the reaction retries it with backoff. A successful read that reports no merge commit yields an empty identifier instead, which the reaction tolerates for 30 minutes before it stops polling and escalates rather than transitioning the issue.
+The GraphQL endpoint is `/graphql` on the configured host, or `/api/graphql` when `endpoint` ends in the GitHub Enterprise Server `/api/v3` suffix. A deployment that configures the [`merge_completion` reaction](/reference/reactions/#reactionsmerge_completion) needs a credential that can reach it, since that kind latches on the merge commit identifier.
+
+A failed GraphQL read surfaces as an error, and the reaction retries it with backoff. A successful read that reports no merge commit yields an empty identifier instead, which the reaction tolerates for 30 minutes before it stops polling and escalates rather than transitioning the issue.
 
 ### CI status provider
 
@@ -368,11 +376,15 @@ The CI status provider drives the [`ci_failure` reaction](/reference/reactions/#
 
 Two of the conclusion mappings are Sortie's own policy rather than a pass-through of GitHub's check-run conclusion: a run reporting `action_required` maps to failing, because the agent cannot perform the manual UI action a check like this is waiting on, and a run reporting `stale` maps to pending, because the check run that superseded it carries the conclusion that actually matters. Every other recognized conclusion maps to its direct domain equivalent; an unrecognized value maps to pending.
 
-On a failing verdict, the provider fetches a log excerpt only for a failing run whose `app.slug` is `github-actions`: a failing run from a third-party GitHub App check has no log to fetch through this route. GitHub Actions creates one check run per workflow job, so the check run ID doubles as the job ID for the Actions job-logs route. The excerpt is the output of the job's failing step, built from two reads: the job (`GET /repos/{owner}/{repo}/actions/jobs/{job_id}`) for its step list, then the job log. A `max_log_lines` of zero omits it. The [excerpt format](/reference/reactions/#reactionsci_failure) is shared by every provider.
+On a failing verdict, the provider fetches a log excerpt only for a failing run whose `app.slug` is `github-actions`: a failing run from a third-party GitHub App check has no log to fetch through this route. GitHub Actions creates one check run per workflow job, so the check run ID doubles as the job ID for the Actions job-logs route.
+
+The excerpt is the output of the job's failing step, built from two reads: the job (`GET /repos/{owner}/{repo}/actions/jobs/{job_id}`) for its step list, then the job log. A `max_log_lines` of zero omits it. The [excerpt format](/reference/reactions/#reactionsci_failure) is shared by every provider.
 
 The failing step is the first step, by step number, that ran and concluded `failure` or `timed_out`. When none did, it is the first step that concluded `cancelled`, which is where a job that timed out or was cancelled spent its time. A skipped step is never chosen, and neither is a step that failed under `continue-on-error`, because GitHub reports it as successful.
 
-The job log carries no step names, so the step is cut out of it by the step's start and completion times. Its output begins at the step's header line (`##[group]Run ...`, `Post job cleanup.`, or the line a background-step control step prints) and ends at the last `##[error]` line the step wrote. The first step that ran prints no header and begins at its start time. Output that later steps wrote in the same second, such as an `if: failure()` upload or the post-job cleanup, stays out. Each line keeps its text and loses its leading timestamp.
+The job log carries no step names, so the step is cut out of it by the step's start and completion times. Its output begins at the step's header line (`##[group]Run ...`, `Post job cleanup.`, or the line a background-step control step prints) and ends at the last `##[error]` line the step wrote.
+
+The first step that ran prints no header and begins at its start time. Output that later steps wrote in the same second, such as an `if: failure()` upload or the post-job cleanup, stays out. Each line keeps its text and loses its leading timestamp.
 
 A step whose time span overlaps another step's, as with background and `parallel:` steps, begins at its start time, has no header lines, and keeps the lines the other steps wrote in the meantime; the opening note says so.
 
@@ -398,7 +410,9 @@ Removing a label from a pull request takes the same path as the tracker's [label
 
 ### Token scope for auto-merge
 
-The auto-merge scope check calls `GET /rate_limit` and reads the `X-OAuth-Scopes` response header. Classic personal access tokens populate that header; fine-grained tokens and GitHub App installation tokens do not, and an absent or empty header is the "unable to verify" result. Sortie fails open and lets auto-merge proceed. When the header is present, the legacy `repo` scope satisfies every requirement by itself; otherwise the check looks for `pull_requests:write` (required to merge a pull request) and, when the workflow's auto-merge configuration also deletes the branch, `contents:write` (required to delete the branch).
+The auto-merge scope check calls `GET /rate_limit` and reads the `X-OAuth-Scopes` response header. Classic personal access tokens populate that header; fine-grained tokens and GitHub App installation tokens do not, and an absent or empty header is the "unable to verify" result. Sortie fails open and lets auto-merge proceed.
+
+When the header is present, the legacy `repo` scope satisfies every requirement by itself; otherwise the check looks for `pull_requests:write` (required to merge a pull request) and, when the workflow's auto-merge configuration also deletes the branch, `contents:write` (required to delete the branch).
 
 ---
 

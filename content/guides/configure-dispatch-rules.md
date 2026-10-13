@@ -7,7 +7,11 @@ date: 2026-05-27
 weight: 95
 url: /guides/configure-dispatch-rules/
 ---
-By default, Sortie dispatches every issue with one agent (`agent.kind`) and one prompt template (the Markdown body of WORKFLOW.md). Dispatch rules change that: they route each issue to a specific agent, a specific template, specific agent settings such as the model and reasoning level, or any combination, based on the issue's metadata. Use them when bug fixes need a different prompt than documentation tasks, when frontend and backend issues should go to different agents, or when routine work belongs on a cheaper model and hard work on a stronger one. This guide shows you how to set up rules from zero, starting with a two-rule label split, then routing by model and by title, adding the other match types as you need them, and chaining rules into stages that hand an issue from one agent step to the next.
+By default, Sortie dispatches every issue with one agent (`agent.kind`) and one prompt template (the Markdown body of WORKFLOW.md). Dispatch rules change that: they route each issue to a specific agent, a specific template, specific agent settings such as the model and reasoning level, or any combination, based on the issue's metadata.
+
+Use them when bug fixes need a different prompt than documentation tasks, when frontend and backend issues should go to different agents, or when routine work belongs on a cheaper model and hard work on a stronger one.
+
+This guide shows you how to set up rules from zero, starting with a two-rule label split, then routing by model and by title, adding the other match types as you need them, and chaining rules into stages that hand an issue from one agent step to the next.
 
 ## Prerequisites
 
@@ -160,7 +164,9 @@ Sortie does not watch partial files. An edit to one applies from the next poll t
 
 ## Declare every agent kind a rule references
 
-When a rule's `agent` differs from the top-level `agent.kind`, give that kind its own configuration block in the front matter. The example above routes to `codex`, so it includes a `codex:` block. A routed session reads that block and no other, on every attempt of the session; the block named by `agent.kind` does not stand in for it. Leave the block out and both `sortie validate` and startup preflight refuse the workflow with a `dispatch.agent.missing_block` error. Add the block, even an empty one (`codex: {}`), to fix it.
+When a rule's `agent` differs from the top-level `agent.kind`, give that kind its own configuration block in the front matter. The example above routes to `codex`, so it includes a `codex:` block. A routed session reads that block and no other, on every attempt of the session; the block named by `agent.kind` does not stand in for it.
+
+Leave the block out and both `sortie validate` and startup preflight refuse the workflow with a `dispatch.agent.missing_block` error. Add the block, even an empty one (`codex: {}`), to fix it.
 
 The shared `agent.*` settings (`max_turns`, `turn_timeout_ms`, `max_sessions`, concurrency caps) stay workflow-wide. A rule can override the agent kind, the template, and the settings of that kind, but never these budgets.
 
@@ -226,7 +232,9 @@ Run `sortie validate WORKFLOW.md`. It checks each rule's block with the same che
 
 ### Edit settings while Sortie runs
 
-Sortie reads a rule's settings, like the top-level ones, at the start of every attempt: a first dispatch, a retry, or a reaction continuation. After you edit a model, the next attempt of every issue uses it, including issues that are already in flight. A session that is running keeps the settings it started with. An attempt whose settings fail validation does not start a session. A retry is scheduled again with backoff, and the first dispatch of an issue is skipped until you fix the file.
+Sortie reads a rule's settings, like the top-level ones, at the start of every attempt: a first dispatch, a retry, or a reaction continuation. After you edit a model, the next attempt of every issue uses it, including issues that are already in flight. A session that is running keeps the settings it started with.
+
+An attempt whose settings fail validation does not start a session. A retry is scheduled again with backoff, and the first dispatch of an issue is skipped until you fix the file.
 
 A resumed session keeps its session identifier when the model or level changes, and the new settings go with it.
 
@@ -455,7 +463,9 @@ To send an issue back, for example from `review` to `specify` after reading the 
 
 Change stage labels when no run is in progress on the issue. A run keeps the rule it started on until it ends, whatever labels you move during it, and when that run hops, the stage it hopped to runs next.
 
-Sortie counts the hops it makes on an issue in a row and stops at `dispatch.max_consecutive_hops`. The count resets when the issue leaves the active states, which every chain does when it ends on the handoff state, and when Sortie parks the issue or a park on it is released. An issue you send back from `review` therefore starts from zero. Moving a stage label while the issue stays active does not reset the count. Leave `dispatch.max_consecutive_hops` unset: the default is the larger of `10` and the number of hops in your longest chain, so a healthy chain never reaches it, and a value below the longest chain's hops fails validation.
+Sortie counts the hops it makes on an issue in a row and stops at `dispatch.max_consecutive_hops`. The count resets when the issue leaves the active states, which every chain does when it ends on the handoff state, and when Sortie parks the issue or a park on it is released. An issue you send back from `review` therefore starts from zero.
+
+Moving a stage label while the issue stays active does not reset the count. Leave `dispatch.max_consecutive_hops` unset: the default is the larger of `10` and the number of hops in your longest chain, so a healthy chain never reaches it, and a value below the longest chain's hops fails validation.
 
 ### Confirm the issue advanced
 
@@ -481,7 +491,9 @@ So first match wins among the rules without `stage`, and no rule above a staged 
 
 Sortie evaluates rules once, at the issue's first dispatch, and freezes the resolved agent kind, template, and rule name for the life of the claim. Retries and reaction-driven continuations (CI failure, review comments) reuse the frozen selection so the agent keeps the same prompt and session thread across turns. The settings are the exception: they are read from the current WORKFLOW.md at the start of every attempt, as described in [Edit settings while Sortie runs](#edit-settings-while-sortie-runs).
 
-A changed rule set from a WORKFLOW.md reload applies to future claims only. An issue already in flight keeps its original agent, template, and rule until its claim is released. A stage hop releases the claim, so each stage of a chain is selected afresh, and a changed `next` applies from the next run that ends. A waiting retry keeps them too, unless the reload removed its agent kind or template; then it is routed afresh and starts a new session. See [Freeze and reload](/reference/workflow-config/#freeze-and-reload) for the details. A reload that moves `agent.kind` while a rule without its own `agent` still carries a block for the old kind is rejected, and Sortie keeps the last good configuration. For the dispatch and claim lifecycle, see the [state machine reference](/reference/state-machine/); for the architectural model, see [Architecture](/concepts/architecture/).
+A changed rule set from a WORKFLOW.md reload applies to future claims only. An issue already in flight keeps its original agent, template, and rule until its claim is released. A stage hop releases the claim, so each stage of a chain is selected afresh, and a changed `next` applies from the next run that ends. A waiting retry keeps them too, unless the reload removed its agent kind or template; then it is routed afresh and starts a new session. See [Freeze and reload](/reference/workflow-config/#freeze-and-reload) for the details.
+
+A reload that moves `agent.kind` while a rule without its own `agent` still carries a block for the old kind is rejected, and Sortie keeps the last good configuration. For the dispatch and claim lifecycle, see the [state machine reference](/reference/state-machine/); for the architectural model, see [Architecture](/concepts/architecture/).
 
 ## Verify the rules
 
@@ -491,7 +503,11 @@ Check the configuration offline before starting the orchestrator:
 sortie validate WORKFLOW.md
 ```
 
-`validate` parses the dispatch block and reports rule errors: an unknown agent kind, a missing or unreadable template file, a duplicate rule name, a non-final catch-all, an unknown match key, a malformed glob, a priority predicate without exactly one operator, or a `title` with no phrase or an unquoted phrase. It also reports a settings block that names a kind the rule does not run, one that sets `command` or a timeout, and one on a rule with no `name`. It reports a registered agent kind that a rule routes to but that carries no settings block of its own, neither at the top level nor in every rule that selects it. For a stage chain it reports a `next` that names no rule or a rule without `stage`, a cycle of `next` links, a rule with both `stage` and `match`, a stage label shared by two rules or equal to a state name, `next` without `tracker.handoff_state`, and a `dispatch.max_consecutive_hops` below the longest chain's hops. It exits non-zero when any error is present.
+`validate` parses the dispatch block and reports rule errors: an unknown agent kind, a missing or unreadable template file, a duplicate rule name, a non-final catch-all, an unknown match key, a malformed glob, a priority predicate without exactly one operator, or a `title` with no phrase or an unquoted phrase.
+
+It also reports a settings block that names a kind the rule does not run, one that sets `command` or a timeout, and one on a rule with no `name`. It reports a registered agent kind that a rule routes to but that carries no settings block of its own, neither at the top level nor in every rule that selects it.
+
+For a stage chain it reports a `next` that names no rule or a rule without `stage`, a cycle of `next` links, a rule with both `stage` and `match`, a stage label shared by two rules or equal to a state name, `next` without `tracker.handoff_state`, and a `dispatch.max_consecutive_hops` below the longest chain's hops. It exits non-zero when any error is present.
 
 Then run one poll cycle without spawning agents:
 
@@ -540,7 +556,9 @@ sortie --dry-run WORKFLOW.md
 
 ## Dispatch rule fields
 
-The `dispatch` block accepts a `rules` list, a `default` fallback for when nothing matches, and `max_consecutive_hops`, the ceiling on hops in a row. A rule with a `stage` label is selected by that label before any other rule; the rest are evaluated first-match-wins in YAML order. A rule's `next` names the staged rule an issue moves to after a successful run. Each rule pairs a `match` predicate (keys: `labels`, `issue_type`, `priority`, `identifier`, `assignee`, `title`), or a `stage` label, with the `agent` and `template` to use, falling through to `default` and then to the top-level `agent.kind` when a rule leaves them unset, and may carry a settings block for its agent kind that is laid over the kind's top-level block. The `priority` predicate takes exactly one numeric operator (`eq`, `in`, `lt`, `lte`, `gt`, `gte`).
+The `dispatch` block accepts a `rules` list, a `default` fallback for when nothing matches, and `max_consecutive_hops`, the ceiling on hops in a row. A rule with a `stage` label is selected by that label before any other rule; the rest are evaluated first-match-wins in YAML order. A rule's `next` names the staged rule an issue moves to after a successful run.
+
+Each rule pairs a `match` predicate (keys: `labels`, `issue_type`, `priority`, `identifier`, `assignee`, `title`), or a `stage` label, with the `agent` and `template` to use, falling through to `default` and then to the top-level `agent.kind` when a rule leaves them unset, and may carry a settings block for its agent kind that is laid over the kind's top-level block. The `priority` predicate takes exactly one numeric operator (`eq`, `in`, `lt`, `lte`, `gt`, `gte`).
 
 For the complete field-by-field table, including every match key's matching rule, the overlay rules for a settings block, and every accepted operator, see the [`dispatch` section of the workflow config reference](/reference/workflow-config/#dispatch).
 

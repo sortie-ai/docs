@@ -208,7 +208,9 @@ The `codex:` section is adapter-specific pass-through configuration forwarded to
 
 For the full list of `codex.*` fields, see the [Codex adapter reference](/reference/adapter-codex/).
 
-Notice that the `codex:` section has no inner turn budget field. Other adapters (Claude Code, Copilot CLI) have a field that limits how many internal steps the agent takes within a single Sortie turn. The Codex app-server manages its own step execution, working until it completes the task, encounters an error, or hits the turn timeout. With `agent.max_turns: 3` and a one-hour turn timeout, the agent has up to three invocations of unrestricted length to finish the job. For a tutorial task like adding a health check endpoint, one turn is usually enough.
+Notice that the `codex:` section has no inner turn budget field. Other adapters (Claude Code, Copilot CLI) have a field that limits how many internal steps the agent takes within a single Sortie turn. The Codex app-server manages its own step execution, working until it completes the task, encounters an error, or hits the turn timeout.
+
+With `agent.max_turns: 3` and a one-hour turn timeout, the agent has up to three invocations of unrestricted length to finish the job. For a tutorial task like adding a health check endpoint, one turn is usually enough.
 
 ### Authentication: Codex and Jira
 

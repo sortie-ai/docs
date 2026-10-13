@@ -44,7 +44,9 @@ tracker:
   api_key: $SORTIE_GITLAB_TOKEN
 ```
 
-Sortie sends the token in the **`PRIVATE-TOKEN`** request header, not as `Authorization: Bearer` and not as `Authorization: token`, and passes the value through unchanged. The value in `SORTIE_GITLAB_TOKEN` must therefore be the bare token with nothing around it. A trailing newline picked up from a copy-paste or from a `cat` of a secret file becomes part of the credential and fails authentication. `sortie validate` warns when the resolved key carries surrounding whitespace, and when `api_key` is empty while `SORTIE_GITLAB_TOKEN` is set, it points you at `api_key: $SORTIE_GITLAB_TOKEN`.
+Sortie sends the token in the **`PRIVATE-TOKEN`** request header, not as `Authorization: Bearer` and not as `Authorization: token`, and passes the value through unchanged. The value in `SORTIE_GITLAB_TOKEN` must therefore be the bare token with nothing around it. A trailing newline picked up from a copy-paste or from a `cat` of a secret file becomes part of the credential and fails authentication.
+
+`sortie validate` warns when the resolved key carries surrounding whitespace, and when `api_key` is empty while `SORTIE_GITLAB_TOKEN` is set, it points you at `api_key: $SORTIE_GITLAB_TOKEN`.
 
 The adapter runs no prefix or length check on the value. A GitLab administrator can change the access-token prefix through an application setting, so a shape check would reject valid tokens on a customized instance.
 
@@ -76,7 +78,9 @@ tracker:
 
 Written through an environment variable, that line is safe to keep in a GitLab.com deployment too: an unset `SORTIE_GITLAB_ENDPOINT` resolves to an empty value, and the adapter substitutes `https://gitlab.com` for it. One workflow file covers both deployments, and the variable decides which instance it points at.
 
-Give the instance root, not the API path. The adapter validates the value as an absolute `http` or `https` URL with a host, trims a trailing slash, and appends `/api/v4`. It tolerates a value that already ends in `/api/v4` without appending it twice, and `sortie validate` warns when it finds the suffix, since you can drop it. Use `https`: the token travels in a request header, and a plain-`http` endpoint sends it in cleartext, which `sortie validate` flags as `tracker.endpoint uses http; the access token travels in cleartext in the PRIVATE-TOKEN header, use https`.
+Give the instance root, not the API path. The adapter validates the value as an absolute `http` or `https` URL with a host, trims a trailing slash, and appends `/api/v4`. It tolerates a value that already ends in `/api/v4` without appending it twice, and `sortie validate` warns when it finds the suffix, since you can drop it.
+
+Use `https`: the token travels in a request header, and a plain-`http` endpoint sends it in cleartext, which `sortie validate` flags as `tracker.endpoint uses http; the access token travels in cleartext in the PRIVATE-TOKEN header, use https`.
 
 If your self-managed instance sits on a bare IPv6 address, bracket it: `http://[fd00::1]:3000`, not `http://fd00::1:3000`. The unbracketed form is exactly how the address prints from `ip addr`, but it reads as a hostname with a trailing port, so both `sortie validate` and Sortie itself reject it before making any request.
 
@@ -136,7 +140,11 @@ Names match case-insensitively, so `In-Progress` and `in-progress` select the sa
 
 A `handoff_state` that also appears in `active_states` or `terminal_states` is a blocking error rather than a warning: the issue would be dispatched again on the next poll, or the handoff would double as a close. If you use `review` as your handoff label, keep it out of `active_states`, as the snippet above does.
 
-You do not need to pre-create a label Sortie moves an issue into. GitLab creates a label named in a write when it does not exist and returns HTTP 200, so those state labels appear in the project the first time issues move through them. Create the `active_states` labels yourself, because you apply them to issues to hand them to Sortie. The risk that replaces the missing-label risk is **case**: label names are case-sensitive, so attaching `REVIEW` to a project that already holds `review` creates a second label and leaves the issue carrying both. The adapter defends against this by reading the project label catalog at startup and resolving the stored casing of every configured state name, so a write attaches the label the project already holds rather than a variant of it. A configured name that matches nothing in the catalog is treated as the label you intend to create.
+You do not need to pre-create a label Sortie moves an issue into. GitLab creates a label named in a write when it does not exist and returns HTTP 200, so those state labels appear in the project the first time issues move through them. Create the `active_states` labels yourself, because you apply them to issues to hand them to Sortie.
+
+The risk that replaces the missing-label risk is **case**: label names are case-sensitive, so attaching `REVIEW` to a project that already holds `review` creates a second label and leaves the issue carrying both.
+
+The adapter defends against this by reading the project label catalog at startup and resolving the stored casing of every configured state name, so a write attaches the label the project already holds rather than a variant of it. A configured name that matches nothing in the catalog is treated as the label you intend to create.
 
 One caveat sits outside that defense: auto-creation always creates a *project* label. If you want your state labels to live at group level, shared across several projects, create them in the group first.
 
@@ -148,7 +156,9 @@ For the full `tracker.*` field contract, types, and validation rules, see the [G
 
 By default Sortie fetches every open issue in your active states for the project. `tracker.query_filter` narrows that set. It is a URL query fragment, and the adapter merges it into the project's issue-list request, where a merged key replaces the adapter's own value for that key.
 
-Read the strictness before the syntax, because it is the reason this field behaves differently here than on Gitea. **GitLab silently ignores a query parameter it does not recognize.** A misspelled key does not error; it disables the filter and the route returns an unfiltered result set with HTTP 200. Writing `assignee=` in place of `assignee_username=` would hand every open issue to the dispatcher with no visible signal anywhere in the response. So the adapter validates your fragment at construction against a **closed allowlist** and refuses to start on a key outside it. The Gitea adapter warns and forwards an unknown key; the GitLab adapter fails. That failure is the protection: a typo stops the process instead of quietly widening what your agents pick up.
+Read the strictness before the syntax, because it is the reason this field behaves differently here than on Gitea. **GitLab silently ignores a query parameter it does not recognize.** A misspelled key does not error; it disables the filter and the route returns an unfiltered result set with HTTP 200. Writing `assignee=` in place of `assignee_username=` would hand every open issue to the dispatcher with no visible signal anywhere in the response.
+
+So the adapter validates your fragment at construction against a **closed allowlist** and refuses to start on a key outside it. The Gitea adapter warns and forwards an unknown key; the GitLab adapter fails. That failure is the protection: a typo stops the process instead of quietly widening what your agents pick up.
 
 Scope candidates to the work assigned to your automation account:
 
@@ -176,7 +186,11 @@ gitlab: tracker.query_filter key "state" is owned by the adapter and cannot be o
 
 Everything else must be one of the eighteen keys the issue-list route honors, with GitLab's `not[...]` negation hash accepted for the subset it actually applies to. The [GitLab adapter reference](/reference/adapter-gitlab/#query-filter) lists the complete allowlist, the negatable subset, and the remaining construction-time rejections.
 
-The `labels` parameter carries edges worth knowing before you rely on it. It is AND across comma-separated names, so an issue must carry every name you list. It is case-sensitive, unlike the state matching above. A name that resolves to no label returns an **empty** set rather than dropping the filter, so a misspelling shows up as "no candidates" instead of "every candidate". `None` and `Any` are wildcards on the non-negated form, matching issues with no labels and with any label; under `not[labels]` GitLab reads them as literal names. Sortie warns at construction, once per distinct name, when a `labels` value names a label absent from the project catalog, without blocking startup, since you may be referencing a label you have not created yet.
+The `labels` parameter carries edges worth knowing before you rely on it. It is AND across comma-separated names, so an issue must carry every name you list. It is case-sensitive, unlike the state matching above. A name that resolves to no label returns an **empty** set rather than dropping the filter, so a misspelling shows up as "no candidates" instead of "every candidate".
+
+`None` and `Any` are wildcards on the non-negated form, matching issues with no labels and with any label; under `not[labels]` GitLab reads them as literal names.
+
+Sortie warns at construction, once per distinct name, when a `labels` value names a label absent from the project catalog, without blocking startup, since you may be referencing a label you have not created yet.
 
 One cardinality difference bites on self-managed instances: Community Edition accepts exactly **one** `assignee_username` value and returns HTTP 400 for two, where GitLab.com accepts several.
 
@@ -240,7 +254,9 @@ For every tracker field and its validation rules, see the [GitLab adapter refere
 
 ## React to merge requests
 
-Once your agents open merge requests, the same `gitlab` kind reacts to them: a reviewer requesting changes or a failing pipeline dispatches a fix continuation turn, review-bot comments route back to the agent, a conflicted merge request gets a rebase turn, and an approved, mergeable, green merge request merges with its source branch cleaned up. The mechanics are provider-agnostic and live elsewhere: [how to set up PR reactions](/guides/setup-pr-reactions/) covers the shared machinery, including the `.sortie/scm.json` metadata your hook writes, and the [reactions reference](/reference/reactions/) documents every kind, field, and default. This section is the GitLab-specific wiring.
+Once your agents open merge requests, the same `gitlab` kind reacts to them: a reviewer requesting changes or a failing pipeline dispatches a fix continuation turn, review-bot comments route back to the agent, a conflicted merge request gets a rebase turn, and an approved, mergeable, green merge request merges with its source branch cleaned up.
+
+The mechanics are provider-agnostic and live elsewhere: [how to set up PR reactions](/guides/setup-pr-reactions/) covers the shared machinery, including the `.sortie/scm.json` metadata your hook writes, and the [reactions reference](/reference/reactions/) documents every kind, field, and default. This section is the GitLab-specific wiring.
 
 Activate a reaction kind by giving it `provider: gitlab`. Every active SCM reaction in one workflow must name the same provider. Because the tracker is already `kind: gitlab`, the reactions reuse the tracker's `endpoint`, `api_key`, and `project`, so you repeat no credentials; to point them at a different instance or project, set overrides in a top-level `gitlab:` block ([adapter pass-through configuration](/reference/workflow-config/#adapter-pass-through-configuration)).
 
@@ -270,7 +286,9 @@ The `owner` and `repo` your hook writes to `.sortie/scm.json` are joined with a 
 
 Auto-merge, branch deletion, and label removal need no scope beyond the `api` you already granted: GitLab has one coarse write scope rather than a split between contents and merge requests. At startup Sortie reads the token's own introspection route once. A classic token whose scopes omit `api` fails that check and auto-merge stays off for the life of the process. A fine-grained token reports no permission detail there, so the check cannot classify it and auto-merge proceeds; confirm such a token's permissions yourself.
 
-Two GitLab behaviors are worth knowing before you turn auto-merge on. `strategy: rebase` is not a per-call option on GitLab, so it merges the same way as `merge` and logs a warning; the project's own **Merge method** setting under **Settings > Merge requests** governs whether a merge rebases. And branch protection refuses a merge with `401` rather than the `403` the rest of the API uses for a permission failure, so an auth error from the merge route means either an invalid token or a token identity that may not merge into the target branch. Sortie's message names both.
+Two GitLab behaviors are worth knowing before you turn auto-merge on. `strategy: rebase` is not a per-call option on GitLab, so it merges the same way as `merge` and logs a warning; the project's own **Merge method** setting under **Settings > Merge requests** governs whether a merge rebases.
+
+And branch protection refuses a merge with `401` rather than the `403` the rest of the API uses for a permission failure, so an auth error from the merge route means either an invalid token or a token identity that may not merge into the target branch. Sortie's message names both.
 
 For the routes behind these operations, the mergeability mapping, and the full token detail, see the [GitLab adapter reference](/reference/adapter-gitlab/#scm-and-ci-surface).
 
@@ -282,7 +300,9 @@ For the routes behind these operations, the mergeability mapping, and the full t
 sortie validate ./WORKFLOW.md
 ```
 
-`sortie validate` parses the front matter, compiles the prompt template, and runs the GitLab checks **without contacting GitLab**. It catches the endpoint and project shape faults described above, the state-list advisories (an empty or padded entry, an `active_states` and `terminal_states` overlap), and any `query_filter` allowlist violation, reported by the same parser the constructor uses so the offline verdict cannot drift from the startup one. It also warns on an `http` endpoint, on an endpoint already ending in `/api/v4`, on an `api_key` with surrounding whitespace, and, when `api_key` is empty, points you at `$SORTIE_GITLAB_TOKEN`.
+`sortie validate` parses the front matter, compiles the prompt template, and runs the GitLab checks **without contacting GitLab**. It catches the endpoint and project shape faults described above, the state-list advisories (an empty or padded entry, an `active_states` and `terminal_states` overlap), and any `query_filter` allowlist violation, reported by the same parser the constructor uses so the offline verdict cannot drift from the startup one.
+
+It also warns on an `http` endpoint, on an endpoint already ending in `/api/v4`, on an `api_key` with surrounding whitespace, and, when `api_key` is empty, points you at `$SORTIE_GITLAB_TOKEN`.
 
 With a `reactions` block present, validation also covers the forge configuration offline: an `auto_merge` `strategy` outside `merge`, `squash`, and `rebase`, a `bot_usernames` value that is not a list of strings, and a reaction `provider` that names no registered adapter or differs across the active reactions.
 
@@ -306,7 +326,9 @@ A wrong project or an unauthorized token fails at startup, not on the first poll
 level=ERROR msg="failed to construct tracker adapter" error="tracker: tracker_not_found: gitlab: project not found or not accessible with the configured credential (token authenticated: true)"
 ```
 
-That message names both possibilities because GitLab cannot tell them apart for you. A project-scoped 404 is byte-identical whether the project does not exist or your token's identity is not a member of it: GitLab masks the existence of private resources rather than returning 403, so an unauthorized caller cannot enumerate them. The asymmetry to hold on to is that a bad *token* returns 401, so a 401 is a credential problem and a 404 is one of those two. The `token authenticated` value in the message tells you which introspection saw, which usually resolves it: a `true` alongside a 404 points at the project path or at the token's membership, not at the token itself.
+That message names both possibilities because GitLab cannot tell them apart for you. A project-scoped 404 is byte-identical whether the project does not exist or your token's identity is not a member of it: GitLab masks the existence of private resources rather than returning 403, so an unauthorized caller cannot enumerate them.
+
+The asymmetry to hold on to is that a bad *token* returns 401, so a 401 is a credential problem and a 404 is one of those two. The `token authenticated` value in the message tells you which introspection saw, which usually resolves it: a `true` alongside a 404 points at the project path or at the token's membership, not at the token itself.
 
 Once the adapter builds, `--dry-run` fetches one page of candidates and reports them without dispatching:
 

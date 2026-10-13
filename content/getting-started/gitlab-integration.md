@@ -8,7 +8,9 @@ weight: 48
 ---
 In this tutorial, we will connect Sortie to a live GitLab project, watch it discover the issues sitting in the states you configured, process them through a mock agent, and transition each one by swapping its state label. By the end, you will have a working GitLab integration that polls, dispatches, and hands off.
 
-We use the mock agent on purpose. The quick start taught you how Sortie works with local files. This tutorial isolates the next variable, a real issue tracker, and nothing else. Once GitLab works, swapping in a real coding agent is one config change. GitLab ships two ways, and both reach the same adapter: GitLab.com needs no install and is the path this tutorial walks, and a self-managed Community Edition container is available as an optional step if you would rather run the whole thing on your own machine.
+We use the mock agent on purpose. The quick start taught you how Sortie works with local files. This tutorial isolates the next variable, a real issue tracker, and nothing else. Once GitLab works, swapping in a real coding agent is one config change.
+
+GitLab ships two ways, and both reach the same adapter: GitLab.com needs no install and is the path this tutorial walks, and a self-managed Community Edition container is available as an optional step if you would rather run the whole thing on your own machine.
 
 ## Prerequisites
 
@@ -43,7 +45,9 @@ There is a tighter option, and it is worth naming honestly. A project access tok
 
 Skip this step if you are on GitLab.com. It replaces the two steps above, and it is not free: the pinned image `gitlab/gitlab-ce:19.2.1-ce.0` is multiple gigabytes on disk, and on a machine constrained to 4 CPUs and 16 GB of memory, two measured boots both took **111 seconds** to return the first HTTP 200 or 401 from `GET /api/v4/version`. Budget a few minutes before the API answers at all.
 
-GitLab also needs a different bootstrap than a smaller forge. There is no basic-auth route for minting the first token, so the first credential comes from a `gitlab-rails runner` invocation inside the container. Rather than reconstruct that sequence here, run the script the Sortie repository ships for exactly this purpose, `scripts/gitlab-integration-provision.sh`. It pulls the pinned image, starts it as a container named `sortie-gitlab-integration` on host port 8929, polls `GET /api/v4/version` until the instance answers, mints the bootstrap token, and creates a group, a project, the state labels, and seed issues.
+GitLab also needs a different bootstrap than a smaller forge. There is no basic-auth route for minting the first token, so the first credential comes from a `gitlab-rails runner` invocation inside the container. Rather than reconstruct that sequence here, run the script the Sortie repository ships for exactly this purpose, `scripts/gitlab-integration-provision.sh`.
+
+It pulls the pinned image, starts it as a container named `sortie-gitlab-integration` on host port 8929, polls `GET /api/v4/version` until the instance answers, mints the bootstrap token, and creates a group, a project, the state labels, and seed issues.
 
 The script prints its coordinates to stdout as `export` lines, so you can load them straight into your shell:
 

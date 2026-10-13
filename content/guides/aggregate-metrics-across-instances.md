@@ -50,7 +50,9 @@ Keep the `type` filter when you want total consumption. The `cache_read` and `ca
 
 The same pattern works for any counter in the [Prometheus metrics reference](/reference/prometheus-metrics/): dispatch outcomes, retries, tool calls, auto-merge results.
 
-**The shipped dashboard was not built for this.** [`grafana-dashboard.json`](/downloads/grafana-dashboard.json) carries no instance selector. Point it at a data source scraping several instances and a panel built on a bare metric name (like the active-sessions stat panels) renders one series per instance with no way to isolate one; a panel built on an aggregating query (like the dispatch-outcome time series, which already sums by `outcome`) silently folds every instance into a single line. Neither is wrong, and neither is a view designed for the multi-instance case. Add an instance template variable and an explicit `by (instance)` to the panels you want to compare, or keep the stock dashboard per instance and build a small fleet-overview row separately.
+**The shipped dashboard was not built for this.** [`grafana-dashboard.json`](/downloads/grafana-dashboard.json) carries no instance selector. Point it at a data source scraping several instances and a panel built on a bare metric name (like the active-sessions stat panels) renders one series per instance with no way to isolate one; a panel built on an aggregating query (like the dispatch-outcome time series, which already sums by `outcome`) silently folds every instance into a single line.
+
+Neither is wrong, and neither is a view designed for the multi-instance case. Add an instance template variable and an explicit `by (instance)` to the panels you want to compare, or keep the stock dashboard per instance and build a small fleet-overview row separately.
 
 ## Export stats to your own store
 

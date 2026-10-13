@@ -7,7 +7,9 @@ date: 2026-05-27
 weight: 145
 url: /guides/setup-pr-reactions/
 ---
-Reactions are feedback loops that act on a Sortie-created pull request after the agent's first run hands off for human review. Each reaction kind watches one signal on the PR and responds: a CI failure or a "Request changes" review dispatches a fix continuation turn, and an approved, mergeable, green PR can be merged automatically. This guide sets up the shared machinery every reaction needs (the `reactions` block, PR metadata, and a forge token), then walks through `auto_merge` in full, since it's the one kind that performs an irreversible action. For the two fix-dispatch kinds, it points you to their dedicated guides.
+Reactions are feedback loops that act on a Sortie-created pull request after the agent's first run hands off for human review. Each reaction kind watches one signal on the PR and responds: a CI failure or a "Request changes" review dispatches a fix continuation turn, and an approved, mergeable, green PR can be merged automatically.
+
+This guide sets up the shared machinery every reaction needs (the `reactions` block, PR metadata, and a forge token), then walks through `auto_merge` in full, since it's the one kind that performs an irreversible action. For the two fix-dispatch kinds, it points you to their dedicated guides.
 
 ## Prerequisites
 
@@ -54,7 +56,11 @@ Every kind shares four fields:
 | `escalation` | `"label"` | Action taken when the kind hands the issue to a person: `"label"`, `"none"`, or the deprecated `"comment"`. |
 | `escalation_label` | `"needs-human"` | Label applied to the issue when `escalation` is `"label"`. Created on demand if the tracker does not already have it. |
 
-When a kind exhausts its budget, Sortie applies the escalation action. Most kinds also clear their pending state; `ci_failure` keeps watching the pull request. Whether the escalation releases the claim depends on the kind, and `review_comments` and `bot_review` escalate on a spent budget only when a new comment arrives; see [retry budgets](/reference/reactions/#retry-budgets). A [triage command](/guides/triage-reactions-before-dispatch/) can also ask for the escalation directly, before any budget is spent. With `label`, it adds `escalation_label` to the tracker issue. With `none`, it adds no label. Either way the escalation emits an `escalation.<kind>` event, and a `tracker_comment` entry that lists it posts a plain-text comment naming the PR, the attempt count, and the outstanding signal; see [how to route notifications](/guides/route-notifications/). The deprecated `comment` value posts that comment without an entry. Create the label in advance if you use label escalation:
+When a kind exhausts its budget, Sortie applies the escalation action. Most kinds also clear their pending state; `ci_failure` keeps watching the pull request. Whether the escalation releases the claim depends on the kind, and `review_comments` and `bot_review` escalate on a spent budget only when a new comment arrives; see [retry budgets](/reference/reactions/#retry-budgets). A [triage command](/guides/triage-reactions-before-dispatch/) can also ask for the escalation directly, before any budget is spent.
+
+With `label`, it adds `escalation_label` to the tracker issue. With `none`, it adds no label. Either way the escalation emits an `escalation.<kind>` event, and a `tracker_comment` entry that lists it posts a plain-text comment naming the PR, the attempt count, and the outstanding signal; see [how to route notifications](/guides/route-notifications/). The deprecated `comment` value posts that comment without an entry.
+
+Create the label in advance if you use label escalation:
 
 ```bash
 gh label create needs-human --repo myorg/myrepo --color "D93F0B"
@@ -180,7 +186,11 @@ Auto-merge needs more than read access. At startup Sortie runs a one-shot prefli
 | Merge the PR | `repo` | `pull_requests:write` |
 | Delete the branch (`delete_branch: true`) | `repo` | `contents:write` |
 
-A classic `repo` token covers both. Those names are GitHub's: Gitea has one coarse `write:repository` scope and GitLab has one coarse `api` scope covering the same two operations, and the three preflights differ in how much each can verify; see the [Gitea adapter reference](/reference/adapter-gitea/#token-scope-for-merge-and-branch-operations) and the [GitLab adapter reference](/reference/adapter-gitlab/#token-scope-for-the-write-path). When the preflight reads the token's scopes and finds a required one missing (an auth-class failure), Sortie disables auto-merge for the lifetime of the process and logs the reason. A transport-class failure (network or rate limit) schedules one retry on the next tick before disabling. When it cannot read the scopes at all, it logs `auto_merge preflight scope verification skipped` and proceeds, so a genuine gap surfaces only as an auth failure on the first merge. That is the common outcome for a fine-grained GitHub token, and the only possible one on Gitea, which exposes no way to read a token's scope. Confirm the token's permissions yourself in those cases. For token creation, see [Connect to GitHub](/guides/connect-to-github/).
+A classic `repo` token covers both. Those names are GitHub's: Gitea has one coarse `write:repository` scope and GitLab has one coarse `api` scope covering the same two operations, and the three preflights differ in how much each can verify; see the [Gitea adapter reference](/reference/adapter-gitea/#token-scope-for-merge-and-branch-operations) and the [GitLab adapter reference](/reference/adapter-gitlab/#token-scope-for-the-write-path).
+
+When the preflight reads the token's scopes and finds a required one missing (an auth-class failure), Sortie disables auto-merge for the lifetime of the process and logs the reason. A transport-class failure (network or rate limit) schedules one retry on the next tick before disabling.
+
+When it cannot read the scopes at all, it logs `auto_merge preflight scope verification skipped` and proceeds, so a genuine gap surfaces only as an auth failure on the first merge. That is the common outcome for a fine-grained GitHub token, and the only possible one on Gitea, which exposes no way to read a token's scope. Confirm the token's permissions yourself in those cases. For token creation, see [Connect to GitHub](/guides/connect-to-github/).
 
 ### A conservative opt-in
 
@@ -309,11 +319,17 @@ The `auto_merge deferred:` messages name the unmet precondition (`review decisio
 
 ### Dashboard and status API
 
-While Sortie watches a pull request, the status API lists the watch under `pending_reactions` in `GET /api/v1/state`, and under `pending_reactions` of `GET /api/v1/{identifier}` for one issue. Each row names the kind, the `reactions` key that configures it (`config_key`), why it waits (`wait`), when it checks next (`next_poll_at`), the attempts used against the budget (`used_attempts` and `max_attempts`), what the last check saw (`last_check`), and `escalated_at`. An issue that only waits on a reaction answers `GET /api/v1/{identifier}` with `status` `"pending_reactions"`. The dashboard does not show these rows. See the [HTTP API reference](/reference/http-api/#get-apiv1state-system-state) for the fields.
+While Sortie watches a pull request, the status API lists the watch under `pending_reactions` in `GET /api/v1/state`, and under `pending_reactions` of `GET /api/v1/{identifier}` for one issue. Each row names the kind, the `reactions` key that configures it (`config_key`), why it waits (`wait`), when it checks next (`next_poll_at`), the attempts used against the budget (`used_attempts` and `max_attempts`), what the last check saw (`last_check`), and `escalated_at`.
 
-Once a reaction has been queued to run, it also appears in the retry queue. A CI fix, a review response, a bot review response, a merge conflict fix, or a label command waits in the retry queue until its timer fires, and the `retrying` list of `GET /api/v1/state` (and the `retry` object of `GET /api/v1/{identifier}`) names it: `reaction_kind` says which reaction, `reaction_config_key` says which `reactions` key in `WORKFLOW.md` configures it, and `attempt` and `error` are the retry's own. If the issue's state does not permit dispatch, `paused` reads `true` and `error` says why. The dashboard's retry table shows only the identifier, attempt, due time, and error, not the reaction. See the [HTTP API reference](/reference/http-api/#get-apiv1state-system-state) for the fields.
+An issue that only waits on a reaction answers `GET /api/v1/{identifier}` with `status` `"pending_reactions"`. The dashboard does not show these rows. See the [HTTP API reference](/reference/http-api/#get-apiv1state-system-state) for the fields.
 
-When the continuation dispatches, the issue reappears as a running session for the duration of that turn, exactly like any other dispatch. Auto-merge and post-merge closure dispatch no turn at all, so they never appear as a running session or in the retry queue; for those, read their `pending_reactions` rows, the logs, the fingerprint rows below, or the counters above. A park, if the issue gets one, is listed under `parked` in the status API but not on the dashboard. See the [dashboard reference](/reference/dashboard/) for what that surface carries.
+Once a reaction has been queued to run, it also appears in the retry queue. A CI fix, a review response, a bot review response, a merge conflict fix, or a label command waits in the retry queue until its timer fires, and the `retrying` list of `GET /api/v1/state` (and the `retry` object of `GET /api/v1/{identifier}`) names it: `reaction_kind` says which reaction, `reaction_config_key` says which `reactions` key in `WORKFLOW.md` configures it, and `attempt` and `error` are the retry's own.
+
+If the issue's state does not permit dispatch, `paused` reads `true` and `error` says why. The dashboard's retry table shows only the identifier, attempt, due time, and error, not the reaction. See the [HTTP API reference](/reference/http-api/#get-apiv1state-system-state) for the fields.
+
+When the continuation dispatches, the issue reappears as a running session for the duration of that turn, exactly like any other dispatch. Auto-merge and post-merge closure dispatch no turn at all, so they never appear as a running session or in the retry queue; for those, read their `pending_reactions` rows, the logs, the fingerprint rows below, or the counters above.
+
+A park, if the issue gets one, is listed under `parked` in the status API but not on the dashboard. See the [dashboard reference](/reference/dashboard/) for what that surface carries.
 
 To confirm which reactions the running process applies, read the `config` object of the status API:
 
@@ -351,7 +367,11 @@ The merge fingerprint combines the PR head SHA and the review decision, so a new
 
 ## Troubleshooting
 
-**Auto-merge never merges, even with an approved green PR.** Check the preflight. A failed preflight disables auto-merge for the process; look for `auto_merge skipped: preflight failed`. On GitHub it fails when the token's scopes lack `pull_requests:write` or `contents:write`, and a classic `repo` token covers both; on GitLab it fails when a classic token lacks `api`. On Gitea the preflight cannot read a token's scope at all, so it fails only when the token's user has no write access to the repository, and it names `write:repository` in that message even though the fix is the user's repository role. If the preflight instead logged that it skipped the scope check, it could not classify the token and blocked nothing; confirm the token's permissions directly, and look for an auth failure on the first merge attempt.
+**Auto-merge never merges, even with an approved green PR.** Check the preflight. A failed preflight disables auto-merge for the process; look for `auto_merge skipped: preflight failed`.
+
+On GitHub it fails when the token's scopes lack `pull_requests:write` or `contents:write`, and a classic `repo` token covers both; on GitLab it fails when a classic token lacks `api`. On Gitea the preflight cannot read a token's scope at all, so it fails only when the token's user has no write access to the repository, and it names `write:repository` in that message even though the fix is the user's repository role.
+
+If the preflight instead logged that it skipped the scope check, it could not classify the token and blocked nothing; confirm the token's permissions directly, and look for an auth failure on the first merge attempt.
 
 **The PR merged without anyone approving it.** The repository has no branch-protection rule requiring review, so Sortie reported the review decision as `NOT_REQUIRED` and merged on CI and mergeability alone. Add a branch-protection rule requiring at least one approval (see [Require a human approval with branch protection](#require-a-human-approval-with-branch-protection)). The decision then stays `REVIEW_REQUIRED` until a human approves.
 
@@ -363,7 +383,9 @@ The merge fingerprint combines the PR head SHA and the review decision, so a new
 grep "merge_completion stopped after merge commit identifier remained missing" sortie.log
 ```
 
-The line names the repository, the PR number, and how long Sortie waited; the warnings logged before it carry the same context. Sortie does not resume on its own, so verify the merge in the forge and move the issue to your `target_state` yourself if the merge is genuine. An API Sortie cannot reach produces a retried error instead of this stop, so a stop means the forge itself answered with no merge commit. The waiting observation is visible in SQLite while it lasts, and after the stop:
+The line names the repository, the PR number, and how long Sortie waited; the warnings logged before it carry the same context. Sortie does not resume on its own, so verify the merge in the forge and move the issue to your `target_state` yourself if the merge is genuine.
+
+An API Sortie cannot reach produces a retried error instead of this stop, so a stop means the forge itself answered with no merge commit. The waiting observation is visible in SQLite while it lasts, and after the stop:
 
 ```bash
 sqlite3 sortie.db "SELECT issue_id, fingerprint, dispatched, updated_at FROM reaction_fingerprints WHERE kind='merge-completion-missing-sha'"

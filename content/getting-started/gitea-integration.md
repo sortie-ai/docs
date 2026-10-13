@@ -216,7 +216,9 @@ warning: tracker.endpoint.insecure: tracker.endpoint uses http; the token travel
 warning: agent.kind.no_tool_channel: agent kind "mock" has no tool execution channel: Sortie's tools are neither advertised nor callable for it
 ```
 
-The first is expected for a disposable local instance that speaks plain HTTP. The second is the mock agent being honest: it launches no process, so Sortie's own agent tools cannot reach it, and the first-turn prompt does not offer them; it disappears once you swap in a real coding agent. Neither blocks anything. Validation never contacts Gitea, so it cannot tell you whether the token works or whether the repository exists. An invalid token or a mistyped repository instead fails the construction preflight the moment Sortie starts, when the adapter calls `GET /user` and `GET /repos/{owner}/{repo}`.
+The first is expected for a disposable local instance that speaks plain HTTP. The second is the mock agent being honest: it launches no process, so Sortie's own agent tools cannot reach it, and the first-turn prompt does not offer them; it disappears once you swap in a real coding agent. Neither blocks anything.
+
+Validation never contacts Gitea, so it cannot tell you whether the token works or whether the repository exists. An invalid token or a mistyped repository instead fails the construction preflight the moment Sortie starts, when the adapter calls `GET /user` and `GET /repos/{owner}/{repo}`.
 
 ### Run Sortie
 
@@ -243,7 +245,9 @@ level=INFO msg="handoff transition succeeded, releasing claim" issue_id=1 issue_
 level=INFO msg="tick completed" candidates=0 dispatched=0 ... running=0 retrying=0 ...
 ```
 
-The first `tick completed` line reports `candidates=2 dispatched=2`: Sortie found both `backlog` issues and started a mock session for each. The lines that follow trace issue 1 from workspace to handoff. Issue 2 moves through the identical sequence in the same tick, and because Sortie runs the two sessions concurrently, the two issues' lines interleave in your terminal. Each session removes the `backlog` label, adds `review`, and leaves the issue open, because `review` is not a terminal state. By the next poll, neither issue sits in an active state, so the second `tick completed` reports `candidates=0` and Sortie goes idle.
+The first `tick completed` line reports `candidates=2 dispatched=2`: Sortie found both `backlog` issues and started a mock session for each. The lines that follow trace issue 1 from workspace to handoff. Issue 2 moves through the identical sequence in the same tick, and because Sortie runs the two sessions concurrently, the two issues' lines interleave in your terminal.
+
+Each session removes the `backlog` label, adds `review`, and leaves the issue open, because `review` is not a terminal state. By the next poll, neither issue sits in an active state, so the second `tick completed` reports `candidates=0` and Sortie goes idle.
 
 Press **Ctrl+C** to stop Sortie.
 

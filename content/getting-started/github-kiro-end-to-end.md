@@ -6,7 +6,11 @@ author: Sortie AI
 date: 2026-05-29
 weight: 90
 ---
-In this tutorial, we will wire Sortie to GitHub Issues and Kiro CLI, then watch the full cycle run without you touching it: Sortie picks up a labeled issue from GitHub, clones your repository, Kiro CLI writes and commits the code, Sortie pushes the branch and opens a pull request, and the issue moves to its review state. This builds on the [GitHub integration tutorial](/getting-started/github-integration/) and adds three pieces: Kiro CLI as the agent, workspace hooks for git, and a prompt template. The tracker stays GitHub, exactly as it was in the [Copilot CLI tutorial](/getting-started/github-copilot-end-to-end/). Only the agent changes. If you already have a Sortie configuration for Kiro CLI that you want to update, see [how to run Kiro CLI in ACP mode](/guides/run-kiro-cli-in-acp-mode/) instead.
+In this tutorial, we will wire Sortie to GitHub Issues and Kiro CLI, then watch the full cycle run without you touching it: Sortie picks up a labeled issue from GitHub, clones your repository, Kiro CLI writes and commits the code, Sortie pushes the branch and opens a pull request, and the issue moves to its review state.
+
+This builds on the [GitHub integration tutorial](/getting-started/github-integration/) and adds three pieces: Kiro CLI as the agent, workspace hooks for git, and a prompt template. The tracker stays GitHub, exactly as it was in the [Copilot CLI tutorial](/getting-started/github-copilot-end-to-end/). Only the agent changes.
+
+If you already have a Sortie configuration for Kiro CLI that you want to update, see [how to run Kiro CLI in ACP mode](/guides/run-kiro-cli-in-acp-mode/) instead.
 
 ## Prerequisites
 
@@ -194,13 +198,17 @@ With `-a`, Kiro CLI runs any tool the model picks, its shell included, with your
 
 ### Authentication and budgeting
 
-Two credentials do two jobs, and they are unrelated. `SORTIE_GITHUB_TOKEN` is the tracker token from the GitHub integration tutorial, and Sortie reads it from the shell you launch it from. The Kiro CLI login is stored on your machine, and Sortie never reads it: the `kiro-cli` process signs itself in, as it did for your `whoami` check. Before it starts work on an issue, Sortie opens a short-lived session and sends one request through it, so a login that cannot answer stops the run early with an error in the log instead of a run that completes empty.
+Two credentials do two jobs, and they are unrelated. `SORTIE_GITHUB_TOKEN` is the tracker token from the GitHub integration tutorial, and Sortie reads it from the shell you launch it from. The Kiro CLI login is stored on your machine, and Sortie never reads it: the `kiro-cli` process signs itself in, as it did for your `whoami` check.
+
+Before it starts work on an issue, Sortie opens a short-lived session and sends one request through it, so a login that cannot answer stops the run early with an error in the log instead of a run that completes empty.
 
 Budgeting works differently from an agent that reports tokens. Sortie has no way to measure Kiro CLI's token use on this route, so the logs carry no token counts and the dashboard's token total stays at zero. Budget enforcement is time-based: `agent.turn_timeout_ms` is the control, not a token cap. The [Kiro CLI reference](/reference/agent-client-protocol-kiro/#token-accounting-has-no-source-on-this-route) has the details.
 
 ### Workspace and hooks
 
-The workspace and hooks behave as they did in the Copilot tutorial. `workspace.root` gives each issue its own clone; `after_create` clones the repository, `before_run` cuts a clean branch from `origin/main`, and `after_run` commits and pushes. The one addition here is the `gh pr create` line in `after_run`: it opens the pull request after the first push and no-ops on later turns, using the `gh` CLI you authenticated earlier, with `--fill` taking the title and body from the commit. For the hook lifecycle and the environment variables hooks receive, see the [workspace and hooks section of the Copilot tutorial](/getting-started/github-copilot-end-to-end/#workspace-and-hooks).
+The workspace and hooks behave as they did in the Copilot tutorial. `workspace.root` gives each issue its own clone; `after_create` clones the repository, `before_run` cuts a clean branch from `origin/main`, and `after_run` commits and pushes.
+
+The one addition here is the `gh pr create` line in `after_run`: it opens the pull request after the first push and no-ops on later turns, using the `gh` CLI you authenticated earlier, with `--fill` taking the title and body from the commit. For the hook lifecycle and the environment variables hooks receive, see the [workspace and hooks section of the Copilot tutorial](/getting-started/github-copilot-end-to-end/#workspace-and-hooks).
 
 ### Prompt template
 

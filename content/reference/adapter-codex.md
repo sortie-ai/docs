@@ -82,7 +82,9 @@ Within a single turn, Codex's internal agentic loop runs until completion, inter
 
 For headless orchestration, the adapter defaults `approval_policy` to `"never"` and `thread_sandbox` to `"workspaceWrite"`. `approvalPolicy` travels on `thread/start` only; the adapter sends no turn-level override, so the thread's policy governs every turn of the session.
 
-`never` is the only value Sortie accepts. Every run is unattended, so a policy that lets the app-server stop and ask for a decision has nobody to answer it, and the `codex.approval_policy.interactive` error refuses any other string value before the run starts, so the app-server never sees it. Which policies Codex itself offers, and what each one does, is Codex's to document; see [external references](#external-references). A map value is the one exception: it is read as a string, discarded without a diagnostic, and the thread starts under `never`.
+`never` is the only value Sortie accepts. Every run is unattended, so a policy that lets the app-server stop and ask for a decision has nobody to answer it, and the `codex.approval_policy.interactive` error refuses any other string value before the run starts, so the app-server never sees it.
+
+Which policies Codex itself offers, and what each one does, is Codex's to document; see [external references](#external-references). A map value is the one exception: it is read as a string, discarded without a diagnostic, and the thread starts under `never`.
 
 The default keeps the app-server from asking most questions. The adapter refuses the ones that still arrive rather than leaving any of them waiting, and it splits them by what was asked for rather than by which method asked.
 
@@ -182,11 +184,19 @@ Terminates the persistent app-server subprocess. Safe to call when no subprocess
 
 ## Process shutdown
 
-Because the subprocess persists across turns, the shutdown sequence runs when the session stops, not at the end of each turn. It closes stdin (EOF signal), sends the graceful shutdown signal to the process group, waits up to `stop_grace_ms`, then escalates to a force kill. The caller's deadline is a second bound on that wait: whichever expires first ends the graceful phase. On Unix, the graceful signal is `SIGTERM` and the force kill is `SIGKILL` to the process group. On Windows, the graceful signal is `CTRL_BREAK_EVENT` to the process group, and the subprocess is assigned to a Job Object with `KILL_ON_JOB_CLOSE`: the force kill terminates that Job Object, and closing its handle kills the process tree even when nothing reaches the force kill at all, such as on an orchestrator crash. The subprocess starts suspended and is resumed only after that assignment succeeds, so nothing it spawns can run before the job takes effect. A failed assignment logs WARN `process group assignment failed` and the app-server subprocess runs without a job; a failed resume logs WARN `process resume failed` and fails session start with error kind `port_exit`. A session start whose context is already done when the resume is reached, by cancellation or by its deadline, is never resumed: Sortie terminates the subprocess before it runs, logs no resume warning, and ends the start as `turn_cancelled`. Because the app-server subprocess persists across turns, a resume failure here ends the whole session before any turn runs.
+Because the subprocess persists across turns, the shutdown sequence runs when the session stops, not at the end of each turn. It closes stdin (EOF signal), sends the graceful shutdown signal to the process group, waits up to `stop_grace_ms`, then escalates to a force kill. The caller's deadline is a second bound on that wait: whichever expires first ends the graceful phase.
+
+On Unix, the graceful signal is `SIGTERM` and the force kill is `SIGKILL` to the process group. On Windows, the graceful signal is `CTRL_BREAK_EVENT` to the process group, and the subprocess is assigned to a Job Object with `KILL_ON_JOB_CLOSE`: the force kill terminates that Job Object, and closing its handle kills the process tree even when nothing reaches the force kill at all, such as on an orchestrator crash.
+
+The subprocess starts suspended and is resumed only after that assignment succeeds, so nothing it spawns can run before the job takes effect. A failed assignment logs WARN `process group assignment failed` and the app-server subprocess runs without a job; a failed resume logs WARN `process resume failed` and fails session start with error kind `port_exit`.
+
+A session start whose context is already done when the resume is reached, by cancellation or by its deadline, is never resumed: Sortie terminates the subprocess before it runs, logs no resume warning, and ends the start as `turn_cancelled`. Because the app-server subprocess persists across turns, a resume failure here ends the whole session before any turn runs.
 
 The adapter owns the subprocess's standard-output and standard-error read ends for the whole session rather than handing them to the process object, so reaping the app-server never closes one while it is still being read. The notifications a runtime sends on its way out reach the turn that was waiting for them instead of being discarded with the reap.
 
-What the reap cannot settle on its own is output reading that does not end with the runtime: a descendant that inherited the output handle can keep it open after the runtime itself is gone, leaving the handshake call or turn with nothing to wait for. A five-second bound from the reap covers this: past it, the output read end and the JSON-RPC connection are closed, and a warning, `agent stdout was not fully collected before the session ended`, names the bound as a `drain_bound` attribute. The waiting call then ends. A turn ended this way reports `port_exit` naming the runtime's exit rather than the transport error behind it; see [process exit handling](#process-exit-handling).
+What the reap cannot settle on its own is output reading that does not end with the runtime: a descendant that inherited the output handle can keep it open after the runtime itself is gone, leaving the handshake call or turn with nothing to wait for.
+
+A five-second bound from the reap covers this: past it, the output read end and the JSON-RPC connection are closed, and a warning, `agent stdout was not fully collected before the session ended`, names the bound as a `drain_bound` attribute. The waiting call then ends. A turn ended this way reports `port_exit` naming the runtime's exit rather than the transport error behind it; see [process exit handling](#process-exit-handling).
 
 The same five-second bound also settles standard error, starting at the same reap and running alongside the bound above. Whatever the drain has read by then is kept, and the read end is closed so the drain itself ends instead of blocking for the lifetime of a descendant that inherited the write handle. A failure path that reports the runtime's standard error afterward reads a settled result rather than waiting again; see [runtime standard error](#runtime-standard-error).
 
@@ -202,7 +212,9 @@ The Codex app-server emits JSON-RPC notifications on stdout. The adapter reads e
 
 Two of those mappings decide how a run ends, and both follow from the [approval policy](#approval-policy-and-sandbox). A request that asks for consent to act is refused in a form that lets the agent try another route, reported as a `notification`, and the turn continues. A request addressed to a person ends the attempt with `turn_input_required`, which releases the claim instead of scheduling a retry and records the run as `needs_person` rather than `failed`.
 
-A server-initiated request arriving outside a turn, whether during the handshake or in the gap between the handshake finishing and the first turn starting, always gets a reply: an `mcpServer/elicitation/request` is declined, and every other method, including one a turn would otherwise recognize and answer specifically, is answered with a method-not-found error instead. Inside a turn, a request this adapter does not otherwise recognize gets that same method-not-found reply rather than being left open. A notification is treated differently outside a turn: only `mcpServer/startupStatus/updated` is acted on there, exactly as [startup failures](#startup-failures) describes, and every other notification arriving before the first turn starts produces no event and is not logged.
+A server-initiated request arriving outside a turn, whether during the handshake or in the gap between the handshake finishing and the first turn starting, always gets a reply: an `mcpServer/elicitation/request` is declined, and every other method, including one a turn would otherwise recognize and answer specifically, is answered with a method-not-found error instead. Inside a turn, a request this adapter does not otherwise recognize gets that same method-not-found reply rather than being left open.
+
+A notification is treated differently outside a turn: only `mcpServer/startupStatus/updated` is acted on there, exactly as [startup failures](#startup-failures) describes, and every other notification arriving before the first turn starts produces no event and is not logged.
 
 Token counts do not travel on the turn-completion notification. They arrive on their own notification; see [token accounting](#token-accounting).
 
@@ -289,7 +301,9 @@ If reading stdout encounters an error or reaches EOF, the turn emits `turn_faile
 
 ### Runtime standard error
 
-The adapter re-emits what the app-server wrote to its standard error at WARN level, one record per line, under the message `agent stderr`. The rule is that a failure reports only where the runtime is already gone: a session that fails during the handshake, and a turn that ends because the output stream ended, carry the runtime's own account of itself rather than an exit status alone. A failure against a runtime that is still running reports nothing, because there is no parting diagnostic to collect and the drain cannot finish while the runtime still holds the write end. A session-start failure that precedes the launch, such as an unreadable MCP configuration, has no subprocess and so no standard error.
+The adapter re-emits what the app-server wrote to its standard error at WARN level, one record per line, under the message `agent stderr`. The rule is that a failure reports only where the runtime is already gone: a session that fails during the handshake, and a turn that ends because the output stream ended, carry the runtime's own account of itself rather than an exit status alone.
+
+A failure against a runtime that is still running reports nothing, because there is no parting diagnostic to collect and the drain cannot finish while the runtime still holds the write end. A session-start failure that precedes the launch, such as an unreadable MCP configuration, has no subprocess and so no standard error.
 
 | Path | Reports |
 |---|---|
@@ -387,7 +401,9 @@ A header whose value is in none of those variables cannot be delivered that way,
 
 ### SSH mode delivers nothing
 
-A remote session receives no overrides at all. The overrides ride on the app-server's own launch arguments, and an SSH launch has none of its own: the local process is `ssh`, and the agent command travels to the host inside a remote command string. Writing the overrides into that string would place the configuration's credential values on the local `ssh` process's own argument list, where any other user of the orchestrator host can read them. The adapter delivers nothing rather than pay that price, so a Codex session on an SSH host reaches none of Sortie's tools and its first-turn prompt carries no tool advertisement.
+A remote session receives no overrides at all. The overrides ride on the app-server's own launch arguments, and an SSH launch has none of its own: the local process is `ssh`, and the agent command travels to the host inside a remote command string.
+
+Writing the overrides into that string would place the configuration's credential values on the local `ssh` process's own argument list, where any other user of the orchestrator host can read them. The adapter delivers nothing rather than pay that price, so a Codex session on an SSH host reaches none of Sortie's tools and its first-turn prompt carries no tool advertisement.
 
 ### Startup failures
 

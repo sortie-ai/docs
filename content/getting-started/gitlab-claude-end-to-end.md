@@ -6,7 +6,11 @@ author: Sortie AI
 date: 2026-08-06
 weight: 120
 ---
-In this tutorial, we will connect Sortie to GitLab and the Claude Code CLI, then watch the whole unattended cycle: GitLab offers a `backlog` issue, Sortie clones your repository, Claude Code writes and commits code, Sortie pushes a branch, and the issue moves to the state you configured for finished work. This builds on the [GitLab integration tutorial](/getting-started/gitlab-integration/) and adds three pieces: the Claude Code adapter, workspace hooks for git operations, and a prompt template. The agent is the same one the [Jira + Claude Code tutorial](/getting-started/jira-claude-end-to-end/) drives; only the tracker changed, from Jira to GitLab. One boundary is worth setting before you start: the cycle we build here ends at a pushed branch and a transitioned issue, and opening the merge request is yours to do in the GitLab UI afterward. Sortie opens no merge request itself. It can react to one after you open it, and that is a separate configuration step, covered in [how to set up PR reactions](/guides/setup-pr-reactions/).
+In this tutorial, we will connect Sortie to GitLab and the Claude Code CLI, then watch the whole unattended cycle: GitLab offers a `backlog` issue, Sortie clones your repository, Claude Code writes and commits code, Sortie pushes a branch, and the issue moves to the state you configured for finished work.
+
+This builds on the [GitLab integration tutorial](/getting-started/gitlab-integration/) and adds three pieces: the Claude Code adapter, workspace hooks for git operations, and a prompt template. The agent is the same one the [Jira + Claude Code tutorial](/getting-started/jira-claude-end-to-end/) drives; only the tracker changed, from Jira to GitLab.
+
+One boundary is worth setting before you start: the cycle we build here ends at a pushed branch and a transitioned issue, and opening the merge request is yours to do in the GitLab UI afterward. Sortie opens no merge request itself. It can react to one after you open it, and that is a separate configuration step, covered in [how to set up PR reactions](/guides/setup-pr-reactions/).
 
 ## Prerequisites
 
@@ -176,7 +180,9 @@ The **`claude-code`** block is a pass-through to the CLI. Sortie translates each
 
 #### Authentication
 
-The adapter runs no authentication preflight and never touches your API key. It launches Claude Code with the environment Sortie inherited, so `ANTHROPIC_API_KEY` has to be exported in the shell you start Sortie from. Claude Code also accepts AWS Bedrock and Google Vertex AI credentials through their own environment variables, and the [Claude Code adapter reference](/reference/adapter-claude-code/) covers those. Two credentials are in play here and they do different jobs: `SORTIE_GITLAB_TOKEN` authenticates Sortie to GitLab, and `ANTHROPIC_API_KEY` authenticates Claude Code to Anthropic. Neither one substitutes for the other.
+The adapter runs no authentication preflight and never touches your API key. It launches Claude Code with the environment Sortie inherited, so `ANTHROPIC_API_KEY` has to be exported in the shell you start Sortie from. Claude Code also accepts AWS Bedrock and Google Vertex AI credentials through their own environment variables, and the [Claude Code adapter reference](/reference/adapter-claude-code/) covers those.
+
+Two credentials are in play here and they do different jobs: `SORTIE_GITLAB_TOKEN` authenticates Sortie to GitLab, and `ANTHROPIC_API_KEY` authenticates Claude Code to Anthropic. Neither one substitutes for the other.
 
 #### Permission mode
 

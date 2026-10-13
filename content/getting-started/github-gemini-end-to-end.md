@@ -182,7 +182,9 @@ With this flag, Gemini runs any command the model decides to run, with your user
 
 `SORTIE_GITHUB_TOKEN` lets Sortie read issues and swap their labels; `GEMINI_API_KEY`, or your stored login, authenticates Gemini CLI. Sortie never reads or checks the Gemini credential. The `gemini` process signs itself in from the environment it inherits, as it did for your `reply with ok` check, so start Sortie from that same shell.
 
-Budgeting follows the runtime and where it runs, not the kind on its own. Sortie measures a local Gemini session by reading the runtime's own telemetry, so a token ceiling has something to count here; the [Gemini CLI reference's token accounting section](/reference/agent-client-protocol-gemini/#token-accounting-reads-local-files-and-its-in-turn-signal-understates) names the conditions that decide which way a session went. The limits that bound this run sit in the file either way: `max_turns: 3` caps the turns per session, `turn_timeout_ms` stops any turn at 30 minutes, `stall_timeout_ms` stops one that goes five minutes without an event, and `max_concurrent_agents: 1` runs one Gemini process at a time. See [How to Control Agent Costs](/guides/control-costs/#limit-turns-per-session) for the limits that apply.
+Budgeting follows the runtime and where it runs, not the kind on its own. Sortie measures a local Gemini session by reading the runtime's own telemetry, so a token ceiling has something to count here; the [Gemini CLI reference's token accounting section](/reference/agent-client-protocol-gemini/#token-accounting-reads-local-files-and-its-in-turn-signal-understates) names the conditions that decide which way a session went.
+
+The limits that bound this run sit in the file either way: `max_turns: 3` caps the turns per session, `turn_timeout_ms` stops any turn at 30 minutes, `stall_timeout_ms` stops one that goes five minutes without an event, and `max_concurrent_agents: 1` runs one Gemini process at a time. See [How to Control Agent Costs](/guides/control-costs/#limit-turns-per-session) for the limits that apply.
 
 ### Workspace and hooks
 
@@ -317,7 +319,11 @@ The issue is open, `backlog` is gone, and `review` is present. If the label did 
 
 The dashboard is served only while Sortie runs, so start it again with `sortie ./WORKFLOW.md` and open `http://127.0.0.1:7678/`. Run History lists issue `8` as `succeeded`, with `Attempt 1` and `Turns 1` in its expanded row.
 
-What the Total Tokens card reads depends on whether Sortie received usable records from Gemini. Sortie takes this runtime's token figures from Gemini's own telemetry, which it switches on because `agent.command` names `gemini`. When the turn ends, the card carries this run's tokens, and while Gemini works on your next issue its expanded Running Sessions row names the model it used. If the card stays at `0` and that row reads `not reported yet` under Tokens until the turn ends, then `not reported`, Sortie received no usable record from Gemini. Usage reporting reads `figures arrive when a turn ends, per model` either way, because that is what the kind declares for a local launch before the runtime has answered for itself. The [Gemini CLI reference](/reference/agent-client-protocol-gemini/#token-accounting-reads-local-files-and-its-in-turn-signal-understates) has the rest.
+What the Total Tokens card reads depends on whether Sortie received usable records from Gemini. Sortie takes this runtime's token figures from Gemini's own telemetry, which it switches on because `agent.command` names `gemini`. When the turn ends, the card carries this run's tokens, and while Gemini works on your next issue its expanded Running Sessions row names the model it used.
+
+If the card stays at `0` and that row reads `not reported yet` under Tokens until the turn ends, then `not reported`, Sortie received no usable record from Gemini.
+
+Usage reporting reads `figures arrive when a turn ends, per model` either way, because that is what the kind declares for a local launch before the runtime has answered for itself. The [Gemini CLI reference](/reference/agent-client-protocol-gemini/#token-accounting-reads-local-files-and-its-in-turn-signal-understates) has the rest.
 
 ### Troubleshooting
 
@@ -329,7 +335,9 @@ What the Total Tokens card reads depends on whether Sortie received usable recor
 
 **A turn ends with `turn timeout exceeded` or `stall detected, cancelling worker`.** Gemini ran past `turn_timeout_ms` or went quiet for `stall_timeout_ms`, and Sortie schedules a retry. Confirm the `reply with ok` check still answers promptly; for a long task, raise `turn_timeout_ms`.
 
-**A re-dispatched issue runs in a different Gemini session.** A first run never meets this, because every turn of a session goes to one Gemini process. When Sortie re-dispatches an issue, for example after a stall, it asks Gemini to reload the earlier session. A confirmed reload keeps the earlier `session_id` on `agent session started`; otherwise Sortie opens a fresh session in the same workspace, sometimes after a `continuation call failed` or `continuation call timed out` warning, and the run carries on. Nothing needs fixing; the [session resume mechanism](/reference/adapter-agent-client-protocol/#session-resume-mechanism) and Gemini's [continuation notes](/reference/agent-client-protocol-gemini/#session-continuation-replays-history-with-two-traps) explain both outcomes.
+**A re-dispatched issue runs in a different Gemini session.** A first run never meets this, because every turn of a session goes to one Gemini process.
+
+When Sortie re-dispatches an issue, for example after a stall, it asks Gemini to reload the earlier session. A confirmed reload keeps the earlier `session_id` on `agent session started`; otherwise Sortie opens a fresh session in the same workspace, sometimes after a `continuation call failed` or `continuation call timed out` warning, and the run carries on. Nothing needs fixing; the [session resume mechanism](/reference/adapter-agent-client-protocol/#session-resume-mechanism) and Gemini's [continuation notes](/reference/agent-client-protocol-gemini/#session-continuation-replays-history-with-two-traps) explain both outcomes.
 
 {{% /steps %}}
 
