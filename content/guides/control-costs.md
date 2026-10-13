@@ -271,6 +271,14 @@ With `max_tokens: 500000` and `max_sessions: 5`, an issue whose third session is
 
 `used_tokens` counts the running session as it goes, so it matches the figure the ceiling stops on. `sessions_after_this` is how many more sessions the issue can get once the running one ends: the session budget counts finished sessions only, so the running one is subtracted separately, and `0` or less means this is the last session. A limit that is not configured comes back as `null`, which the `if` turns into a `null` headroom instead of an error. When `used_tokens_complete` is `false`, some of the issue's spend went unrecorded and `tokens_left` is an upper bound. The cost is `null` unless `token_rates` prices the agent, and `issue_cost_status` says why. An issue the ceiling already holds has no `running` entry; its `budget_exhausted` entry carries `used_tokens`, `budget_tokens`, and `stopped_in_flight`. Replace `/api/v1/MT-649` with `/api/v1/state` and `.running` with `.running[]` to list every running issue. The [HTTP API reference](/reference/http-api/#get-apiv1state-system-state) defines each key and every `cost_status` value.
 
+What the issue spent across its finished runs is under `history.totals` of the same endpoint, whether or not a session is running, and it is the only spend figure for an issue with no `running` entry:
+
+```sh
+curl -s http://localhost:7678/api/v1/MT-649 | jq '.history.totals'
+```
+
+When `tokens_complete` is `false`, some runs reported no usage and the token figures are lower bounds. To see which runs cost the most, list them with `curl -s 'http://localhost:7678/api/v1/runs?issue=MT-649' | jq '.runs[] | {run_id, status, tokens: .tokens.total_tokens, estimated_cost_usd}'`. The [run history reference](/reference/http-api/#get-apiv1runs-run-history) defines the filters and every field.
+
 **Prometheus.** The `sortie_tokens_total` counter tracks cumulative token consumption with a `type` label (`input`, `output`, `cache_read`, `cache_write`). Cache reads and writes are subsets of input, so don't sum every type. A PromQL query for hourly input token rate:
 
 ```promql

@@ -235,15 +235,17 @@ The JSON API returns errors in a standard envelope:
 {
   "error": {
     "code": "issue_not_found",
-    "message": "issue identifier \"FOO-999\" not found in current state"
+    "message": "issue identifier \"FOO-999\" not found in current state or run history"
   }
 }
 ```
 
 | Code | HTTP status | Meaning |
 |---|---|---|
-| `issue_not_found` | `404` | Issue identifier not present in current runtime state (not running, not retrying, not budget-exhausted, not parked). |
+| `issue_not_found` | `404` | Neither the current runtime state nor run history holds the issue identifier. |
+| `invalid_parameter` | `400` | `GET /api/v1/runs` rejected a query parameter: unknown, repeated, malformed, or out of range. The message names the parameter and the rule. |
 | `snapshot_unavailable` | `503` | Orchestrator state snapshot temporarily unavailable. Retry after a short delay. |
+| `history_unavailable` | `503` | Run history could not be read. Retry after a short delay. |
 | `method_not_allowed` | `405` | Wrong HTTP method for the endpoint (e.g., `POST` to a `GET`-only route). The `Allow` header indicates the correct method. |
 | `internal_error` | `500` | Server-side JSON encoding failure or unexpected error. |
 

@@ -59,7 +59,7 @@ Returns `text/html`. This is not a JSON endpoint.
 
 ### Run history entries
 
-The run history table lists recently completed sessions. Each entry contains:
+The run history table lists recently completed sessions. [`GET /api/v1/runs`](#get-apiv1runs-run-history) serves the same runs with more fields. Each entry contains:
 
 | Field | Type | Description |
 |---|---|---|
@@ -80,7 +80,13 @@ The run history table lists recently completed sessions. Each entry contains:
 
 #### Model and effort of a completed run
 
-Each completed run also stores the settings it ran with, in three text columns of `run_history`: `configured_model` and `configured_effort` (what the attempt was asked to run) and `reported_model` (what the runtime reported running). [Configured and reported model](#configured-and-reported-model) explains how to read the pair. The dashboard table and the JSON endpoints do not show these columns, so query them directly:
+Each completed run also stores the settings it ran with, in three text columns of `run_history`: `configured_model` and `configured_effort` (what the attempt was asked to run) and `reported_model` (what the runtime reported running). [Configured and reported model](#configured-and-reported-model) explains how to read the pair. The dashboard table does not show these columns. [`GET /api/v1/runs`](#get-apiv1runs-run-history) serves them as `configured_model`, `configured_effort`, and `model_name`, each omitted when empty:
+
+```sh
+curl -s 'http://localhost:7678/api/v1/runs?limit=5' | jq '.runs[] | {issue_identifier, configured_model, configured_effort, model_name}'
+```
+
+The columns can also be read from the database directly:
 
 ```sh
 sqlite3 .sortie.db "SELECT identifier, configured_model, configured_effort, reported_model FROM run_history ORDER BY started_at DESC LIMIT 5"
@@ -786,13 +792,158 @@ A running, retry, or budget-exhausted row records its `rule_name` and its `stage
 
 ---
 
+## GET /api/v1/runs: Run history
+
+Returns finished runs from run history, newest first, one page at a time. Each filter narrows the result before the page is cut.
+
+```sh
+curl 'http://localhost:7678/api/v1/runs?issue=MT-649&limit=20'
+```
+
+### Query parameters
+
+Every parameter is optional. An empty value is the same as an absent one. Filters combine with AND and match exactly, case included.
+
+| Parameter | Value | Selects |
+|---|---|---|
+| `issue` | An issue identifier | Runs whose `issue_identifier` equals it. |
+| `issue_id` | A tracker issue ID | Runs whose `issue_id` equals it. |
+| `rule` | A dispatch rule name, or `<none>` | Runs whose `rule_name` equals it. `<none>` selects the runs that record no rule name, which the response serves without `rule_name`. |
+| `status` | A run status | Runs whose `status` equals it. The values are those listed under [run history entries](#run-history-entries). |
+| `stage` | A dispatch rule name | Runs whose exit reached a stage hop decision that targeted that rule, whatever its result. |
+| `since` | An RFC 3339 timestamp | Runs completed at or after it. Any UTC offset is accepted. |
+| `until` | An RFC 3339 timestamp | Runs completed before it. When both bounds are given, `since` must be before `until`. |
+| `cursor` | A `next_cursor` value | Runs recorded before the run `cursor` names. An integer of at least `1`. |
+| `limit` | An integer from `1` to `200` | The page size. Default: `50`. |
+
+Sortie checks every parameter before it reads anything. A parameter outside this table, a parameter given more than once, and a value outside the ranges above answer `400`, so a misspelled filter never returns unfiltered rows.
+
+### Response
+
+```json
+{
+  "runs": [
+    {
+      "run_id": 42,
+      "issue_id": "abc123",
+      "issue_identifier": "MT-649",
+      "issue_title": "Fix the flaky login test",
+      "issue_url": "https://tracker.example.com/browse/MT-649",
+      "attempt": 2,
+      "status": "succeeded",
+      "error": null,
+      "rule_name": "implement",
+      "agent_kind": "claude-code",
+      "configured_model": "claude-sonnet-4-20250514",
+      "configured_effort": "high",
+      "model_name": "claude-sonnet-4-20250514",
+      "workflow_file": "WORKFLOW.md",
+      "started_at": "2026-03-26T14:10:12Z",
+      "completed_at": "2026-03-26T14:31:47Z",
+      "dispatched_at": "2026-03-26T13:48:20Z",
+      "turns_completed": 9,
+      "tokens": {
+        "input_tokens": 52000,
+        "output_tokens": 9100,
+        "total_tokens": 61100,
+        "cache_read_tokens": 30000,
+        "cache_write_tokens": 4000
+      },
+      "tokens_measured": true,
+      "unaccounted_turns": 0,
+      "estimated_cost_usd": 0.1923,
+      "cost_status": "estimated",
+      "chain_id": "3c8v5n2w7r1t4y6u9i0o8p2asd",
+      "stage_previous": "specify",
+      "stage_previous_outcome": "succeeded",
+      "stage_target": "review",
+      "stage_result": "advanced",
+      "self_review": {
+        "final_verdict": "pass",
+        "total_iterations": 2,
+        "cap_reached": false
+      },
+      "origin_recorded": true,
+      "trigger": "ci_fix",
+      "reaction_kind": "ci",
+      "reaction_config_key": "ci_failure",
+      "session_id": "session-abc-002",
+      "ssh_host": ""
+    }
+  ],
+  "next_cursor": "42"
+}
+```
+
+`runs` is `[]` when no run matches.
+
+### Field notes
+
+Runs are ordered by descending `run_id`, which is the order Sortie recorded them. Sortie records a run when it completes, so this is completion order. `next_cursor` is `null` on the last page. Otherwise it is the `run_id` of the page's last run, as a string; pass it back as `cursor` together with the same filters to read the next page. A run recorded between two requests never moves a served run to another page.
+
+**Run fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `run_id` | integer | The run's key in run history, and the paging key. |
+| `issue_id` | string | The tracker's issue ID. |
+| `issue_identifier` | string | The issue identifier the run was recorded under. |
+| `display_identifier` | string | The qualified form of the identifier, as in [run history entries](#run-history-entries). Omitted when empty. |
+| `issue_title` | string | The issue title recorded with the run. Omitted when empty. Masked. |
+| `issue_url` | string | The tracker's web link to the issue. Omitted when empty. Masked. |
+| `attempt` | integer | One-based attempt number. |
+| `status` | string | Terminal outcome of the run. |
+| `error` | string or `null` | The run's error message. `null` when the run recorded none. Masked. |
+| `rule_name` | string | The [dispatch rule](/reference/workflow-config/#dispatch) that routed the run. Omitted when none did. |
+| `agent_kind` | string | The agent adapter kind that ran the session. Omitted when empty. |
+| `configured_model`, `configured_effort` | string | What the run was asked to run, as in [configured and reported model](#configured-and-reported-model). Omitted when unset. |
+| `model_name` | string | The model the runtime reported running. Omitted when it reported none. |
+| `workflow_file` | string | The workflow file that drove the run. Omitted when empty. |
+| `started_at`, `completed_at` | string | Timestamps as recorded. |
+| `dispatched_at` | string or `null` | When Sortie dispatched the first run of the pass the run belongs to, as in [dispatch time and stage position](#dispatch-time-and-stage-position). `null` when the pass cannot be dated. |
+| `turns_completed` | integer | Agent turns the run completed. |
+| `tokens` | object | The five token members of a running row's `tokens`. Each member is `null` when `tokens_measured` is `false`. A measured zero is `0`. |
+| `tokens_measured` | boolean | `false` when the agent reported no token usage for the run. |
+| `unaccounted_turns` | integer | Turns whose token usage the agent never reported. When non-zero, the figures in `tokens` are lower bounds. |
+| `estimated_cost_usd` | number or `null` | Estimated USD cost from `tokens` and the [`token_rates`](/reference/workflow-config/#token_rates) entry of `agent_kind`, unrounded. Non-`null` exactly when `cost_status` is `"estimated"` or `"partial"`. |
+| `cost_status` | string | `"unmeasured"` when `tokens_measured` is `false`. `"estimated"` when the run is measured and spent no tokens, or when `token_rates` prices `agent_kind` and the run has no unaccounted turns. `"partial"` when the run is priced and has unaccounted turns, so the estimate is a lower bound. `"unpriced"` when the run spent tokens and `token_rates` has no entry with both `input_per_mtok` and `output_per_mtok` for `agent_kind`. |
+| `chain_id` | string | The stage chain the run belongs to. Omitted when empty. |
+| `stage_previous`, `stage_previous_outcome` | string | The rule whose hop led to the run, and the outcome of the run that made it. Omitted when empty. |
+| `stage_target`, `stage_result` | string | The rule the run's own hop decision targeted, and its result: `"advanced"`, `"partial"`, `"failed"`, or `"ceiling"`. Omitted when the run reached no decision. |
+| `self_review` | object or `null` | `null` when the run recorded no self-review or the record cannot be read. Otherwise `final_verdict` (`"none"` when the record holds no verdict; masked), `total_iterations`, and `cap_reached`. The per-iteration audit trail is not served. |
+| `origin_recorded` | boolean | `false` for a run recorded before Sortie stored its origin. The five origin members below are then `null`. |
+| `trigger` | string or `null` | What started the retry whose fire dispatched the run: `"error"`, `"continuation"`, `"stall"`, or `"ci_fix"`. A CI fix retry reads `"ci_fix"`, and a retry of a run a reaction dispatched keeps that run's `reaction_kind` with its own trigger. `""` for a dispatch from the poll tick, for a retry that a review, bot review, merge conflict, or label command reaction started, and for a recorded CI result. `null` when the retry was queued before Sortie stored what started it. |
+| `reaction_kind` | string or `null` | The reaction kind of the retry that dispatched the run, using the values of a retrying entry's `reaction_kind`. `""` when none. |
+| `reaction_config_key` | string or `null` | The key of the `reactions` section of `WORKFLOW.md` that `reaction_kind` is configured under. `""` when `reaction_kind` is empty. |
+| `session_id` | string or `null` | The agent session the run used. `""` when it started none. Not masked. |
+| `ssh_host` | string or `null` | The SSH worker the run executed on. `""` for a local run. |
+
+A `status` of `"ci_failed"` marks a recorded CI result rather than an agent session: it has no `agent_kind`, and each origin member is `""`.
+
+### Status codes
+
+| Code | Error code | Meaning |
+|---|---|---|
+| `200 OK` | | Page returned. |
+| `400 Bad Request` | `invalid_parameter` | Unknown or repeated parameter, a malformed or out-of-range value, or `since` not before `until`. The message names the parameter and the rule, for example `parameter "limit" must be an integer from 1 to 200`. |
+| `405 Method Not Allowed` | `method_not_allowed` | Any method other than `GET`. |
+| `503 Service Unavailable` | `history_unavailable` | Run history could not be read. |
+
+---
+
 ## GET /api/v1/{identifier}: Issue detail
 
-Returns issue-specific runtime and debug details. The `{identifier}` path parameter is the issue identifier (e.g., `MT-649`), not the internal issue ID.
+Returns issue-specific runtime and debug details, and the issue's run history. The `{identifier}` path parameter is the issue identifier (e.g., `MT-649`), not the internal issue ID. An issue that is no longer active is answered from run history.
 
 ```sh
 curl http://localhost:7678/api/v1/MT-649
 ```
+
+### Lookup by identifier
+
+The path identifier is matched against live entries first. When none carries it, Sortie reads the newest run recorded under that identifier and takes the issue ID from it. If a live entry carries that issue ID, the response is that entry's live detail, with `issue_identifier` set to the identifier the entry carries now. This finds an issue the tracker renamed. `history` always covers the issue by its ID, so runs recorded under an earlier identifier stay in it.
+
+Every `200` response carries `history`. The running and finished examples show it in full; the other examples omit it to keep the members that differ by status in view.
 
 ### Response (running issue)
 
@@ -879,7 +1030,97 @@ curl http://localhost:7678/api/v1/MT-649
   "between_stages": null,
   "recent_events": [],
   "last_error": null,
-  "tracked": {}
+  "tracked": {},
+  "history": {
+    "runs": [
+      {
+        "run_id": 41,
+        "issue_id": "abc123",
+        "issue_identifier": "MT-649",
+        "issue_title": "Fix the flaky login test",
+        "issue_url": "https://tracker.example.com/browse/MT-649",
+        "attempt": 2,
+        "status": "succeeded",
+        "error": null,
+        "rule_name": "bugfix",
+        "agent_kind": "claude-code",
+        "configured_model": "claude-sonnet-4-5",
+        "started_at": "2026-03-26T13:05:00Z",
+        "completed_at": "2026-03-26T13:38:20Z",
+        "dispatched_at": "2026-03-26T13:05:00Z",
+        "turns_completed": 8,
+        "tokens": {
+          "input_tokens": 36000,
+          "output_tokens": 9000,
+          "total_tokens": 45000,
+          "cache_read_tokens": 20000,
+          "cache_write_tokens": 2000
+        },
+        "tokens_measured": true,
+        "unaccounted_turns": 0,
+        "estimated_cost_usd": 0.174,
+        "cost_status": "estimated",
+        "self_review": null,
+        "origin_recorded": true,
+        "trigger": "",
+        "reaction_kind": "",
+        "reaction_config_key": "",
+        "session_id": "session-abc-001",
+        "ssh_host": ""
+      },
+      {
+        "run_id": 38,
+        "issue_id": "abc123",
+        "issue_identifier": "MT-649",
+        "issue_title": "Fix the flaky login test",
+        "issue_url": "https://tracker.example.com/browse/MT-649",
+        "attempt": 1,
+        "status": "failed",
+        "error": "agent turn timed out",
+        "rule_name": "bugfix",
+        "agent_kind": "claude-code",
+        "configured_model": "claude-sonnet-4-5",
+        "started_at": "2026-03-26T12:00:05Z",
+        "completed_at": "2026-03-26T12:40:10Z",
+        "dispatched_at": "2026-03-26T12:00:05Z",
+        "turns_completed": 11,
+        "tokens": {
+          "input_tokens": 48000,
+          "output_tokens": 12000,
+          "total_tokens": 60000,
+          "cache_read_tokens": 30000,
+          "cache_write_tokens": 3000
+        },
+        "tokens_measured": true,
+        "unaccounted_turns": 0,
+        "estimated_cost_usd": 0.261,
+        "cost_status": "estimated",
+        "self_review": null,
+        "origin_recorded": true,
+        "trigger": "",
+        "reaction_kind": "",
+        "reaction_config_key": "",
+        "session_id": "session-abc-000",
+        "ssh_host": ""
+      }
+    ],
+    "next_cursor": null,
+    "totals": {
+      "run_count": 2,
+      "unmeasured_runs": 0,
+      "tokens": {
+        "input_tokens": 84000,
+        "output_tokens": 21000,
+        "total_tokens": 105000,
+        "cache_read_tokens": 50000,
+        "cache_write_tokens": 5000
+      },
+      "tokens_complete": true,
+      "estimated_cost_usd": 0.435,
+      "cost_status": "estimated"
+    },
+    "hops": []
+  }
 }
 ```
 
@@ -1137,11 +1378,107 @@ When an issue has no running session, no pending retry, no budget hold, is not p
 }
 ```
 
+### Response (finished issue)
+
+When no live entry holds the issue but run history does, `status` is `"history"`. `running`, `retry`, `budget_exhausted`, `parked`, `between_stages`, and `workspace` are `null`, `pending_reactions` is `[]`, and `attempts` holds zeros. `issue` carries the `title` and `url` of the issue's newest run, each omitted when empty. `history` holds the issue's runs:
+
+```json
+{
+  "issue_identifier": "MT-648",
+  "issue_id": "def456",
+  "status": "history",
+  "issue": {
+    "title": "Add pagination to the export endpoint",
+    "url": "https://tracker.example.com/browse/MT-648"
+  },
+  "workspace": null,
+  "attempts": {
+    "restart_count": 0,
+    "current_retry_attempt": 0
+  },
+  "running": null,
+  "retry": null,
+  "budget_exhausted": null,
+  "parked": null,
+  "pending_reactions": [],
+  "between_stages": null,
+  "recent_events": [],
+  "last_error": null,
+  "tracked": {},
+  "history": {
+    "runs": [
+      {
+        "run_id": 57,
+        "issue_id": "def456",
+        "issue_identifier": "MT-648",
+        "issue_title": "Add pagination to the export endpoint",
+        "issue_url": "https://tracker.example.com/browse/MT-648",
+        "attempt": 1,
+        "status": "succeeded",
+        "error": null,
+        "rule_name": "implement",
+        "agent_kind": "claude-code",
+        "started_at": "2026-03-26T12:02:10Z",
+        "completed_at": "2026-03-26T12:41:55Z",
+        "dispatched_at": "2026-03-26T12:02:10Z",
+        "turns_completed": 8,
+        "tokens": {
+          "input_tokens": 52000,
+          "output_tokens": 9100,
+          "total_tokens": 61100,
+          "cache_read_tokens": 30000,
+          "cache_write_tokens": 4000
+        },
+        "tokens_measured": true,
+        "unaccounted_turns": 0,
+        "estimated_cost_usd": 0.1923,
+        "cost_status": "estimated",
+        "chain_id": "7h2k9x4m1q8w3e5r6t0y2uiop1",
+        "stage_target": "review",
+        "stage_result": "advanced",
+        "self_review": null,
+        "origin_recorded": true,
+        "trigger": "",
+        "reaction_kind": "",
+        "reaction_config_key": "",
+        "session_id": "session-def-001",
+        "ssh_host": ""
+      }
+    ],
+    "next_cursor": null,
+    "totals": {
+      "run_count": 1,
+      "unmeasured_runs": 0,
+      "tokens": {
+        "input_tokens": 52000,
+        "output_tokens": 9100,
+        "total_tokens": 61100,
+        "cache_read_tokens": 30000,
+        "cache_write_tokens": 4000
+      },
+      "tokens_complete": true,
+      "estimated_cost_usd": 0.1923,
+      "cost_status": "estimated"
+    },
+    "hops": [
+      {
+        "run_id": 57,
+        "chain_id": "7h2k9x4m1q8w3e5r6t0y2uiop1",
+        "source_rule": "implement",
+        "target_rule": "review",
+        "result": "advanced",
+        "completed_at": "2026-03-26T12:41:55Z"
+      }
+    ]
+  }
+}
+```
+
 ### Field notes
 
 | Field | Description |
 |---|---|
-| `status` | One of `"running"`, `"retrying"`, `"budget_exhausted"`, `"parked"`, `"pending_reactions"`, or `"between_stages"`. Derived from which set the issue appears in; `running` takes precedence over `retrying`, which takes precedence over `budget_exhausted`, which takes precedence over `parked`, which takes precedence over `pending_reactions`, which takes precedence over `between_stages`. |
+| `status` | One of `"running"`, `"retrying"`, `"budget_exhausted"`, `"parked"`, `"pending_reactions"`, `"between_stages"`, or `"history"`. Derived from which set the issue appears in; `running` takes precedence over `retrying`, which takes precedence over `budget_exhausted`, which takes precedence over `parked`, which takes precedence over `pending_reactions`, which takes precedence over `between_stages`, which takes precedence over `history`, the status of an issue only run history knows. |
 | `issue` | The tracker's view of the issue, taken from whichever entry decides `status`. Present on every `200` response. Its members use the names of the [`.issue` template variable](/reference/workflow-config/#issue): `title`, `url`, `issue_type`, `labels`, and `state`. Each is omitted when that entry holds none, so the object is `{}` when it holds none of them. `labels` is `[]` when the entry was read and the issue carries none, and omitted when the entry holds no read of the labels. Masked like the running row's `issue_title`. For `running`, `retrying`, and `budget_exhausted` the members come from the entry's `issue_title`, `issue_url`, `issue_type`, `issue_labels`, and `state`. For `parked` they are `title` and `url` of the parked entry and `state` from its `parked_state`. For `pending_reactions` they are `title` and `url` of the issue's first row, and for `between_stages` those of the issue's row. |
 | `workspace` | Contains `path` when the issue has an active workspace. `null` for retrying, budget-exhausted, parked, pending-reaction, and between-stages issues, or when the workspace path is unknown. |
 | `attempts.restart_count` | How many times this issue has been restarted (attempt minus one, floored at zero). |
@@ -1155,14 +1492,48 @@ When an issue has no running session, no pending retry, no budget hold, is not p
 | `recent_events` | Reserved for future use. Currently an empty array. |
 | `last_error` | The `error` of the issue's retry entry, or `null` when it has none. After a reschedule this is the reschedule reason. |
 | `tracked` | Reserved for future use. Currently an empty object. |
+| `history` | `null` when the issue has no recorded run, otherwise an object. See [History member](#history-member). |
+
+### History member
+
+Every `200` response carries `history`. It is `null` when the issue has no recorded run, and otherwise an object. A running issue with earlier runs serves its live detail and its `history` together.
+
+| Member | Description |
+|---|---|
+| `runs` | The issue's newest runs, newest first, selected by `issue_id`. Each run has the shape described under [`GET /api/v1/runs`](#get-apiv1runs-run-history). A page holds at most 50 runs. |
+| `next_cursor` | `null` when `runs` holds every run. Otherwise a cursor that continues the list on `GET /api/v1/runs?issue_id=<issue_id>&cursor=<next_cursor>`. |
+| `totals` | The issue's spend over all of its runs, not only those in `runs`. |
+| `hops` | The stage hop decisions of the runs in `runs`, in the same order. Runs that reached no decision add no entry. |
+
+**`totals` members:**
+
+| Member | Description |
+|---|---|
+| `run_count` | Every run of the issue, a recorded CI result included. |
+| `unmeasured_runs` | Runs whose agent reported no token usage. |
+| `tokens` | The five token members of a running row's `tokens`. Each is `null` when its sum is `0` and `tokens_complete` is `false`, so spend Sortie does not know never reads as zero. |
+| `tokens_complete` | `true` when no run is unmeasured and no run has an unaccounted turn. When `false`, the figures in `tokens` are lower bounds. |
+| `estimated_cost_usd` | Number or `null`. The sum of the estimates of the issue's runs, priced by agent kind under [`token_rates`](/reference/workflow-config/#token_rates). Unrounded. |
+| `cost_status` | `"estimated"`, `"partial"`, `"unpriced"`, or `"unmeasured"`, with the meaning of `issue_cost_status` in the [`GET /api/v1/state` field notes](#field-notes). |
+
+**`hops` members:**
+
+| Member | Description |
+|---|---|
+| `run_id` | The run that made the decision. |
+| `chain_id` | The stage chain of that run. Omitted when empty. |
+| `source_rule` | The dispatch rule of that run. |
+| `target_rule` | The rule its hop decision targeted. |
+| `result` | `"advanced"`, `"partial"`, `"failed"`, or `"ceiling"`. |
+| `completed_at` | When the run completed. |
 
 ### Status codes
 
 | Code | Meaning |
 |---|---|
 | `200 OK` | Issue found and returned. |
-| `404 Not Found` | Identifier not present in the running set, the retry queue, the budget-exhausted set, the parked set, the pending reactions, or the issues between stages. The issue may have completed, or it may not exist. |
-| `503 Service Unavailable` | Orchestrator state snapshot could not be produced. |
+| `404 Not Found` | Neither the current state nor run history holds the identifier: it is not running, retrying, budget-exhausted, parked, waiting on a pending reaction, or between stages, and no run was recorded under it. |
+| `503 Service Unavailable` | The orchestrator state snapshot could not be produced (`snapshot_unavailable`), or run history could not be read (`history_unavailable`). A failed history read answers `503` for a live identifier too. |
 
 ---
 
@@ -1311,7 +1682,7 @@ All JSON API errors use a consistent structure:
 {
   "error": {
     "code": "issue_not_found",
-    "message": "issue identifier \"XYZ-999\" not found in current state"
+    "message": "issue identifier \"XYZ-999\" not found in current state or run history"
   }
 }
 ```
@@ -1320,8 +1691,10 @@ All JSON API errors use a consistent structure:
 
 | Code | HTTP Status | Meaning |
 |---|---|---|
-| `issue_not_found` | 404 | The requested issue identifier is not running, retrying, budget-exhausted, parked, or waiting on a pending reaction. |
+| `issue_not_found` | 404 | Neither the current state nor run history holds the requested issue identifier. |
+| `invalid_parameter` | 400 | `GET /api/v1/runs` rejected a query parameter. The message names the parameter and the rule. |
 | `snapshot_unavailable` | 503 | The orchestrator could not produce a state snapshot. |
+| `history_unavailable` | 503 | Run history could not be read. |
 | `method_not_allowed` | 405 | The HTTP method is not supported on this endpoint. |
 | `internal_error` | 500 | Unexpected server error (e.g., JSON serialization failure). |
 
@@ -1352,6 +1725,7 @@ The response includes the header `Allow: GET` (or `Allow: POST` for the refresh 
 | GET | `/livez` | Liveness probe | `application/json` |
 | GET | `/readyz` | Readiness probe | `application/json` |
 | GET | `/api/v1/state` | Full system state snapshot | `application/json` |
-| GET | `/api/v1/{identifier}` | Per-issue detail | `application/json` |
+| GET | `/api/v1/runs` | Run history, newest first, filtered and paged | `application/json` |
+| GET | `/api/v1/{identifier}` | Per-issue detail and run history | `application/json` |
 | POST | `/api/v1/refresh` | Trigger immediate poll cycle | `application/json` |
 | GET | `/metrics` | Prometheus metrics | `text/plain` |

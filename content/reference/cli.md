@@ -176,7 +176,8 @@ Sets the listening port for the embedded HTTP server. The server starts by defau
 
 - `/`: HTML dashboard ([dashboard reference](/reference/dashboard/))
 - `/api/v1/state`: JSON API ([HTTP API reference](/reference/http-api/))
-- `/api/v1/<identifier>`: per-issue detail
+- `/api/v1/runs`: run history
+- `/api/v1/<identifier>`: per-issue detail and run history
 - `/api/v1/refresh`: trigger an immediate poll cycle
 - `/livez`: liveness probe
 - `/readyz`: readiness probe
