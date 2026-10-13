@@ -813,8 +813,12 @@ Every parameter is optional. An empty value is the same as an absent one. Filter
 | `stage` | A dispatch rule name | Runs whose exit reached a stage hop decision that targeted that rule, whatever its result. |
 | `since` | An RFC 3339 timestamp | Runs completed at or after it. Any UTC offset is accepted. |
 | `until` | An RFC 3339 timestamp | Runs completed before it. When both bounds are given, `since` must be before `until`. |
+| `ended_since` | An RFC 3339 timestamp | Runs of issues whose [`issue_outcome`](#issue-outcome) was observed at or after it. Any UTC offset is accepted. |
+| `ended_until` | An RFC 3339 timestamp | Runs of issues whose `issue_outcome` was observed before it. When both bounds are given, `ended_since` must be before `ended_until`. |
 | `cursor` | A `next_cursor` value | Runs recorded before the run `cursor` names. An integer of at least `1`. |
 | `limit` | An integer from `1` to `200` | The page size. Default: `50`. |
+
+An issue with no `issue_outcome` matches neither ending bound, so a request that carries `ended_since` or `ended_until` returns no run of such an issue. The ending bounds select by the issue's ending, not by the run's completion: every run of a matching issue is returned, and the bounds combine with `since` and `until` by AND.
 
 Sortie checks every parameter before it reads anything. A parameter outside this table, a parameter given more than once, and a value outside the ranges above answer `400`, so a misspelled filter never returns unfiltered rows.
 
@@ -868,7 +872,13 @@ Sortie checks every parameter before it reads anything. A parameter outside this
       "reaction_kind": "ci",
       "reaction_config_key": "ci_failure",
       "session_id": "session-abc-002",
-      "ssh_host": ""
+      "ssh_host": "",
+      "issue_outcome": {
+        "kind": "merged",
+        "observed_at": "2026-03-26T15:02:09Z",
+        "merge_path": "auto_merge",
+        "pull_request": {"number": 311, "repository": "acme/shop"}
+      }
     }
   ],
   "next_cursor": "42"
@@ -917,17 +927,46 @@ Runs are ordered by descending `run_id`, which is the order Sortie recorded them
 | `reaction_config_key` | string or `null` | The key of the `reactions` section of `WORKFLOW.md` that `reaction_kind` is configured under. `""` when `reaction_kind` is empty. |
 | `session_id` | string or `null` | The agent session the run used. `""` when it started none. Not masked. |
 | `ssh_host` | string or `null` | The SSH worker the run executed on. `""` for a local run. |
+| `issue_outcome` | object or `null` | How the run's issue ended. The same object on every run of the issue. `null` when Sortie has not seen the issue end. See [Issue outcome](#issue-outcome). |
 
 A `status` of `"ci_failed"` marks a recorded CI result rather than an agent session: it has no `agent_kind`, and each origin member is `""`.
+
+### Issue outcome
+
+`issue_outcome` records how the issue's latest work ended, with the time Sortie observed the ending. It belongs to the issue, not to a run. It is `null` while Sortie has not seen the issue end.
+
+| Member | Type | Description |
+|---|---|---|
+| `kind` | string | `"handed_off"`: Sortie moved the issue to its handoff state, or to another non-terminal target, for a person to take over. `"merged"`: Sortie observed the issue's pull request merged. `"terminal"`: Sortie read the issue in a terminal tracker state, or moved it to one. |
+| `observed_at` | string | When Sortie observed the ending, in UTC. This is the time Sortie saw it, not the time the tracker or forge recorded it. |
+| `state` | string | The tracker state the handoff wrote, or the terminal state Sortie read. Present for `"handed_off"` and `"terminal"`. Masked. |
+| `merge_path` | string | The [reaction](/reference/reactions/) that observed the merge: `"auto_merge"` or `"merge_completion"`. Present for `"merged"`. |
+| `pull_request` | object | The merged pull request: `number` and `repository` (`owner/repo`, masked). Present for `"merged"`. |
+
+Sortie records the outcome when it observes the ending:
+
+- A handoff transition succeeds. The kind is `"terminal"` when the target state is itself terminal.
+- Reconciliation, a retry timer, a handoff verification read, a stage hop check, or the release of a parked issue reads the issue in a terminal state. If the issue holds a pending `auto_merge` or `merge_completion` reaction, Sortie first reads that pull request once and records `"merged"` when the read reports it merged, so a forge that closes the issue on merge does not hide the pull request. A failed read records `"terminal"`.
+- `auto_merge` merges the pull request, is told it is already merged, or finds it merged on a read. `merge_completion` reads it merged.
+
+One outcome is kept per issue. A new observation replaces the stored outcome only as follows; otherwise the stored outcome and its `observed_at` stay.
+
+| Stored `kind` | Replaced by a new observation of kind |
+|---|---|
+| `"handed_off"` | Any kind. |
+| `"terminal"` | `"handed_off"` or `"merged"`. |
+| `"merged"` | `"handed_off"`. |
+
+A poll tick that dispatches the issue again clears the outcome, so `issue_outcome` describes the latest ending only. A failed write is logged and does not affect the issue.
 
 ### Status codes
 
 | Code | Error code | Meaning |
 |---|---|---|
 | `200 OK` | | Page returned. |
-| `400 Bad Request` | `invalid_parameter` | Unknown or repeated parameter, a malformed or out-of-range value, or `since` not before `until`. The message names the parameter and the rule, for example `parameter "limit" must be an integer from 1 to 200`. |
+| `400 Bad Request` | `invalid_parameter` | Unknown or repeated parameter, a malformed or out-of-range value, `since` not before `until`, or `ended_since` not before `ended_until`. The message names the parameter and the rule, for example `parameter "limit" must be an integer from 1 to 200`. |
 | `405 Method Not Allowed` | `method_not_allowed` | Any method other than `GET`. |
-| `503 Service Unavailable` | `history_unavailable` | Run history could not be read. |
+| `503 Service Unavailable` | `history_unavailable` | Run history or the issue outcomes could not be read. |
 
 ---
 
@@ -1442,7 +1481,12 @@ When no live entry holds the issue but run history does, `status` is `"history"`
         "reaction_kind": "",
         "reaction_config_key": "",
         "session_id": "session-def-001",
-        "ssh_host": ""
+        "ssh_host": "",
+        "issue_outcome": {
+          "kind": "handed_off",
+          "observed_at": "2026-03-26T12:42:01Z",
+          "state": "Human Review"
+        }
       }
     ],
     "next_cursor": null,
@@ -1469,7 +1513,12 @@ When no live entry holds the issue but run history does, `status` is `"history"`
         "result": "advanced",
         "completed_at": "2026-03-26T12:41:55Z"
       }
-    ]
+    ],
+    "issue_outcome": {
+      "kind": "handed_off",
+      "observed_at": "2026-03-26T12:42:01Z",
+      "state": "Human Review"
+    }
   }
 }
 ```
@@ -1504,6 +1553,7 @@ Every `200` response carries `history`. It is `null` when the issue has no recor
 | `next_cursor` | `null` when `runs` holds every run. Otherwise a cursor that continues the list on `GET /api/v1/runs?issue_id=<issue_id>&cursor=<next_cursor>`. |
 | `totals` | The issue's spend over all of its runs, not only those in `runs`. |
 | `hops` | The stage hop decisions of the runs in `runs`, in the same order. Runs that reached no decision add no entry. |
+| `issue_outcome` | How the issue ended, or `null` when Sortie has not seen it end. The object each run in `runs` carries; see [Issue outcome](#issue-outcome). |
 
 **`totals` members:**
 
@@ -1533,7 +1583,7 @@ Every `200` response carries `history`. It is `null` when the issue has no recor
 |---|---|
 | `200 OK` | Issue found and returned. |
 | `404 Not Found` | Neither the current state nor run history holds the identifier: it is not running, retrying, budget-exhausted, parked, waiting on a pending reaction, or between stages, and no run was recorded under it. |
-| `503 Service Unavailable` | The orchestrator state snapshot could not be produced (`snapshot_unavailable`), or run history could not be read (`history_unavailable`). A failed history read answers `503` for a live identifier too. |
+| `503 Service Unavailable` | The orchestrator state snapshot could not be produced (`snapshot_unavailable`), or run history or the issue outcome could not be read (`history_unavailable`). A failed history read answers `503` for a live identifier too. |
 
 ---
 
@@ -1692,9 +1742,9 @@ All JSON API errors use a consistent structure:
 | Code | HTTP Status | Meaning |
 |---|---|---|
 | `issue_not_found` | 404 | Neither the current state nor run history holds the requested issue identifier. |
-| `invalid_parameter` | 400 | `GET /api/v1/runs` rejected a query parameter. The message names the parameter and the rule. |
+| `invalid_parameter` | 400 | `GET /api/v1/runs` rejected a query parameter, or a misordered pair of bounds. The message names the parameter and the rule. |
 | `snapshot_unavailable` | 503 | The orchestrator could not produce a state snapshot. |
-| `history_unavailable` | 503 | Run history could not be read. |
+| `history_unavailable` | 503 | Run history or the issue outcomes could not be read. |
 | `method_not_allowed` | 405 | The HTTP method is not supported on this endpoint. |
 | `internal_error` | 500 | Unexpected server error (e.g., JSON serialization failure). |
 

@@ -243,9 +243,9 @@ The JSON API returns errors in a standard envelope:
 | Code | HTTP status | Meaning |
 |---|---|---|
 | `issue_not_found` | `404` | Neither the current runtime state nor run history holds the issue identifier. |
-| `invalid_parameter` | `400` | `GET /api/v1/runs` rejected a query parameter: unknown, repeated, malformed, or out of range. The message names the parameter and the rule. |
+| `invalid_parameter` | `400` | `GET /api/v1/runs` rejected a query parameter: unknown, repeated, malformed, out of range, or a misordered pair of bounds. The message names the parameter and the rule. |
 | `snapshot_unavailable` | `503` | Orchestrator state snapshot temporarily unavailable. Retry after a short delay. |
-| `history_unavailable` | `503` | Run history could not be read. Retry after a short delay. |
+| `history_unavailable` | `503` | Run history or the issue outcomes could not be read. Retry after a short delay. |
 | `method_not_allowed` | `405` | Wrong HTTP method for the endpoint (e.g., `POST` to a `GET`-only route). The `Allow` header indicates the correct method. |
 | `internal_error` | `500` | Server-side JSON encoding failure or unexpected error. |
 
