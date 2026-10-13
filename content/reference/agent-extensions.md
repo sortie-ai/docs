@@ -639,7 +639,7 @@ A measured session can still leave spend out. When a turn reaches the model and 
 
 Run-history rows written before the token columns existed (migration 011) read as zero, so spend recorded before the upgrade is invisible to the budget. Rows written before the measurement flag existed (migration 012) count as measured, because their provenance is not recoverable.
 
-The row backing this reading updates on the throttle described above, with one exception: the write that carries the usage figure reaching the [`agent.token_warning_percent`](/reference/workflow-config/#agent) threshold happens immediately, without waiting for the next throttled write. Because `warning_reached` is computed from this same response's own `used_tokens`, the two never disagree within one result: a reading taken before that write lands still reports `used_tokens` below the threshold and `warning_reached: false`.
+The row backing this reading updates on the throttle described above, except that two writes happen immediately, without waiting for the next throttled write: the write that carries the usage figure reaching the [`agent.token_warning_percent`](/reference/workflow-config/#agent) threshold, and the write that carries a newly reported unaccounted-turn count. A count reported before the row's first write waits for that write. Because `warning_reached` is computed from this same response's own `used_tokens`, the two never disagree within one result: a reading taken before the threshold write lands still reports `used_tokens` below the threshold and `warning_reached: false`.
 
 ### Response fields
 
@@ -653,7 +653,7 @@ The fields below are returned under `data` in the standard success envelope:
 | `used_sessions` | integer | Completed sessions for the issue. The running session is not counted. Unmeasured sessions still count here, because [`agent.max_sessions`](/reference/workflow-config/#agent) counts sessions rather than spend. |
 | `budget_sessions` | integer | The configured [`agent.max_sessions`](/reference/workflow-config/#agent). `0` means unlimited. |
 | `unmeasured_sessions` | integer | Completed sessions whose coding agent reported no token usage. `used_tokens` excludes them rather than counting them as zero spend. |
-| `used_tokens_complete` | boolean | `false` when `unmeasured_sessions` is above `0`, when a completed session left a turn's spend unaccounted for, when no dispatch ID was supplied, or when no session record matches the supplied dispatch ID. `true` otherwise. On `false`, treat `used_tokens` as a lower bound and `remaining_tokens` as an upper bound. |
+| `used_tokens_complete` | boolean | `false` when `unmeasured_sessions` is above `0`, when a completed session or the running session left a turn's spend unaccounted for, when no dispatch ID was supplied, or when no session record matches the supplied dispatch ID. `true` otherwise. On `false`, treat `used_tokens` as a lower bound and `remaining_tokens` as an upper bound. |
 | `warning_tokens` | integer | The configured [`agent.token_warning_percent`](/reference/workflow-config/#agent) threshold, in tokens. Present only while the tool server's own configuration sets that field above `0`; absent otherwise, together with `warning_reached`. |
 | `warning_reached` | boolean | `true` once `used_tokens` has reached `warning_tokens`. Present under the same condition as `warning_tokens`. |
 

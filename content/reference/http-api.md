@@ -223,7 +223,7 @@ curl http://localhost:7678/api/v1/state
       "used_sessions": 3,
       "budget_sessions": 3,
       "used_tokens": null,
-      "budget_tokens": 0,
+      "budget_tokens": null,
       "unmeasured_sessions": null,
       "stopped_in_flight": null,
       "exhausted_at": "2026-03-26T14:12:00Z",
@@ -583,10 +583,10 @@ A retry keeps the title, link, type, labels, and state it was scheduled with. So
 | `issue_title`, `issue_url` | The tracker's title and web link, as read by the poll that last rebuilt the held set, or by the retry the hold was found on until the next poll. Each omitted when empty. Masked like the running row's. |
 | `issue_type`, `issue_labels`, `state` | The issue's type, labels, and tracker state from the same read, under the rules of the `retrying[]` entries. Masked like the running row's. |
 | `reason` | `session_budget` or `token_budget`: which ceiling stopped dispatch. |
-| `used_sessions`, `budget_sessions` | Completed sessions for the issue against the configured `agent.max_sessions`. `budget_sessions` is `0` when no session budget is set, unlike the same key on a `running[]` entry, where it is `null`. |
-| `used_tokens`, `budget_tokens` | Measured cumulative tokens against the configured `agent.max_tokens`. `budget_tokens` is `0` when no token ceiling is set, unlike the same key on a `running[]` entry, where it is `null`. `used_tokens` is `null` only on a `session_budget` entry, and there only when the token ceiling has not been evaluated for the issue: `agent.max_tokens` is `0`, or reading the issue's token spend failed. |
-| `unmeasured_sessions` | Count of the issue's sessions whose agent reported no token usage. `null` exactly when `used_tokens` is `null`. |
-| `stopped_in_flight` | Count of the issue's sessions that the token ceiling stopped while they were running, recorded with status `budget_stopped`. `null` exactly when `used_tokens` is `null`. |
+| `used_sessions`, `budget_sessions` | Completed sessions for the issue against the configured `agent.max_sessions`. `budget_sessions` is `null` when no session budget is set, as on a `running[]` entry. |
+| `used_tokens`, `budget_tokens` | Measured cumulative tokens against the configured `agent.max_tokens`. `budget_tokens` is `null` when no token ceiling is set, as on a `running[]` entry. `used_tokens` is `null` only on a `session_budget` entry, in two cases: the token ceiling has not been evaluated for the issue (`agent.max_tokens` is `0`, or reading the issue's token spend failed), or the sum is `0` while a session reported no token usage or a turn went unaccounted for, so that `0` would stand for spend Sortie does not know. A non-zero sum is served as is and can still be a lower bound. |
+| `unmeasured_sessions` | Count of the issue's sessions whose agent reported no token usage. `null` when the issue's token spend was not read. |
+| `stopped_in_flight` | Count of the issue's sessions that the token ceiling stopped while they were running, recorded with status `budget_stopped`. `null` when the issue's token spend was not read. |
 | `exhausted_at` | When the hold began. |
 | `rule_name`, `agent_kind`, `configured_model` | The dispatch rule, agent kind, and model of the dispatch the hold blocks. Each omitted when empty. |
 | `stage_lineage`, `stage_position` | Always present. The lineage and chain position of the blocked dispatch, under the rules of the `retrying[]` entries and [dispatch time and stage position](#dispatch-time-and-stage-position). |
@@ -1221,7 +1221,7 @@ When an issue has neither a running session nor a pending retry, but is held out
     "used_sessions": 3,
     "budget_sessions": 3,
     "used_tokens": null,
-    "budget_tokens": 0,
+    "budget_tokens": null,
     "unmeasured_sessions": null,
     "stopped_in_flight": null,
     "exhausted_at": "2026-03-26T14:12:00Z",
