@@ -39,7 +39,7 @@ The only thing lost: running agent processes. Agent subprocesses are OS processe
 
 ## What Sortie persists and why
 
-Four categories of durable data, each solving a specific problem that in-memory state cannot.
+The durable data falls into categories, each solving a specific problem that in-memory state cannot.
 
 **Retry entries.** Each entry stores the issue ID, human-readable identifier, attempt number, a `due_at` timestamp in epoch milliseconds, the last error message, the agent session ID the retry resumes, the agent kind, template, and rule name resolved at the issue's first dispatch, and the issue's place in its [stage chain](/concepts/stage-chains/): the chain identifier, the previous stage, and that stage's outcome.
 
@@ -56,6 +56,10 @@ This solves three problems. First, `max_sessions` budget enforcement: the count 
 **Session metadata.** The latest session details for each issue: session ID, token counts including cache writes, model, agent PID, timestamps, and exit type. This is the data the dashboard and API serve when you ask "what's happening with PROJ-42 right now?" If the agent finished and the process restarted, the answer is still available because it's in the database, not in a goroutine's local variables.
 
 **Aggregate metrics.** Cumulative counters (input, output, cache-read, and cache-write tokens, total dispatches, cumulative runtime, and a count of ended sessions whose usage was never recorded) stored under a single key and updated on every worker exit. When Sortie exposes these via Prometheus, a restart doesn't create a false cliff in your time-series data. The counters pick up from their last persisted values.
+
+**Reaction escalations.** When a pull request reaction hands an issue to a person, Sortie stores the escalation: the issue and reaction kind, why it began, when, what it judged, how many tries it had used, and which pull request it watches. Ending an escalation clears the time and keeps the row, because what the escalation judged is what makes it apply its label and event once.
+
+An escalation is a statement that Sortie has stopped and a person has to act. In memory alone, a restart would silently withdraw it: the reaction would rebuild with a full budget, dispatch another round of fixes against a pull request it had already given up on, and escalate again, posting the label and the comment a second time. Persisting it makes the restart invisible. The escalation stays until a fact Sortie observes ends it: the pull request resolves, the problem clears, or a person moves the issue out of the handoff state. The attempt counters of reactions that have not escalated stay in memory and start again after a restart.
 
 ## SQLite as the right tool for this job
 
@@ -82,6 +86,8 @@ A further migration gives run history a count of the run's turns that reached th
 A later migration records what scheduled each queued retry and gives each parked issue its title and link, so a restart explains a retry the way it did before. Another keeps when Sortie first picked up the work, plus a queued retry's model and its issue's type, labels, and state. It fills the pick-up time from earlier agent runs on record and leaves it empty for work with none.
 
 A later migration marks the first run dispatched after each stage hop. The run's other columns cannot tell it apart: every later run in the stage the hop led to names the same previous stage, so only a mark set at dispatch separates the run a hop started from a later pick-up of the same stage. For history already on record, the migration marks the earliest run of each hop and leaves the later ones unmarked.
+
+A later migration adds the table that holds reaction escalations, one row per issue and reaction kind. It starts empty, so an escalation that was standing when a database was upgraded is not restored, and the next escalation of its kind records one.
 
 **Operational simplicity.** Backup the database by copying the file. Inspect it with `sqlite3`. Move to another host by copying the file. Stream continuous backups to S3 with Litestream. The operational model is as simple as the deployment model.
 

@@ -240,7 +240,7 @@ Read it as three questions.
 
 - `excluded_running`: a worker is processing that issue. Not a fault.
 - `excluded_retry`: a retry is scheduled for that issue. Not a fault.
-- `excluded_reaction`: a pending reaction whose kind carries an expiry pins the workspace. It resolves itself within 30 minutes. Not a fault.
+- `excluded_reaction`: a pending reaction whose kind carries an expiry pins the workspace. It resolves itself when the watch window ends, 30 minutes by default and 24 hours for `ci_failure`. A reaction with a standing escalation has no window and pins the workspace until the escalation ends, so a workspace of an issue that waits on a person stays. Not a fault.
 - `retained_in_window`: the workspace's latest recorded activity is newer than `retention_days`. Not a fault; the bound is working as configured.
 - `retained_no_activity`: no run completion and no recorded push exist for that key, so there is no anchor to measure age from and the workspace is kept. This is the reason operators are least likely to guess. It covers a run that never completed and any directory Sortie did not create.
 - `retained_not_evaluated`: the age pass did not evaluate these candidates. Read `age_pass` for the reason.

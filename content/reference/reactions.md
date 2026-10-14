@@ -27,13 +27,13 @@ Reactions are opt-in: a kind is inactive until its `provider` is set, and omitti
 
 ## Reaction lifecycle
 
-Every reaction kind moves through the same pipeline. The orchestrator records a *pending reaction* for an issue when a worker exits normally and SCM metadata is available, and it reconstructs eligible pending reactions at startup so feedback survives a restart. On each reconcile tick, after tracker-state refresh, the orchestrator runs the pipeline for each pending reaction in a fixed order: CI failure first, then review comments, then bot review, then merge conflict, then auto-merge, and merge completion last.
+Every reaction kind moves through the same pipeline. The orchestrator records a *pending reaction* for an issue when a worker exits normally and SCM metadata is available, and it reconstructs eligible pending reactions at startup, with the escalations that stood when the process stopped, so feedback survives a restart. On each reconcile tick, after tracker-state refresh, the orchestrator runs the pipeline for each pending reaction in a fixed order: CI failure first, then review comments, then bot review, then merge conflict, then auto-merge, and merge completion last.
 
 1. **Poll.** The orchestrator queries the kind's provider for the current signal, throttled by the kind's `poll_interval_ms`. A transient fetch error re-enqueues the entry for the next tick.
 2. **Fingerprint.** `review_comments`, `bot_review`, `merge_conflicts`, and `auto_merge` hash their salient state into a SHA-256 fingerprint stored in the `reaction_fingerprints` SQLite table. The review fingerprint is the sorted set of non-outdated comment IDs; the bot-review fingerprint is the sorted set of non-outdated bot comment IDs under its own kind row; the merge-conflict fingerprint is the PR head SHA; the merge fingerprint is the PR head SHA combined with the review decision. `merge_completion` also occupies a row of its own, but stores the merge commit identifier reported by the forge verbatim rather than hashing anything. `ci_failure` occupies a row too, and like `merge_completion` stores its value verbatim rather than hashing it. What it stores is the pull request's head as resolved on that pass, never a recorded SHA and never a branch name.
-3. **Deduplicate.** When the fingerprint matches the last value already marked dispatched, the tick takes no action. For the hashing kinds, a new push or a changed comment set produces a new fingerprint and clears the dispatched mark. For `review_comments` and `bot_review`, a changed set must then pass the [already-given check](#comments-already-given) before it dispatches. `merge_completion` is the exception on the far side: its dispatched row is retained after the transition rather than cleared, so the same merge is never observed as new. `ci_failure` runs both mechanisms: the head fingerprint dedups a head that has already dispatched, and that fingerprint moves with the pull request, so a commit landing on the pull request re-arms the reaction. A `pending` status re-enqueues under backoff. A `passing` status clears the attempt counter, and the reaction keeps watching.
+3. **Deduplicate.** When the fingerprint matches the last value already marked dispatched, the tick takes no action. For the hashing kinds, a new push or a changed comment set produces a new fingerprint and clears the dispatched mark. For `review_comments` and `bot_review`, a changed set must then pass the [already-given check](#comments-already-given) before it dispatches. `merge_completion` is the exception on the far side: its dispatched row is retained after the transition rather than cleared, so the same merge is never observed as new. `ci_failure` runs both mechanisms: the head fingerprint dedups a head that has already dispatched, and that fingerprint moves with the pull request, so a commit landing on the pull request re-arms the reaction. A `pending` status re-enqueues under backoff. A `passing` status clears the attempt counter and ends a standing CI escalation, and the reaction keeps watching.
 4. **Dispatch.** The reaction action runs. Where the kind carries a [`triage` block](#triage-command), an operator-owned command runs first and can close the subject or hand it to a person instead, in which case none of the actions in this step happen. For `ci_failure`, `review_comments`, `bot_review`, and `merge_conflicts` the orchestrator schedules a fix continuation turn, injecting the signal into the prompt through a continuation context variable. An issue holds at most one queued continuation at a time, so a kind that finds one already queued defers and re-checks on a later tick rather than replacing it; the queued work is never discarded, and the deferring kind takes none of the other actions in this step on that tick. For `auto_merge` the orchestrator merges the pull request directly, since no code change is needed. For `merge_completion` it calls the tracker transition directly, for the same reason. Each dispatch increments the per-issue, per-kind attempt counter and uses a fixed 1-second delay rather than exponential backoff.
-5. **Escalate.** When the attempt counter reaches the kind's retry budget, and when a triage command answers `escalate`, the orchestrator applies the configured `escalation` action. `review_comments` clears its pending state, releases the claim unless a worker is running for the issue, and stops. `ci_failure` releases the claim on the same condition but keeps its pending entry, so it keeps watching the pull request and escalates at most once per pull request head. `auto_merge`, `bot_review`, and `merge_conflicts` clear only their own kind's pending state and keep the claim. When a worker is running, its exit decides the claim. For `review_comments` and `bot_review`, a spent budget escalates only when a new comment arrives; see [retry budgets](#retry-budgets).
+5. **Escalate.** When the attempt counter reaches the kind's retry budget, and when a triage command answers `escalate`, the orchestrator applies the configured `escalation` action once for the subject it judged and records a [standing escalation](#standing-escalations). The entry stays pending, dispatches nothing, and keeps watching the pull request until a fact it observes ends the escalation. `review_comments` and `ci_failure` release the claim unless a worker is running for the issue. `auto_merge`, `bot_review`, and `merge_conflicts` keep the claim. When a worker is running, its exit decides the claim. For `review_comments` and `bot_review`, a spent budget escalates only when a new comment arrives; see [retry budgets](#retry-budgets).
 
 ```mermaid
 flowchart TD
@@ -60,13 +60,13 @@ flowchart TD
 
 ### Retry budgets
 
-The attempt counter is tracked per issue and per kind. It is cleared when the issue reaches a terminal tracker state, and it is held in memory only, so a restart clears it too. Dropping an entry at the end of its watch window also clears it, except for a spent `review_comments` or `bot_review` budget (see below). `auto_merge` clears it too when it finds its pull request already merged (see [`reactions.auto_merge`](#reactionsauto_merge)). `ci_failure` also clears it, while the entry keeps watching, when CI returns to `passing`.
+The attempt counter is tracked per issue and per kind. It is cleared when the issue reaches a terminal tracker state, and it is held in memory, so a restart clears it. The exception is the counter of a kind with a standing escalation: Sortie stores it with the escalation and restores it at startup. A person returning the issue to work ends that escalation and clears the counter; see [how a standing escalation ends](#how-a-standing-escalation-ends). Dropping an entry at the end of its watch window also clears it, except for a spent `review_comments` or `bot_review` budget (see below). `auto_merge` clears it too when it finds its pull request already merged (see [`reactions.auto_merge`](#reactionsauto_merge)). `ci_failure` also clears it, while the entry keeps watching, when CI returns to `passing`.
 
 The budget field differs by kind: `ci_failure` and `auto_merge` use `max_retries` (default `2`), `review_comments` uses `max_continuation_turns` (default `3`) as its hard cap, and `bot_review` uses `max_continuation_turns` (default `5`) as its hard cap. `merge_conflicts` uses `max_retries` (default `1`), the lowest of the kinds, and its counter is episodic, resetting when the conflict clears.
 
 A budget of `0` escalates `ci_failure` and `merge_conflicts` on the first actionable signal with no fix attempt. `auto_merge` is the exception: its escalation check requires `max_retries` greater than zero, so a budget of `0` turns count-based escalation off entirely instead of making it immediate.
 
-Polling is bounded, for every kind, by `watch_window_ms`, a shared and configurable field: once it elapses, the orchestrator drops the entry and logs a warning instead of escalating, so the reaction goes silent with no tracker-visible signal. `review_comments`, `bot_review`, `merge_conflicts`, and `auto_merge` default to thirty minutes. For `auto_merge` the window is measured from the entry's creation. For the other three it is measured from the last time the entry waited for the issue's retry slot, or from the entry's creation when it never has.
+Polling is bounded, for every kind, by `watch_window_ms`, a shared and configurable field: once it elapses, the orchestrator drops the entry and logs a warning instead of escalating, so the reaction goes silent with no tracker-visible signal. The window never drops an entry that holds a [standing escalation](#standing-escalations). `review_comments`, `bot_review`, `merge_conflicts`, and `auto_merge` default to thirty minutes. For `auto_merge` the window is measured from the entry's creation. For the other three it is measured from the last time the entry waited for the issue's retry slot, or from the entry's creation when it never has.
 
 `ci_failure` defaults instead to twenty-four hours, measured from the last recorded head change rather than from entry creation. Every kind's value must be non-negative and must not exceed `9223372036854` (about 292 years); `0` removes the bound entirely, and where the bound does apply, the entry drops with the same silent warning and no escalation. A pending reaction's `watch_ends_at` in the [HTTP API](/reference/http-api/#field-notes) reports when its window ends.
 
@@ -130,19 +130,19 @@ When the tracker reports the issue in a terminal state, that release is immediat
 
 This happens whether or not a worker is still running for the issue, so the two [label-command kinds](/reference/label-commands/), which carry no expiry, stop polling the pull request's label journal as soon as the issue closes instead of continuing for the life of the process, and the issue is available for a fresh dispatch the moment it is reopened into an active state.
 
-Fingerprint rows and the stored record of [comments already given](#comments-already-given) are not deleted by this path. See the [state machine reference](/reference/state-machine/) for the claim and retry model.
+The stored escalation records of the issue are deleted with the entries. Fingerprint rows and the stored record of [comments already given](#comments-already-given) are not deleted by this path. See the [state machine reference](/reference/state-machine/) for the claim and retry model.
 
 ### Cross-kind isolation
 
 Each kind owns its own pending entry, fingerprint row, and attempt counter. A successful auto-merge, or escalation of any one kind, scopes its cleanup to that kind alone and leaves the other kinds' state on the same issue intact.
 
-Because `auto_merge`, `bot_review`, and `merge_conflicts` keep the claim through that scoped cleanup, each re-arms and can escalate again if its condition recurs, while `review_comments` releases the claim and stops after its first escalation, and `ci_failure` escalates once per pull request head and keeps watching.
+Escalation scopes to its kind the same way. `review_comments` and `ci_failure` release the claim when they escalate, unless a worker is running for the issue, and `auto_merge`, `bot_review`, and `merge_conflicts` keep it. Every kind keeps its own pending entry while its escalation stands, and the escalation of one kind leaves the others on the same issue running.
 
-`merge_completion` scopes its cleanup the same way and keeps the claim: a transition or an escalation on it clears only its own pending entry and attempt counter, so the other kinds' state on that issue is untouched, and an escalation on any other kind leaves merge-completion tracking in place.
+`merge_completion` scopes its cleanup the same way and keeps the claim: a successful transition clears only its own pending entry and attempt counter, so the other kinds' state on that issue is untouched, and an escalation on any other kind leaves merge-completion tracking in place.
 
 ### Escalation actions
 
-An escalation fires when a kind exhausts its budget, when a [triage command](#triage-command) answers `escalate`, and when `merge_completion` gives up on a merge whose commit identifier never arrives. The `escalation` field chooses the action Sortie takes on the issue:
+An escalation fires when a kind exhausts its budget, when a [triage command](#triage-command) answers `escalate`, when the forge refuses the merge call of `auto_merge` or the tracker refuses the issue move of `merge_completion` with an authentication or payload error, and when `merge_completion` gives up on a merge whose commit identifier never arrives. The `escalation` field chooses the action Sortie takes on the issue:
 
 - `label` (default): adds `escalation_label` (default `needs-human`) to the tracker issue.
 - `none`: applies no label and posts no comment of its own.
@@ -156,9 +156,52 @@ Whatever the value, the escalation also emits one event: `escalation.ci_failure`
 | `none` | None. | None, unless a `tracker_comment` entry lists the event. |
 | `comment` (deprecated) | None. | Posted. |
 
-A reaction block that omits `escalation` resolves to `label`, `auto_merge` included, and draws no warning. A comment on the issue, from `escalation: comment` or from a subscription, is posted each time the escalation fires, while a label is applied idempotently.
+A reaction block that omits `escalation` resolves to `label`, `auto_merge` included, and draws no warning. A comment on the issue, from `escalation: comment` or from a subscription, is posted each time an escalation applies its action, which is once for each [subject](#standing-escalations), while a label is applied idempotently.
 
 The action runs asynchronously with a 30-second timeout. A failed escalation is logged and counted but does not block cleanup. Escalation outcomes are recorded by the per-kind escalation counters, such as `sortie_ci_escalations_total`; see the [Prometheus metrics reference](/reference/prometheus-metrics/).
+
+### Standing escalations
+
+An escalation stands from the moment a kind escalates until a fact Sortie observes ends it. While it stands, the entry stays pending and appears in `pending_reactions` with `escalated_at` and `escalation_trigger`, dispatches nothing, applies no second action, and keeps reading the pull request. No watch window ages it out. `ci_failure`, `review_comments`, `bot_review`, `merge_conflicts`, `auto_merge`, and `merge_completion` escalate this way; the label commands never escalate.
+
+Sortie stores each standing escalation with its trigger, its subject, the kind's attempt counter, and the pull request, so a restart restores it. The restart spends no second fix budget and applies no second action. A restored `merge_completion` escalation makes one transition call on its first pass: a success ends it, and a failure leaves it standing without a second action. An escalation that was standing when a database was upgraded to the release that stores escalations is not restored, and the next escalation of its kind records one.
+
+Every escalation has a trigger, served as `escalation_trigger`:
+
+| Trigger | Meaning | Kinds |
+| ------- | ------- | ----- |
+| `budget_exhausted` | The kind used up its tries. | Every kind that escalates |
+| `triage` | The kind's [triage command](#triage-command) answered `escalate`. | `ci_failure`, `review_comments`, `bot_review`, `merge_conflicts` |
+| `refused` | The forge refused the merge call, or the tracker refused the issue move, with an authentication or payload error. | `auto_merge`, `merge_completion` |
+| `missing_merge_commit` | The forge reports the pull request merged but gives no merge commit after the 30-minute grace period. | `merge_completion` |
+
+The subject is what the escalation judged. An escalation applies its action once for each subject: when an escalation ends and one for the same subject begins again, Sortie records the new time and applies no second action, so a subject gets one label and one event however often its escalation ends and begins again. A triage escalation is not applied again for a subject already escalated.
+
+| Kind | Subject |
+| ---- | ------- |
+| `ci_failure`, `merge_conflicts` | The pull request head. |
+| `review_comments`, `bot_review` | The set of comments. |
+| `auto_merge` | The merge call the forge refused. An escalation on an exhausted budget has no subject and applies its action every time it begins. |
+| `merge_completion` | The merge commit, or the pull request for `missing_merge_commit`. |
+
+### How a standing escalation ends
+
+An escalation ends when any of these holds, and on no other fact:
+
+- The pull request merges, closes, or no longer exists. For `merge_completion` the pull request has already merged, so only a pull request that no longer exists ends it.
+- The issue reaches a terminal tracker state.
+- A person answers it by moving the issue out of `tracker.handoff_state`, or by releasing its park so Sortie runs the issue again. This ends the escalation of every kind that stands on the issue, drops the entries and their attempt counters, and lets the next run start the reaction with a fresh budget. Sortie acts on this only when no run, retry, claim, or park of its own holds the issue, and only after a direct read of the issue shows a state that is neither the handoff state nor terminal; a search that trails Sortie's own handoff write ends nothing. An issue the tracker reads with no state ends the escalations at the second reading in a row. Without `tracker.handoff_state` set, no state marks a person's answer.
+- A fact of the kind itself, in the table below.
+
+| Kind | The escalation also ends when |
+| ---- | ----------------------------- |
+| `ci_failure` | A check of the pull request passes, or a new commit lands on it. For a `budget_exhausted` escalation, a reloaded `max_retries` rises above the CI fixes used. |
+| `review_comments`, `bot_review` | The pull request holds no actionable comment. For a `triage` escalation, the set of comments changes. For a `budget_exhausted` escalation, no comment is left that no run was given (for `bot_review`, on the code), or a restart finds `max_continuation_turns` above the turns used. A comment that arrives while a budget escalation stands joins it. |
+| `merge_conflicts` | A check finds no merge conflict, or a conflict appears on a different head. For a `budget_exhausted` escalation, a restart finds `max_retries` above the rebases used. |
+| `auto_merge` | For a `budget_exhausted` escalation, a restart finds `max_retries` above the merge calls made, or at `0`. |
+| `merge_completion` | For `missing_merge_commit`, the forge reports the merge commit. For a `budget_exhausted` escalation, a restart finds `max_retries` at or above the failed transitions. |
+
+Only `ci_failure` is re-read on every tick, so a raised CI budget ends its escalation at the next failing check, and every other budget change takes effect at the next restart, as the [configuration note](#common-fields) describes.
 
 ---
 
@@ -331,7 +374,7 @@ Polls CI status for Sortie-created branches and dispatches a continuation turn w
 | Field              | Type    | Default      | Description                                                       |
 | ------------------ | ------- | ------------ | ----------------------------------------------------------------- |
 | `max_log_lines`     | integer | `50`         | Maximum number of log lines in the CI failure excerpt injected into the prompt. The `[sortie]` lines described under the excerpt format below are not counted, so the excerpt holds at most this value plus three lines. `0` disables log injection. |
-| `watch_window_ms`   | integer | `86400000`   | Milliseconds the watch keeps following a pull request since its last recorded head change (twenty-four hours by default). Must be non-negative and must not exceed `9223372036854` (about 292 years). `0` removes the bound. |
+| `watch_window_ms`   | integer | `86400000`   | Milliseconds the watch keeps following a pull request since its last recorded head change (twenty-four hours by default). Must be non-negative and must not exceed `9223372036854` (about 292 years). `0` removes the bound. A standing escalation is never aged out. |
 
 **Activation:** active when `provider` names a registered CI status provider and an SCM adapter is also configured. `provider` must match the provider named by every other active SCM reaction; a mismatch fails startup and is reported by `sortie validate` under the `reactions.scm_provider_conflict` check.
 
@@ -339,11 +382,11 @@ The agent or an `after_run` hook must write `pr_number` (positive integer), `own
 
 **Behavior:** the reconcile loop resolves the pull request's current head live on every due tick, through the SCM adapter, and fetches CI status for that head; no ref is captured once and held for later polls. Two check conclusions are failing, `failure` and `timed_out`; a completed check that concludes `cancelled` withholds a passing verdict without asserting a failing one, holding the aggregate at pending rather than passing or failing.
 
-A `pending` status re-enqueues under capped exponential backoff. A `passing` status clears the attempt counter and the reaction keeps watching, so a commit pushed to the pull request afterward is still observed. A `failing` status dispatches a continuation turn carrying the failing checks through the `.ci_failure` template variable and increments the attempt counter, while the counter is below `max_retries`. At `max_retries` the reaction escalates instead and the counter stays there, so the count the escalation reports is the number of fixes dispatched.
+A `pending` status re-enqueues under capped exponential backoff. A `passing` status clears the attempt counter and ends a standing escalation, and the reaction keeps watching, so a commit pushed to the pull request afterward is still observed. A `failing` status dispatches a continuation turn carrying the failing checks through the `.ci_failure` template variable and increments the attempt counter, while the counter is below `max_retries`. At `max_retries` the reaction escalates instead and the counter stays there, so the count the escalation reports is the number of fixes dispatched.
 
-The reaction keeps watching after it escalates: the escalation applies once per pull request head, and a recheck of a head that stays red neither repeats it nor records another `ci_failed` run, which would count against [`agent.max_sessions`](/reference/workflow-config/#agent). A new head re-arms the escalation.
+The reaction keeps watching after it escalates and records a [standing escalation](#standing-escalations) on the head. A recheck of a head that stays red dispatches nothing, repeats nothing, keeps the time the escalation began, and records no further `ci_failed` run, which would count against [`agent.max_sessions`](/reference/workflow-config/#agent). A passing check or a new head ends the escalation. The action applies once per head: a later escalation of the same head records a new time and applies no second action.
 
-The watch ends on merge, on close without merging, when the pull request is not found on the forge, when the watch window elapses, or when the tracker issue enters a `tracker.terminal_states` state; a later normal worker exit for the same issue, or [startup recovery](/guides/resume-sessions-across-restarts/#what-happens-to-handoff-stage-prs) rebuilding the entry from the workspace metadata, begins a fresh watch. See the [`.ci_failure` template variable](/reference/workflow-config/#ci_failure) for its schema.
+The watch ends on merge, on close without merging, when the pull request is not found on the forge, when the watch window elapses (never while an escalation stands), or when the tracker issue enters a `tracker.terminal_states` state; a later normal worker exit for the same issue, or [startup recovery](/guides/resume-sessions-across-restarts/#what-happens-to-handoff-stage-prs) rebuilding the entry from the workspace metadata, begins a fresh watch. See the [`.ci_failure` template variable](/reference/workflow-config/#ci_failure) for its schema.
 
 **Example:**
 
@@ -388,13 +431,13 @@ Bot-authored comments are excluded when the forge marks their author as a bot ac
 | `poll_interval_ms`       | integer | `120000` | Minimum interval between review API polls per issue. Minimum: `30000`.                     |
 | `debounce_ms`            | integer | `60000`  | Wait after the newest detected comment before dispatching. Must be non-negative.           |
 | `max_continuation_turns` | integer | `3`      | Hard cap on review-triggered continuations per PR. Must be positive.                       |
-| `watch_window_ms`        | integer | `1800000` | Milliseconds a pending entry is kept (thirty minutes by default), measured from the last time the entry waited for the issue's retry slot, or from its creation when it never has. Must be non-negative and must not exceed `9223372036854` (about 292 years). `0` removes the bound. |
+| `watch_window_ms`        | integer | `1800000` | Milliseconds a pending entry is kept (thirty minutes by default), measured from the last time the entry waited for the issue's retry slot, or from its creation when it never has. Must be non-negative and must not exceed `9223372036854` (about 292 years). `0` removes the bound. A standing escalation is never aged out. |
 
 **Activation:** active when `provider` names a registered SCM adapter. Pull requests are watched for review comments only while this block is present; another reaction kind alone does not start review polling. The agent or an `after_run` hook must write `pr_number` (positive integer), `owner`, and `repo` to `.sortie/scm.json` in the workspace. When any field is missing or zero, review polling is skipped for that workspace with no error.
 
 **Behavior:** comments newer than `debounce_ms` defer dispatch until the reviewer's batch settles. The fingerprint is the SHA-256 of the sorted non-outdated comment IDs; an unchanged set is skipped, and a changed set starts a continuation only when it holds a comment no earlier run was given (see [comments already given](#comments-already-given)). Dispatch injects the comments through the `.review_comments` template variable (a list of maps with keys `id`, `file`, `start_line`, `end_line`, `reviewer`, `body`).
 
-Escalation fires when the attempt counter has reached `max_continuation_turns` and a comment arrives that no earlier run was given; see [retry budgets](#retry-budgets). See the [`.review_comments` template variable](/reference/workflow-config/#review_comments) for its schema.
+Escalation fires when the attempt counter has reached `max_continuation_turns` and a comment arrives that no earlier run was given; see [retry budgets](#retry-budgets). The entry then stays pending under a [standing escalation](#standing-escalations) and ends it when the review is resolved, as described there. See the [`.review_comments` template variable](/reference/workflow-config/#review_comments) for its schema.
 
 **Example:**
 
@@ -421,7 +464,7 @@ Polls comments authored by automated review tools (linters, static analyzers, se
 | `poll_interval_ms`       | integer         | `60000`   | Minimum interval between bot-comment polls per issue. Minimum: `30000`. Tighter than `review_comments` (`120000`) because bot comments arrive in bulk right after a push rather than at reviewer pace. |
 | `max_continuation_turns` | integer         | `5`       | Hard cap on bot-review continuations per PR. Must be positive. Higher than `review_comments` (`3`) because bot fixes are mechanical.                          |
 | `bot_usernames`          | list of strings | _(empty)_ | Allowlist of bot logins, matched case-insensitively. Extends classification to review tools that comment under a regular user account. Empty by default, so only accounts the forge marks as bots match, and on `gitea` nothing matches. |
-| `watch_window_ms`        | integer         | `1800000` | Milliseconds a pending entry is kept (thirty minutes by default), measured from the last time the entry waited for the issue's retry slot, or from its creation when it never has. Must be non-negative and must not exceed `9223372036854` (about 292 years). `0` removes the bound. |
+| `watch_window_ms`        | integer         | `1800000` | Milliseconds a pending entry is kept (thirty minutes by default), measured from the last time the entry waited for the issue's retry slot, or from its creation when it never has. Must be non-negative and must not exceed `9223372036854` (about 292 years). `0` removes the bound. A standing escalation is never aged out. |
 
 **Activation:** active when `provider` names a registered SCM adapter, on its own, with no other `reactions` block required. The agent or an `after_run` hook must write `pr_number` (positive integer), `owner`, `repo`, and `branch` (all non-empty) to `.sortie/scm.json` in the workspace. When any field is missing or zero, bot-review polling is skipped for that workspace with no error.
 
@@ -442,9 +485,7 @@ The `bot_usernames` allowlist covers review tools that comment under a regular u
 
 **Escalation:** fires when the attempt counter has reached `max_continuation_turns` and a bot adds a comment on the code that no earlier run was given; see [retry budgets](#retry-budgets). The action is `label` (default), `none`, or the deprecated `comment`, with `escalation_label` defaulting to `needs-human`.
 
-Cleanup is scoped to the `bot-review` kind and does not release the issue claim, so the reaction re-arms and can escalate again if further new comments on the code arrive on a long-lived PR. For that reason a comment on the issue, whether from `escalation: comment` or from a `tracker_comment` subscription to `escalation.bot_review`, can accumulate repeated comments; prefer `label`.
-
-This differs from `review_comments`, whose escalation releases the claim and stops, and from `ci_failure`, whose escalation releases the claim but keeps watching.
+The escalation is scoped to the `bot-review` kind and does not release the issue claim. The entry stays pending under a [standing escalation](#standing-escalations) and keeps its attempt counter. It dispatches nothing and applies no second action while the escalation stands, and it ends when the pull request ends, when no comment on the code is left that no run was given, or on the other facts under [how a standing escalation ends](#how-a-standing-escalation-ends). A new bot comment on the code that arrives while it stands joins it. If the escalation ends and a different set of comments escalates later, that escalation applies its action again, so a comment on the issue, whether from `escalation: comment` or from a `tracker_comment` subscription to `escalation.bot_review`, can accumulate on a long-lived PR; prefer `label`.
 
 Bot-review checks and escalations are recorded by the `sortie_bot_review_checks_total{result}` and `sortie_bot_review_escalations_total{action}` counters when the HTTP server is enabled; see the [Prometheus metrics reference](/reference/prometheus-metrics/).
 
@@ -475,7 +516,7 @@ The WORKFLOW.md key is `merge_conflicts` (plural); the runtime and persisted kin
 | Field              | Type    | Default | Description                                                                |
 | ------------------ | ------- | ------- | -------------------------------------------------------------------------- |
 | `poll_interval_ms` | integer | `60000` | Minimum interval between mergeability checks per issue. Minimum: `30000`.   |
-| `watch_window_ms`  | integer | `1800000` | Milliseconds a pending entry is kept (thirty minutes by default), measured from the last time the entry waited for the issue's retry slot, or from its creation when it never has. Must be non-negative and must not exceed `9223372036854` (about 292 years). `0` removes the bound. |
+| `watch_window_ms`  | integer | `1800000` | Milliseconds a pending entry is kept (thirty minutes by default), measured from the last time the entry waited for the issue's retry slot, or from its creation when it never has. Must be non-negative and must not exceed `9223372036854` (about 292 years). `0` removes the bound. A standing escalation is never aged out. |
 
 Two common fields take kind-specific defaults here. `max_retries` defaults to `1`, not the common `2`, because a conflict that survives one rebase is unlikely to clear on a retry. `max_retries: 0` does not disable the kind; it escalates on the first detected conflict with no rebase attempt. To disable merge-conflict handling, omit the `merge_conflicts` block.
 
@@ -496,7 +537,7 @@ Two common fields take kind-specific defaults here. `max_retries` defaults to `1
 
 **Cross-kind isolation:** merge-conflict detection runs independently of every other reaction kind. Each owns its own pending entry, fingerprint row, and attempt counter.
 
-**Escalation:** fires when the episode's attempt count exceeds `max_retries`. The action is `label` (default), `none`, or the deprecated `comment`, with `escalation_label` defaulting to `needs-human`. Cleanup is scoped to the `merge-conflict` kind, removing its pending entry, fingerprint, and attempt counter; it does not release the issue claim, and other reaction kinds on the same issue are preserved.
+**Escalation:** fires when the episode's attempt count exceeds `max_retries`. The action is `label` (default), `none`, or the deprecated `comment`, with `escalation_label` defaulting to `needs-human`. The escalation is scoped to the `merge-conflict` kind: it removes the fingerprint, keeps the pending entry under a [standing escalation](#standing-escalations) with the counter at the rebases dispatched, and does not release the issue claim. Other reaction kinds on the same issue are preserved. The entry dispatches nothing while the escalation stands, and `watch_window_ms` never drops it. A check that finds no conflict ends it, as does a conflict on a different head, which then proceeds as a new head.
 
 Merge-conflict checks and escalations are recorded by the `sortie_merge_conflict_checks_total{result}` and `sortie_merge_conflict_escalations_total{action}` counters when the HTTP server is enabled; see the [Prometheus metrics reference](/reference/prometheus-metrics/).
 
@@ -524,7 +565,7 @@ Polls merge preconditions on Sortie-created PRs and merges directly through the 
 | `require_ci`       | boolean | `true`   | When `true`, every CI check must pass before the merge. When `false`, CI is advisory only.           |
 | `delete_branch`    | boolean | `true`   | When `true`, the PR head branch is deleted after a successful merge. A delete failure does not roll back the merge. |
 | `poll_interval_ms` | integer | `60000`  | Minimum interval between precondition checks per issue. Minimum: `30000`.                            |
-| `watch_window_ms`  | integer | `1800000` | Milliseconds a pending entry is kept, measured from the entry's creation (thirty minutes by default). Must be non-negative and must not exceed `9223372036854` (about 292 years). `0` removes the bound. |
+| `watch_window_ms`  | integer | `1800000` | Milliseconds a pending entry is kept, measured from the entry's creation (thirty minutes by default). Must be non-negative and must not exceed `9223372036854` (about 292 years). `0` removes the bound. A standing escalation is never aged out. |
 
 **Activation:** active when `provider` names a registered SCM adapter. The agent or an `after_run` hook must write `pr_number`, `owner`, `repo`, and `branch` (all non-empty) to `.sortie/scm.json`.
 
@@ -552,9 +593,9 @@ For a pull request not yet merged, the merge fingerprint is the SHA-256 of the P
 
 A rejection from the merge endpoint sends the adapter back to re-read the pull request, and only a re-read confirming the pull request merged is dispatched as success. No adapter matches the provider's rejection wording, so a reworded response does not change the outcome.
 
-Escalation fires when the attempt counter reaches `max_retries`, but only when `max_retries` is greater than zero: a `max_retries` of `0` disables the count-based check instead of making it immediate. The pending reaction still expires after `watch_window_ms` (thirty minutes by default, measured from the entry's creation, configurable up to `9223372036854` milliseconds or removed with `0`); when it does, the orchestrator drops the entry and logs a warning rather than escalating, so the reaction goes silent with no tracker-visible signal.
+Escalation fires when the attempt counter reaches `max_retries`, but only when `max_retries` is greater than zero: a `max_retries` of `0` disables the count-based check instead of making it immediate. The entry then stays pending under a [standing escalation](#standing-escalations): it makes no further merge call and applies no second action, and it ends when the pull request merges, closes, or no longer exists, or on the other facts under [how a standing escalation ends](#how-a-standing-escalation-ends). Without an escalation, the pending reaction expires after `watch_window_ms` (thirty minutes by default, measured from the entry's creation, configurable up to `9223372036854` milliseconds or removed with `0`); when it does, the orchestrator drops the entry and logs a warning rather than escalating, so the reaction goes silent with no tracker-visible signal. The window never drops an escalated entry, and an escalated entry keeps reading the pull request after the auto-merge preflight has failed.
 
-An authentication-class or payload-class merge error still escalates immediately regardless of the budget.
+An authentication-class or payload-class merge error still escalates immediately regardless of the budget, with the trigger `refused`.
 
 **Safety:** auto-merge acts on Sortie-created PRs only and never merges a draft. The merge is performed directly rather than through an agent turn.
 
@@ -622,23 +663,23 @@ The condition is recorded as a second row in `reaction_fingerprints`, under the 
 
 During the grace period the entry re-enqueues under exponential backoff floored at `poll_interval_ms`, and each tick logs a warning naming the repository, the pull request, how long it has waited, and the grace period it is waiting against. The row is persisted, so a restart does not restart the clock.
 
-Expiry is evaluated on the first tick at or after the deadline. If a real identifier arrives before then, the normal latch and transition run unchanged, and the observation row is cleared once that transition is latched. If the identifier is still absent, the pending entry is dropped, the permanent stop is logged at `error` level, and the configured escalation is applied. No transition is attempted and no merge fingerprint is written for this condition, so the issue stays in the handoff state until a person moves it.
+Expiry is evaluated on the first tick at or after the deadline. If a real identifier arrives before then, the normal latch and transition run unchanged, and the observation row is cleared once that transition is latched. If the identifier is still absent, Sortie begins a `missing_merge_commit` [standing escalation](#standing-escalations): the entry stays pending and keeps polling at `poll_interval_ms`, the configured escalation is applied, and the escalation is logged at `error` level. No transition is attempted and no merge fingerprint is written while the commit is missing, so the issue stays in the handoff state until the forge reports the commit, which ends the escalation and runs the normal transition, or until a person moves the issue.
 
-A comment on the issue, from the deprecated `comment` posture or from a `tracker_comment` subscription to `escalation.merge_completion`, names the repository, the pull request, the elapsed wait, the reason, and the configured target state; the `label` posture adds `escalation_label` instead, and the stop log carries the same identifying and manual-action context under every posture.
+A comment on the issue, from the deprecated `comment` posture or from a `tracker_comment` subscription to `escalation.merge_completion`, names the repository, the pull request, the elapsed wait, the reason, and the configured target state; the `label` posture adds `escalation_label` instead, and the escalation log carries the same identifying and manual-action context under every posture.
 
 Delivery is recorded only after both the tracker write and the follow-up write that marks it delivered succeed, and the two share one 30-second deadline.
 
 The tracker write is the label under `label`, and the comment on the issue under `comment` or under `none` with a `tracker_comment` subscription to the event. Under `none` with no such subscription there is no tracker write to confirm, so delivery is recorded at once. A Slack or webhook send never confirms delivery and never blocks it, so it never suppresses the retry of a failed tracker write.
 
-A failure in either leaves the observation recorded as undelivered, and neither failure reopens the stopped entry: a later pending entry for the same issue, from a subsequent worker exit or from startup recovery, retries delivery once and stops again without restarting the grace period or the polling loop. When only the marker write failed, the notification already reached the tracker, so that retry delivers a second time. `label` repeats harmlessly, because re-applying a present label is a no-op; a comment posts a duplicate.
+A failure in either leaves the observation recorded as undelivered, and the escalation keeps standing. The first pass after a restart, or a fresh pending entry that a later worker exit or startup recovery seeds, retries delivery once without restarting the grace period or the polling loop. When only the marker write failed, the notification already reached the tracker, so that retry delivers a second time. `label` repeats harmlessly, because re-applying a present label is a no-op; a comment posts a duplicate.
 
-Once delivery is marked, a later entry stops without repeating the signal. The observation row is also cleared whenever the issue is missing from the tracker's state response, is already terminal, or has left the handoff state, and when the pull request is gone from the forge.
+Once delivery is marked, a later pass keeps watching without repeating the signal. The observation row is also cleared whenever the issue is missing from the tracker's state response, is already terminal, or has left the handoff state, and when the pull request is gone from the forge.
 
 **No expiry:** the pending entry carries no time-to-live. `review_comments`, `bot_review`, `merge_conflicts`, and `auto_merge` each bound their entry with `watch_window_ms`, defaulting to thirty minutes, and `ci_failure` bounds its own with the same field, defaulting instead to twenty-four hours, because each waits on a signal that either arrives shortly after the agent finishes or does not arrive at all.
 
 A merge waits on human review for an unbounded time, so this kind takes the same posture as the label commands and carries no expiry.
 
-The entry is bounded another way: it stops being re-enqueued once the issue leaves the configured handoff state, and it is dropped outright when the issue is already terminal, when the issue is missing from the tracker's state response, or when the pull request is gone from the forge. One post-merge condition carries a clock of its own: a pull request reported merged with no commit identifier stops the entry after 30 minutes, as described above.
+The entry is bounded another way: it stops being re-enqueued once the issue leaves the configured handoff state, and it is dropped outright when the issue is already terminal, when the issue is missing from the tracker's state response, or when the pull request is gone from the forge. For an entry with a standing escalation, a missing issue or one outside the handoff state ends the entry only after a direct read of the issue confirms it. One post-merge condition carries a clock of its own: a pull request reported merged with no commit identifier escalates after 30 minutes and keeps watching, as described above.
 
 **Failure matrix:** a failed transition is routed to one of four dispositions.
 
@@ -653,11 +694,11 @@ The retry bound is a strict over-limit comparison against a per-issue counter sc
 
 **Escalation:** the postures are the ones the sibling kinds already use. `label` (default) adds `escalation_label` (default `needs-human`) to the tracker issue. `none` applies no label.
 
-The comment, from the deprecated `comment` or from a `tracker_comment` subscription to `escalation.merge_completion`, is plain text naming the number of attempts, the target state, the pull request number, and the repository. The same postures serve the missing-identifier stop above, where the comment names the elapsed wait and the manual follow-up rather than an attempt count.
+The comment, from the deprecated `comment` or from a `tracker_comment` subscription to `escalation.merge_completion`, is plain text naming the number of attempts, the target state, the pull request number, and the repository. The same postures serve the missing-identifier escalation above, where the comment names the elapsed wait and the manual follow-up rather than an attempt count.
 
-Both run asynchronously with a 30-second timeout, so a slow tracker does not block the reconcile tick, and an escalation that itself fails is logged without reopening the entry. On any escalation the pending entry and the attempt counter are cleared while the fingerprint row is deliberately left undispatched.
+Both run asynchronously with a 30-second timeout, so a slow tracker does not block the reconcile tick, and an escalation that itself fails is logged without changing the entry. On an escalation the pending entry and the attempt counter stay while it stands, and the entry makes no further transition call. The fingerprint row is deliberately left undispatched.
 
-That residue works in your favor: a later reconcile of the same merge commit, driven by a fresh pending entry from a subsequent worker exit, retries the transition instead of treating the escalated attempt as final.
+That residue lets the one transition call that a restart resumes go through: a success ends the escalation, and a failure leaves it standing without a second action.
 
 **Restart to apply:** this block, `target_state` included, is captured once at startup and is not rebuilt on a dynamic reload. A change to any field here, or to either tracker prerequisite, takes effect only on the next restart. `sortie validate` runs the same startup path, so its offline verdict cannot diverge from what a restart would produce.
 

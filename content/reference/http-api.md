@@ -98,7 +98,7 @@ An unset value is an empty string, not `NULL`. All three columns are empty on ru
 
 ## GET /api/v1/state: System state
 
-Returns a full runtime snapshot: running sessions, retry queue, budget-exhausted and parked issues, pending pull request reactions, issues between stages, aggregate totals, rate limits, the workflow configuration in effect, the health of Sortie's own checks, the Sortie version, and the time the process started.
+Returns a full runtime snapshot: running sessions, retry queue, budget-exhausted and parked issues, pending pull request reactions, issues between stages, the list of what needs a person, aggregate totals, rate limits, the workflow configuration in effect, the health of Sortie's own checks, the Sortie version, and the time the process started.
 
 ```sh
 curl http://localhost:7678/api/v1/state
@@ -117,7 +117,8 @@ curl http://localhost:7678/api/v1/state
     "budget_exhausted": 1,
     "parked": 1,
     "pending_reactions": 2,
-    "between_stages": 1
+    "between_stages": 1,
+    "attention": 4
   },
   "running": [
     {
@@ -287,7 +288,8 @@ curl http://localhost:7678/api/v1/state
       "used_attempts": 2,
       "max_attempts": 2,
       "escalated_at": "2026-03-26T14:26:40Z",
-      "watch_ends_at": "2026-03-27T14:26:40Z",
+      "escalation_trigger": "budget_exhausted",
+      "watch_ends_at": null,
       "last_check": {
         "observed_at": "2026-03-26T14:26:40Z",
         "head_sha": "9b7e3d1c0a2f4e6b8d0c1a3e5f7b9d2c4e6a8f0b",
@@ -377,6 +379,96 @@ curl http://localhost:7678/api/v1/state
       "configured_model": "claude-sonnet-4-5",
       "status_text": "Between stages: specify to implement",
       "status_text_full": "MT-655 moved from stage specify to stage implement, and Sortie added `stage-implement`; implement starts when a poll tick reads that label on the issue."
+    }
+  ],
+  "attention": [
+    {
+      "id": "436a04996ce8317d45cdb082d7ee656a",
+      "kind": "workflow_reload_failed",
+      "severity": "critical",
+      "since": "2026-03-26T14:29:41Z",
+      "reason_text": "WORKFLOW.md failed to load",
+      "why_text": "WORKFLOW.md failed to load (config: agent.turn_timeout_ms: must be greater than 0), so poll ticks dispatch nothing until it loads, and the configuration that last loaded stays in effect.",
+      "clears_text": "Clears when WORKFLOW.md loads again, which Sortie tries each time the file is saved and on every poll tick.",
+      "action": {"kind": "acknowledge"},
+      "evidence": {
+        "file": "WORKFLOW.md",
+        "error": "config: agent.turn_timeout_ms: must be greater than 0"
+      }
+    },
+    {
+      "id": "9ee206201099385b431c9bb01911553f",
+      "kind": "parked",
+      "severity": "warning",
+      "since": "2026-03-26T14:05:00Z",
+      "issue_id": "jkl012",
+      "issue_identifier": "MT-652",
+      "issue_title": "Rotate the signing keys",
+      "issue_url": "https://tracker.example.com/browse/MT-652",
+      "reason_text": "Parked: the agent needs a person",
+      "why_text": "The agent stopped because it cannot go on without a person, so Sortie parked MT-652 under the label `needs-human`.",
+      "clears_text": "Clears when a poll tick finds `needs-human` removed from MT-652, or MT-652 moved out of In Progress.",
+      "action": {"kind": "open_issue", "url": "https://tracker.example.com/browse/MT-652"},
+      "evidence": {
+        "reason": "agent_blocked",
+        "label": "needs-human"
+      }
+    },
+    {
+      "id": "464f9ff8ea54c4c6cfb43af394234d57",
+      "kind": "budget_held",
+      "severity": "warning",
+      "since": "2026-03-26T14:12:00Z",
+      "issue_id": "ghi789",
+      "issue_identifier": "MT-651",
+      "issue_title": "Migrate the billing tables",
+      "issue_url": "https://tracker.example.com/browse/MT-651",
+      "reason_text": "Session budget reached",
+      "why_text": "MT-651 has used 3 sessions of its budget of 3.",
+      "clears_text": "Clears on the next poll tick after `agent.max_sessions` is raised above 3 or is removed, or after MT-651 leaves the active tracker states.",
+      "action": {"kind": "acknowledge"},
+      "evidence": {
+        "reason": "session_budget",
+        "used_sessions": 3,
+        "budget_sessions": 3
+      }
+    },
+    {
+      "id": "cf5210ceffa49562e16b5c7c7a9aeb36",
+      "kind": "reaction_escalated",
+      "severity": "warning",
+      "since": "2026-03-26T14:26:40Z",
+      "issue_id": "mno345",
+      "issue_identifier": "MT-653",
+      "issue_title": "Add the export button",
+      "issue_url": "https://tracker.example.com/browse/MT-653",
+      "reason_text": "CI escalated on #931",
+      "why_text": "Sortie escalated failing CI on PR #931 after 2 of 2 CI fixes; the latest check found Test failing.",
+      "clears_text": "Clears when a check of PR #931 passes, a new commit lands on it, it merges or closes, `reactions.ci_failure.max_retries` rises above 2, or MT-653 reaches a terminal tracker state or leaves In Review.",
+      "action": {"kind": "open_pull_request", "url": "https://github.com/acme/web/pull/931"},
+      "evidence": {
+        "reaction_kind": "ci",
+        "config_key": "ci_failure",
+        "pull_request": {
+          "number": 931,
+          "repository": "acme/web",
+          "url": "https://github.com/acme/web/pull/931",
+          "branch": "sortie/MT-653",
+          "head_sha": "4f1c2a9e8b7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b"
+        },
+        "escalation_trigger": "budget_exhausted",
+        "used_attempts": 2,
+        "max_attempts": 2,
+        "last_check": {
+          "observed_at": "2026-03-26T14:26:40Z",
+          "head_sha": "9b7e3d1c0a2f4e6b8d0c1a3e5f7b9d2c4e6a8f0b",
+          "status": "failing",
+          "failing_checks": ["Test"],
+          "failing": 1,
+          "pending": 0,
+          "passing": 4
+        }
+      }
     }
   ],
   "agent_totals": {
@@ -707,7 +799,7 @@ A park stored by an earlier release takes its run from the issue's newest agent 
 
 **`pending_reactions[]` entries:** Pull request [reactions](/reference/reactions/) that Sortie keeps watching after a run hands off, one row per issue and reaction kind. The list is always present, `[]` when no reaction is pending, and sorted by `issue_identifier`, then `issue_id`, then `kind`. `counts.pending_reactions` equals its length. An issue appears in every list that holds it, so an issue with a CI fix queued and a review check pending is in `retrying` and `pending_reactions` both.
 
-Pending reactions live in memory only. After a restart Sortie rebuilds them from run history, and a rebuilt row has no `wait`, `last_check`, or `escalated_at`, no pull request `url` until a check reads one, and a `created_at` of the restart. It also holds the title and link only, with no `issue_type`, `issue_labels`, or `state`, because run history records none of them. Its `dispatched_at`, `rule_name`, `agent_kind`, and `configured_model` come from the run history row.
+Pending reactions live in memory, except for a standing escalation, which Sortie stores. After a restart Sortie rebuilds the rows from run history and from the stored escalations, and a rebuilt row has no `wait` or `last_check`, no pull request `url` until a check reads one, and a `created_at` of the restart. A row with a standing escalation keeps its `escalated_at`, `escalation_trigger`, and `used_attempts`. It also holds the title and link only, with no `issue_type`, `issue_labels`, or `state`, because run history records none of them. Its `dispatched_at`, `rule_name`, `agent_kind`, and `configured_model` come from the run history row.
 
 | Field | Description |
 |---|---|
@@ -725,8 +817,9 @@ Pending reactions live in memory only. After a restart Sortie rebuilds them from
 | `wait` | Why the reaction waits for that check; see the table below. Omitted until a pass first returns the reaction to the pending set, because a reaction no pass has taken is due at once. |
 | `used_attempts` | Integer or `null`. What the kind counts; see the table below. `null` for `label-review` and `label-fix`, which count nothing. |
 | `max_attempts` | Integer or `null`. The budget the kind's pass applies, as of the latest poll tick. `null` when the pass applies none: for `label-review` and `label-fix`, and for `merge` when `max_retries` is `0`. |
-| `escalated_at` | String or `null`. When the reaction escalated for its current head, in UTC. Always present. Only `ci` stays pending after it escalates, so for every other kind the value is `null` for as long as the row exists. A change of the pull request head clears it. When `config.reactions[config_key].escalation` is `"label"`, the label an escalation applies is that block's `escalation_label`. |
-| `watch_ends_at` | String or `null`. When the reaction stops watching the pull request unless its watch restarts first, in UTC: the kind's `watch_window_ms`, as the process applies it, added to the instant the kind measures the window from. Always present. `ci` measures from when it last recorded a new head commit, or from `created_at` while it has recorded none, so a new head moves the value. `review`, `bot-review`, and `merge-conflict` measure from their latest wait for the retry slot, which restarts the watch, or from `created_at` when they have not waited. `merge` measures from `created_at`. `null` for `merge-completion`, `label-review`, and `label-fix`, which have no watch window, and when `watch_window_ms` is `0`. |
+| `escalated_at` | String or `null`. When the standing escalation of the reaction began, in UTC. Always present; `null` while none stands. Every kind that escalates stays pending while its escalation stands, and serves the time the escalation began, which a recheck does not move. The escalation survives a restart. What ends it depends on the kind; see [standing escalations](/reference/reactions/#standing-escalations). When `config.reactions[config_key].escalation` is `"label"`, the label an escalation applies is that block's `escalation_label`. |
+| `escalation_trigger` | String or absent. Present exactly while `escalated_at` is non-null. Why the escalation began: `budget_exhausted` (the kind used up its tries), `triage` (the kind's triage command asked for a person), `refused` (the forge or the tracker answered a write with an authentication or payload error; on `merge` and `merge-completion`), or `missing_merge_commit` (the forge reports the pull request merged but gives no merge commit after the grace period; on `merge-completion`). |
+| `watch_ends_at` | String or `null`. When the reaction stops watching the pull request unless its watch restarts first, in UTC: the kind's `watch_window_ms`, as the process applies it, added to the instant the kind measures the window from. Always present. `ci` measures from when it last recorded a new head commit, or from `created_at` while it has recorded none, so a new head moves the value. `review`, `bot-review`, and `merge-conflict` measure from their latest wait for the retry slot, which restarts the watch, or from `created_at` when they have not waited. `merge` measures from `created_at`. `null` for `merge-completion`, `label-review`, and `label-fix`, which have no watch window, when `watch_window_ms` is `0`, and while an escalation stands, because no window ages out a standing escalation. |
 | `last_check` | Object or `null`. What the latest completed check observed; keys below. Always present. `null` before the first check completes, and always `null` for `merge`, `merge-completion`, `label-review`, and `label-fix`. A new result replaces the previous one. For `ci` it is cleared when the head changes. |
 | `rule_name` | Name of the [dispatch rule](/reference/workflow-config/#dispatch) of the run the reaction follows. Omitted when no rule routed that run. |
 | `agent_kind` | The agent kind of the run the reaction follows. Omitted when empty. |
@@ -801,6 +894,80 @@ The hop is stored in the database with its type, labels, and state, so a restart
 | `rule_name` | The rule the issue's next run dispatches on, which is `target_rule`. |
 | `agent_kind`, `configured_model` | The agent kind and `model` a dispatch of `rule_name` resolves to under the configuration as of the latest poll tick. Each omitted when the configuration no longer names a rule with a stage label under that name, and `configured_model` also when the rule sets none. |
 | `stage_position` | Always present. Where `rule_name` stands on its [stage chain](/reference/workflow-config/#stage-chains), or `null` when the rule is on no chain. See [dispatch time and stage position](#dispatch-time-and-stage-position). |
+
+**`attention[]` entries:** Things that need a person. Sortie derives the list on each request from the rows above and the `health` block and stores it nowhere, so an item exists exactly while its cause holds and disappears on the first request after the cause clears. The list is always present, `[]` when nothing needs a person, and `counts.attention` equals its length. A client that shows the list needs no ordering, wording, or counting rules of its own: the order, the sentences, and the action come with each item.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | string | 32 lowercase hexadecimal characters. It stays the same while the cause holds, across requests and across a restart, and a recurrence of the cause gets a new one. A client keys stored state, such as an acknowledgement, by it. See [item IDs](#attention-item-ids). |
+| `kind` | string | What the item is about; see the table below. |
+| `severity` | string | `critical` marks a cause under which poll ticks dispatch nothing for any issue. `warning` marks a cause about one issue. The severity belongs to the kind and does not grow with age. |
+| `since` | string or `null` | When the cause began, in UTC. `null` only for a park whose stored time cannot be read. |
+| `issue_id`, `issue_identifier` | string | The tracker-internal issue ID and the human-readable key, copied from the source row. Absent on an item about the process. |
+| `display_identifier`, `issue_title`, `issue_url` | string | Copied from the source row as that row serves them. Each omitted when empty, and absent on an item about the process. |
+| `reason_text` | string | A short phrase that says what needs a person. It ends without a period. |
+| `why_text` | string | One sentence that says why it needs a person. |
+| `clears_text` | string | One sentence that says what clears the item. |
+| `action` | object | The one action a client should offer. `kind` is `open_issue`, `open_pull_request`, or `acknowledge`. `url` is present exactly for `open_issue` (the issue's link) and `open_pull_request` (the pull request's link). `acknowledge` is the action of an item with nothing to open. |
+| `evidence` | object | The facts behind the item; members below. Always present, and `{}` when the kind carries none. |
+
+`kind` values, with the cause that raises each:
+
+| `kind` | Cause | `since` | `severity` | `action.kind` |
+|---|---|---|---|---|
+| `parked` | A row of `parked`. | `parked_at`, cut to whole seconds | `warning` | `open_issue`; `acknowledge` when the row has no `issue_url` |
+| `budget_held` | A row of `budget_exhausted`. | `exhausted_at` | `warning` | `acknowledge` |
+| `reaction_escalated` | A row of `pending_reactions` whose `escalated_at` is non-null, whatever its kind. | `escalated_at` | `warning` | For `merge-completion`: `open_issue`, else `acknowledge`. For every other kind: `open_pull_request`, else `open_issue`, else `acknowledge`. |
+| `workflow_reload_failed` | `health.workflow.consecutive_failures` above `0`. | `health.workflow.failing_since` | `critical` | `acknowledge` |
+| `preflight_failed` | `health.preflight.consecutive_failures` above `0`, unless the latest failed preflight failed because the workflow file did not load. | `health.preflight.failing_since` | `critical` | `acknowledge` |
+
+A preflight that fails because the workflow file did not load yields no `preflight_failed` item, because the `workflow_reload_failed` item already names the cause. A `preflight_failed` item's `since` is when the preflight began failing, which can be earlier than the item's first appearance when the failing streak began on a workflow load. Both process-wide items are absent from a response that carries no `health` block.
+
+A `reaction_escalated` item for a row rebuilt after a restart carries `open_issue` until a check reads the pull request's link, and then `open_pull_request`.
+
+`evidence` members. A member is present exactly on the kinds named and absent on every other:
+
+| Member | Kind | Value |
+|---|---|---|
+| `reason` | `parked`, `budget_held` | The row's `reason`: `agent_blocked` or `handoff_absence`; `session_budget` or `token_budget`. |
+| `label` | `parked` | The row's `label`. |
+| `used_sessions`, `budget_sessions` | `budget_held` with `session_budget` | The row's values. |
+| `used_tokens`, `used_tokens_complete`, `budget_tokens` | `budget_held` with `token_budget` | The row's `used_tokens` (omitted when the row's is `null`) and `budget_tokens`. `used_tokens_complete` is `false` exactly when `used_tokens` is a lower bound. |
+| `reaction_kind`, `config_key`, `pull_request`, `escalation_trigger` | `reaction_escalated` | The row's `kind`, `config_key`, `pull_request`, and `escalation_trigger`, in the shapes the row serves. |
+| `used_attempts`, `max_attempts` | `reaction_escalated` | The row's values, each omitted when `null`. |
+| `last_check` | `reaction_escalated` | The row's `last_check`, omitted when `null`. |
+| `file` | `workflow_reload_failed` | `health.workflow.file`. |
+| `error` | `workflow_reload_failed`, `preflight_failed` | The check's `error`, as `health` serves it. |
+
+`reason_text`, `why_text`, and `clears_text` are English sentences that Sortie takes from the same table of wording as the [status sentences](#status-sentences), one template per park reason, per budget reason, per check, and per kind of escalating reaction. They follow the same rules: each states only a fact Sortie records, is masked like `issue_title`, and carries no cost, clock time, or date. A part that cannot be rendered reads `Status not available`, and the item stays, so the list and its count never drop a cause. The `reason_text` of each kind:
+
+| `kind` | `reason_text` |
+|---|---|
+| `parked` | `Parked: the agent needs a person` for `agent_blocked`; `Parked: no evidence of work` for `handoff_absence`. |
+| `budget_held` | `Token budget reached` for `token_budget`; `Session budget reached` for `session_budget`. |
+| `reaction_escalated` | `CI escalated on #<number>`, `Review comments escalated on #<number>`, `Bot review escalated on #<number>`, `Merge conflict escalated on #<number>`, `Auto-merge escalated on #<number>`, or `Merge completion escalated on #<number>`, by reaction kind. |
+| `workflow_reload_failed` | `<file> failed to load`. |
+| `preflight_failed` | `Dispatch preflight failed`. |
+
+What clears each cause is the source's own rule, and `clears_text` words it. A park lifts when a person removes its label after Sortie has seen it there, or moves the issue to another tracker state. A hold leaves the set when a poll tick finds the issue no longer at a ceiling or among the candidates, for example after the ceiling is raised or removed. A reaction escalation ends on the facts under [standing escalations](/reference/reactions/#standing-escalations). A reload failure ends with the next load that succeeds, and a preflight failure with the next preflight that passes.
+
+Items are ordered by `severity` (`critical` before `warning`), then by `since` (`null` first, then ascending), then by `id` ascending. The order is total, so the same state serves the same list. The `attention` array of the example above holds the failed reload first, because it is `critical`, then the park, the hold, and the CI escalation in the order of their `since`. It holds no `preflight_failed` item, because the preflight error is the load error.
+
+#### Attention item IDs
+
+`id` is the lowercase hexadecimal form of the first 16 bytes of the SHA-256 hash of the JSON array `[kind, part, ...]`, written without whitespace. The parts depend on the kind, with times in UTC:
+
+| `kind` | Parts |
+|---|---|
+| `parked` | The issue ID; the park time cut to whole seconds in RFC 3339, or `""` when the stored time cannot be read. |
+| `budget_held` | The issue ID; the `reason`; the ceiling the reason names as a decimal number, `budget_tokens` for `token_budget` and `budget_sessions` for `session_budget`. |
+| `reaction_escalated` | The issue ID; the row's `kind`; `escalated_at` in RFC 3339 with nanoseconds, trailing zeros dropped. |
+| `workflow_reload_failed` | `failing_since` in RFC 3339 with nanoseconds, trailing zeros dropped. |
+| `preflight_failed` | `failing_since` in RFC 3339 with nanoseconds, trailing zeros dropped. |
+
+A park keeps its `id` and `since` across a restart, because Sortie stores the park at whole-second precision. A hold keeps its `id` across a restart, but its `since` becomes the first poll tick after the restart, because Sortie keeps the moment a hold began in memory only. A reaction escalation keeps its `id` and `since` across a restart, because the restored escalation carries its stored time. A reload or preflight failure cannot span a restart, because startup exits when the first load or the startup preflight fails.
+
+A recurrence changes a part, so an acknowledgement keyed by `id` never hides a new cause: a new park has a new time, a hold reached again after a raise or under an edited ceiling has a new ceiling, a different budget reason is a new reason, an escalation that ended and began again has a new time, and a failure after a pass has a new `failing_since`.
 
 #### Status sentences
 

@@ -31,11 +31,11 @@ There is no `enabled` flag. Presence of `provider` activates the feature; absenc
 
 Once activated, Sortie hooks into the worker exit path. After each normal worker exit where the agent pushed code and the workspace's `.sortie/scm.json` carries a pull request number, an owner, a repository, and a branch, the orchestrator records a pending CI watch for that pull request. On each reconcile tick, it resolves the pull request's current head and polls CI status for that head. Three common outcomes:
 
-- **Passing.** CI is green. The CI-fix attempt counter resets to zero, and Sortie keeps watching that pull request, so a commit pushed afterward is still observed.
+- **Passing.** CI is green. The CI-fix attempt counter resets to zero, a standing escalation ends, and Sortie keeps watching that pull request, so a commit pushed afterward is still observed.
 - **Pending.** Checks are still running. Sortie re-checks on the next tick.
 - **Failing.** At least one check failed. Sortie dispatches a continuation run with failure context injected into the prompt.
 
-The watch is bounded by `watch_window_ms` (default twenty-four hours), measured from the pull request's last recorded commit rather than from when the watch started. Reaching that age drops the entry with a log warning and no escalation; a value of `0` removes the bound.
+The watch is bounded by `watch_window_ms` (default twenty-four hours), measured from the pull request's last recorded commit rather than from when the watch started. Reaching that age drops the entry with a log warning and no escalation; a value of `0` removes the bound. An entry with a standing escalation is never dropped by the window.
 
 If you don't see CI feedback triggering, check that your `after_run` hook writes `.sortie/scm.json` with `pr_number`, `owner`, `repo`, and `branch` all present. A workspace whose metadata carries a branch but no pull request identity logs `ci watch not seeded: workspace metadata missing pull request identity` at debug level; grep your logs for it to confirm this is the cause.
 
@@ -52,7 +52,9 @@ reactions:
 
 Each CI failure that triggers a new dispatch increments the counter. If the agent fixes the issue and CI passes, the counter resets to zero. When the counter reaches `max_retries` and CI is still red, Sortie escalates via the configured strategy and releases its claim on the issue, unless a worker is running for it. The counter stops at `max_retries`.
 
-Sortie keeps watching the pull request after it escalates, but applies the escalation once per commit: while the checks stay red on the same commit, a recheck repeats nothing and does not count as a session against `agent.max_sessions`.
+Sortie keeps watching the pull request after it escalates, but applies the escalation once per commit: while the checks stay red on the same commit, a recheck repeats nothing, keeps the time the escalation began, and does not count as a session against `agent.max_sessions`. The escalation survives a restart, so a restart does not give the agent a second round of fixes or apply the label again.
+
+The escalation ends when a check of the pull request passes, a new commit lands on it, the pull request merges or closes, or you move the issue out of `tracker.handoff_state`. To give the agent more tries instead, raise `max_retries`: the CI reaction re-reads it on every tick, and a budget escalation ends at the next failing check, which dispatches the next fix. See [standing escalations](/reference/reactions/#standing-escalations) for every fact that ends one.
 
 A commit landing on the pull request afterward restores the attempt budget when Sortie can establish that the commit is not its own work, so an agent cannot extend its own budget by pushing; applying the configured fix label re-arms an escalated pull request by hand.
 

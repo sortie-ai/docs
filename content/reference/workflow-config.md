@@ -434,7 +434,7 @@ Directory modification time is not used, and was rejected deliberately: lifecycl
 
 A workspace with neither timestamp is retained, never removed. Absence of a record is not evidence of age, and that case covers a run that never completed, a directory produced by an operator or a hook, and a directory Sortie did not create.
 
-Two exclusions are absolute. A workspace whose issue holds an entry in the running map or the retry map is never removed, whatever its age and however large the directory. A workspace pinned by an unexpired pending reaction is excluded until that entry expires, a bound set by that reaction kind's `watch_window_ms` (30 minutes by default, up to 24 hours by default for `ci_failure`); see the [reactions reference](/reference/reactions/#retry-budgets) for which reaction kinds pin a workspace and which do not. Everything else on disk is a candidate.
+Two exclusions are absolute. A workspace whose issue holds an entry in the running map or the retry map is never removed, whatever its age and however large the directory. A workspace pinned by an unexpired pending reaction is excluded until that entry expires, a bound set by that reaction kind's `watch_window_ms` (30 minutes by default, up to 24 hours by default for `ci_failure`), or until its standing escalation ends, which no window ages out; see the [reactions reference](/reference/reactions/#retry-budgets) for which reaction kinds pin a workspace and which do not. Everything else on disk is a candidate.
 
 The bound removes directories and does nothing else. It performs no tracker write, no source-control write, and no change to reaction state, so a workspace removed by age leaves every reaction latch exactly as it found it. Removal runs through the same path as terminal cleanup, so workspace key sanitization, containment under `root`, and the [`before_remove` hook](/guides/setup-workspace-hooks/) all apply unchanged.
 
@@ -1065,7 +1065,7 @@ Polls `CHANGES_REQUESTED` review comments on Sortie-created PRs and dispatches c
 | `poll_interval_ms`       | integer | `120000`       | Minimum interval between review API polls per issue. Minimum: `30000`.                               |
 | `debounce_ms`            | integer | `60000`        | Wait time after last detected comment before dispatch. Non-negative.                                 |
 | `max_continuation_turns` | integer | `3`            | Hard cap on review-triggered continuations per PR before escalation. Positive integer.               |
-| `watch_window_ms`        | integer | `1800000`      | Milliseconds a pending entry is kept, measured from the last time the entry waited for the issue's retry slot, or from its creation when it never has. Non-negative, not above `9223372036854` (about 292 years); `0` removes the bound.  |
+| `watch_window_ms`        | integer | `1800000`      | Milliseconds a pending entry is kept, measured from the last time the entry waited for the issue's retry slot, or from its creation when it never has. Non-negative, not above `9223372036854` (about 292 years); `0` removes the bound. A standing escalation is never aged out.  |
 
 `provider` is required when `reactions.review_comments` is present; omitting it does not produce an error, but review polling is inactive without a provider.
 

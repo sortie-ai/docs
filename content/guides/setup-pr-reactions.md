@@ -56,7 +56,7 @@ Every kind shares four fields:
 | `escalation` | `"label"` | Action taken when the kind hands the issue to a person: `"label"`, `"none"`, or the deprecated `"comment"`. |
 | `escalation_label` | `"needs-human"` | Label applied to the issue when `escalation` is `"label"`. Created on demand if the tracker does not already have it. |
 
-When a kind exhausts its budget, Sortie applies the escalation action. Most kinds also clear their pending state; `ci_failure` keeps watching the pull request. Whether the escalation releases the claim depends on the kind, and `review_comments` and `bot_review` escalate on a spent budget only when a new comment arrives; see [retry budgets](/reference/reactions/#retry-budgets). A [triage command](/guides/triage-reactions-before-dispatch/) can also ask for the escalation directly, before any budget is spent.
+When a kind exhausts its budget, Sortie applies the escalation action once and the kind keeps watching the pull request under a standing escalation: it dispatches nothing more until a fact it observes ends the escalation. Whether the escalation releases the claim depends on the kind, and `review_comments` and `bot_review` escalate on a spent budget only when a new comment arrives; see [retry budgets](/reference/reactions/#retry-budgets). A [triage command](/guides/triage-reactions-before-dispatch/) can also ask for the escalation directly, before any budget is spent.
 
 With `label`, it adds `escalation_label` to the tracker issue. With `none`, it adds no label. Either way the escalation emits an `escalation.<kind>` event, and a `tracker_comment` entry that lists it posts a plain-text comment naming the PR, the attempt count, and the outstanding signal; see [how to route notifications](/guides/route-notifications/). The deprecated `comment` value posts that comment without an entry.
 
@@ -275,6 +275,17 @@ sqlite3 sortie.db "SELECT issue_id, kind, dispatched FROM reaction_fingerprints 
 
 A row with `dispatched` set means that merge has already been acted on. The row stays after a successful transition, which is what stops the next tick from treating the same merge as new. For the full field table, the failure matrix, and the idempotency rules, see the [merge-completion reference](/reference/reactions/#reactionsmerge_completion).
 
+## Answer an escalation
+
+An escalated pull request reaction stays escalated until what it escalated is resolved. Find the issues waiting on you with the `attention` command above: `reason_text` names the reaction and the pull request, and `clears_text` lists what ends it.
+
+Either fix the cause, or hand the issue back to Sortie:
+
+1. Resolve the cause on the pull request. Fix the failing check, answer the review comments, resolve the conflict, or merge or close the pull request. Sortie sees it on its next check and ends the escalation.
+2. To start over without touching the pull request, move the issue out of `tracker.handoff_state`, for example back to an active state, or release its park. Sortie ends the escalation of every kind that stood on the issue, and the next run starts each of those reactions with a fresh budget. The move counts only while no run, retry, or park of Sortie's own holds the issue, and Sortie confirms the new state with its own read of the issue on the next poll tick. It needs `tracker.handoff_state` to be set.
+
+A restart does not clear an escalation, so restarting Sortie is not a way to retry. Sortie does not remove the label an escalation applied (`needs-human` by default) when the escalation ends. See [standing escalations](/reference/reactions/#standing-escalations) for every fact that ends one.
+
 ## Reactions run during handoff
 
 Reactions are useful precisely because they fire while the issue waits for a human. After a successful first run, Sortie transitions the issue to your `handoff_state` (for example, `review`) and releases the worker. Reaction continuations dispatch even while the issue sits in `handoff_state`.
@@ -319,9 +330,17 @@ The `auto_merge deferred:` messages name the unmet precondition (`review decisio
 
 ### Dashboard and status API
 
-While Sortie watches a pull request, the status API lists the watch under `pending_reactions` in `GET /api/v1/state`, and under `pending_reactions` of `GET /api/v1/{identifier}` for one issue. Each row names the kind, the `reactions` key that configures it (`config_key`), why it waits (`wait`), when it checks next (`next_poll_at`), the attempts used against the budget (`used_attempts` and `max_attempts`), what the last check saw (`last_check`), `escalated_at`, and when the watch ends unless it restarts (`watch_ends_at`). For one issue, `next_outcomes` of `GET /api/v1/{identifier}` also says in plain English what Sortie does next, for example if a check finds CI failing on the pull request before the watch ends.
+While Sortie watches a pull request, the status API lists the watch under `pending_reactions` in `GET /api/v1/state`, and under `pending_reactions` of `GET /api/v1/{identifier}` for one issue. Each row names the kind, the `reactions` key that configures it (`config_key`), why it waits (`wait`), when it checks next (`next_poll_at`), the attempts used against the budget (`used_attempts` and `max_attempts`), what the last check saw (`last_check`), `escalated_at` with its `escalation_trigger`, and when the watch ends unless it restarts (`watch_ends_at`). For one issue, `next_outcomes` of `GET /api/v1/{identifier}` also says in plain English what Sortie does next, for example if a check finds CI failing on the pull request before the watch ends.
 
 An issue that only waits on a reaction answers `GET /api/v1/{identifier}` with `status` `"pending_reactions"`. The dashboard does not show these rows. See the [HTTP API reference](/reference/http-api/#get-apiv1state-system-state) for the fields.
+
+An escalated reaction is also listed in `attention`, together with everything else that needs a person. To read what is waiting on you:
+
+```bash
+curl -s http://localhost:7678/api/v1/state | jq '.attention[] | {issue_identifier, reason_text, why_text, clears_text}'
+```
+
+The dashboard does not show this list either.
 
 Once a reaction has been queued to run, it also appears in the retry queue. A CI fix, a review response, a bot review response, a merge conflict fix, or a label command waits in the retry queue until its timer fires, and the `retrying` list of `GET /api/v1/state` (and the `retry` object of `GET /api/v1/{identifier}`) names it: `reaction_kind` says which reaction, `reaction_config_key` says which `reactions` key in `WORKFLOW.md` configures it, and `attempt` and `error` are the retry's own.
 
@@ -377,21 +396,21 @@ If the preflight instead logged that it skipped the scope check, it could not cl
 
 **Auto-merge is deferred forever.** Raise the log level to `debug` and read the `auto_merge deferred:` messages. They name the unmet precondition: CI is still pending or red, the review decision isn't `APPROVED`, the PR is not in a mergeable state, or the PR is a draft. Resolve the named condition and the next tick proceeds.
 
-**A PR merged but its issue never left the handoff state.** The forge reported the merge without a merge commit identifier, which is the value `merge_completion` latches on. Sortie waits 30 minutes for it to appear, retrying with backoff, then stops polling that PR and applies your configured escalation without transitioning the issue. Find the stop:
+**A PR merged but its issue never left the handoff state.** The forge reported the merge without a merge commit identifier, which is the value `merge_completion` latches on. Sortie waits 30 minutes for it to appear, retrying with backoff, then applies your configured escalation without transitioning the issue and keeps watching the PR. Find the escalation:
 
 ```bash
-grep "merge_completion stopped after merge commit identifier remained missing" sortie.log
+grep "merge_completion escalated after merge commit identifier remained missing" sortie.log
 ```
 
-The line names the repository, the PR number, and how long Sortie waited; the warnings logged before it carry the same context. Sortie does not resume on its own, so verify the merge in the forge and move the issue to your `target_state` yourself if the merge is genuine.
+The line names the repository, the PR number, and how long Sortie waited; the warnings logged before it carry the same context. If the forge starts reporting the merge commit, Sortie ends the escalation and transitions the issue on its own. Otherwise verify the merge in the forge and move the issue to your `target_state` yourself if the merge is genuine.
 
-An API Sortie cannot reach produces a retried error instead of this stop, so a stop means the forge itself answered with no merge commit. The waiting observation is visible in SQLite while it lasts, and after the stop:
+An API Sortie cannot reach produces a retried error instead of this escalation, so an escalation means the forge itself answered with no merge commit. The waiting observation is visible in SQLite while it lasts, and after the escalation:
 
 ```bash
 sqlite3 sortie.db "SELECT issue_id, fingerprint, dispatched, updated_at FROM reaction_fingerprints WHERE kind='merge-completion-missing-sha'"
 ```
 
-`updated_at` is when the condition was first seen, not when polling stopped, and `dispatched` set to `1` means the escalation reached the tracker. A restart does not restart the 30-minute clock, because the row outlives the process.
+`updated_at` is when the condition was first seen, not when the escalation began, and `dispatched` set to `1` means the escalation reached the tracker. A restart does not restart the 30-minute clock, because the row outlives the process.
 
 **Startup fails with a provider mismatch.** Every active SCM reaction must declare the same `provider`, not just `review_comments` and `auto_merge`. Align them, or remove one. `sortie validate` catches this offline and names the disagreeing kinds.
 

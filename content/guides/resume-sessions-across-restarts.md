@@ -17,15 +17,16 @@ Keep Sortie's state intact across planned restarts and unexpected crashes: no ma
 
 ## What survives a restart
 
-Everything. Sortie stores all durable state in SQLite, not in memory. A restart is equivalent to closing and reopening the database file. Three tables hold the data that matters:
+Retries, session budgets, token totals, parked issues, and escalations. Sortie stores them in SQLite, so a restart is equivalent to closing and reopening the database file. These tables hold the data that matters:
 
 | Table | What it stores | Why it matters after restart |
 |---|---|---|
 | `retry_entries` | Pending retries: issue ID, attempt number, scheduled fire time, issue title, link, type, labels, and state | Retries resume at the correct position in the backoff sequence. Overdue retries fire immediately on startup. The [state API](/reference/http-api/#get-apiv1state-system-state) names a restored retry's issue right away; a retry stored by an earlier release gets them from the next poll or when it fires. |
 | `run_history` | Completed runs: issue ID, attempt, status, timestamps, workspace path | The `max_sessions` budget check queries this table. After restart, Sortie knows exactly how many sessions each issue has used, with no counter resets. |
 | `session_metadata` | Last session ID, token counters, model name, API request count | Enables agent session resume (e.g., the `--resume` flag for Claude Code). When the same issue is dispatched again, the adapter can pick up the previous session. |
+| `reaction_escalations` | One row per issue and reaction kind: the escalation's trigger, start time, attempt counter, and pull request | A pull request reaction that escalated to a person stays escalated after a restart. Sortie runs no second round of fixes and applies no second label. |
 
-The key insight: Sortie never holds state that only exists in memory. Retry attempt counts, session budgets, and token tallies all come from SQLite queries. Kill the process at any point and nothing is lost.
+The key insight: the state that decides whether work happens again lives in SQLite. Retry attempt counts, session budgets, and token tallies all come from SQLite queries, so killing the process at any point loses none of them. What stays in memory is bookkeeping that rebuilds itself, such as the fix counters of pull request reactions that have not escalated: they start again after a restart. See [retry budgets](/reference/reactions/#retry-budgets).
 
 ## What happens to in-flight sessions
 
@@ -58,7 +59,7 @@ On startup, Sortie now reconstructs review and CI pending entries for handoff-st
 - The current tracker state for those issues (one batched `FetchIssueStatesByIDs` call).
 - The workspace's existing `.sortie/scm.json` (PR coordinates for both review and CI).
 
-After the recovery summary line, normal review and CI polling resumes against those entries on the next reconcile tick. Reviewer comments left while the process was down are picked up within one review poll interval. No operator action is required.
+After the recovery summary line, normal review and CI polling resumes against those entries on the next reconcile tick. Sortie then restores the escalations that stood when the process stopped, for every reaction kind, onto those entries. An escalated issue that recovery did not reach, because its last successful run is older than the lookback, it fell outside the candidate cap, or the issue left the handoff state, is rebuilt from its stored escalation and its newest successful run. A stored escalation whose reaction kind is no longer configured, or whose issue has no successful run, ends. A restored escalation keeps its start time and the tries it used, and the first poll tick still ends it if a person has since moved the issue out of the handoff state. Reviewer comments left while the process was down are picked up within one review poll interval. No operator action is required.
 
 Recovery is bounded so startup stays cheap:
 
@@ -75,6 +76,14 @@ time=2026-05-14T10:00:01.500+00:00 level=INFO msg="pending reaction recovery com
 ```
 
 `review_recovered` and `ci_recovered` show what was reinstated. `stale_skipped` counts handoff candidates that aged out. `skipped` counts candidates excluded for any other reason (terminal state, claim conflict, missing PR coordinates, malformed metadata).
+
+The escalation restore logs its own line:
+
+```
+time=2026-05-14T10:00:01.502+00:00 level=INFO msg="reaction escalation restore completed" applied=1 rebuilt=0 ended=0
+```
+
+`applied` counts stored escalations given to entries that recovery rebuilt. `rebuilt` counts entries built from a stored escalation alone. `ended` counts stored escalations that no configured reaction kind or successful run could watch. A failure to read the stored escalations logs `reaction escalation restore failed` at `ERROR` with the error, and startup continues without restoring any.
 
 ## Design your hooks for restartability
 
@@ -135,7 +144,7 @@ For more on reading Sortie's logs, see [Monitor with Logs](/guides/monitor-with-
 
 ### Use the dashboard
 
-The built-in dashboard reads directly from SQLite. Run history, active sessions, and pending retries all reflect persisted state. They survive restarts along with everything else. See the [Dashboard reference](/reference/dashboard/).
+The built-in dashboard reads directly from SQLite. Run history, active sessions, and pending retries all reflect persisted state. They survive restarts. See the [Dashboard reference](/reference/dashboard/).
 
 ### Test it yourself
 

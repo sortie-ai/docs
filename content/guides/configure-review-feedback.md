@@ -69,6 +69,8 @@ The retry budget for this kind is `max_continuation_turns`, configured below, no
 
 If the agent addresses all comments within this budget, the loop ends. If a new comment arrives after the budget is spent, Sortie escalates and releases its claim unless a worker is running for the issue. Comments an earlier run was given do not escalate on their own.
 
+The escalation then stands: the reaction keeps watching the pull request and dispatches nothing, even across a restart. It ends when no comment is left that no run was given, when the pull request merges or closes, or when you move the issue out of `tracker.handoff_state`; the next run then starts with a fresh turn budget. A comment that arrives while the escalation stands joins it and applies no second label. See [standing escalations](/reference/reactions/#standing-escalations).
+
 With `label`, Sortie adds the configured label to the issue. With `none`, it adds no label. Every escalation emits the `escalation.review_comments` event, and a `tracker_comment` entry that lists it posts a comment noting how many turns were attempted and that remaining comments need human attention; see [how to route notifications](/guides/route-notifications/). The deprecated `comment` value posts that comment without an entry. Every strategy cancels any pending retry and releases the claim, unless a worker is running for the issue; that worker's exit then decides the claim.
 
 Create the label in advance if using label escalation:
@@ -392,7 +394,7 @@ All `reactions.review_comments` fields in one place:
 | `poll_interval_ms` | integer | `120000` | Minimum ms between review polls per issue. Min: `30000`. |
 | `debounce_ms` | integer | `60000` | Ms to wait after newest comment before dispatching. |
 | `max_continuation_turns` | integer | `3` | Hard cap on review-triggered continuation turns before escalation. |
-| `watch_window_ms` | integer | `1800000` | Ms a pending entry is kept, from the last time it waited for the issue's retry slot, or from its creation when it never has. Non-negative, not above `9223372036854`; `0` removes the bound. |
+| `watch_window_ms` | integer | `1800000` | Ms a pending entry is kept, from the last time it waited for the issue's retry slot, or from its creation when it never has. Non-negative, not above `9223372036854`; `0` removes the bound. A standing escalation is never aged out. |
 
 `max_retries` is also accepted, for schema consistency with the other reaction kinds, but `review_comments` does not consume it; the retry budget above is `max_continuation_turns`.
 

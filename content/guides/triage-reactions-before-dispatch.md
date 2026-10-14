@@ -101,7 +101,7 @@ else
 fi
 ```
 
-An `escalate` answer applies the kind's configured `escalation` right away. With `escalation: label` the issue gets `needs-human`. A comment on the issue, from a `tracker_comment` entry that lists the `escalation.<kind>` event or from the deprecated `escalation: comment`, says the triage command asked for a person and names the ref. Either way no retry budget is spent, so the reaction has not burned an attempt on a failure it could not have fixed.
+An `escalate` answer applies the kind's configured `escalation` right away. With `escalation: label` the issue gets `needs-human`. A comment on the issue, from a `tracker_comment` entry that lists the `escalation.<kind>` event or from the deprecated `escalation: comment`, says the triage command asked for a person and names the ref. Either way no retry budget is spent, so the reaction has not burned an attempt on a failure it could not have fixed. The escalation then stands, and the reaction dispatches nothing and runs no script for that failure until a check passes, a new commit lands, or you move the issue out of `tracker.handoff_state`; see [standing escalations](/reference/reactions/#standing-escalations).
 
 Make the script executable, commit it, and restart Sortie so the new block is read:
 
