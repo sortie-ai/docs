@@ -210,6 +210,34 @@ Worst case for a single issue: 3 sessions × 3 turns × 30 minutes = 4.5 hours o
 
 If a retry fires but no concurrency slot is available, it stays in the retry queue and keeps the issue's claim. It moves to the next attempt number, so its delay grows by one backoff step, and its error reads `no available orchestrator slots`.
 
+## Run a waiting retry now
+
+A retry waits out its delay, up to `max_retry_backoff_ms`. When the cause is gone before then, for example a rate limit has reset or a tracker outage is over, make the retry due now instead of waiting. Restarting Sortie is not needed.
+
+1. List the waiting retries and pick the issue:
+
+   ```bash
+   curl -s http://localhost:7678/api/v1/state | jq '.retrying[] | {issue_identifier, attempt, due_at, error}'
+   ```
+
+2. Make its retry due now:
+
+   ```bash
+   curl -X POST http://localhost:7678/api/v1/retries/MT-650/run
+   ```
+
+   The `202` response says what happened, for example `Retry 3 of MT-650 is due now.`
+
+3. Confirm that the retry fired:
+
+   ```bash
+   grep -e "retry made due on request" -e "retried issue dispatched" sortie.log
+   ```
+
+The request does not skip any check. The retry still needs a free agent slot and room in the session and token budgets, and the issue must still be in an active tracker state. A retry that cannot start goes back to waiting at the same attempt number and the due time it had before your request, and its `error` in the list from step 1 says why. A retry the issue's state pauses stays paused.
+
+If the response is `404` with `retry_not_found`, the issue has no waiting retry: it already ran, or Sortie released it. The server has no authentication, so keep it behind a reverse proxy with authentication or a VPN when others can reach it. For the response fields and every status code, see the [HTTP API reference](/reference/http-api/#post-apiv1retriesidentifierrun-run-a-scheduled-retry-now).
+
 ## Verify retry behavior
 
 Three ways to confirm your retry settings are working.

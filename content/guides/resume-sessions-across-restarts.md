@@ -17,13 +17,14 @@ Keep Sortie's state intact across planned restarts and unexpected crashes: no ma
 
 ## What survives a restart
 
-Retries, session budgets, token totals, parked issues, and escalations. Sortie stores them in SQLite, so a restart is equivalent to closing and reopening the database file. These tables hold the data that matters:
+Retries, session budgets, token totals, parked issues, escalations, and acknowledged attention items. Sortie stores them in SQLite, so a restart is equivalent to closing and reopening the database file. These tables hold the data that matters:
 
 | Table | What it stores | Why it matters after restart |
 |---|---|---|
 | `retry_entries` | Pending retries: issue ID, attempt number, scheduled fire time, issue title, link, type, labels, and state | Retries resume at the correct position in the backoff sequence. Overdue retries fire immediately on startup. The [state API](/reference/http-api/#get-apiv1state-system-state) names a restored retry's issue right away; a retry stored by an earlier release gets them from the next poll or when it fires. |
 | `run_history` | Completed runs: issue ID, attempt, status, timestamps, workspace path | The `max_sessions` budget check queries this table. After restart, Sortie knows exactly how many sessions each issue has used, with no counter resets. |
 | `session_metadata` | Last session ID, token counters, model name, API request count | Enables agent session resume (e.g., the `--resume` flag for Claude Code). When the same issue is dispatched again, the adapter can pick up the previous session. |
+| `attention_acknowledgements` | One row per acknowledged attention item: the item's ID and the time of the acknowledgement | An item that a person acknowledged stays acknowledged after a restart. Sortie deletes the row when the item no longer exists. See [acknowledge an attention item](/reference/http-api/#post-apiv1attentionidacknowledge-acknowledge-an-attention-item). |
 | `reaction_escalations` | One row per issue and reaction kind: the escalation's trigger, start time, attempt counter, and pull request | A pull request reaction that escalated to a person stays escalated after a restart. Sortie runs no second round of fixes and applies no second label. |
 
 The key insight: the state that decides whether work happens again lives in SQLite. Retry attempt counts, session budgets, and token tallies all come from SQLite queries, so killing the process at any point loses none of them. What stays in memory is bookkeeping that rebuilds itself, such as the fix counters of pull request reactions that have not escalated: they start again after a restart. See [retry budgets](/reference/reactions/#retry-budgets).

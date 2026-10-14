@@ -261,10 +261,14 @@ The JSON API returns errors in a standard envelope:
 | Code | HTTP status | Meaning |
 |---|---|---|
 | `issue_not_found` | `404` | Neither the current runtime state nor run history holds the issue identifier. |
+| `retry_not_found` | `404` | `POST /api/v1/retries/{identifier}/run` found no scheduled retry for the identifier. |
+| `attention_item_not_found` | `404` | `POST /api/v1/attention/{id}/acknowledge` found no current attention item with the `id`. |
 | `invalid_parameter` | `400` | `GET /api/v1/runs` rejected a query parameter: unknown, repeated, malformed, out of range, or a misordered pair of bounds. The message names the parameter and the rule. |
 | `snapshot_unavailable` | `503` | Orchestrator state snapshot temporarily unavailable. Retry after a short delay. |
 | `history_unavailable` | `503` | Run history or the issue outcomes could not be read. Retry after a short delay. |
 | `method_not_allowed` | `405` | Wrong HTTP method for the endpoint (e.g., `POST` to a `GET`-only route). The `Allow` header indicates the correct method. |
+| `acknowledgement_not_saved` | `500` | `POST /api/v1/attention/{id}/acknowledge` could not save the acknowledgement. Nothing changed. |
+| `acknowledge_unavailable` | `503` | `POST /api/v1/attention/{id}/acknowledge` was not taken. Nothing changed. |
 | `internal_error` | `500` | Server-side JSON encoding failure or unexpected error. |
 
 For full endpoint documentation, request/response shapes, and curl examples, see [HTTP API reference](/reference/http-api/).

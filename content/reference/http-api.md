@@ -387,6 +387,7 @@ curl http://localhost:7678/api/v1/state
       "kind": "workflow_reload_failed",
       "severity": "critical",
       "since": "2026-03-26T14:29:41Z",
+      "acknowledged_at": null,
       "reason_text": "WORKFLOW.md failed to load",
       "why_text": "WORKFLOW.md failed to load (config: agent.turn_timeout_ms: must be greater than 0), so poll ticks dispatch nothing until it loads, and the configuration that last loaded stays in effect.",
       "clears_text": "Clears when WORKFLOW.md loads again, which Sortie tries each time the file is saved and on every poll tick.",
@@ -401,6 +402,7 @@ curl http://localhost:7678/api/v1/state
       "kind": "parked",
       "severity": "warning",
       "since": "2026-03-26T14:05:00Z",
+      "acknowledged_at": null,
       "issue_id": "jkl012",
       "issue_identifier": "MT-652",
       "issue_title": "Rotate the signing keys",
@@ -419,6 +421,7 @@ curl http://localhost:7678/api/v1/state
       "kind": "budget_held",
       "severity": "warning",
       "since": "2026-03-26T14:12:00Z",
+      "acknowledged_at": null,
       "issue_id": "ghi789",
       "issue_identifier": "MT-651",
       "issue_title": "Migrate the billing tables",
@@ -438,6 +441,7 @@ curl http://localhost:7678/api/v1/state
       "kind": "reaction_escalated",
       "severity": "warning",
       "since": "2026-03-26T14:26:40Z",
+      "acknowledged_at": null,
       "issue_id": "mno345",
       "issue_identifier": "MT-653",
       "issue_title": "Add the export button",
@@ -895,20 +899,21 @@ The hop is stored in the database with its type, labels, and state, so a restart
 | `agent_kind`, `configured_model` | The agent kind and `model` a dispatch of `rule_name` resolves to under the configuration as of the latest poll tick. Each omitted when the configuration no longer names a rule with a stage label under that name, and `configured_model` also when the rule sets none. |
 | `stage_position` | Always present. Where `rule_name` stands on its [stage chain](/reference/workflow-config/#stage-chains), or `null` when the rule is on no chain. See [dispatch time and stage position](#dispatch-time-and-stage-position). |
 
-**`attention[]` entries:** Things that need a person. Sortie derives the list on each request from the rows above and the `health` block and stores it nowhere, so an item exists exactly while its cause holds and disappears on the first request after the cause clears. The list is always present, `[]` when nothing needs a person, and `counts.attention` equals its length. A client that shows the list needs no ordering, wording, or counting rules of its own: the order, the sentences, and the action come with each item.
+**`attention[]` entries:** Things that need a person. Sortie derives the list on each request from the rows above and the `health` block and stores it nowhere, so an item exists exactly while its cause holds and disappears on the first request after the cause clears. The list is always present, `[]` when nothing needs a person, and `counts.attention` is the number of items whose `acknowledged_at` is `null`. A person can [acknowledge an item](#post-apiv1attentionidacknowledge-acknowledge-an-attention-item) to record that it was seen. The item stays in the list, with `acknowledged_at` set, until its cause clears, and no longer counts. A client that shows the list needs no ordering, wording, or counting rules of its own: the order, the sentences, and the action come with each item.
 
 | Field | Type | Description |
 |---|---|---|
-| `id` | string | 32 lowercase hexadecimal characters. It stays the same while the cause holds, across requests and across a restart, and a recurrence of the cause gets a new one. A client keys stored state, such as an acknowledgement, by it. See [item IDs](#attention-item-ids). |
+| `id` | string | 32 lowercase hexadecimal characters. It stays the same while the cause holds, across requests and across a restart, and a recurrence of the cause gets a new one. Sortie stores an acknowledgement under it, and the acknowledge endpoint takes it in the path. See [item IDs](#attention-item-ids). |
 | `kind` | string | What the item is about; see the table below. |
 | `severity` | string | `critical` marks a cause under which poll ticks dispatch nothing for any issue. `warning` marks a cause about one issue. The severity belongs to the kind and does not grow with age. |
 | `since` | string or `null` | When the cause began, in UTC. `null` only for a park whose stored time cannot be read. |
+| `acknowledged_at` | string or `null` | When a person first acknowledged the item, in UTC. `null` while nobody has. Always present. |
 | `issue_id`, `issue_identifier` | string | The tracker-internal issue ID and the human-readable key, copied from the source row. Absent on an item about the process. |
 | `display_identifier`, `issue_title`, `issue_url` | string | Copied from the source row as that row serves them. Each omitted when empty, and absent on an item about the process. |
 | `reason_text` | string | A short phrase that says what needs a person. It ends without a period. |
 | `why_text` | string | One sentence that says why it needs a person. |
 | `clears_text` | string | One sentence that says what clears the item. |
-| `action` | object | The one action a client should offer. `kind` is `open_issue`, `open_pull_request`, or `acknowledge`. `url` is present exactly for `open_issue` (the issue's link) and `open_pull_request` (the pull request's link). `acknowledge` is the action of an item with nothing to open. |
+| `action` | object | The one action a client should offer. `kind` is `open_issue`, `open_pull_request`, or `acknowledge`. `url` is present exactly for `open_issue` (the issue's link) and `open_pull_request` (the pull request's link). `acknowledge` is the action of an item with nothing to open. Any current item can be acknowledged, whatever its `action.kind`. |
 | `evidence` | object | The facts behind the item; members below. Always present, and `{}` when the kind carries none. |
 
 `kind` values, with the cause that raises each:
@@ -967,7 +972,9 @@ Items are ordered by `severity` (`critical` before `warning`), then by `since` (
 
 A park keeps its `id` and `since` across a restart, because Sortie stores the park at whole-second precision. A hold keeps its `id` across a restart, but its `since` becomes the first poll tick after the restart, because Sortie keeps the moment a hold began in memory only. A reaction escalation keeps its `id` and `since` across a restart, because the restored escalation carries its stored time. A reload or preflight failure cannot span a restart, because startup exits when the first load or the startup preflight fails.
 
-A recurrence changes a part, so an acknowledgement keyed by `id` never hides a new cause: a new park has a new time, a hold reached again after a raise or under an edited ceiling has a new ceiling, a different budget reason is a new reason, an escalation that ended and began again has a new time, and a failure after a pass has a new `failing_since`.
+A recurrence changes a part, so an acknowledgement, which Sortie keeps under `id`, never hides a new cause: a new park has a new time, a hold reached again after a raise or under an edited ceiling has a new ceiling, a different budget reason is a new reason, an escalation that ended and began again has a new time, and a failure after a pass has a new `failing_since`.
+
+Sortie stores an acknowledgement, so it survives a restart for as long as the item exists. A poll tick that has read the candidate issues from the tracker deletes the acknowledgement of every item that no longer exists. A tick whose candidate read fails deletes none.
 
 #### Status sentences
 
@@ -2216,6 +2223,185 @@ If Sortie is shutting down, the refresh is rejected:
 
 ---
 
+## POST /api/v1/retries/{identifier}/run: Run a scheduled retry now
+
+Makes the scheduled retry of an issue due now, so it runs without waiting out its delay. `{identifier}` is the `issue_identifier` of an entry in the `retrying` list of [`GET /api/v1/state`](#get-apiv1state-system-state), one path segment that a client percent-encodes, matched exactly. The route ignores the request body and the query string.
+
+```sh
+curl -X POST http://localhost:7678/api/v1/retries/MT-650/run
+```
+
+The retry takes the path of a retry whose timer fired. It passes the same checks, among them the limit on agents running at once, the `agent.max_sessions` and `agent.max_tokens` budgets, and a fresh read of the issue from the tracker, and a retry that the issue's state pauses stays paused. A retry that still cannot start is put back at the attempt number and the due time it had before the request, or due at once when that time has passed, so a request never leaves a retry waiting longer or at a later attempt than before. The put-back sets the entry's `error` to its own reason.
+
+A retry that has a stored row has the row saved with the new due time, so a restart before the retry runs does not undo the request. A retry for a pull request reaction has no stored row. A failed save is logged and does not change the response.
+
+The response arrives once Sortie has taken the request: at once while Sortie is idle, and at the end of the work in progress otherwise. The wait has no fixed bound. A client that disconnects while it waits, or a shutdown that begins, withdraws the request and changes nothing.
+
+Each request that makes a retry due is logged at `info` as `retry made due on request`, with the `attempt` and the `replaced_due_at_ms` the request replaced, and it triggers a [change signal](#get-apiv1events-change-signals).
+
+Sortie's HTTP server has no authentication, so anyone who can reach it can run a retry early. A deployment that others can reach must sit behind a reverse proxy with authentication or a VPN.
+
+### Response (202 Accepted)
+
+```json
+{
+  "queued": true,
+  "requested_at": "2026-03-26T14:31:10Z",
+  "issue_id": "def456",
+  "issue_identifier": "MT-650",
+  "attempt": 3,
+  "outcome_text": "Retry 3 of MT-650 is due now."
+}
+```
+
+### Response (404 Not Found)
+
+No retry is scheduled for the identifier: the issue is unknown, it has no queued retry, or its retry ran or was released before Sortie took the request.
+
+```json
+{
+  "error": {
+    "code": "retry_not_found",
+    "message": "no retry is scheduled for issue \"MT-999\""
+  }
+}
+```
+
+### Response (409 Conflict, draining)
+
+If Sortie is shutting down, or began to before it took the request, nothing changes:
+
+```json
+{
+  "queued": false,
+  "requested_at": "2026-03-26T14:31:10Z",
+  "outcome_text": "Nothing queued: Sortie is shutting down."
+}
+```
+
+### Field notes
+
+| Field | Description |
+|---|---|
+| `queued` | `true` on `202`, `false` on `409`. |
+| `requested_at` | When Sortie received the request, UTC. |
+| `issue_id` | The tracker's internal ID of the issue. `202` only. |
+| `issue_identifier` | The identifier the retry carries. `202` only. |
+| `display_identifier` | The issue's display identifier. Present on `202` only when the issue has one. |
+| `attempt` | The retry's attempt number, unchanged by the request. `202` only. |
+| `outcome_text` | One sentence that states what the response confirms. Always present on `202` and `409`. It states no effect still to come, because whether the retry starts is decided after the response. |
+
+`outcome_text` names the issue by `display_identifier` when present, and by `issue_identifier` otherwise:
+
+| Response | `outcome_text` |
+|---|---|
+| `202` | `Retry 3 of MT-650 is due now.` |
+| `409` | `Nothing queued: Sortie is shutting down.` |
+
+### Status codes
+
+| Code | Meaning |
+|---|---|
+| `202 Accepted` | The retry is due now. |
+| `404 Not Found` | No retry is scheduled for the identifier (`retry_not_found`). |
+| `405 Method Not Allowed` | Used a method other than POST. |
+| `409 Conflict` | Sortie is shutting down; nothing changed. |
+
+---
+
+## POST /api/v1/attention/{id}/acknowledge: Acknowledge an attention item
+
+Records that a person has seen an item of the `attention` list of [`GET /api/v1/state`](#get-apiv1state-system-state). `{id}` is the `id` of a current item. The route ignores the request body and the query string.
+
+```sh
+curl -X POST http://localhost:7678/api/v1/attention/9ee206201099385b431c9bb01911553f/acknowledge
+```
+
+Acknowledging changes the item and nothing else. The item stays in the list with `acknowledged_at` set, it stops counting in `counts.attention`, and the cause, the issue, and the agent are untouched. The item disappears when its cause clears, as any item does. A new cause, such as a later park of the same issue, is a different item with a different `id` and is not acknowledged.
+
+Sortie saves the acknowledgement before it changes its state in memory, so a response of `200` means the acknowledgement survives a restart. A request for an item that is already acknowledged answers `200` with `already_acknowledged` set to `true`, keeps the first `acknowledged_at`, and saves nothing. A request for an item that does not exist, because its cause cleared or the `id` is wrong, writes nothing.
+
+The response arrives once Sortie has taken the request: at once while Sortie is idle, and at the end of the work in progress otherwise. The wait has no fixed bound. A client that disconnects while it waits, or a shutdown that begins, withdraws the request and changes nothing.
+
+Each request that records an acknowledgement is logged at `info` as `attention item acknowledged`, with the `item_id` and the `kind`, and it triggers a [change signal](#get-apiv1events-change-signals).
+
+Sortie's HTTP server has no authentication, so anyone who can reach it can acknowledge an item. A deployment that others can reach must sit behind a reverse proxy with authentication or a VPN.
+
+### Response (200 OK)
+
+```json
+{
+  "acknowledged": true,
+  "already_acknowledged": false,
+  "requested_at": "2026-03-26T14:31:10Z",
+  "id": "9ee206201099385b431c9bb01911553f",
+  "kind": "parked",
+  "issue_id": "jkl012",
+  "issue_identifier": "MT-652",
+  "acknowledged_at": "2026-03-26T14:31:10Z",
+  "outcome_text": "Acknowledged MT-652 (Parked: the agent needs a person). It comes back only if a new cause appears."
+}
+```
+
+### Response (404 Not Found)
+
+No current item has the `id`:
+
+```json
+{
+  "error": {
+    "code": "attention_item_not_found",
+    "message": "no current attention item has ID \"9ee206201099385b431c9bb01911553f\""
+  }
+}
+```
+
+### Response (409 Conflict, draining)
+
+If Sortie is shutting down, or began to before it took the request, nothing changes:
+
+```json
+{
+  "acknowledged": false,
+  "already_acknowledged": false,
+  "requested_at": "2026-03-26T14:31:10Z",
+  "outcome_text": "Nothing acknowledged: Sortie is shutting down."
+}
+```
+
+### Field notes
+
+| Field | Description |
+|---|---|
+| `acknowledged` | `true` on `200`, `false` on `409`. |
+| `already_acknowledged` | `true` when the item was acknowledged before this request. |
+| `requested_at` | When Sortie received the request, UTC. |
+| `id`, `kind` | The item's `id` and `kind`. `200` only. |
+| `issue_id`, `issue_identifier`, `display_identifier` | The issue the item names, as the item serves them. `200` only, each omitted when the item has none, which is every item about the process. |
+| `acknowledged_at` | When the item was first acknowledged, UTC. On a repeat request it is the time of the first one. `200` only. |
+| `outcome_text` | One sentence that states what the response confirms. Always present on `200` and `409`. |
+
+`outcome_text` names the issue by `display_identifier` when present, and by `issue_identifier` otherwise. An item about the process carries no key, and its sentence reads `Acknowledged: <reason_text>. ...`. The `<reason_text>` is the item's `reason_text`.
+
+| Response | `outcome_text` |
+|---|---|
+| `200`, `already_acknowledged` is `false` | `Acknowledged MT-652 (Parked: the agent needs a person). It comes back only if a new cause appears.` |
+| `200`, `already_acknowledged` is `true` | `Already acknowledged MT-652 (Parked: the agent needs a person). It comes back only if a new cause appears.` |
+| `409` | `Nothing acknowledged: Sortie is shutting down.` |
+
+### Status codes
+
+| Code | Meaning |
+|---|---|
+| `200 OK` | The item is acknowledged, now or before. |
+| `404 Not Found` | No current item has the `id` (`attention_item_not_found`). |
+| `405 Method Not Allowed` | Used a method other than POST. |
+| `409 Conflict` | Sortie is shutting down; nothing changed. |
+| `500 Internal Server Error` | Sortie could not save the acknowledgement; nothing changed (`acknowledgement_not_saved`). |
+| `503 Service Unavailable` | Sortie did not take the request; nothing changed (`acknowledge_unavailable`). |
+
+---
+
 ## GET /api/v1/events: Change signals
 
 Streams a signal each time something the JSON API serves changes, so a client can refetch what it shows instead of polling on a timer. The response is a [server-sent events](https://html.spec.whatwg.org/multipage/server-sent-events.html) stream that stays open until the client disconnects or the HTTP server shuts down. A signal carries no data: it names no issue and no agent message, and the stream shows nothing that [`GET /api/v1/state`](#get-apiv1state-system-state) does not. The route takes no parameters and ignores the query string.
@@ -2244,7 +2430,7 @@ Both events carry an `id` line. The `id` is an opaque decimal number that rises 
 
 A stream receives a `change` after each of these:
 
-- A poll tick, a refresh, a worker exit, or a retry.
+- A poll tick, a refresh, a worker exit, a retry, a request that makes a retry due, or a request that acknowledges an attention item.
 - Every message from a running agent session, so token counts and the latest message reach a client within a second.
 - The start of shutdown.
 - Each time the file watcher loads `WORKFLOW.md`, whether the load succeeds or fails.
@@ -2397,9 +2583,13 @@ All JSON API errors use a consistent structure:
 | Code | HTTP Status | Meaning |
 |---|---|---|
 | `issue_not_found` | 404 | Neither the current state nor run history holds the requested issue identifier. |
+| `retry_not_found` | 404 | `POST /api/v1/retries/{identifier}/run` found no scheduled retry for the identifier. |
 | `invalid_parameter` | 400 | `GET /api/v1/runs` or `GET /api/v1/stats` rejected a query parameter, or a misordered pair of bounds. The message names the parameter and the rule. |
 | `snapshot_unavailable` | 503 | The orchestrator could not produce a state snapshot. |
 | `history_unavailable` | 503 | Run history or the issue outcomes could not be read, or the database behind `GET /api/v1/stats` could not be opened or read. |
+| `attention_item_not_found` | 404 | `POST /api/v1/attention/{id}/acknowledge` found no current attention item with the `id`. |
+| `acknowledgement_not_saved` | 500 | `POST /api/v1/attention/{id}/acknowledge` could not save the acknowledgement; nothing changed. |
+| `acknowledge_unavailable` | 503 | `POST /api/v1/attention/{id}/acknowledge` was not taken; nothing changed. |
 | `method_not_allowed` | 405 | The HTTP method is not supported on this endpoint. |
 | `internal_error` | 500 | Unexpected server error (e.g., JSON serialization failure). |
 
@@ -2420,7 +2610,7 @@ curl -X DELETE http://localhost:7678/api/v1/state
 }
 ```
 
-The response includes the header `Allow: GET` (or `Allow: POST` for the refresh endpoint).
+The response includes the header `Allow: GET` (or `Allow: POST` for the refresh, retry, and acknowledge endpoints).
 
 ## Endpoint summary
 
@@ -2435,4 +2625,6 @@ The response includes the header `Allow: GET` (or `Allow: POST` for the refresh 
 | GET | `/api/v1/{identifier}` | Per-issue detail and run history | `application/json` |
 | GET | `/api/v1/events` | Stream of change signals and heartbeats | `text/event-stream` |
 | POST | `/api/v1/refresh` | Trigger immediate poll cycle | `application/json` |
+| POST | `/api/v1/retries/{identifier}/run` | Make a scheduled retry due now | `application/json` |
+| POST | `/api/v1/attention/{id}/acknowledge` | Acknowledge an attention item | `application/json` |
 | GET | `/metrics` | Prometheus metrics | `text/plain` |
