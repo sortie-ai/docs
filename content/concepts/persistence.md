@@ -79,7 +79,9 @@ A later migration adds a cumulative count of ended sessions whose usage was neve
 
 A further migration gives run history a count of the run's turns that reached the model without a figure covering them. It defaults to zero, so a row written before it reads as fully accounted even though nothing measured it: an append-only row that no later run revisits cannot now establish otherwise.
 
-A later migration records what scheduled each queued retry and gives each parked issue its title and link, so a restart explains a retry the way it did before. The newest migration keeps when Sortie first picked up the work, plus a queued retry's model and its issue's type, labels, and state. It fills the pick-up time from earlier agent runs on record and leaves it empty for work with none.
+A later migration records what scheduled each queued retry and gives each parked issue its title and link, so a restart explains a retry the way it did before. Another keeps when Sortie first picked up the work, plus a queued retry's model and its issue's type, labels, and state. It fills the pick-up time from earlier agent runs on record and leaves it empty for work with none.
+
+A later migration marks the first run dispatched after each stage hop. The run's other columns cannot tell it apart: every later run in the stage the hop led to names the same previous stage, so only a mark set at dispatch separates the run a hop started from a later pick-up of the same stage. For history already on record, the migration marks the earliest run of each hop and leaves the later ones unmarked.
 
 **Operational simplicity.** Backup the database by copying the file. Inspect it with `sqlite3`. Move to another host by copying the file. Stream continuous backups to S3 with Litestream. The operational model is as simple as the deployment model.
 
@@ -93,7 +95,7 @@ Every surface that answers a question about past work reads these tables. None o
 
 **Agents reading their own history.** The [`workspace_history` tool](/reference/agent-extensions/#workspace_history) lets an agent query its previous run results on the issue it is working, so "what error did the last attempt hit here?" is a question the agent answers for itself rather than one that needs prompt engineering or manual context injection. Its sibling `cost_budget` reads the same rows to report how much of the token budget the issue has already spent. Both keep working after a restart because the rows do.
 
-**Cost attribution.** Run history stores per-session token counts and whether the coding agent could measure them at all; session metadata stores the model. [`sortie stats`](/reference/cli/#stats) aggregates that history into spend by outcome, by coding agent, by dispatch rule, by prompt template, by configured model, by stage chain, and by retry trigger, and the dashboard and Prometheus counters read the live side of the same figures. Per-issue chargeback and budget alerting are that data viewed differently, not new collection.
+**Cost attribution.** Run history stores per-session token counts and whether the coding agent could measure them at all; session metadata stores the model. [`sortie stats`](/reference/cli/#stats) aggregates that history into spend by outcome, by coding agent, by dispatch rule, and by the other dimensions each run records, and the dashboard and Prometheus counters read the live side of the same figures. Per-issue chargeback and budget alerting are that data viewed differently, not new collection.
 
 **Audit trail.** Every completed run records who (issue ID), what (exit type, turns, tokens), when (timestamps), and how (model, workflow file hash). This is the raw material for compliance evidence (SOC 2 audits, change logs, agent activity reports), even though Sortie itself does not ship an export or retention-policy surface for it today.
 

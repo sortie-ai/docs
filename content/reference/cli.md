@@ -540,7 +540,7 @@ For details on each check, see [GitHub adapter validate-time checks](/reference/
 
 ### `stats`
 
-Reports how past runs went and what they cost. Sortie appends one row to `run_history` each time an agent session finishes; `stats` reads that history back over a time range and aggregates it into run counts, the number of issues those runs belong to, success rate, duration percentiles, turns, token sums, and derived cost, broken down by outcome, by coding agent, by dispatch rule, by prompt template, by configured model, by stage chain, and by retry trigger. The database is opened read-only, so the command is safe to run while the orchestrator is working, and it makes no network call. A running Sortie serves the same report over HTTP at [`GET /api/v1/stats`](/reference/http-api/#get-apiv1stats-run-statistics).
+Reports how past runs went and what they cost. Sortie appends one row to `run_history` each time an agent session finishes; `stats` reads that history back over a time range and aggregates it into run counts, the number of issues those runs belong to, success rate, duration percentiles, turns, token sums, and derived cost, broken down by outcome, by coding agent, by dispatch rule, by prompt template, by configured model, by stage chain, by retry trigger, and by run origin. The database is opened read-only, so the command is safe to run while the orchestrator is working, and it makes no network call. A running Sortie serves the same report over HTTP at [`GET /api/v1/stats`](/reference/http-api/#get-apiv1stats-run-statistics).
 
 ```
 sortie stats [--format text|json] [--since value] [--until value] [workflow-path]
@@ -611,17 +611,17 @@ Which figures a report can carry depends on the database it reads, not on the ve
 | Tokens | `input_tokens`, `output_tokens`, `total_tokens`, `cache_read_tokens` | Token sums and every derived cost figure. `cache_write_tokens`, when present, adds the cache-write sum without changing the tier. |
 | Token measurement | `tokens_measured` | Which runs the coding agent could measure, and so which ones the token and cost figures cover |
 
-A sixth group sits outside the tier: `configured_model`, `configured_effort`, and `reported_model`. Only the configured-model breakdown depends on it, so a database without it is still `full`. See [configured model breakdown](#configured-model-breakdown). A seventh, `chain_id`, `stage_target`, and `stage_result`, sits outside the tier too and supplies only the stage chain breakdown. See [stage chain breakdown](#stage-chain-breakdown). The `trigger` column sits outside the tier as well and supplies only the retry trigger breakdown. See [retry trigger breakdown](#retry-trigger-breakdown).
+A sixth group sits outside the tier: `configured_model`, `configured_effort`, and `reported_model`. Only the configured-model breakdown depends on it, so a database without it is still `full`. See [configured model breakdown](#configured-model-breakdown). A seventh, `chain_id`, `stage_target`, and `stage_result`, sits outside the tier too and supplies only the stage chain breakdown. See [stage chain breakdown](#stage-chain-breakdown). The `trigger` and `reaction_kind` columns sit outside the tier as well and supply the retry trigger breakdown. See [retry trigger breakdown](#retry-trigger-breakdown). The run origin breakdown needs them and `first_after_hop`, which sits outside the tier too. See [run origin breakdown](#run-origin-breakdown).
 
-**`base`**: at least one group is missing. The report falls back to run counts, the outcome breakdown, the coding-agent breakdown, and durations. Turns, tokens, cost, the dispatch-rule breakdown, the prompt-template breakdown, the configured-model breakdown, the stage chain breakdown, the retry trigger breakdown, and the self-review section are all left out.
+**`base`**: at least one group is missing. The report falls back to run counts, the outcome breakdown, the coding-agent breakdown, and durations. Turns, tokens, cost, the dispatch-rule breakdown, the prompt-template breakdown, the configured-model breakdown, the stage chain breakdown, the retry trigger breakdown, the run origin breakdown, and the self-review section are all left out.
 
 The tier is all-or-nothing by design. A database carrying four of the five groups still reports `base`, and the report then drops the groups it does carry along with the ones it never recorded. The warning names both lists so the two are not confused:
 
 ```
-warning: this database was written before sortie recorded dispatch-rule routing, tokens and cost, which runs the coding agent could measure, the model each run was configured with, stage chains, retry triggers. The report falls back to run counts and durations, so it also leaves out turns, self-review results, which this database does carry. Run sortie once with this workflow to get the full report.
+warning: this database was written before sortie recorded dispatch-rule routing, tokens and cost, which runs the coding agent could measure, the model each run was configured with, stage chains, what started each run, the first run after each stage hop. The report falls back to run counts and durations, so it also leaves out turns, self-review results, which this database does carry. Run sortie once with this workflow to get the full report.
 ```
 
-A degraded report is still a report: the warning goes to stderr in text mode and into `warnings` in JSON, and the exit code is `0`. In JSON, `by_rule`, `by_template`, `by_model`, `by_chain`, and `by_trigger` are empty arrays, `self_review` is `null`, and every figure the tier cannot supply is `null` rather than `0`. A null means the database never recorded that figure, not that the figure measured zero.
+A degraded report is still a report: the warning goes to stderr in text mode and into `warnings` in JSON, and the exit code is `0`. In JSON, `by_rule`, `by_template`, `by_model`, `by_chain`, `by_trigger`, and `by_origin` are empty arrays, `self_review` is `null`, and every figure the tier cannot supply is `null` rather than `0`. A null means the database never recorded that figure, not that the figure measured zero.
 
 The remedy is to run the orchestrator once with this workflow. Startup applies the pending migrations, and runs recorded from then on carry the full set. `stats` cannot do this itself; its read-only connection cannot apply a migration.
 
@@ -714,13 +714,42 @@ by retry trigger
   ci_fix     1     1          100.0%        30m 0s  30m 0s  30m 0s   5.0    2,400,000     $12.00
 ```
 
-On a `full` database written before Sortie recorded the trigger, `by_trigger` is `[]`, the text report omits the table, and `warnings` carries this message. The exit code is `0`.
+On a `full` database written before Sortie recorded what started each run, `by_trigger` and `by_origin` are `[]`, the text report omits both tables, and `warnings` carries this message. The exit code is `0`.
 
 ```
-warning: this database was written before sortie recorded the retry trigger of each run, so the report leaves out the breakdown by retry trigger. Run sortie once with this workflow to add it.
+warning: this database was written before sortie recorded what started each run, so the report leaves out the breakdowns by retry trigger and by run origin. Run sortie once with this workflow to add them.
 ```
 
-The report carries at most one such breakdown warning. When the database predates several of the breakdown columns, the configured-model warning takes precedence over the stage chain one, and that over this one; running the orchestrator once adds every breakdown. On a `base` database the retry triggers are named in the degraded-schema warning instead, and `by_trigger` is `[]` as well.
+The report carries at most one such breakdown warning. When the database predates several of the breakdown columns, the configured-model warning takes precedence over the stage chain one, that over this one, and this one over the [run origin](#run-origin-breakdown) one; running the orchestrator once adds every breakdown. On a `base` database what started each run is named in the degraded-schema warning instead, and `by_trigger` is `[]` as well.
+
+#### Run origin breakdown
+
+The `by run origin` table (`by_origin` in JSON) groups runs by what started them. It splits the retry trigger breakdown's `<none>` group by origin: a dispatch from the poll tick, the first run after a [stage hop](/reference/workflow-config/#stage-chains), a pull request reaction, or a recorded CI result. Cost is priced as in every other breakdown.
+
+A run belongs to the first group in this table that matches it:
+
+| Group name | Runs it collects |
+|---|---|
+| `<unknown>` | Runs whose row records no trigger: runs recorded before Sortie stored what started a run, and runs dispatched by a retry queued before it did. |
+| `error`, `continuation`, `stall`, `ci_fix` | Runs dispatched by a retry that one of those triggers started, including a retry of a run a reaction dispatched. |
+| `review`, `bot-review`, `merge-conflict`, `label-review`, `label-fix` | Runs a pull request reaction dispatched, named by the reaction kind, the value [`GET /api/v1/runs`](/reference/http-api/#get-apiv1runs-run-history) serves as `reaction_kind`. |
+| `<none>` | Recorded CI results (`ci_failed` runs), which no dispatch started. |
+| `stage_hop` | The first run the poll tick dispatched after a stage hop, into the stage the hop led to. |
+| `poll_tick` | Every other run the poll tick dispatched, including a later run in a stage a hop led to. |
+
+Here `<none>` holds recorded CI results only, unlike in `by_trigger`. The `<unknown>` group and each group named by a retry trigger hold the same runs as the `by_trigger` group of that name. Every run in the range falls in exactly one group, so the groups' `runs` add up to `summary.runs`.
+
+The text table, titled `by run origin` with an `ORIGIN` column, follows the retry trigger table, has the columns of the prompt-template table, and lists every group.
+
+The migration that adds `first_after_hop` marks the earliest recorded run of each stage hop already in the history, so runs recorded before it still reach `stage_hop`. A later run in that stage stays unmarked.
+
+On a `full` database that records what started each run but predates `first_after_hop`, `by_origin` is `[]`, the text report omits the table while keeping the retry trigger table, and `warnings` carries this message. The exit code is `0`.
+
+```
+warning: this database was written before sortie recorded the first run after each stage hop, so the report leaves out the breakdown by run origin. Run sortie once with this workflow to add it.
+```
+
+This warning comes last in the precedence of breakdown warnings. A database that also predates the trigger columns carries the [retry trigger](#retry-trigger-breakdown) warning instead, which names both breakdowns. On a `base` database the first run after each stage hop is named in the degraded-schema warning, and `by_origin` is `[]` as well.
 
 #### Output formats
 
@@ -778,7 +807,7 @@ self review
   runs reviewed 6   iterate 1   pass 5   hit iteration cap 1   mean iterations 1.50
 ```
 
-The outcome table shows `SHARE`, a group's runs over total runs. Every other breakdown shows `SUCCEEDED` and `SUCCESS RATE`, a group's succeeded runs over its own. On the `base` tier the `TURNS`, `TOTAL TOKENS`, and `COST` columns are absent entirely, and the dispatch-rule, prompt-template, configured-model, stage-chain, retry-trigger, and self-review sections do not appear.
+The outcome table shows `SHARE`, a group's runs over total runs. Every other breakdown shows `SUCCEEDED` and `SUCCESS RATE`, a group's succeeded runs over its own. On the `base` tier the `TURNS`, `TOTAL TOKENS`, and `COST` columns are absent entirely, and the dispatch-rule, prompt-template, configured-model, stage-chain, retry-trigger, run-origin, and self-review sections do not appear.
 
 The `covering:` line is prose rather than a sentinel. It reads `every run on record` when neither bound was given, `<since> onward` with only `--since`, `the start of the record until <until>` with only `--until`, and `<since> until <until>` with both.
 
@@ -830,6 +859,7 @@ Envelope:
 | `by_model` | array of object | Breakdown by configured model. Empty array on the `base` tier and on a `full` database that predates the configured-model columns. See [configured model breakdown](#configured-model-breakdown). |
 | `by_chain` | array of object | Breakdown by stage chain, listing only chains where a hop was due or made. Empty array on the `base` tier and on a `full` database that predates the configured-model or stage-chain columns. See [stage chain breakdown](#stage-chain-breakdown). |
 | `by_trigger` | array of object | Breakdown by retry trigger. Empty array on the `base` tier and on a `full` database that predates the configured-model, stage-chain, or trigger columns. See [retry trigger breakdown](#retry-trigger-breakdown). |
+| `by_origin` | array of object | Breakdown by run origin. Empty array on the `base` tier and on a `full` database that predates the configured-model, stage-chain, trigger, or `first_after_hop` columns. See [run origin breakdown](#run-origin-breakdown). |
 | `self_review` | object or null | Self-review aggregation. `null` on the `base` tier, meaning the results were not read, not that no review ran. |
 
 `summary`:
@@ -850,11 +880,11 @@ Envelope:
 | `cost_unpriced_runs` | integer | Runs left out of the cost figures because `token_rates` has no complete entry for their coding agent. An entry is complete only when it sets both input and output rates. A `ci_failed` run records a CI verdict and no coding agent, so it is never counted here. |
 | `tokens_unmeasured_runs` | integer | Runs left out of the token and cost figures because the coding agent behind them reported no token usage. `0` on the `base` tier, where the distinction was never recorded. |
 
-Each element of `by_status`, `by_adapter`, `by_rule`, `by_template`, `by_model`, `by_chain`, and `by_trigger`:
+Each element of `by_status`, `by_adapter`, `by_rule`, `by_template`, `by_model`, `by_chain`, `by_trigger`, and `by_origin`:
 
 | Field | Type | Description |
 |---|---|---|
-| `name` | string | The group: an outcome, an agent adapter kind, a dispatch rule name, a template identifier, a configured model, a chain identifier, or a retry trigger. A run that recorded none carries the sentinel `<none>`, except in `by_chain`, which leaves such a run out. In `by_trigger`, `<none>` is an empty recorded trigger and `<unknown>` a trigger never recorded. Runs keep the agent kind they were recorded under, so a removed kind stays a group of its own next to the kind that replaced it. |
+| `name` | string | The group: an outcome, an agent adapter kind, a dispatch rule name, a template identifier, a configured model, a chain identifier, a retry trigger, or a run origin. A run that recorded none carries the sentinel `<none>`, except in `by_chain`, which leaves such a run out. In `by_trigger`, `<none>` is an empty recorded trigger and `<unknown>` a trigger never recorded. In `by_origin`, `<none>` is a recorded CI result and `<unknown>` a run whose trigger was never recorded. Runs keep the agent kind they were recorded under, so a removed kind stays a group of its own next to the kind that replaced it. |
 | `runs` | integer | Runs in this group. |
 | `succeeded` | integer | Succeeded runs in this group. In `by_status` this is structural rather than informative: the `succeeded` row necessarily reports it equal to `runs`. |
 | `success_rate` | number | `succeeded` over this group's `runs`. |
@@ -1015,6 +1045,7 @@ A worked example, expanded for readability and trimmed to one row per breakdown.
   ],
   "by_chain": [],
   "by_trigger": [],
+  "by_origin": [],
   "self_review": {
     "runs_with_metadata": 6,
     "by_final_verdict": [{"verdict": "iterate", "runs": 1}, {"verdict": "pass", "runs": 5}],

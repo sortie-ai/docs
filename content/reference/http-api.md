@@ -1121,7 +1121,7 @@ A poll tick that dispatches the issue again clears the outcome, so `issue_outcom
 
 ## GET /api/v1/stats: Run statistics
 
-Returns the report that [`sortie stats --format json`](/reference/cli/#stats) prints: run and issue counts, success rate, duration percentiles, token sums, and estimated cost over the runs completed in a range, with breakdowns by outcome, coding agent, dispatch rule, prompt template, configured model, stage chain, and retry trigger. The route and the command share one aggregation, so for one database and absolute bounds the two bodies differ only in `generated_at`, apart from the pricing difference [described below](#pricing-and-reload).
+Returns the report that [`sortie stats --format json`](/reference/cli/#stats) prints: run and issue counts, success rate, duration percentiles, token sums, and estimated cost over the runs completed in a range, with breakdowns by outcome, coding agent, dispatch rule, prompt template, configured model, stage chain, retry trigger, and run origin. The route and the command share one aggregation, so for one database and absolute bounds the two bodies differ only in `generated_at`, apart from the pricing difference [described below](#pricing-and-reload).
 
 ```sh
 curl 'http://localhost:7678/api/v1/stats?since=24h'
@@ -1150,7 +1150,7 @@ Sortie checks every parameter before it reads anything, so a malformed request n
 
 ### Response
 
-The body is compact JSON with the shape of the command's `--format json` output. [Output formats](/reference/cli/#output-formats) in the CLI reference defines every field, including `summary.issues` and `by_trigger`. The example is trimmed to the `by_status` and `by_trigger` breakdowns; the other breakdowns have the same shape.
+The body is compact JSON with the shape of the command's `--format json` output. [Output formats](/reference/cli/#output-formats) in the CLI reference defines every field, including `summary.issues`, `by_trigger`, and `by_origin`. The example is trimmed to the `by_status` and `by_trigger` breakdowns; the other breakdowns have the same shape.
 
 ```json
 {
