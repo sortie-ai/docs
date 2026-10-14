@@ -6,7 +6,7 @@ date: 2026-04-13
 weight: 40
 url: /reference/http-api/
 ---
-Sortie embeds an HTTP server that exposes a JSON API, an HTML dashboard, health probes, and Prometheus metrics, all on a single port.
+Sortie embeds an HTTP server that exposes a JSON API, a stream of change signals, an HTML dashboard, health probes, and Prometheus metrics, all on a single port.
 
 ## Server configuration
 
@@ -1278,7 +1278,7 @@ curl http://localhost:7678/api/v1/MT-649
 
 The path identifier is matched against live entries first. When none carries it, Sortie reads the newest run recorded under that identifier and takes the issue ID from it. If a live entry carries that issue ID, the response is that entry's live detail, with `issue_identifier` set to the identifier the entry carries now. This finds an issue the tracker renamed. `history` always covers the issue by its ID, so runs recorded under an earlier identifier stay in it.
 
-The fixed paths `/api/v1/state`, `/api/v1/runs`, `/api/v1/stats`, and `/api/v1/refresh` take precedence over this route, so an issue whose identifier is one of `state`, `runs`, `stats`, or `refresh` cannot be read here.
+The fixed paths `/api/v1/state`, `/api/v1/runs`, `/api/v1/stats`, `/api/v1/events`, and `/api/v1/refresh` take precedence over this route, so an issue whose identifier is one of `state`, `runs`, `stats`, `events`, or `refresh` cannot be read here.
 
 Every `200` response carries `history`. The running and finished examples show it in full; the other examples omit it to keep the members that differ by status in view.
 
@@ -2049,6 +2049,76 @@ If Sortie is shutting down, the refresh is rejected:
 
 ---
 
+## GET /api/v1/events: Change signals
+
+Streams a signal each time something the JSON API serves changes, so a client can refetch what it shows instead of polling on a timer. The response is a [server-sent events](https://html.spec.whatwg.org/multipage/server-sent-events.html) stream that stays open until the client disconnects or the HTTP server shuts down. A signal carries no data: it names no issue and no agent message, and the stream shows nothing that [`GET /api/v1/state`](#get-apiv1state-system-state) does not. The route takes no parameters and ignores the query string.
+
+```sh
+curl -N http://localhost:7678/api/v1/events
+```
+
+```text
+id: 1792000000000000000
+event: change
+data: {}
+
+```
+
+### Events
+
+| Event | Data | When |
+|---|---|---|
+| `change` | `{}` | Something the API serves changed, or a stream just opened and the client does not hold the current `id`. |
+| `heartbeat` | `{}` | Every 15 seconds on every open stream, whether or not anything changed. |
+
+Both events carry an `id` line. The `id` is an opaque decimal number that rises with every change. A `heartbeat` repeats the `id` of the last `change` the stream sent, or the `Last-Event-ID` the stream opened with when it sent none, so a heartbeat never moves a client's cursor. Sortie starts the counter from the clock at process start, so an `id` from before a restart never matches a later one.
+
+### When a signal arrives
+
+A stream receives a `change` after each of these:
+
+- A poll tick, a refresh, a worker exit, or a retry.
+- Every message from a running agent session, so token counts and the latest message reach a client within a second.
+- The start of shutdown.
+- Each time the file watcher loads `WORKFLOW.md`, whether the load succeeds or fails.
+
+A stream carries at most one `change` per second. The first change after a quiet second arrives at once. Changes made during the following second arrive together as one signal when that second ends. Values that move with the clock alone, such as elapsed times computed from `started_at` and `agent_totals.seconds_running`, produce no signal.
+
+### Reconnecting
+
+A stream opens with a `200` and flushes its headers at once. Sortie then sends one `change` immediately, unless the request carries a `Last-Event-ID` header equal to the current `id`. In that case Sortie sends nothing until the next change. A missing header, a stale value, or a value from before a restart all get the immediate `change`, so a client refetches after any gap.
+
+A browser's `EventSource` sends `Last-Event-ID` and reconnects after a dropped connection on its own. A client that is not a browser echoes back the `id` of the last `change` it saw.
+
+### Client guidance
+
+Sortie does not enforce the following; it is how a consumer stays correct:
+
+- Refetch on every `change`, and ignore `heartbeat` for data. Because signals are coalesced to one per second, a `change` means "something moved since your last fetch", not "one thing moved".
+- Treat a stream that has delivered no event for 45 seconds, three heartbeat intervals, as dead. Close it and open a new one. A connection can die without the client being told, for example when a laptop wakes holding a socket the server dropped while it slept.
+- After a failure that closes the stream for good, such as a non-`200` answer or a proxy `502`, wait before reopening and lengthen the wait while new attempts keep failing. A browser does not retry after a non-`200` answer, so the client has to.
+
+### Shutdown and slow clients
+
+When the HTTP server begins to shut down, Sortie ends every open stream, so a connected client does not hold up the [shutdown sequence](/reference/cli/#signals). A stream opened during that window still answers `200` and ends at once. The route never answers `503`.
+
+A client that stops reading is dropped once Sortie cannot write a frame to it within 2 seconds, and it delays no other client. The server's 10-second write timeout does not apply to an open stream.
+
+### Reverse proxies and browsers
+
+The response carries `Cache-Control: no-cache` and `X-Accel-Buffering: no`, which nginx honors to stop buffering the stream. Set the proxy's read timeout above 15 seconds, or it closes a stream that the heartbeat would have kept alive.
+
+Over plain HTTP/1.1 a browser allows about six connections per origin across all its tabs, and every open stream holds one. Share one stream across tabs rather than opening one per tab.
+
+### Status codes
+
+| Code | Meaning |
+|---|---|
+| `200 OK` | The stream is open. Content type is `text/event-stream`. |
+| `405 Method Not Allowed` | Used a method other than GET. The answer is the usual JSON error envelope with `Allow: GET`. |
+
+---
+
 ## GET /livez: Liveness probe
 
 Lightweight liveness check for container orchestrators. Returns `200` when the process is alive, `503` when draining.
@@ -2196,5 +2266,6 @@ The response includes the header `Allow: GET` (or `Allow: POST` for the refresh 
 | GET | `/api/v1/runs` | Run history, newest first, filtered and paged | `application/json` |
 | GET | `/api/v1/stats` | Run statistics over a completion-time range | `application/json` |
 | GET | `/api/v1/{identifier}` | Per-issue detail and run history | `application/json` |
+| GET | `/api/v1/events` | Stream of change signals and heartbeats | `text/event-stream` |
 | POST | `/api/v1/refresh` | Trigger immediate poll cycle | `application/json` |
 | GET | `/metrics` | Prometheus metrics | `text/plain` |
