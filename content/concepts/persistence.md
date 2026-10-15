@@ -35,13 +35,13 @@ Aggregate metrics (total tokens consumed, total dispatches, total worker exits b
 
 After loading persisted state, Sortie reconciles against the tracker. Are any persisted issues now in terminal states? A human might have closed a ticket while the orchestrator was down. Those get cleaned up. Then normal polling begins.
 
-The only thing lost: running agent processes. Agent subprocesses are OS processes. They die when the parent dies. Sortie rediscovers these issues through normal polling and re-dispatches them. The [workspace directory](/concepts/isolation/) is still on disk, so the agent picks up where the previous session left off. Prior commits, cached dependencies, and partial work are all intact.
+What is lost: running agent processes and their conversations. Agent subprocesses are OS processes. They die when the parent dies. Sortie rediscovers these issues through normal polling and re-dispatches them in a new agent session. The [workspace directory](/concepts/isolation/) is still on disk, so the new session starts from the files the previous one left. Prior commits, cached dependencies, and partial work are all intact.
 
 ## What Sortie persists and why
 
 The durable data falls into categories, each solving a specific problem that in-memory state cannot.
 
-**Retry entries.** Each entry stores the issue ID, human-readable identifier, attempt number, a `due_at` timestamp in epoch milliseconds, the last error message, the agent session ID the retry resumes, the agent kind, template, and rule name resolved at the issue's first dispatch, and the issue's place in its [stage chain](/concepts/stage-chains/): the chain identifier, the previous stage, and that stage's outcome.
+**Retry entries.** Each entry stores the issue ID, human-readable identifier, attempt number, a `due_at` timestamp in epoch milliseconds, the last error message, the agent session ID a continuation resumes, the agent kind, template, and rule name resolved at the issue's first dispatch, and the issue's place in its [stage chain](/concepts/stage-chains/): the chain identifier, the previous stage, and that stage's outcome.
 
 Without the backoff timestamp, exponential backoff is a fiction: it only works within a single process lifetime. Kill the process, and every issue resets to attempt one. With persistence, a process restart at minute three of a five-minute backoff means the timer fires two minutes later.
 
@@ -112,5 +112,5 @@ The design philosophy: collect the data once, at the source, so any governance s
 - [Architecture overview](/concepts/architecture/) for the single-binary, no-runtime-dependency design rationale
 - [Orchestration](/concepts/orchestration/) for retry strategies, reconciliation, and the turn model
 - [Workflow file reference](/reference/workflow-config/) for database path and retry-related config fields
-- [Resume sessions across restarts](/guides/resume-sessions-across-restarts/) for the practical how-to
+- [Recover work across restarts](/guides/resume-sessions-across-restarts/) for the practical how-to
 - [HTTP API reference](/reference/http-api/) for querying run history and session data

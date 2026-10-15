@@ -90,7 +90,7 @@ Which fields each kind reads:
 - `auto_merge` uses `pr_number`, `owner`, `repo`, and `branch`. The `branch` field is required because branch deletion after merge needs it.
 - `merge_completion` uses `pr_number`, `owner`, and `repo`. It needs no `branch`, because it performs no checkout.
 
-The optional `pushed_at` timestamp (RFC 3339 UTC) lets Sortie reconstruct pending reactions for an open PR after a restart, so feedback survives a process bounce instead of waiting for the next push. Write it from the same hook that pushes. See [Resume sessions across restarts](/guides/resume-sessions-across-restarts/) for the recovery model.
+The optional `pushed_at` timestamp (RFC 3339 UTC) lets Sortie reconstruct pending reactions for an open PR after a restart, so feedback survives a process bounce instead of waiting for the next push. Write it from the same hook that pushes. See [Recover work across restarts](/guides/resume-sessions-across-restarts/) for the recovery model.
 
 Here's an `after_run` hook that pushes, opens a PR, and writes every field:
 
@@ -450,7 +450,7 @@ sqlite3 sortie.db "SELECT issue_id, fingerprint, dispatched, updated_at FROM rea
 - [Configure self-review](/guides/configure-self-review/): pre-PR verification that runs before any reaction
 - [Connect to GitHub](/guides/connect-to-github/): adapter setup and token scopes
 - [Setup workspace hooks](/guides/setup-workspace-hooks/): hook scripts and `.sortie/scm.json` population
-- [Resume sessions across restarts](/guides/resume-sessions-across-restarts/): how pending reactions survive a restart
+- [Recover work across restarts](/guides/resume-sessions-across-restarts/): how pending reactions survive a restart
 - [Reactions reference](/reference/reactions/): the shared lifecycle and every field, default, and safety rule
 - [State machine reference](/reference/state-machine/): claims, retries, and the reconcile tick
 - [Prometheus metrics reference](/reference/prometheus-metrics/): reaction and escalation metrics

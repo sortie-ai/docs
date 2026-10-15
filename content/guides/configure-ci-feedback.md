@@ -125,7 +125,7 @@ CI feedback needs a repository to query and a ref to check. It gets these from t
 {"branch": "sortie/PROJ-123", "sha": "abc123def456", "pushed_at": "2026-04-10T12:00:00Z", "pr_number": 42, "owner": "myorg", "repo": "myrepo"}
 ```
 
-Once the watch is seeded, the orchestrator resolves the pull request's current head itself, through the SCM adapter, on every poll, rather than reading a ref recorded once. The `pushed_at` timestamp is used only by startup recovery for handoff-stage issues. It determines whether a previously pushed branch is still fresh enough to re-poll after a restart. If absent, recovery falls back to the agent run's `completed_at` time. See [Resume sessions across restarts](/guides/resume-sessions-across-restarts/) for the recovery model.
+Once the watch is seeded, the orchestrator resolves the pull request's current head itself, through the SCM adapter, on every poll, rather than reading a ref recorded once. The `pushed_at` timestamp is used only by startup recovery for handoff-stage issues. It determines whether a previously pushed branch is still fresh enough to re-poll after a restart. If absent, recovery falls back to the agent run's `completed_at` time. See [Recover work across restarts](/guides/resume-sessions-across-restarts/) for the recovery model.
 
 Here's an `after_run` hook that pushes, opens a pull request, and writes the SCM metadata:
 

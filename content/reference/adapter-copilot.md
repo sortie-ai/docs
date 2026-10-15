@@ -280,7 +280,7 @@ Each `session.error` event also reaches the orchestrator as an `other_message` e
 
 A `result` event with `exitCode: 0` is not decisive by itself: the adapter also checks whether this turn saw a `session.task_complete` report, the runtime's own record of whether the work finished. The [`max_autopilot_continues`](#agentmax_turns-vs-copilot-climax_autopilot_continues) ceiling can stop the runtime mid-task with a clean exit and no such report; without this check that outcome read as an ordinary success.
 
-`turn_incomplete` is retried like the other transient turn failures, on exponential backoff, and the retry resumes the same session with a fresh continuation ceiling. Raise `copilot-cli.max_autopilot_continues` if the task genuinely needs more autopilot steps per turn. No other built-in adapter reports `turn_incomplete` today.
+`turn_incomplete` is retried like the other transient turn failures, on exponential backoff. The retry starts a new session with a fresh continuation ceiling over the same workspace. Raise `copilot-cli.max_autopilot_continues` if the task genuinely needs more autopilot steps per turn. No other built-in adapter reports `turn_incomplete` today.
 
 `--no-ask-user` is on every invocation, so this adapter has no path to `turn_input_required`: the runtime cannot put a question to a person, and a denied tool call continues the session instead of ending the turn.
 

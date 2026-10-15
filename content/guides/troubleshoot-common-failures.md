@@ -172,7 +172,7 @@ Copilot CLI exited cleanly, but the turn stopped before it produced a `session.t
 
 1. **Raise `copilot-cli.max_autopilot_continues`** (default `50`) if the task genuinely needs more autopilot steps per turn. See [`agent.max_turns` vs. `copilot-cli.max_autopilot_continues`](/reference/adapter-copilot/#agentmax_turns-vs-copilot-climax_autopilot_continues) for how this budget relates to `agent.max_turns`.
 
-2. **Let the retry run.** `turn_incomplete` is retried on the same exponential backoff as other transient turn failures, and the retry resumes the same Copilot session rather than starting over, so raising the ceiling is often enough on its own.
+2. **Let the retry run.** `turn_incomplete` is retried on the same exponential backoff as other transient turn failures, and the retry starts a new Copilot session over the same workspace, so the files the earlier session wrote are still there. Raising the ceiling is often enough on its own.
 
 3. **Tell it apart from a stall or a genuine failure.** A stall reports `turn_cancelled`; an agent that reported its own failure, or exited with nothing to show for the turn, reports `turn_failed`. `turn_incomplete` means specifically that the turn's `result` event arrived and the exit was clean, but no `session.task_complete` report ever did.
 

@@ -131,9 +131,9 @@ Sortie's SQLite database stores the state that must survive process boundaries. 
 
 Run history persists, so `max_sessions` budget checks work across restarts because completed sessions are in the database. Session metadata persists for debugging: an operator investigating a failure can see the last agent session's token counts, model name, and timing.
 
-What does *not* survive restart: running agent processes. Agent subprocesses are OS processes. They die when the parent dies. On restart, Sortie rediscovers these issues through normal polling and re-dispatches them. The workspace persists on disk, so the agent picks up where the previous session left off. Prior commits, cached dependencies, and partial work are all still there.
+What does *not* survive restart: running agent processes and their conversations. Agent subprocesses are OS processes. They die when the parent dies. On restart, Sortie rediscovers these issues through normal polling and re-dispatches them in a new agent session. The workspace persists on disk, so the new session starts from the files the previous one left. Prior commits, cached dependencies, and partial work are all still there.
 
-This is where Sortie diverges most sharply from stateless orchestrators like Symphony, where all state lives in Erlang process memory. A Symphony restart is a cold start. A Sortie restart is a warm start: retry state is durable, scheduling history is intact, and the only thing lost is the agent processes themselves, which get re-launched automatically.
+This is where Sortie diverges most sharply from stateless orchestrators like Symphony, where all state lives in Erlang process memory. A Symphony restart is a cold start. A Sortie restart is a warm start: retry state is durable, scheduling history is intact, and the only thing lost is the running agents and their conversations, whose issues are dispatched again automatically.
 
 ## The turn loop: sessions within sessions
 
@@ -143,7 +143,7 @@ An **orchestrator turn** is one call to `RunTurn` on the agent adapter. The orch
 
 An **agent turn** is internal to a single `RunTurn` invocation. For Claude Code, this might be dozens of tool calls, file reads, code edits, and shell commands, all within one orchestrator turn. The agent runtime decides when to stop executing. Agent-specific config (like Claude Code's `--max-turns` flag) controls this.
 
-A worker session runs up to `max_turns` orchestrator turns. After each turn, the worker checks the tracker: is the issue still active? If yes and turns remain, it starts another turn in the same session. When turns are exhausted or the issue leaves active state, the worker exits. The orchestrator then decides: schedule a continuation retry (new session), schedule an error retry, or release the claim.
+A worker session runs up to `max_turns` orchestrator turns. After each turn, the worker checks the tracker: is the issue still active? If yes and turns remain, it starts another turn in the same session. When turns are exhausted or the issue leaves active state, the worker exits. The orchestrator then decides: schedule a continuation retry (which resumes the same agent session), schedule an error retry (which starts a new one), or release the claim.
 
 Why two levels? The orchestrator needs a control point for "how many times do I invoke the agent?" while the agent runtime needs a separate control point for "how many tool calls or LLM round-trips per invocation?" Conflating them would force the orchestrator to understand agent-internal behavior (how many tool calls Claude Code makes, how Copilot CLI structures its loops), and that breaks the adapter abstraction. The orchestrator manages sessions. The agent manages what happens inside them.
 

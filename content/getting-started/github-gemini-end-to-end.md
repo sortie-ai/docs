@@ -337,7 +337,7 @@ Usage reporting reads `figures arrive when a turn ends, per model` either way, b
 
 **A re-dispatched issue runs in a different Gemini session.** A first run never meets this, because every turn of a session goes to one Gemini process.
 
-When Sortie re-dispatches an issue, for example after a stall, it asks Gemini to reload the earlier session. A confirmed reload keeps the earlier `session_id` on `agent session started`; otherwise Sortie opens a fresh session in the same workspace, sometimes after a `continuation call failed` or `continuation call timed out` warning, and the run carries on. Nothing needs fixing; the [session resume mechanism](/reference/adapter-agent-client-protocol/#session-resume-mechanism) and Gemini's [continuation notes](/reference/agent-client-protocol-gemini/#session-continuation-replays-history-with-two-traps) explain both outcomes.
+When Sortie resumes an issue's earlier session, as it does for a continuation or the retry after a stall, it asks Gemini to reload that session. A confirmed reload keeps the earlier `session_id` on `agent session started`; otherwise Sortie opens a fresh session in the same workspace, sometimes after a `continuation call failed` or `continuation call timed out` warning, and the run carries on. Nothing needs fixing; the [session resume mechanism](/reference/adapter-agent-client-protocol/#session-resume-mechanism) and Gemini's [continuation notes](/reference/agent-client-protocol-gemini/#session-continuation-replays-history-with-two-traps) explain both outcomes.
 
 {{% /steps %}}
 

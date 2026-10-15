@@ -31,7 +31,7 @@ Step-by-step instructions for configuring, operating, and extending Sortie.
 ## Operations
 
 {{< cards >}}
-  {{< card link="resume-sessions-across-restarts" title="Resume Sessions" subtitle="What survives restarts and how recovery works." >}}
+  {{< card link="resume-sessions-across-restarts" title="Recover Work Across Restarts" subtitle="What survives restarts and how recovery works." >}}
   {{< card link="control-costs" title="Control Costs" subtitle="Per-session budgets, turn caps, and concurrency." >}}
   {{< card link="run-as-systemd-service" title="Systemd Service" subtitle="Run as a persistent service on Linux." >}}
   {{< card link="run-as-launchctl-service" title="Launchctl Service" subtitle="Run as a persistent service on macOS." >}}

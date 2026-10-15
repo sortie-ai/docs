@@ -392,7 +392,7 @@ kubectl delete pod -l app.kubernetes.io/name=sortie
 
 The Deployment controller recreates it. Check the logs for a warm-start message indicating that existing state was loaded. In-flight agent sessions that were interrupted are marked as timed-out and retried according to your [retry configuration](/guides/configure-retry-behavior/).
 
-For a deeper look at what Sortie preserves across restarts, see [How to resume sessions across restarts](/guides/resume-sessions-across-restarts/).
+For a deeper look at what Sortie preserves across restarts, see [How to recover work across restarts](/guides/resume-sessions-across-restarts/).
 
 ## Monitor the deployment
 

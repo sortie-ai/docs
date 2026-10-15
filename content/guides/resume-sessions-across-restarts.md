@@ -1,13 +1,13 @@
 ---
-title: "How to Resume Agent Sessions Across Restarts"
-linkTitle: "Resume Sessions Across Restarts"
-description: "Understand what Sortie preserves across process restarts, how in-flight sessions recover, and how to verify that no work is lost on shutdown or crash."
+title: "How to Recover Work Across Restarts"
+linkTitle: "Recover Work Across Restarts"
+description: "Understand what Sortie preserves across process restarts, how interrupted issues are picked up again, and how to verify that its state survives a shutdown or crash."
 author: Sortie AI
 date: 2026-03-29
 weight: 100
 url: /guides/resume-sessions-across-restarts/
 ---
-Keep Sortie's state intact across planned restarts and unexpected crashes: no manual intervention, no lost work, no duplicated effort.
+Keep Sortie's state intact across planned restarts and unexpected crashes, with no manual intervention.
 
 ## Prerequisites
 
@@ -23,7 +23,7 @@ Retries, session budgets, token totals, parked issues, escalations, and acknowle
 |---|---|---|
 | `retry_entries` | Pending retries: issue ID, attempt number, scheduled fire time, issue title, link, type, labels, and state | Retries resume at the correct position in the backoff sequence. Overdue retries fire immediately on startup. The [state API](/reference/http-api/#get-apiv1state-system-state) names a restored retry's issue right away; a retry stored by an earlier release gets them from the next poll or when it fires. |
 | `run_history` | Completed runs: issue ID, attempt, status, timestamps, workspace path | The `max_sessions` budget check queries this table. After restart, Sortie knows exactly how many sessions each issue has used, with no counter resets. |
-| `session_metadata` | Last session ID, token counters, model name, API request count | Enables agent session resume (e.g., the `--resume` flag for Claude Code). When the same issue is dispatched again, the adapter can pick up the previous session. |
+| `session_metadata` | Last session ID, token counters, model name, API request count | The latest figures for each issue's most recent session. Resuming a session does not read this table: a continuation carries its session in its retry entry. |
 | `attention_acknowledgements` | One row per acknowledged attention item: the item's ID and the time of the acknowledgement | An item that a person acknowledged stays acknowledged after a restart. Sortie deletes the row when the item no longer exists. See [acknowledge an attention item](/reference/http-api/#post-apiv1attentionidacknowledge-acknowledge-an-attention-item). |
 | `reaction_escalations` | One row per issue and reaction kind: the escalation's trigger, start time, attempt counter, and pull request | A pull request reaction that escalated to a person stays escalated after a restart. Sortie runs no second round of fixes and applies no second label. |
 
@@ -35,7 +35,8 @@ When Sortie stops (whether from `Ctrl+C`, a termination signal, or a crash), any
 
 - Their tracker status hasn't changed (still "In Progress" or whatever your active state is)
 - Their workspace directories remain on disk, untouched
-- They may or may not have a pending retry entry in SQLite, depending on when the stop happened
+- A run stopped mid-work leaves no pending retry entry in SQLite. An issue whose retry was already queued when Sortie stopped keeps that entry
+- Their interrupted run is recorded in run history with the status `cancelled`. The dashboard shows it as Cancelled. That status belongs to the one run that was stopped, not to the issue
 
 Here's what the startup sequence does to pick them back up:
 
@@ -46,9 +47,11 @@ Here's what the startup sequence does to pick them back up:
 5. The `before_run` hook runs in the existing workspace (for example, `git pull` to bring the workspace up to date).
 6. The agent starts in that workspace with all previous work preserved on disk.
 
+The agent's conversation does not survive. A run that was stopped mid-work leaves no retry entry, so its issue is dispatched as a fresh attempt: a new agent session that receives the prompt again and knows only what the previous session wrote to the workspace. Only a continuation that was already queued when Sortie stopped resumes its earlier session.
+
 No special configuration is needed for this to work. It's the default behavior.
 
-If your `before_run` hook does a `git fetch && git reset`, the agent picks up exactly where the previous session left off. If you haven't configured hooks, the workspace contains whatever files the agent wrote before the process stopped.
+The workspace contains whatever files the agent wrote before the process stopped, unless a hook removes them. A `before_run` hook that runs `git reset --hard` discards every uncommitted change the previous session made.
 
 ## What happens to handoff-stage PRs
 
@@ -173,7 +176,7 @@ After restart, confirm in the logs that:
 
 Nothing, actually. Persistence and restart recovery are built into Sortie's default behavior. What you got from this guide:
 
-- **Confidence that no work is lost.** Retry queues, session budgets, and token accounting all survive restarts because they live in SQLite.
+- **Confidence that Sortie's state survives.** Retry queues, session budgets, and token accounting all survive restarts because they live in SQLite. An interrupted agent's conversation does not: its issue starts a new session over the same workspace.
 - **Understanding of the restart sequence.** In-flight issues are re-discovered through the normal poll loop and dispatched into their existing workspaces.
 - **A hook pattern for seamless restarts.** `after_create` for one-time setup, `before_run` for refresh, `after_run` for preservation.
 - **Verification steps.** Database file check, startup log messages, dashboard inspection, and a manual restart test.

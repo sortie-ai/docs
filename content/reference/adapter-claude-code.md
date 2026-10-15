@@ -116,7 +116,7 @@ The adapter passes `--session-id <uuid>` on the first turn of a session it opene
 
 The [credential-verification session](/reference/workflow-config/#credential-verification) every worker attempt opens before its working session always carries `--no-session-persistence` on top of whatever `claude-code.session_persistence` says, along with `--tools ""` and `--strict-mcp-config`, so that one extra session asks for no tools, reaches no MCP server, and writes no session file for the CLI to keep. It leaves no leftover conversation behind for this reason, unlike a kind whose runtime has no such flag and instead deletes the conversation explicitly.
 
-The refusal is unconditional. It does not depend on `agent.max_turns`, on the configured reactions, on the retry budgets, or on `tracker.handoff_state`. A single-turn budget does not avoid the conflict either: Sortie re-dispatches an issue carrying its earlier session after a retry, a continuation, a stall, or a restart, so the first turn of such a dispatch is already a resumed turn.
+The refusal is unconditional. It does not depend on `agent.max_turns`, on the configured reactions, on the retry budgets, or on `tracker.handoff_state`. A single-turn budget does not avoid the conflict either: Sortie hands an issue its earlier session back on a continuation, including one still queued when Sortie restarts, and on the retry after a stall while Sortie keeps running, so the first turn of such a dispatch is already a resumed turn.
 
 Leaving `session_persistence` unset, or setting it to `true`, resumes normally. `agent.max_turns` defaults to `20`, so a session ordinarily runs more than one turn.
 
@@ -148,7 +148,7 @@ When `agent.kind` is `claude-code`, the [`sortie validate`](/reference/cli/#vali
 | Check | Condition | Message |
 |---|---|---|
 | `claude-code.permission_mode.interactive` | `claude-code.permission_mode` is set to any value other than `bypassPermissions` | `claude-code.permission_mode is set to a value that lets the agent stop and ask for approval, and an unattended run has no one to answer; only "bypassPermissions" is supported` |
-| `agent.kind.session_resume` | `claude-code.session_persistence` is the boolean `false` | `claude-code.session_persistence stops this agent kind from resuming a session across separate agent launches, but Sortie re-dispatches an issue with its earlier session after a retry, a continuation, a stall, or a restart, and every such turn fails. Change claude-code.session_persistence, or use an agent kind that can resume a session.` |
+| `agent.kind.session_resume` | `claude-code.session_persistence` is the boolean `false` | `claude-code.session_persistence stops this agent kind from resuming a session across separate agent launches, but Sortie resumes an issue's earlier session on a continuation, including one queued before a restart, and on the retry after a stall while Sortie keeps running, and every such turn fails. Change claude-code.session_persistence, or use an agent kind that can resume a session.` |
 
 An absent `permission_mode` draws nothing: the adapter passes `--dangerously-skip-permissions`, which bypasses the same checks.
 

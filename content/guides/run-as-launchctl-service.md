@@ -267,7 +267,7 @@ See [How to run multiple workflows](/guides/run-multiple-workflows/) for the ful
 
 ## Update the binary
 
-Sortie persists all state (run history, retry schedules, session metadata) in SQLite. Stopping and restarting loses nothing. In-flight agent sessions are drained gracefully on stop and can resume on the next start.
+Sortie persists all state (run history, retry schedules, session metadata) in SQLite. Stopping and restarting loses nothing. Running agents are stopped gracefully, and on the next start Sortie dispatches their issues again into the same workspaces. Each one starts a new agent conversation that sees the files the previous one left on disk.
 
 ```bash
 launchctl bootout gui/$(id -u)/com.sortie-ai.sortie

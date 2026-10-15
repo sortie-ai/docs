@@ -206,7 +206,7 @@ SessionResumeBlockedBy: func(passthrough map[string]any) string {
 },
 ```
 
-Declare it if the key exists, because Sortie re-dispatches an issue carrying its earlier session after a retry, a continuation, a stall, or a restart, and without the declaration a workflow that sets such a key validates cleanly and then fails on every resumed turn.
+Declare it if the key exists, because Sortie hands an issue its earlier session back on a continuation, including one still queued when Sortie restarts, and on the retry after a stall while Sortie keeps running, and without the declaration a workflow that sets such a key validates cleanly and then fails on every resumed turn.
 
 With it declared, [`sortie validate`](/reference/cli/#validate) and startup preflight refuse the workflow with an `agent.kind.session_resume` error naming your key. The check is generic: the message text and severity belong to Sortie, and your declaration supplies only the key.
 
@@ -507,7 +507,7 @@ The one failure kind shown here, `ErrPortExit`, is retryable. Other kinds are no
 
 ### Wire session continuity
 
-`StartSessionParams.ResumeSessionID` carries the session id from a previous worker attempt for the same issue. An adapter that cannot resume ignores the field; the orchestrator still functions, and each turn starts fresh. If your CLI supports resume, choose the strategy that matches how it identifies sessions.
+`StartSessionParams.ResumeSessionID` carries the session id from a previous worker attempt for the same issue when that attempt is resumed: a continuation, and a stall retry that fires before Sortie restarts. A fresh dispatch and a retry after an error leave it empty. An adapter that cannot resume ignores the field; the orchestrator still functions, and each turn starts fresh. If your CLI supports resume, choose the strategy that matches how it identifies sessions.
 
 A session-id-based resume fits a CLI that owns an addressable identifier. Claude Code generates a UUID, threads it through every turn, and passes `--resume <id>` when `ResumeSessionID` is set.
 
@@ -739,4 +739,4 @@ These steps need repository access an outside contributor does not have. Make th
 - [Write a custom agent tool](/guides/write-custom-agent-tool/): the sibling extensibility guide for tools
 - [Scale agents with SSH](/guides/scale-agents-with-ssh/): the remote-execution path your SSH branch enables
 - [Control costs](/guides/control-costs/): turn and token budgets that depend on what your adapter reports
-- [Resume sessions across restarts](/guides/resume-sessions-across-restarts/): how `ResumeSessionID` fits the recovery model
+- [Recover work across restarts](/guides/resume-sessions-across-restarts/): how `ResumeSessionID` fits the recovery model

@@ -109,7 +109,7 @@ Sortie uses two different retry strategies depending on what happened, and they 
 
 ### Continuation retries (1-second delay)
 
-When an agent finishes its turns normally but the issue is still in an active tracker state, Sortie treats this as "keep going," not an error. It waits 1 second and dispatches a new session. This also applies when a handoff transition fails, but not when the handoff is withheld by the evidence policy: that outcome takes the exponential-backoff lane below, covered under [park issues stuck in a loop of empty runs](#park-issues-stuck-in-a-loop-of-empty-runs).
+When an agent finishes its turns normally but the issue is still in an active tracker state, Sortie treats this as "keep going," not an error. It waits 1 second and dispatches the issue again, resuming the same agent session. This also applies when a handoff transition fails, but not when the handoff is withheld by the evidence policy: that outcome takes the exponential-backoff lane below, covered under [park issues stuck in a loop of empty runs](#park-issues-stuck-in-a-loop-of-empty-runs).
 
 You don't configure this delay. It's fixed at 1,000 ms because the agent succeeded; there's no reason to wait.
 
