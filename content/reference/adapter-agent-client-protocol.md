@@ -173,16 +173,33 @@ The Agent Client Protocol declares eleven `session/update` notification variants
 
 | `session/update` variant | Normalized event |
 |---|---|
-| `agent_message_chunk` (text content) | `notification`, carrying the text, truncated to 500 runes |
-| `agent_message_chunk` (non-text content) | `malformed`, message `agent sent a message chunk this client does not render` |
+| `agent_message_chunk` (text content) | `notification` with an empty message, at once. The text accumulates into one agent message, reported as a second `notification`; see [agent messages](#agent-messages). |
+| `agent_message_chunk` (non-text content) | `malformed`, message `agent sent a message chunk this client does not render`, at once. The chunk belongs to the message being accumulated and does not end it. |
 | `agent_thought_chunk` | `other_message`, message `reasoning block` |
-| `user_message_chunk` | No event. This variant exists only as replay evidence for session continuation; the adapter observes it directly rather than through a normalized event. |
+| `user_message_chunk` | No event. This variant exists only as replay evidence for session continuation; the adapter observes it directly rather than through a normalized event. It ends the agent message being accumulated. |
 | `tool_call` | No event yet; the call is recorded internally, keyed by its own identifier, until its terminal update arrives. |
 | `tool_call_update`, status `completed` or `failed` | `tool_result`, carrying the tool name, the duration between the call's begin and end, the error flag set when the status is `failed`, and the update's own `title` as the message, truncated to 500 runes and empty when the update carries none |
 | `tool_call_update`, any other status | No event; the internal record is updated, nothing more. |
 | `plan` | `other_message`, message `plan update` |
 | `available_commands_update`, `current_mode_update`, `config_option_update`, `session_info_update`, `usage_update` | No event; logged at debug level only |
 | Any other, or unrecognized, discriminator value | `malformed` |
+
+### Agent messages
+
+A runtime streams one reply as many `agent_message_chunk` updates. Chunks of one message share a `messageId`; a chunk with a different `messageId` starts a new message. Each text chunk produces a `notification` with an empty message, which resets the stall timer without replacing the last message shown for the running agent. The text itself accumulates, capped at 500 runes. A message cut at the cap ends with `…`.
+
+The accumulated message is reported once as a `notification` carrying the whole text, when any of these happens:
+
+- A chunk with a different `messageId` arrives.
+- A `user_message_chunk` arrives.
+- Any other update that maps to an event arrives, including a `tool_result`, an `other_message`, and a `malformed` event for an unrecognized update.
+- A turn starts or ends, or the stream to the runtime ends.
+
+Updates that produce no event, such as `usage_update`, do not end a message.
+
+The reported message carries the time its last text chunk arrived. A reply that `session/load` replays between turns is therefore not dated into the next turn.
+
+The last message shown for a running agent, including the `last_message` field of the [HTTP API](/reference/http-api/), is the latest completed message, subject to the same 500-rune cap.
 
 A notification naming a session identifier other than the one this session is running is dropped rather than normalized, once the session's own identifier is known.
 
