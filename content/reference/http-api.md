@@ -918,7 +918,7 @@ Pending reactions live in memory, except for a standing escalation, which Sortie
 | `pull_request` | The pull request the reaction watches. Always present; keys below. |
 | `created_at` | When this process created the reaction, at the worker exit that seeded it or at the startup that rebuilt it, as an RFC 3339 timestamp in UTC. A wait for the retry slot does not change it. |
 | `dispatched_at` | When Sortie dispatched the first run of the pass of the run the reaction follows, in UTC. Always present; `null` when the pass cannot be dated. After a restart it comes from the run history row the reaction is rebuilt from. See [dispatch time and stage position](#dispatch-time-and-stage-position). |
-| `next_poll_at` | When the next check is due, in UTC. The check runs on the first reconcile pass at or after it, so a value at or before `generated_at` means the next pass checks the reaction. |
+| `next_poll_at` | When the next check is due, in UTC. The check runs on the first reconcile pass at or after it, so a value at or before `generated_at` means the next pass checks the reaction. A [request to check the reaction now](#post-apiv1reactionsidentifierkindcheck-check-a-pending-reaction-now) moves a later value to the time Sortie takes the request, and the check it brings forward gives the replaced value back when the reaction stays pending. |
 | `wait` | Why the reaction waits for that check; see the table below. Omitted until a pass first returns the reaction to the pending set, because a reaction no pass has taken is due at once. |
 | `used_attempts` | Integer or `null`. What the kind counts; see the table below. `null` for `label-review` and `label-fix`, which count nothing. |
 | `max_attempts` | Integer or `null`. The budget the kind's pass applies, as of the latest poll tick. `null` when the pass applies none: for `label-review` and `label-fix`, and for `merge` when `max_retries` is `0`. |
@@ -959,7 +959,7 @@ Pending reactions live in memory, except for a standing escalation, which Sortie
 | `wait` | Meaning |
 |---|---|
 | `poll_interval` | The check completed and the reaction keeps watching, because there was nothing to act on yet or it has already acted for this subject. The next check follows the kind's poll cadence. |
-| `debounce` | `review` only. The check found actionable comments within `debounce_ms` of the newest one. `next_poll_at` ends the window. |
+| `debounce` | `review` only. The check found actionable comments within `debounce_ms` of the newest one. `next_poll_at` ends the window, unless a request to check the reaction now moved it. |
 | `backoff` | The check could not complete: a provider, tracker, or store call failed, or the provider answered without a value the check needs. The reaction retries with backoff. |
 | `retry_slot` | The pass found work to dispatch while another retry holds the issue's retry slot. For `merge-completion`, the issue is claimed. For `label-review` and `label-fix`, also while a session of another kind runs for the issue: the confirmed command waits for it to end. |
 | `triage` | The reaction waits on its [triage command](/reference/reactions/#triage-command): a run for the current subject is in flight or was just started. |
@@ -2538,6 +2538,98 @@ If Sortie is shutting down, or began to before it took the request, nothing chan
 | `404 Not Found` | No retry is scheduled for the identifier (`retry_not_found`). |
 | `405 Method Not Allowed` | Used a method other than POST. |
 | `409 Conflict` | Sortie is shutting down; nothing changed. |
+| `503 Service Unavailable` | Sortie did not take the request; nothing changed (`retry_now_unavailable`). |
+
+---
+
+## POST /api/v1/reactions/{identifier}/{kind}/check: Check a pending reaction now
+
+Makes the next check of a pending pull request reaction due now, so the reaction checks its pull request on the next poll tick instead of at its scheduled time. `{identifier}` is the `issue_identifier` and `{kind}` is the `kind` of a row of `pending_reactions` in [`GET /api/v1/state`](#get-apiv1state-system-state), each one path segment that a client percent-encodes, matched exactly. The route takes `kind`, not `config_key`, because `label-review` and `label-fix` share one key. The route ignores the request body and the query string.
+
+```sh
+curl -X POST http://localhost:7678/api/v1/reactions/MT-653/ci/check
+```
+
+The request moves `next_poll_at` of the row to the time Sortie takes the request when that time is later, and changes nothing else about the reaction. A reaction that is already due is left as it is, and the request still answers `202`. The request starts no agent and writes nothing to the tracker or the pull request. It stores nothing, because pending reactions are kept in memory.
+
+The check runs on the next poll tick, or on a refresh before it. The route runs no tick and dispatches no new issues. The check follows every rule of the reaction's kind, among them the review debounce, the retry slot, the triage command, the limit on tries and the escalation at it, and the watch window. What the check finds is handled as it is at the reaction's due time.
+
+When the check keeps the reaction pending and starts before the time the request replaced, `next_poll_at` goes back to that time, and the backoff count goes back to the lower of the count the check leaves and the count before the request. A check that starts at or after the replaced time is one the reaction had without the request, so its own schedule stands. A request never leaves the next check later, or the backoff count higher, than without the request.
+
+The response arrives once Sortie has taken the request: at once while Sortie is idle, and at the end of the work in progress otherwise. The wait has no fixed bound. A client that disconnects while it waits, or a shutdown that begins, withdraws the request and changes nothing. The answer is `202 Accepted` and not `200 OK`, because the check runs after the response is written.
+
+Each request that moves a check forward is logged at `info` as `reaction check made due on request`, with the `reaction_kind` and the `replaced_next_poll_at` the request replaced, and it triggers a [change signal](#get-apiv1events-change-signals). A request for a reaction that is already due logs nothing and triggers no signal.
+
+Sortie's HTTP server has no authentication, so anyone who can reach it can make a reaction check early. A deployment that others can reach must sit behind a reverse proxy with authentication or a VPN.
+
+### Response (202 Accepted)
+
+```json
+{
+  "queued": true,
+  "requested_at": "2026-03-26T14:31:10Z",
+  "issue_id": "mno345",
+  "issue_identifier": "MT-653",
+  "kind": "ci",
+  "pull_request": {"number": 931, "repository": "acme/web"},
+  "outcome_text": "MT-653: a check of PR #931 for CI is queued for the next poll tick."
+}
+```
+
+### Response (404 Not Found)
+
+No pending reaction of that kind exists for the identifier: the issue is unknown, `{kind}` is not a reaction kind, the issue has no reaction of that kind, or the reaction left the pending set before Sortie took the request. [`GET /api/v1/state`](#get-apiv1state-system-state) shows what became of it.
+
+```json
+{
+  "error": {
+    "code": "reaction_not_found",
+    "message": "no pending \"bot-review\" reaction for issue \"MT-653\""
+  }
+}
+```
+
+### Response (409 Conflict, draining)
+
+If Sortie is shutting down, or began to before it took the request, nothing changes:
+
+```json
+{
+  "queued": false,
+  "requested_at": "2026-03-26T14:31:10Z",
+  "outcome_text": "Nothing queued: Sortie is shutting down."
+}
+```
+
+### Field notes
+
+| Field | Description |
+|---|---|
+| `queued` | `true` on `202`, `false` on `409`. |
+| `requested_at` | When Sortie received the request, UTC. |
+| `issue_id` | The tracker's internal ID of the issue. `202` only. |
+| `issue_identifier` | The identifier the reaction carries. `202` only. |
+| `display_identifier` | The issue's display identifier. Present on `202` only when the issue has one. |
+| `kind` | The reaction's `kind`. `202` only. |
+| `pull_request` | The pull request the reaction watches, with `number` and `repository` (`owner/repo`, masked as in `pending_reactions`). `202` only. |
+| `outcome_text` | One sentence that states what the response confirms. Always present on `202` and `409`. It states no effect still to come, because what the check finds is decided after the response. |
+
+`outcome_text` names the issue by `display_identifier` when present, and by `issue_identifier` otherwise. It names the kind in words: `CI`, `review comments`, `bot review`, `auto-merge`, `the merge conflict`, `merge completion`, `the review label command`, or `the fix label command`.
+
+| Response | `outcome_text` |
+|---|---|
+| `202` | `MT-653: a check of PR #931 for CI is queued for the next poll tick.` |
+| `409` | `Nothing queued: Sortie is shutting down.` |
+
+### Status codes
+
+| Code | Meaning |
+|---|---|
+| `202 Accepted` | The reaction's next check is due now. |
+| `404 Not Found` | No pending reaction of that kind exists for the identifier (`reaction_not_found`). |
+| `405 Method Not Allowed` | Used a method other than POST. |
+| `409 Conflict` | Sortie is shutting down; nothing changed. |
+| `503 Service Unavailable` | Sortie did not take the request; nothing changed (`check_now_unavailable`). |
 
 ---
 
@@ -2662,7 +2754,7 @@ Both events carry an `id` line. The `id` is an opaque decimal number that rises 
 
 A stream receives a `change` after each of these:
 
-- A poll tick, a refresh, a worker exit, a retry, a request that makes a retry due, or a request that acknowledges an attention item.
+- A poll tick, a refresh, a worker exit, a retry, a request that makes a retry due, a request that makes a reaction check due, or a request that acknowledges an attention item.
 - Every message from a running agent session, so token counts and the latest message reach a client within a second.
 - The start of shutdown.
 - Each time the file watcher loads `WORKFLOW.md`, whether the load succeeds or fails.
@@ -2816,6 +2908,9 @@ All JSON API errors use a consistent structure:
 |---|---|---|
 | `issue_not_found` | 404 | Neither the current state nor run history holds the requested issue identifier. |
 | `retry_not_found` | 404 | `POST /api/v1/retries/{identifier}/run` found no scheduled retry for the identifier. |
+| `reaction_not_found` | 404 | `POST /api/v1/reactions/{identifier}/{kind}/check` found no pending reaction of that kind for the identifier. |
+| `retry_now_unavailable` | 503 | `POST /api/v1/retries/{identifier}/run` was not taken; nothing changed. |
+| `check_now_unavailable` | 503 | `POST /api/v1/reactions/{identifier}/{kind}/check` was not taken; nothing changed. |
 | `invalid_parameter` | 400 | `GET /api/v1/runs`, `GET /api/v1/runs/issues`, or `GET /api/v1/stats` rejected a query parameter, or a misordered pair of bounds. The message names the parameter and the rule. |
 | `snapshot_unavailable` | 503 | The orchestrator could not produce a state snapshot. |
 | `history_unavailable` | 503 | Run history or the issue outcomes could not be read, or the database behind `GET /api/v1/stats` could not be opened or read. |
@@ -2842,7 +2937,7 @@ curl -X DELETE http://localhost:7678/api/v1/state
 }
 ```
 
-The response includes the header `Allow: GET` (or `Allow: POST` for the refresh, retry, and acknowledge endpoints).
+The response includes the header `Allow: GET` (or `Allow: POST` for the refresh, retry, reaction check, and acknowledge endpoints).
 
 ## Endpoint summary
 
@@ -2859,5 +2954,6 @@ The response includes the header `Allow: GET` (or `Allow: POST` for the refresh,
 | GET | `/api/v1/events` | Stream of change signals and heartbeats | `text/event-stream` |
 | POST | `/api/v1/refresh` | Trigger immediate poll cycle | `application/json` |
 | POST | `/api/v1/retries/{identifier}/run` | Make a scheduled retry due now | `application/json` |
+| POST | `/api/v1/reactions/{identifier}/{kind}/check` | Make a pending reaction's next check due now | `application/json` |
 | POST | `/api/v1/attention/{id}/acknowledge` | Acknowledge an attention item | `application/json` |
 | GET | `/metrics` | Prometheus metrics | `text/plain` |

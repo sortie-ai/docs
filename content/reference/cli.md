@@ -180,6 +180,7 @@ Sets the listening port for the embedded HTTP server. The server starts by defau
 - `/api/v1/<identifier>`: per-issue detail and run history
 - `/api/v1/refresh`: trigger an immediate poll cycle
 - `/api/v1/retries/<identifier>/run`: make a scheduled retry due now
+- `/api/v1/reactions/<identifier>/<kind>/check`: make a pending pull request reaction's next check due now
 - `/livez`: liveness probe
 - `/readyz`: readiness probe
 - `/metrics`: Prometheus metrics ([Prometheus metrics reference](/reference/prometheus-metrics/))
@@ -1201,7 +1202,7 @@ Both signals trigger the same sequence:
 8. Close the SQLite database.
 9. Exit with code `0`.
 
-During drain, `/livez` and `/readyz` return `503`, and `POST /api/v1/refresh` and `POST /api/v1/retries/{identifier}/run` return `409 Conflict` with `queued: false` instead of `202 Accepted`.
+During drain, `/livez` and `/readyz` return `503`, and `POST /api/v1/refresh`, `POST /api/v1/retries/{identifier}/run`, and `POST /api/v1/reactions/{identifier}/{kind}/check` return `409 Conflict` with `queued: false` instead of `202 Accepted`.
 
 A second `SIGINT` or `SIGTERM` during shutdown ends every drain still waiting at once, and shutdown continues from the step after it. Each abandoned drain logs a warning naming what was given up. Later signals do nothing.
 

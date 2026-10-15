@@ -286,6 +286,32 @@ Either fix the cause, or hand the issue back to Sortie:
 
 A restart does not clear an escalation, so restarting Sortie is not a way to retry. Sortie does not remove the label an escalation applied (`needs-human` by default) when the escalation ends. See [standing escalations](/reference/reactions/#standing-escalations) for every fact that ends one.
 
+## Check a reaction now
+
+A pending reaction waits out its schedule, for example the `poll_interval_ms` of its kind. When the cause is known to have changed, for example CI just finished or a reviewer just posted, make the next check due now instead of waiting.
+
+1. List the pending reactions and pick the issue and `kind`:
+
+   ```bash
+   curl -s http://localhost:7678/api/v1/state | jq '.pending_reactions[] | {issue_identifier, kind, next_poll_at, wait}'
+   ```
+
+2. Make its next check due now:
+
+   ```bash
+   curl -X POST http://localhost:7678/api/v1/reactions/MT-653/ci/check
+   ```
+
+   The `202` response says what happened, for example `MT-653: a check of PR #931 for CI is queued for the next poll tick.`
+
+3. Confirm the request took effect:
+
+   ```bash
+   grep "reaction check made due on request" sortie.log
+   ```
+
+The check runs on the next poll tick, not inside the request, and it follows every rule of the reaction: the review debounce, the attempt limit and escalation, and the retry slot all still apply. The request starts no agent by itself. A reaction that stays pending after the check gets back the due time it had before your request, so asking never makes it wait longer. See the [HTTP API reference](/reference/http-api/#post-apiv1reactionsidentifierkindcheck-check-a-pending-reaction-now) for the response and error codes.
+
 ## Reactions run during handoff
 
 Reactions are useful precisely because they fire while the issue waits for a human. After a successful first run, Sortie transitions the issue to your `handoff_state` (for example, `review`) and releases the worker. Reaction continuations dispatch even while the issue sits in `handoff_state`.
