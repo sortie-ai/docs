@@ -896,6 +896,7 @@ Each element of `by_status`, `by_adapter`, `by_rule`, `by_template`, `by_model`,
 | `cost_usd` | number or null | Estimated cost over this group's priced runs. `null` on the `base` tier and when the group holds no priced run. |
 | `cost_per_succeeded_run_usd` | number or null | `cost_usd` divided by this group's succeeded runs that were measured. `null` whenever `cost_usd` is `null`, and when the group has no measured succeeded run. |
 | `tokens_unmeasured_runs` | integer | This group's runs left out of the token and cost figures because the coding agent behind them reported no token usage. `0` on the `base` tier. |
+| `cost_unpriced_runs` | integer | This group's runs left out of the cost figures because `token_rates` has no complete entry for their coding agent. `0` on the `base` tier and while `token_rates` configures no rates. A `ci_failed` run is never counted. |
 
 Each element of `by_chain` adds three fields after these:
 
@@ -981,7 +982,8 @@ A worked example, expanded for readability and trimmed to one row per breakdown.
       "tokens": {"input": 341900, "output": 67000, "total": 408900, "cache_read": 90380, "cache_write": 12100},
       "cost_usd": 4.59,
       "cost_per_succeeded_run_usd": 0.66,
-      "tokens_unmeasured_runs": 0
+      "tokens_unmeasured_runs": 0,
+      "cost_unpriced_runs": 0
     }
   ],
   "by_adapter": [
@@ -996,7 +998,8 @@ A worked example, expanded for readability and trimmed to one row per breakdown.
       "tokens": {"input": 324500, "output": 63900, "total": 388400, "cache_read": 126380, "cache_write": 18200},
       "cost_usd": 5.72,
       "cost_per_succeeded_run_usd": 1.14,
-      "tokens_unmeasured_runs": 0
+      "tokens_unmeasured_runs": 0,
+      "cost_unpriced_runs": 0
     }
   ],
   "by_rule": [
@@ -1011,7 +1014,8 @@ A worked example, expanded for readability and trimmed to one row per breakdown.
       "tokens": {"input": 145100, "output": 27700, "total": 172800, "cache_read": 56360, "cache_write": 8100},
       "cost_usd": 2.54,
       "cost_per_succeeded_run_usd": 0.64,
-      "tokens_unmeasured_runs": 0
+      "tokens_unmeasured_runs": 0,
+      "cost_unpriced_runs": 0
     }
   ],
   "by_template": [
@@ -1026,7 +1030,8 @@ A worked example, expanded for readability and trimmed to one row per breakdown.
       "tokens": {"input": 145100, "output": 27700, "total": 172800, "cache_read": 56360, "cache_write": 8100},
       "cost_usd": 2.54,
       "cost_per_succeeded_run_usd": 0.64,
-      "tokens_unmeasured_runs": 0
+      "tokens_unmeasured_runs": 0,
+      "cost_unpriced_runs": 0
     }
   ],
   "by_model": [
@@ -1041,7 +1046,8 @@ A worked example, expanded for readability and trimmed to one row per breakdown.
       "tokens": {"input": 145100, "output": 27700, "total": 172800, "cache_read": 56360, "cache_write": 8100},
       "cost_usd": 2.54,
       "cost_per_succeeded_run_usd": 0.64,
-      "tokens_unmeasured_runs": 0
+      "tokens_unmeasured_runs": 0,
+      "cost_unpriced_runs": 0
     }
   ],
   "by_chain": [],

@@ -174,6 +174,8 @@ Sortie checks for stalls every poll tick. It measures time since the last agent 
 level=WARN msg="stall detected, cancelling worker" issue_id="PROJ-42" elapsed_ms=301000 stall_timeout_ms=300000
 ```
 
+A changed `stall_timeout_ms` takes effect at the next poll tick without a restart, including for sessions already running. Lowering it stops any running session that is already silent for longer than the new value. See the [dynamic reload table](/reference/workflow-config/#dynamic-reload-1).
+
 ### Turn timeout
 
 `agent.turn_timeout_ms` is the hard cap on total time for a single agent turn. Default: `3600000` (1 hour). This fires regardless of agent activity. Even a chatty agent gets killed when time's up.

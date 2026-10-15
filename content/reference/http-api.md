@@ -1413,6 +1413,118 @@ A poll tick that dispatches the issue again clears the outcome, so `issue_outcom
 
 ---
 
+## GET /api/v1/runs/issues: Run history by issue
+
+Returns run history grouped by issue, one page of issues at a time. The issue with the newest matching run comes first, and each issue carries its newest runs, its totals, and the sentence that says what it is doing now or how it ended. [`GET /api/v1/runs`](#get-apiv1runs-run-history) lists runs, so one busy issue can fill a page; this route lists issues.
+
+```sh
+curl 'http://localhost:7678/api/v1/runs/issues?status=failed&limit=10'
+```
+
+### Query parameters
+
+Every parameter is optional. An empty value is the same as an absent one. Filters combine with AND and match exactly, case included. An issue is selected when at least one of its runs matches every filter.
+
+| Parameter | Value | Selects |
+|---|---|---|
+| `issue` | An issue key | Issues with a run whose `issue_identifier` or `display_identifier` equals it, so `MT-649` and the qualified form `owner/repo#9` both work. |
+| `rule` | A dispatch rule name, or `<none>` | Issues with a run whose `rule_name` equals it. `<none>` selects the runs that record no rule name. |
+| `status` | A run status | Issues with a run whose `status` equals it. The values are those listed under [run history entries](#run-history-entries). |
+| `stage` | A dispatch rule name | Issues with a run whose exit reached a stage hop decision that targeted that rule, whatever its result. |
+| `cursor` | A `next_cursor` value | Issues whose newest matching run was recorded before the run `cursor` names, and which have no matching run at or after it. An integer of at least `1`. |
+| `limit` | An integer from `1` to `50` | The page size, in issues. Default: `20`. |
+
+The parameters of `GET /api/v1/runs` that select by run id, completion time, or issue ending (`issue_id`, `since`, `until`, `ended_since`, `ended_until`) are not accepted here.
+
+Sortie checks every parameter before it reads anything. A parameter outside this table, a parameter given more than once, and a value outside the ranges above answer `400`, so a misspelled filter never returns unfiltered issues.
+
+### Response
+
+```json
+{
+  "groups": [
+    {
+      "issue_id": "abc123",
+      "issue_identifier": "MT-649",
+      "issue_title": "Fix the flaky login test",
+      "issue_url": "https://tracker.example.com/browse/MT-649",
+      "status": "history",
+      "status_text": "Merged #311",
+      "status_text_full": "MT-649 ended merged: auto-merge merged PR #311.",
+      "issue_outcome": {
+        "kind": "merged",
+        "observed_at": "2026-03-26T15:02:09Z",
+        "merge_path": "auto_merge",
+        "pull_request": {"number": 311, "repository": "acme/shop"},
+        "status_text": "Merged #311",
+        "status_text_full": "MT-649 ended merged: auto-merge merged PR #311."
+      },
+      "runs": [
+        {
+          "run_id": 42,
+          "issue_id": "abc123",
+          "issue_identifier": "MT-649",
+          "status": "succeeded",
+          "completed_at": "2026-03-26T14:31:47Z"
+        }
+      ],
+      "next_cursor": null,
+      "totals": {
+        "run_count": 1,
+        "unmeasured_runs": 0,
+        "tokens": {
+          "input_tokens": 52000,
+          "output_tokens": 9100,
+          "total_tokens": 61100,
+          "cache_read_tokens": 30000,
+          "cache_write_tokens": 4000
+        },
+        "tokens_complete": true,
+        "estimated_cost_usd": 0.1923,
+        "cost_status": "estimated"
+      }
+    }
+  ],
+  "next_cursor": "42"
+}
+```
+
+The example trims each run to four of its fields. `groups` is `[]` when no issue matches.
+
+### Field notes
+
+Groups are ordered by the `run_id` of each issue's newest matching run, descending. `next_cursor` is `null` on the last page. Otherwise it is that `run_id` for the page's last group, as a string; pass it back as `cursor` together with the same filters to read the next page. Every issue appears once in a traversal, and a run recorded between two requests never moves a served issue to another page.
+
+**Group fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `issue_id` | string | The tracker's issue ID. |
+| `issue_identifier` | string | The issue identifier of the issue's newest run. |
+| `display_identifier` | string | The qualified form of the identifier, as in [run history entries](#run-history-entries). Omitted when empty. |
+| `issue_title` | string | The issue title recorded with the issue's newest run. Omitted when empty. Masked. |
+| `issue_url` | string | The tracker's web link to the issue, from the same run. Omitted when empty. Masked. |
+| `status` | string | What the issue is doing now: one of the live values of `status` in [`GET /api/v1/{identifier}`](#get-apiv1identifier-issue-detail), or `"history"` when the issue is not active and only run history knows it. |
+| `status_text`, `status_text_full` | string | The issue's [status sentences](#status-sentences), the pair `GET /api/v1/{identifier}` serves for it. For `"history"` they word how the issue ended. |
+| `issue_outcome` | object or `null` | How the issue ended, or `null` when Sortie has not seen it end. See [Issue outcome](#issue-outcome). |
+| `runs` | array of object | The issue's newest matching runs, newest first, at most 5. Each has the shape of a run under [`GET /api/v1/runs`](#get-apiv1runs-run-history). None is newer than the issue's newest matching run. |
+| `next_cursor` | string or `null` | `null` when `runs` holds every matching run of the issue. Otherwise the `run_id` of the last run in `runs`, as a string; pass it as `cursor` to `GET /api/v1/runs` with `issue_id` set to this group's `issue_id` and the same `rule`, `status`, and `stage` to read the rest. |
+| `totals` | object | The issue's spend over all of its runs, whatever the filters select. It has the members of `totals` in the [history member](#history-member). |
+
+The filters narrow `runs` to the matching runs, but `issue_identifier`, the title, the link, and `totals` describe the issue as a whole.
+
+### Status codes
+
+| Code | Error code | Meaning |
+|---|---|---|
+| `200 OK` | | Page returned. |
+| `400 Bad Request` | `invalid_parameter` | Unknown or repeated parameter, or a malformed or out-of-range value. The message names the parameter and the rule, for example `parameter "limit" must be an integer from 1 to 50`. |
+| `405 Method Not Allowed` | `method_not_allowed` | Any method other than `GET`. |
+| `503 Service Unavailable` | `snapshot_unavailable` | The orchestrator state snapshot could not be produced. |
+| `503 Service Unavailable` | `history_unavailable` | Run history or the issue outcomes could not be read. |
+
+---
+
 ## GET /api/v1/stats: Run statistics
 
 Returns the report that [`sortie stats --format json`](/reference/cli/#stats) prints: run and issue counts, success rate, duration percentiles, token sums, and estimated cost over the runs completed in a range, with breakdowns by outcome, coding agent, dispatch rule, prompt template, configured model, stage chain, retry trigger, and run origin. The route and the command share one aggregation, so for one database and absolute bounds the two bodies differ only in `generated_at`, apart from the pricing difference [described below](#pricing-and-reload).
@@ -2704,7 +2816,7 @@ All JSON API errors use a consistent structure:
 |---|---|---|
 | `issue_not_found` | 404 | Neither the current state nor run history holds the requested issue identifier. |
 | `retry_not_found` | 404 | `POST /api/v1/retries/{identifier}/run` found no scheduled retry for the identifier. |
-| `invalid_parameter` | 400 | `GET /api/v1/runs` or `GET /api/v1/stats` rejected a query parameter, or a misordered pair of bounds. The message names the parameter and the rule. |
+| `invalid_parameter` | 400 | `GET /api/v1/runs`, `GET /api/v1/runs/issues`, or `GET /api/v1/stats` rejected a query parameter, or a misordered pair of bounds. The message names the parameter and the rule. |
 | `snapshot_unavailable` | 503 | The orchestrator could not produce a state snapshot. |
 | `history_unavailable` | 503 | Run history or the issue outcomes could not be read, or the database behind `GET /api/v1/stats` could not be opened or read. |
 | `attention_item_not_found` | 404 | `POST /api/v1/attention/{id}/acknowledge` found no current attention item with the `id`. |
@@ -2741,6 +2853,7 @@ The response includes the header `Allow: GET` (or `Allow: POST` for the refresh,
 | GET | `/readyz` | Readiness probe | `application/json` |
 | GET | `/api/v1/state` | Full system state snapshot | `application/json` |
 | GET | `/api/v1/runs` | Run history, newest first, filtered and paged | `application/json` |
+| GET | `/api/v1/runs/issues` | Run history grouped by issue, newest first, filtered and paged | `application/json` |
 | GET | `/api/v1/stats` | Run statistics over a completion-time range | `application/json` |
 | GET | `/api/v1/{identifier}` | Per-issue detail and run history | `application/json` |
 | GET | `/api/v1/events` | Stream of change signals and heartbeats | `text/event-stream` |
