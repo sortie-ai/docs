@@ -362,7 +362,7 @@ level=INFO msg="tick completed" candidates=0 dispatched=0 ... running=0 retrying
 
 (the `tick completed` line carries more fields than shown here; see [How to monitor Sortie with logs](/guides/monitor-with-logs/) for the full field list)
 
-Sortie is polling but finds nothing to dispatch.
+Sortie is polling but finds nothing to dispatch. At the default log level this line appears only when its counters change, so an idle Sortie does not repeat it every poll. Run with `--log-level debug` to see every tick.
 
 1. **State names must match exactly.** Verify `tracker.active_states` matches your tracker (case-sensitive). `"To Do"` and `"to do"` are different states.
 

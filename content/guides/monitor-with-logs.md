@@ -93,7 +93,9 @@ Here are the log messages that matter most, grouped by lifecycle phase.
 time=2026-03-26T14:30:01.305+00:00 level=INFO msg="tick completed" candidates=2 dispatched=2 ... running=2 retrying=0 ...
 ```
 
-This is the heartbeat. It fires every poll interval and tells you how many issues were found (`candidates`), how many were dispatched this tick (`dispatched`), how many agents are active (`running`), and how many issues are awaiting retry (`retrying`). When `candidates=0 dispatched=0`, Sortie is idle.
+This is the poll summary. It tells you how many issues were found (`candidates`), how many were dispatched this tick (`dispatched`), how many agents are active (`running`), and how many issues are awaiting retry (`retrying`). When `candidates=0 dispatched=0`, Sortie is idle.
+
+Sortie logs the summary at `INFO` after the first completed tick following startup, and again whenever any of its counters differs from the previous summary. A tick that repeats the previous summary logs at `DEBUG`, so an idle Sortie is quiet at the default level. A tick that ends on a failed preflight or a failed tracker fetch logs an error instead and does not change what the next summary is compared with. Run with `--log-level debug` to see every tick, or watch `sortie_poll_cycles_total` in [Prometheus metrics](/reference/prometheus-metrics/) for a count of ticks that does not depend on the log level.
 
 ### Dispatch and agent settings
 
@@ -450,7 +452,7 @@ Find runs that crossed the token warning threshold:
 grep 'token warning threshold reached' sortie.log
 ```
 
-Watch dispatches in real time:
+Watch changes in the poll summary in real time:
 
 ```bash
 tail -f sortie.log | grep 'tick completed'
@@ -537,7 +539,7 @@ Find issues blocked by a token budget:
 jq 'select(.msg | contains("token budget exhausted")) | {issue: .issue_identifier, used_tokens, budget_tokens}' sortie.log
 ```
 
-Watch dispatches in real time:
+Watch changes in the poll summary in real time:
 
 ```bash
 tail -f sortie.log | jq 'select(.msg == "tick completed")'
