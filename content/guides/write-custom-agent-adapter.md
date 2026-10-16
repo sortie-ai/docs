@@ -47,7 +47,7 @@ The orchestrator reacts to a normalized event vocabulary, not to your CLI's nati
 | `turn_failed` | `EventTurnFailed` | The turn finished with a failure. |
 | `turn_cancelled` | `EventTurnCancelled` | The turn was cancelled (context cancellation or stall). |
 | `token_usage` | `EventTokenUsage` | Normalized input, output, total, cache-read, and cache-write counters. Drives token-based budgets. |
-| `notification` | `EventNotification` | An informational message, surfaced for observability. |
+| `notification` | `EventNotification` | An informational message, surfaced for observability. A frame that carries no text for a person, such as a native event type name, a method name, or a lifecycle marker, is reported with an empty `Message`, never with the frame's name or a placeholder. The orchestrator counts it as activity for stall detection and does not keep it in the run's events. |
 | `tool_result` | `EventToolResult` | A tool call completed. Carries `ToolName` and `ToolDurationMS`. |
 | `malformed` | `EventMalformed` | An unparseable line from the agent. |
 

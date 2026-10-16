@@ -175,12 +175,12 @@ The Agent Client Protocol declares eleven `session/update` notification variants
 |---|---|
 | `agent_message_chunk` (text content) | `notification` with an empty message, at once. The text accumulates into one agent message, reported as a second `notification`; see [agent messages](#agent-messages). |
 | `agent_message_chunk` (non-text content) | `malformed`, message `agent sent a message chunk this client does not render`, at once. The chunk belongs to the message being accumulated and does not end it. |
-| `agent_thought_chunk` | `other_message`, message `reasoning block` |
+| `agent_thought_chunk` | `other_message` with an empty message |
 | `user_message_chunk` | No event. This variant exists only as replay evidence for session continuation; the adapter observes it directly rather than through a normalized event. It ends the agent message being accumulated. |
 | `tool_call` | No event yet; the call is recorded internally, keyed by its own identifier, until its terminal update arrives. |
 | `tool_call_update`, status `completed` or `failed` | `tool_result`, carrying the tool name, the duration between the call's begin and end, the error flag set when the status is `failed`, and the update's own `title` as the message, truncated to 500 runes and empty when the update carries none |
 | `tool_call_update`, any other status | No event; the internal record is updated, nothing more. |
-| `plan` | `other_message`, message `plan update` |
+| `plan` | `other_message` with an empty message |
 | `available_commands_update`, `current_mode_update`, `config_option_update`, `session_info_update`, `usage_update` | No event; logged at debug level only |
 | Any other, or unrecognized, discriminator value | `malformed` |
 

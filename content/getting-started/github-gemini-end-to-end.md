@@ -227,11 +227,9 @@ level=INFO msg="agent credential verified" issue_id=8 issue_identifier=8 duratio
 level=INFO msg="agent session started" issue_id=8 issue_identifier=8 session_id=dae20664-…
 level=INFO msg="agent implementation" component=clientprotocol-adapter session_id=dae20664-… name=gemini-cli version=0.x.x
 level=INFO msg="turn started" issue_id=8 issue_identifier=8 session_id=dae20664-… turn_number=1 max_turns=3
-level=INFO msg="tool call completed" issue_id=8 issue_identifier=8 session_id=dae20664-… tool=read duration_ms=2 outcome=success
-level=INFO msg="tool call completed" issue_id=8 issue_identifier=8 session_id=dae20664-… tool=edit duration_ms=3 outcome=success
 ```
 
-Notice the `agent implementation` line: it names the runtime and version that answered Sortie's protocol handshake, logged once per session. It appears twice here: once for the credential-verification session, before `agent credential verified`, and again for the working session that follows it. Each `tool call completed` line is one Gemini action finishing; `tool` names the kind of action, such as `read`, `edit`, or `execute`.
+Notice the `agent implementation` line: it names the runtime and version that answered Sortie's protocol handshake, logged once per session. It appears twice here: once for the credential-verification session, before `agent credential verified`, and again for the working session that follows it.
 
 This task took one to two minutes in our runs. A larger repository takes longer; the 30-minute `turn_timeout_ms` is the backstop, not the expected duration.
 

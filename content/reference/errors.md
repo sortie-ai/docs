@@ -232,6 +232,8 @@ Not errors per se, but essential for understanding session outcomes. Appear in l
 | `error` | Fatal error during session. | If the error is retryable: exponential backoff retry. If not: claim released immediately, the issue becomes re-dispatchable on the next poll cycle. |
 | `cancelled` | Cancelled (reconciliation kill, stall detection, the [`agent.max_tokens`](/reference/workflow-config/#agent) in-flight check, or shutdown). | Claim released unless reconciliation pre-scheduled a retry. No automatic retry: reconciliation handles re-dispatch. The run is recorded `cancelled`, except when the token ceiling's own cancellation ends it, which is recorded `budget_stopped` with the tokens used and the ceiling in its error text. See [how to control agent costs](/guides/control-costs/#cap-tokens-per-issue). |
 
+The logs and the run history database keep the error text as Sortie recorded it, such as `handoff withheld: absence of work observed under observed policy` or `agent turn 1: agent: turn_cancelled: turn cancelled: context canceled`. The `error` of a run and of a retry in the [HTTP API](/reference/http-api/#get-apiv1runs-run-history), and the retry's `last_error`, serve a plain sentence for a withheld handoff, an agent error, and a worker stage error, such as `Sortie stopped the session before the agent finished turn 1.` Any other error is served as recorded.
+
 ---
 
 ## SSH worker errors

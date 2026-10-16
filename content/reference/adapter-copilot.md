@@ -197,7 +197,7 @@ Session stop follows the same shape: it sends the graceful signal, waits up to `
 
 Copilot CLI emits one JSON object per line on stdout. The adapter parses each line and maps it onto Sortie's [normalized event vocabulary](/guides/write-custom-agent-adapter/), so what reaches the orchestrator, the logs, and the dashboard is the same set of events every adapter produces. The CLI's own event types and result payload are Copilot's to define; see [external references](#external-references).
 
-Most of the stream is informational and reaches the logs as `notification` events. A tool call the runtime denies is reported as a `notification` and the turn continues, with no consent granted; see [runtime-denied permission requests](#runtime-denied-permission-requests).
+Most of the stream is informational. It reaches the orchestrator as `notification` events with an empty message, which count as activity for stall detection but are not kept in the run's events; the agent's own text, the `session.warning` and `session.info` messages, and the `session.task_complete` summary keep their text. A tool call the runtime denies is reported as a `notification` and the turn continues, with no consent granted; see [runtime-denied permission requests](#runtime-denied-permission-requests).
 
 ---
 
@@ -276,7 +276,7 @@ A message from the agent is a non-empty `data.content` on an `assistant.message`
 
 When the `result` event reports a failed exit (a non-zero or missing `exitCode`), the failure text is the trimmed `data.message` of the turn's last `session.error` event, so an error from the model provider reaches the run as the provider wrote it. If the runtime sent no `session.error` with a readable message, the text is `non-zero exit in result event`.
 
-Each `session.error` event also reaches the orchestrator as an `other_message` event whose message is the event type. Every turn starts with no stored message, so an earlier turn's error never labels a later one.
+Each `session.error` event also reaches the orchestrator as a `notification` event with an empty message. Every turn starts with no stored message, so an earlier turn's error never labels a later one.
 
 A `result` event with `exitCode: 0` is not decisive by itself: the adapter also checks whether this turn saw a `session.task_complete` report, the runtime's own record of whether the work finished. The [`max_autopilot_continues`](#agentmax_turns-vs-copilot-climax_autopilot_continues) ceiling can stop the runtime mid-task with a clean exit and no such report; without this check that outcome read as an ordinary success.
 

@@ -65,7 +65,7 @@ WARN lines indicate automatic recovery: a retry is scheduled, a transient failur
 By default Sortie logs at `INFO` level. Use the `--log-level` flag to change it:
 
 ```bash
-# See debug-level detail: poll decisions, state transitions, adapter calls
+# See debug-level detail: poll decisions, state transitions, adapter calls, tool calls
 sortie --log-level debug ./WORKFLOW.md
 
 # Reduce noise in production: only warnings and errors
@@ -208,12 +208,14 @@ The action is on the adapter, not on your workflow configuration: fix it to stop
 
 ### Tool calls
 
+Each finished tool call logs at `DEBUG`, so these lines appear only under `--log-level debug`. At the default level a session's output stays out of the log; use the `sortie_tool_calls_total` counter in [Prometheus metrics](/reference/prometheus-metrics/) to count calls and failures at any level.
+
 ```
-time=2026-03-26T14:31:12.300+00:00 level=INFO msg="tool call completed" issue_id=abc123 issue_identifier=MT-649 session_id=session-abc-001 tool=tracker_api duration_ms=145 result=success
-time=2026-03-26T14:31:13.100+00:00 level=INFO msg="tool call completed" issue_id=abc123 issue_identifier=MT-649 session_id=session-abc-001 tool=tracker_api duration_ms=89 result=error error="tracker_auth_error: invalid API key"
+time=2026-03-26T14:31:12.300+00:00 level=DEBUG msg="tool call completed" issue_id=abc123 issue_identifier=MT-649 session_id=session-abc-001 tool=tracker_api duration_ms=145 outcome=success
+time=2026-03-26T14:31:13.100+00:00 level=DEBUG msg="tool call completed" issue_id=abc123 issue_identifier=MT-649 session_id=session-abc-001 tool=tracker_api duration_ms=89 outcome=error tool_error="tracker_auth_error: invalid API key"
 ```
 
-Every tool invocation gets a log line with the tool name, wall-clock duration, and outcome. The `error` field only appears when `result=error`.
+Every tool invocation gets a line with the tool name, wall-clock duration, and `outcome`. The `tool_error` field appears only when `outcome=error`. It holds the first line of the tool's error, cut to 200 characters, because a tool's output can run to thousands of lines.
 
 ### Worker exit
 
@@ -470,10 +472,10 @@ Find attempts refused over their agent settings:
 grep 'agent settings refused' sortie.log
 ```
 
-Find tool call failures:
+Find tool call failures (needs `--log-level debug`):
 
 ```bash
-grep 'tool call completed.*result=error' sortie.log
+grep 'tool call completed.*outcome=error' sortie.log
 ```
 
 Follow a specific agent session across turns and tool calls:
@@ -551,10 +553,10 @@ List the model and effort each dispatch started with:
 jq 'select(.msg | endswith("issue dispatched")) | {issue: .issue_identifier, attempt, rule_name, model, effort}' sortie.log
 ```
 
-Find tool call failures with duration:
+Find tool call failures with duration (needs `--log-level debug`):
 
 ```bash
-jq 'select(.msg == "tool call completed" and .result == "error") | {tool, error, duration_ms}' sortie.log
+jq 'select(.msg == "tool call completed" and .outcome == "error") | {tool, tool_error, duration_ms}' sortie.log
 ```
 
 Extract a timeline for a specific session:

@@ -748,6 +748,8 @@ curl http://localhost:7678/api/v1/state
 | `rule_name` | Name of the [dispatch rule](/reference/workflow-config/#dispatch) that routed this session. Omitted when no rule routed it. |
 | `dispatched_at` | When Sortie dispatched the first run of the issue's current pass, in UTC. Always present and never `null` on a running row. A retry, a reaction continuation, the next stage of a hop, and a restart continue the pass, so the value stays fixed across them. See [dispatch time and stage position](#dispatch-time-and-stage-position). |
 | `dispatch_id` | The ID Sortie gave this run when it dispatched it. Each run gets its own, never reused, across restarts too. Pass it to [`GET /api/v1/runs/{dispatch_id}/events`](#get-apiv1runsdispatch_idevents-run-events) to read the run's agent events, or in the `run` parameter of [`GET /api/v1/events`](#get-apiv1events-change-signals-and-agent-events) to receive them as the agent works. Always present, never empty. |
+| `last_event` | The type of the session's latest agent event. |
+| `last_message` | The message of the latest agent event that carried one, masked, `""` before any did. Events with no message leave it unchanged, so it holds the last thing the agent said, never a protocol marker. |
 | `last_event_at` | When the session's latest agent event arrived, in UTC. Every event counts, those the run does not keep included. `null` before the first event. |
 | `quiet_at` | Half of [`agent.stall_timeout_ms`](/reference/workflow-config/#agent) after `last_event_at`, or after `started_at` before the first event, in UTC. `null` when stall detection is off. |
 | `stall_at` | All of `agent.stall_timeout_ms` after the same instant, in UTC. The first poll tick after it stops the session as stalled. `null` when stall detection is off. |
@@ -847,7 +849,7 @@ The dashboard shows the same values as **Configured model**, **Configured effort
 | `stage_position` | Always present. Where `rule_name` stands on its stage chain, or `null` when the rule is on no chain. See [dispatch time and stage position](#dispatch-time-and-stage-position). |
 | `paused` | Always present. `true` when the retry was last put back because its issue's state does not permit dispatching it, which is when `error` is `reaction retry paused by an open blocking issue` or `reaction retry paused by issue state`. |
 
-When a retry comes due and cannot start, Sortie puts it back with `trigger` set to `timer` and `error` set to the reason from the table below. The error of the run before it is not kept on the row; it stays in the logs and in that run's run history. A retry that has not yet come due still carries the error of the run that scheduled it.
+When a retry comes due and cannot start, Sortie puts it back with `trigger` set to `timer` and `error` set to the reason from the table below. The error of the run before it is not kept on the row; it stays in the logs and in that run's run history. A retry that has not yet come due still carries the error of the run that scheduled it. That error, and `last_error` on the per-issue response, read as the plain sentence a run row's [`error`](#get-apiv1runs-run-history) carries for the same failure, not the text Sortie stored. The reschedule reasons below are served as written.
 
 | `error` after a reschedule | Meaning | Attempt |
 |---|---|---|
@@ -1125,6 +1127,7 @@ Every row of `running`, `retrying`, `budget_exhausted`, `parked`, `pending_react
 - A figure Sortie does not have reads as `not measured`, never as `0`, and a token figure that is only a lower bound reads as `at least`.
 - A running row names its stage only when its `stage_position` is not `null`.
 - A sentence is masked like `issue_title`, so a value Sortie knows to be a secret reads `[redacted]`.
+- A retry sentence that quotes the error of the run before it quotes the plain sentence the retry's `error` serves, not the stored text.
 - The sentences are for display. Every field a sentence is built from stays in the response, so a client that needs data reads those fields and does not parse the text.
 
 The examples on this page show the sentences for the values they hold, with a snapshot generated at `2026-03-26T14:30:00Z`.
@@ -1359,7 +1362,7 @@ Runs are ordered by descending `run_id`, which is the order Sortie recorded them
 | `issue_url` | string | The tracker's web link to the issue. Omitted when empty. Masked. |
 | `attempt` | integer | One-based attempt number. |
 | `status` | string | Terminal outcome of the run. |
-| `error` | string or `null` | The run's error message. `null` when the run recorded none. Masked. |
+| `error` | string or `null` | The run's error message. `null` when the run recorded none. Masked. A withheld handoff, an agent error, and a worker stage error read as a plain sentence, such as `Sortie stopped the session before the agent finished turn 1.`, with any message the agent supplied kept after a colon; every other error is served as stored. |
 | `rule_name` | string | The [dispatch rule](/reference/workflow-config/#dispatch) that routed the run. Omitted when none did. |
 | `agent_kind` | string | The agent adapter kind that ran the session. Omitted when empty. |
 | `configured_model`, `configured_effort` | string | What the run was asked to run, as in [configured and reported model](#configured-and-reported-model). Omitted when unset. |
@@ -1620,7 +1623,7 @@ The example leaves out events 2 to 40.
 
 Sortie keeps every agent event of a run except these:
 
-- a `notification` or `other_message` whose message is blank, which an agent sends only to show it is alive;
+- a `notification` or `other_message` whose message is blank, which is how an agent shows it is alive and how an adapter reports a frame that has no text for a person;
 - `token_usage`, whose totals appear in `usage` on the turn-ending events instead;
 - a `notification`, `other_message`, or `malformed` event whose type and message equal those of the newest event Sortie kept for the run.
 
@@ -2487,7 +2490,7 @@ When no live entry holds the issue but run history does, `status` is `"history"`
 | `pending_reactions` | The issue's rows in the record shape and order of the `pending_reactions` array on `/api/v1/state`, `[]` when it has none. Always present, whatever `status` reads. |
 | `between_stages` | Full between-stages entry (same shape as entries in the `between_stages` array on `/api/v1/state`), or `null`. Always present. Populated whenever the issue is between stages, whatever `status` reads. |
 | `recent_events` | The newest 50 agent events of one run, oldest first, in the event shape of [`GET /api/v1/runs/{dispatch_id}/events`](#get-apiv1runsdispatch_idevents-run-events). The run is the one `running.dispatch_id` names while the issue runs, and otherwise the issue's newest recorded run with a non-empty `dispatch_id`, so a recorded CI result is passed over. Always present; `[]` when the issue has no such run or Sortie kept no events for it. |
-| `last_error` | The `error` of the issue's retry entry, or `null` when it has none. After a reschedule this is the reschedule reason. |
+| `last_error` | The `error` of the issue's retry entry, or `null` when it has none, worded as the retry's `error` is. After a reschedule this is the reschedule reason. |
 | `tracked` | Reserved for future use. Currently an empty object. |
 | `history` | `null` when the issue has no recorded run, otherwise an object. See [History member](#history-member). |
 

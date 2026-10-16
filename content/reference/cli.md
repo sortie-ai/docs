@@ -1341,7 +1341,7 @@ Different log lines carry different context fields depending on scope:
 | `session_id` | Agent events, worker lifecycle |
 | `error` | Error and warning lines |
 | `next_attempt`, `delay_ms` | Retryable worker failures (WARN level) |
-| `tool`, `duration_ms`, `outcome` | Tool call completions. A failed call adds `tool_error`. |
+| `tool`, `duration_ms`, `outcome` | Tool call completions, logged at `DEBUG`. A failed call adds `tool_error`, the first line of its error. |
 | `addr` | HTTP server start |
 
 Stdout is used for help output (`-h`, `--help`), version output (`-V`, `--version`, `-dumpversion`), `validate --format json` diagnostics, the `stats` report in both formats, and `mcp-server` JSON-RPC responses. All other output goes to stderr, including the `validate` text diagnostics and the `stats` warnings.
