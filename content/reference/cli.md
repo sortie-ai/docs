@@ -542,13 +542,15 @@ For details on each check, see [GitHub adapter validate-time checks](/reference/
 
 ### `stats`
 
-Reports how past runs went and what they cost. Sortie appends one row to `run_history` each time an agent session finishes; `stats` reads that history back over a time range and aggregates it into run counts, the number of issues those runs belong to, success rate, duration percentiles, turns, token sums, and derived cost, broken down by outcome, by coding agent, by dispatch rule, by prompt template, by configured model, by stage chain, by retry trigger, and by run origin. The database is opened read-only, so the command is safe to run while the orchestrator is working, and it makes no network call. A running Sortie serves the same report over HTTP at [`GET /api/v1/stats`](/reference/http-api/#get-apiv1stats-run-statistics).
+Reports how past runs went and what they cost. Sortie appends one row to `run_history` each time an agent session finishes; `stats` reads that history back over a time range and aggregates it into run counts, the number of issues those runs belong to, success rate, duration percentiles, turns, token sums, and derived cost, broken down by outcome, by coding agent, by dispatch rule, by prompt template, by configured model, by stage chain, by retry trigger, and by run origin, plus a funnel for each stage chain. The database is opened read-only, so the command is safe to run while the orchestrator is working, and it makes no network call. A running Sortie serves the same report over HTTP at [`GET /api/v1/stats`](/reference/http-api/#get-apiv1stats-run-statistics).
 
 ```
 sortie stats [--format text|json] [--since value] [--until value] [workflow-path]
 ```
 
-The workflow file supplies two things: `db_path`, which locates the database, and [`token_rates`](/reference/workflow-config/#token_rates), which prices the recorded token counts. The command reads those, opens the database read-only, writes the report, and exits. It does not start the orchestrator, apply migrations, spawn agents, or write anything.
+The workflow file supplies three things: `db_path`, which locates the database; [`token_rates`](/reference/workflow-config/#token_rates), which prices the recorded token counts; and the [`dispatch`](/reference/workflow-config/#dispatch) section, whose stage chains define the [stage funnels](#stage-funnels). The command reads those, opens the database read-only, writes the report, and exits. It does not start the orchestrator, apply migrations, spawn agents, or write anything.
+
+The command loads the `dispatch` section on every run, whether or not it defines a stage chain. A section that does not load, such as a rule whose prompt template file is missing, stops the command with the error on stderr, in the form `sortie validate` prints it, and exit code `1`. No report is written.
 
 #### Arguments
 
@@ -613,17 +615,17 @@ Which figures a report can carry depends on the database it reads, not on the ve
 | Tokens | `input_tokens`, `output_tokens`, `total_tokens`, `cache_read_tokens` | Token sums and every derived cost figure. `cache_write_tokens`, when present, adds the cache-write sum without changing the tier. |
 | Token measurement | `tokens_measured` | Which runs the coding agent could measure, and so which ones the token and cost figures cover |
 
-A sixth group sits outside the tier: `configured_model`, `configured_effort`, and `reported_model`. Only the configured-model breakdown depends on it, so a database without it is still `full`. See [configured model breakdown](#configured-model-breakdown). A seventh, `chain_id`, `stage_target`, and `stage_result`, sits outside the tier too and supplies only the stage chain breakdown. See [stage chain breakdown](#stage-chain-breakdown). The `trigger` and `reaction_kind` columns sit outside the tier as well and supply the retry trigger breakdown. See [retry trigger breakdown](#retry-trigger-breakdown). The run origin breakdown needs them and `first_after_hop`, which sits outside the tier too. See [run origin breakdown](#run-origin-breakdown).
+A sixth group sits outside the tier: `configured_model`, `configured_effort`, and `reported_model`. Only the configured-model breakdown depends on it, so a database without it is still `full`. See [configured model breakdown](#configured-model-breakdown). A seventh, `chain_id`, `stage_target`, and `stage_result`, sits outside the tier too and supplies only the stage chain breakdown. See [stage chain breakdown](#stage-chain-breakdown). The `trigger` and `reaction_kind` columns sit outside the tier as well and supply the retry trigger breakdown. See [retry trigger breakdown](#retry-trigger-breakdown). The run origin breakdown needs them and `first_after_hop`, which sits outside the tier too. See [run origin breakdown](#run-origin-breakdown). The stage funnels need every column named above and `agent_blocked`, which sits outside the tier as well. See [stage funnels](#stage-funnels).
 
-**`base`**: at least one group is missing. The report falls back to run counts, the outcome breakdown, the coding-agent breakdown, and durations. Turns, tokens, cost, the dispatch-rule breakdown, the prompt-template breakdown, the configured-model breakdown, the stage chain breakdown, the retry trigger breakdown, the run origin breakdown, and the self-review section are all left out.
+**`base`**: at least one group is missing. The report falls back to run counts, the outcome breakdown, the coding-agent breakdown, and durations. Turns, tokens, cost, the dispatch-rule breakdown, the prompt-template breakdown, the configured-model breakdown, the stage chain breakdown, the retry trigger breakdown, the run origin breakdown, the stage funnels, and the self-review section are all left out.
 
 The tier is all-or-nothing by design. A database carrying four of the five groups still reports `base`, and the report then drops the groups it does carry along with the ones it never recorded. The warning names both lists so the two are not confused:
 
 ```
-warning: this database was written before sortie recorded dispatch-rule routing, tokens and cost, which runs the coding agent could measure, the model each run was configured with, stage chains, what started each run, the first run after each stage hop. The report falls back to run counts and durations, so it also leaves out turns, self-review results, which this database does carry. Run sortie once with this workflow to get the full report.
+warning: this database was written before sortie recorded dispatch-rule routing, tokens and cost, which runs the coding agent could measure, the model each run was configured with, stage chains, what started each run, the first run after each stage hop, which runs stopped to wait for a person. The report falls back to run counts and durations, so it also leaves out turns, self-review results, which this database does carry. Run sortie once with this workflow to get the full report.
 ```
 
-A degraded report is still a report: the warning goes to stderr in text mode and into `warnings` in JSON, and the exit code is `0`. In JSON, `by_rule`, `by_template`, `by_model`, `by_chain`, `by_trigger`, and `by_origin` are empty arrays, `self_review` is `null`, and every figure the tier cannot supply is `null` rather than `0`. A null means the database never recorded that figure, not that the figure measured zero.
+A degraded report is still a report: the warning goes to stderr in text mode and into `warnings` in JSON, and the exit code is `0`. In JSON, `by_rule`, `by_template`, `by_model`, `by_chain`, `chain_funnels`, `by_trigger`, and `by_origin` are empty arrays, `self_review` is `null`, and every figure the tier cannot supply is `null` rather than `0`. A null means the database never recorded that figure, not that the figure measured zero.
 
 The remedy is to run the orchestrator once with this workflow. Startup applies the pending migrations, and runs recorded from then on carry the full set. `stats` cannot do this itself; its read-only connection cannot apply a migration.
 
@@ -694,6 +696,93 @@ warning: this database was written before sortie recorded stage chains, so the r
 
 When the database also predates the configured-model columns, only the configured-model warning appears, and running the orchestrator once adds both breakdowns. On a `base` database stage chains are named in the degraded-schema warning instead, and `by_chain` is `[]` as well.
 
+#### Stage funnels
+
+The stage funnels (`chain_funnels` in JSON, one table per funnel in text) count the passes through each stage of the [stage chains](/reference/workflow-config/#stage-chains) the workflow configures: how many reached a stage, how each one left it, and how long it spent there. The [stage chain breakdown](#stage-chain-breakdown) lists individual passes; a funnel counts them per stage.
+
+- A pass is the set of runs that share a chain identifier. It counts once on a stage, however many runs it makes there, retries and pull request fixes included.
+- A funnel is one chain definition. Chains of the `dispatch` section that share a stage merge into one funnel, so a stage that two chains reach has one row. Funnels follow the order of the chains in the workflow. A chain that joins another contributes its stages ahead of the stage where it joins, and its first stage is marked as an entry.
+- A funnel lists every stage of its chain, with zero counts when no pass reached it, and a range that holds no runs included. It never grows with the number of passes.
+- Only runs that finished in the range count. A pass that is running, queued for a retry, or held by a budget when the report is made counts as well, under the rules below.
+
+The text report prints one table per funnel after the stage chain table, on the `full` tier only. It lists every stage and is not truncated.
+
+```
+chain from specify
+  #  STAGE            RUNS  ENTERED  BY LABEL  ADVANCED      CEILING  HOP FAILED  NO HOP            IN STAGE  MEDIAN
+  1  specify (entry)  14    12       4         10            0        0           2 needs a person  0         7m 0s
+  2  implement        21    10       0         6             1        1           1 failed run      1         21m 0s
+  3  review           8     7        1         5 handed off  0        0           1 budget held     1         9m 0s
+```
+
+The title names the entry stages, joined by `or`. The columns:
+
+| Column | Meaning |
+|---|---|
+| `#` | The position of the stage in the funnel. |
+| `STAGE` | The dispatch rule of the stage, followed by `(entry)` on a stage where a chain starts. |
+| `RUNS` | `runs`. |
+| `ENTERED` | `entered`. |
+| `BY LABEL` | `arrivals.label`. The other arrivals are in JSON only. |
+| `ADVANCED` | `outcomes.advanced`. On the last stage, `outcomes.handed_off` followed by `handed off`. |
+| `CEILING` | `outcomes.ceiling`. |
+| `HOP FAILED` | `outcomes.hop_failed`. |
+| `NO HOP` | `outcomes.no_hop`. When it is above zero, the reason with the most passes follows, worded `failed run`, `needs a person`, `budget held`, `stopped by an operator`, or `verdict withheld`. The other reasons are in JSON only. |
+| `IN STAGE` | `outcomes.in_stage`. |
+| `MEDIAN` | `median_seconds`, `-` when it is `null`. |
+
+Each element of `chain_funnels` is `{"stages": [...]}`, with one element per stage in funnel order. The fields of a stage:
+
+| Field | Type | Description |
+|---|---|---|
+| `rule` | string | The dispatch rule of the stage. |
+| `entry` | boolean | `true` when a chain starts at the stage. |
+| `last` | boolean | `true` on the final stage of the funnel, the stage whose finished pass is handed off. |
+| `runs` | integer | The finished runs of the rule in the range, as the `by_rule` group of the rule counts them. |
+| `entered` | integer | The passes that reached the stage in the range, plus the passes held there now. |
+| `arrivals` | object | `entered` split by how the pass reached the stage, below. |
+| `outcomes` | object | `entered` split by how the pass left the stage, below. |
+| `no_hop_reasons` | array of object | The passes counted in `outcomes.no_hop`, as `{"reason", "passes"}` pairs, the largest first. A reason without passes is absent. |
+| `median_seconds` | number or null | The median, over the passes, of the seconds a pass spent on the stage, summing its finished runs there, nearest rank. `null` when no pass has a finished run with a readable duration. |
+
+Every pass counts in exactly one `arrivals` member and exactly one `outcomes` member, so each set of members adds up to `entered`.
+
+| `arrivals` member | The pass |
+|---|---|
+| `hop` | Came from the previous stage by a hop. |
+| `label` | Reached the stage with no hop, and the rule selects issues by stage label. |
+| `match` | Reached the stage with no hop, and the rule matches the issue by its other conditions. |
+
+The latest finished run of a pass on the stage decides its outcome. The first row of this table that fits the pass applies:
+
+| Member | Reason | The pass |
+|---|---|---|
+| `in_stage` | | Has a session running or a retry queued now. |
+| `advanced` | | Hopped to the next stage, with the hop result `advanced` or `partial`. On the last stage the pass counts in `handed_off` instead. |
+| `ceiling` | | Reached [`dispatch.max_consecutive_hops`](/reference/workflow-config/#stage-chains), so the hop was refused. |
+| `hop_failed` | | Failed to hop, with the hop result `failed`. |
+| `no_hop` | `needs_person` | Succeeded, but the agent reported itself blocked and waiting for a person. |
+| `handed_off` | | Succeeded on the last stage. Always `0` on any other stage. |
+| `no_hop` | `budget_held` | Is held by a budget now. |
+| `no_hop` | `operator_stopped` | Succeeded on a stage that is not the last without a hop, as when the issue left the active states. |
+| `no_hop` | `verdict_withheld` | Failed because the [handoff evidence](/reference/state-machine/#handoff-evidence) verdict withheld its handoff. |
+| `no_hop` | `needs_person` | Ended with the status `needs_person`. |
+| `no_hop` | `budget_held` | Ended with the status `budget_stopped`. |
+| `no_hop` | `operator_stopped` | Ended with the status `cancelled`. |
+| `no_hop` | `run_failed` | Ended any other way. |
+
+A pass that is running, queued for a retry, or held by a budget is read from the database, where Sortie keeps a record of each running session and budget hold, and from the retry queue. It counts only when the range is open at its end or ends after `generated_at`. For an earlier end, each pass is decided by its runs in the range alone. Sortie empties these records when it starts and restores nothing from them.
+
+`chain_funnels` is `[]` when the workflow defines no stage chain, whatever the database holds. A `full` database written before Sortie recorded which runs stopped to wait for a person also reports `[]`, and while the workflow defines a chain, `warnings` carries this message. The exit code is `0`.
+
+```
+warning: this database was written before sortie recorded which runs stopped to wait for a person, so the report leaves out the funnel of each stage chain. Run sortie once with this workflow to add it.
+```
+
+When the database predates any other breakdown column, that breakdown's warning appears instead, as the [retry trigger breakdown](#retry-trigger-breakdown) describes, and running the orchestrator once adds every breakdown. On a `base` database the degraded-schema warning names the missing column group, and `chain_funnels` is `[]` as well.
+
+Adding the column does not backfill it. A run recorded before the upgrade in which the agent reported itself blocked was stored as a plain success, so its pass counts in `handed_off` on the last stage and in `no_hop` with the reason `operator_stopped` on any other stage, unless a session, a retry, or a budget holds the pass now. A run recorded with the status `needs_person` is classified as such at any age.
+
 #### Retry trigger breakdown
 
 The `by retry trigger` table (`by_trigger` in JSON) groups runs by what started the retry whose fire dispatched them, the value [`GET /api/v1/runs`](/reference/http-api/#get-apiv1runs-run-history) serves as `trigger`. Cost is priced as in every other breakdown.
@@ -722,7 +811,7 @@ On a `full` database written before Sortie recorded what started each run, `by_t
 warning: this database was written before sortie recorded what started each run, so the report leaves out the breakdowns by retry trigger and by run origin. Run sortie once with this workflow to add them.
 ```
 
-The report carries at most one such breakdown warning. When the database predates several of the breakdown columns, the configured-model warning takes precedence over the stage chain one, that over this one, and this one over the [run origin](#run-origin-breakdown) one; running the orchestrator once adds every breakdown. On a `base` database what started each run is named in the degraded-schema warning instead, and `by_trigger` is `[]` as well.
+The report carries at most one such breakdown warning. When the database predates several of the breakdown columns, the configured-model warning takes precedence over the stage chain one, that over this one, this one over the [run origin](#run-origin-breakdown) one, and that one over the [stage funnel](#stage-funnels) one; running the orchestrator once adds every breakdown. On a `base` database what started each run is named in the degraded-schema warning instead, and `by_trigger` is `[]` as well.
 
 #### Run origin breakdown
 
@@ -751,7 +840,7 @@ On a `full` database that records what started each run but predates `first_afte
 warning: this database was written before sortie recorded the first run after each stage hop, so the report leaves out the breakdown by run origin. Run sortie once with this workflow to add it.
 ```
 
-This warning comes last in the precedence of breakdown warnings. A database that also predates the trigger columns carries the [retry trigger](#retry-trigger-breakdown) warning instead, which names both breakdowns. On a `base` database the first run after each stage hop is named in the degraded-schema warning, and `by_origin` is `[]` as well.
+This warning comes second to last in the precedence of breakdown warnings, ahead of the [stage funnel](#stage-funnels) one. A database that also predates the trigger columns carries the [retry trigger](#retry-trigger-breakdown) warning instead, which names both breakdowns. On a `base` database the first run after each stage hop is named in the degraded-schema warning, and `by_origin` is `[]` as well.
 
 #### Output formats
 
@@ -860,6 +949,7 @@ Envelope:
 | `by_template` | array of object | Breakdown by prompt template. Empty array on the `base` tier. |
 | `by_model` | array of object | Breakdown by configured model. Empty array on the `base` tier and on a `full` database that predates the configured-model columns. See [configured model breakdown](#configured-model-breakdown). |
 | `by_chain` | array of object | Breakdown by stage chain, listing only chains where a hop was due or made. Empty array on the `base` tier and on a `full` database that predates the configured-model or stage-chain columns. See [stage chain breakdown](#stage-chain-breakdown). |
+| `chain_funnels` | array of object | One funnel per stage chain definition of the workflow. Empty array when the workflow defines no stage chain, on the `base` tier, and on a `full` database that predates the configured-model, stage-chain, trigger, `first_after_hop`, or `agent_blocked` columns. See [stage funnels](#stage-funnels). |
 | `by_trigger` | array of object | Breakdown by retry trigger. Empty array on the `base` tier and on a `full` database that predates the configured-model, stage-chain, or trigger columns. See [retry trigger breakdown](#retry-trigger-breakdown). |
 | `by_origin` | array of object | Breakdown by run origin. Empty array on the `base` tier and on a `full` database that predates the configured-model, stage-chain, trigger, or `first_after_hop` columns. See [run origin breakdown](#run-origin-breakdown). |
 | `self_review` | object or null | Self-review aggregation. `null` on the `base` tier, meaning the results were not read, not that no review ran. |
@@ -906,6 +996,8 @@ Each element of `by_chain` adds three fields after these:
 | `issue` | string | The issue's display identifier, or its tracker identifier when it has none. |
 | `stages` | array of string | The rules the chain's runs in the range followed, in order, with consecutive runs of one rule counted once. |
 | `last_hop` | string | The latest hop decision among the chain's runs in the range: `advanced`, `partial`, `failed`, or `ceiling`. Empty when none was reached. |
+
+The fields of a `chain_funnels` element are listed under [stage funnels](#stage-funnels).
 
 `duration_seconds`, in both `summary` and every breakdown element:
 
@@ -1052,6 +1144,7 @@ A worked example, expanded for readability and trimmed to one row per breakdown.
     }
   ],
   "by_chain": [],
+  "chain_funnels": [],
   "by_trigger": [],
   "by_origin": [],
   "self_review": {
@@ -1069,7 +1162,7 @@ A worked example, expanded for readability and trimmed to one row per breakdown.
 | Code | Meaning |
 |---|---|
 | `0` | A report was produced. Includes a range that matched no runs and a reduced report on the `base` tier, both of which are successes, and `-h`/`--help`. |
-| `1` | Usage error (invalid `--format`, an unparseable or inverted range bound, too many arguments) or load error (workflow file missing or invalid, database unopenable, `run_history` unreadable). |
+| `1` | Usage error (invalid `--format`, an unparseable or inverted range bound, too many arguments) or load error (workflow file missing or invalid, `dispatch` section that does not load, database unopenable, `run_history` unreadable). |
 
 ### `mcp-server`
 

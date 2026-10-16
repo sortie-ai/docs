@@ -47,7 +47,7 @@ Without the backoff timestamp, exponential backoff is a fiction: it only works w
 
 Persisting the resolved agent, template, and stage data serves a different need: a retry or a reaction-driven continuation after a restart resumes with the routing the dispatch rules chose originally and renders the same stage data in its prompt, so the agent and prompt stay stable across the life of the claim.
 
-**Run history.** One row per completed worker session: issue ID, identifier and display identifier, attempt number, exit type and error message, start and completion timestamps, workflow file, agent adapter used, the dispatch rule and prompt template that routed the run, the model and reasoning level the run was configured with beside the model the runtime reported, workspace path, turns completed, the [self-review audit trail](/guides/configure-self-review/#run-history) when self-review ran, the run's place in its stage chain (the chain identifier, the previous stage and its outcome, and the stage the run's exit targeted with the result of that hop), token counts (input, output, total, cache read, and cache write), and a flag recording whether those counts are a measurement at all.
+**Run history.** One row per completed worker session: issue ID, identifier and display identifier, attempt number, exit type and error message, start and completion timestamps, workflow file, agent adapter used, the dispatch rule and prompt template that routed the run, the model and reasoning level the run was configured with beside the model the runtime reported, workspace path, turns completed, the [self-review audit trail](/guides/configure-self-review/#run-history) when self-review ran, the run's place in its stage chain (the chain identifier, the previous stage and its outcome, and the stage the run's exit targeted with the result of that hop), token counts (input, output, total, cache read, and cache write), a flag recording whether those counts are a measurement at all, and a flag recording whether the agent ended the run by reporting itself blocked.
 
 An agent that reports no usage produces an unmeasured run, which is a different thing from a run that spent nothing. A second count records the turns that reached the model without a figure covering them, because a run whose figures all arrived can still have spent more than they say. The two gaps are independent, and a total carrying either one is a floor rather than a figure.
 
@@ -62,6 +62,10 @@ The cost is disk space. A run keeps at most 256 KiB of events, and all runs toge
 **Session metadata.** The latest session details for each issue: session ID, token counts including cache writes, model, agent PID, timestamps, and exit type. This is the data the dashboard and API serve when you ask "what's happening with PROJ-42 right now?" If the agent finished and the process restarted, the answer is still available because it's in the database, not in a goroutine's local variables.
 
 **Aggregate metrics.** Cumulative counters (input, output, cache-read, and cache-write tokens, total dispatches, cumulative runtime, and a count of ended sessions whose usage was never recorded) stored under a single key and updated on every worker exit. When Sortie exposes these via Prometheus, a restart doesn't create a false cliff in your time-series data. The counters pick up from their last persisted values.
+
+**Live stage passes.** The stage passes that hold no retry entry: a running stage session and a budget hold, each with its chain, its rule, and the rule whose hop reached it. They exist for one reader. `sortie stats` runs as a separate process, and its stage funnels count work that has not finished, which only the database can show it. A queued retry needs no copy, because its retry entry already carries the chain and the stage.
+
+These rows are the exception to this page's rule that state exists to survive a restart. Sortie empties them at startup and restores nothing from them.
 
 **Reaction escalations.** When a pull request reaction hands an issue to a person, Sortie stores the escalation: the issue and reaction kind, why it began, when, what it judged, how many tries it had used, and which pull request it watches. Ending an escalation clears the time and keeps the row, because what the escalation judged is what makes it apply its label and event once.
 
@@ -96,6 +100,8 @@ A later migration marks the first run dispatched after each stage hop. The run's
 A later migration adds the table that holds reaction escalations, one row per issue and reaction kind. It starts empty, so an escalation that was standing when a database was upgraded is not restored, and the next escalation of its kind records one.
 
 A later migration gives each run history record the dispatch ID of its run and adds the table that holds the runs' agent events. It fills in nothing for runs already on record, so a run recorded before the upgrade has no dispatch ID and no events.
+
+A later migration gives run history a flag for runs the agent ended by reporting itself blocked, and adds the table that holds live stage passes. A blocked run is recorded as succeeded with no error, so no other column tells it from a handoff. The flag defaults to not blocked, and a row written before it keeps that value, so a run in which the agent reported itself blocked, recorded before the upgrade as a plain success, is never read as a stop for a person. A run recorded with the status `needs_person` is not affected.
 
 **Operational simplicity.** Backup the database by copying the file. Inspect it with `sqlite3`. Move to another host by copying the file. Stream continuous backups to S3 with Litestream. The operational model is as simple as the deployment model.
 

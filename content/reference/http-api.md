@@ -1650,7 +1650,7 @@ If the events of a finished run cannot be written, its run history record is sto
 
 ## GET /api/v1/stats: Run statistics
 
-Returns the report that [`sortie stats --format json`](/reference/cli/#stats) prints: run and issue counts, success rate, duration percentiles, token sums, and estimated cost over the runs completed in a range, with breakdowns by outcome, coding agent, dispatch rule, prompt template, configured model, stage chain, retry trigger, and run origin. The route and the command share one aggregation, so for one database and absolute bounds the two bodies differ only in `generated_at`, apart from the pricing difference [described below](#pricing-and-reload).
+Returns the report that [`sortie stats --format json`](/reference/cli/#stats) prints: run and issue counts, success rate, duration percentiles, token sums, and estimated cost over the runs completed in a range, with breakdowns by outcome, coding agent, dispatch rule, prompt template, configured model, stage chain, retry trigger, and run origin, and a funnel for each stage chain. The [stage funnels](/reference/cli/#stage-funnels) hold the passes running, queued for a retry, or held by a budget at the time of the request. The route and the command share one aggregation, so for one database and absolute bounds the two bodies differ only in `generated_at`, apart from the pricing and dispatch-rule differences [described below](#pricing-and-reload).
 
 ```sh
 curl 'http://localhost:7678/api/v1/stats?since=24h'
@@ -1769,6 +1769,8 @@ The body is compact JSON with the shape of the command's `--format json` output.
 ### Pricing and reload
 
 The route prices runs with the [`token_rates`](/reference/workflow-config/#token_rates) the process started with, the same rates `config.token_rates` of [`GET /api/v1/state`](#get-apiv1state-system-state) serves, and `warnings` lists the advisories of those rates. `sortie stats` reads the workflow file each time it runs. After an edit of `token_rates`, the command and the route therefore price differently until the process restarts.
+
+The route builds the funnels from the `dispatch` rules in force at the time of the request, so it follows a reload of the workflow. `sortie stats` reads the workflow file each time it runs, so after an edit of the `dispatch` section the command shows the new chains before the process has reloaded it.
 
 Each request opens its own read-only connection to the database and closes it once the report is built. It never uses the connection the orchestrator holds, so a report over a long history does not delay the orchestrator's writes. The scan covers every run in the range, so a request without bounds on a long history takes longer than a bounded one.
 
