@@ -142,10 +142,10 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 1Gi
+      storage: 5Gi
 ```
 
-The 1Gi default is enough for months of run history and retry state. The SQLite database is small, a few megabytes even with thousands of completed sessions. The workspace root (where agents clone repos) lives inside this volume too, so increase the size if your repositories are large or you run many concurrent agents.
+The database needs up to about 4Gi: it keeps each finished run's agent events for at least 365 days, capped at 2 GiB of events across all runs, and SQLite does not shrink the file when old events are pruned. See [what Sortie persists](/concepts/persistence/#what-sortie-persists-and-why). The workspace root (where agents clone repos) lives inside this volume too, so increase the size if your repositories are large or you run many concurrent agents.
 
 If your cluster has multiple storage classes, specify one explicitly:
 
@@ -428,9 +428,9 @@ resources:
 
 ### Storage sizing
 
-The SQLite database grows slowly, a few megabytes per thousand completed sessions. The workspace root consumes more because it holds cloned repositories. Size the PVC based on the number of concurrent agents and the size of your repositories:
+The SQLite database grows with the agent events of finished runs until it reaches about 4Gi, where pruning holds it. The workspace root holds cloned repositories. Size the PVC as 4Gi for the database plus the workspace space for your number of concurrent agents and the size of your repositories:
 
-| Scenario | Recommended PVC size |
+| Scenario | Workspace space |
 |---|---|
 | 1–2 agents, small repos (< 100 MB each) | 1Gi |
 | 2–5 agents, medium repos (100–500 MB each) | 5Gi |

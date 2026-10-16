@@ -264,6 +264,7 @@ The JSON API returns errors in a standard envelope:
 | `retry_not_found` | `404` | `POST /api/v1/retries/{identifier}/run` found no scheduled retry for the identifier. |
 | `reaction_not_found` | `404` | `POST /api/v1/reactions/{identifier}/{kind}/check` found no pending reaction of that kind for the identifier. |
 | `attention_item_not_found` | `404` | `POST /api/v1/attention/{id}/acknowledge` found no current attention item with the `id`. |
+| `run_events_not_retained` | `404` | `GET /api/v1/runs/{dispatch_id}/events` has no events for the run: no run carries the dispatch ID, or its events were never kept, pruned, or lost. |
 | `invalid_parameter` | `400` | `GET /api/v1/runs` or `GET /api/v1/runs/issues` rejected a query parameter: unknown, repeated, malformed, out of range, or a misordered pair of bounds. The message names the parameter and the rule. |
 | `snapshot_unavailable` | `503` | Orchestrator state snapshot temporarily unavailable. Retry after a short delay. |
 | `history_unavailable` | `503` | Run history or the issue outcomes could not be read. Retry after a short delay. |

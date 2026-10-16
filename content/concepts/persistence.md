@@ -53,6 +53,12 @@ An agent that reports no usage produces an unmeasured run, which is a different 
 
 This solves three problems. First, `max_sessions` budget enforcement: the count of rows for an issue is the count of sessions spent, durable across any number of restarts. Second, debugging: when an agent fails at 2 AM, the run history tells you what happened without digging through logs. Third, this is the raw material for cost attribution: every session records how many tokens it consumed.
 
+**Agent events.** What the agent did during each run: the session it started, the tools it ran and how long they took, the turns it finished or failed with the token totals at each turn's end, and the messages it sent. While a run is in flight its events live in memory. When it ends, Sortie writes them once, together with the run's run history record, and the [HTTP API](/reference/http-api/#get-apiv1runsdispatch_idevents-run-events) serves them for at least 365 days after the run completed.
+
+Run history says how a run ended; the events say how it got there. Without them, the answer to "why did the third attempt fail?" lives only in whatever logs were kept.
+
+The cost is disk space. A run keeps at most 256 KiB of events, and all runs together at most 2 GiB, oldest runs pruned first. That cap counts the events themselves. Indexes and SQLite's per-row overhead come on top, so a database at the cap measured 3.8 GB with events averaging 250 bytes. SQLite reuses the pages that pruning frees instead of returning them to the file system, so the file does not shrink on its own unless it is compacted with SQLite's `VACUUM`. A long-lived instance should expect its database file to approach 4 GB.
+
 **Session metadata.** The latest session details for each issue: session ID, token counts including cache writes, model, agent PID, timestamps, and exit type. This is the data the dashboard and API serve when you ask "what's happening with PROJ-42 right now?" If the agent finished and the process restarted, the answer is still available because it's in the database, not in a goroutine's local variables.
 
 **Aggregate metrics.** Cumulative counters (input, output, cache-read, and cache-write tokens, total dispatches, cumulative runtime, and a count of ended sessions whose usage was never recorded) stored under a single key and updated on every worker exit. When Sortie exposes these via Prometheus, a restart doesn't create a false cliff in your time-series data. The counters pick up from their last persisted values.
@@ -88,6 +94,8 @@ A later migration records what scheduled each queued retry and gives each parked
 A later migration marks the first run dispatched after each stage hop. The run's other columns cannot tell it apart: every later run in the stage the hop led to names the same previous stage, so only a mark set at dispatch separates the run a hop started from a later pick-up of the same stage. For history already on record, the migration marks the earliest run of each hop and leaves the later ones unmarked.
 
 A later migration adds the table that holds reaction escalations, one row per issue and reaction kind. It starts empty, so an escalation that was standing when a database was upgraded is not restored, and the next escalation of its kind records one.
+
+A later migration gives each run history record the dispatch ID of its run and adds the table that holds the runs' agent events. It fills in nothing for runs already on record, so a run recorded before the upgrade has no dispatch ID and no events.
 
 **Operational simplicity.** Backup the database by copying the file. Inspect it with `sqlite3`. Move to another host by copying the file. Stream continuous backups to S3 with Litestream. The operational model is as simple as the deployment model.
 
