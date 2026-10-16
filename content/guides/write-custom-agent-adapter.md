@@ -163,7 +163,7 @@ Declare the truth about what your adapter does today, not what the CLI could the
 
 Leaving the field at its zero value, `MCPInjectionUndeclared`, delivers no channel either, so an undeclared adapter silently gets no tools and no advertisement. Declare it explicitly: start at `MCPInjectionUnsupported` and change the value when you wire delivery up. [`sortie validate`](/reference/cli/#validate) reports any kind with no channel as an `agent.kind.no_tool_channel` warning, which is how an operator finds out.
 
-`UsageArrival` and `UsageAttribution` declare when your runtime's token figures reach the orchestrator and what they describe. Every consumer of usage data reads the declaration instead of branching on your kind string: `sortie validate`, the dashboard's Usage reporting field, and the `usage_arrival` and `usage_attribution` fields on each running entry in the [JSON API](/reference/http-api/#get-apiv1state-system-state).
+`UsageArrival` and `UsageAttribution` declare when your runtime's token figures reach the orchestrator and what they describe. Every consumer of usage data reads the declaration instead of branching on your kind string: `sortie validate`, the **Usage reporting** line of the dashboard's Workflow screen, and the `usage_arrival` and `usage_attribution` fields on each running entry in the [JSON API](/reference/http-api/#get-apiv1state-system-state).
 
 | `UsageArrival` | Paired `UsageAttribution` | What your adapter does |
 |---|---|---|

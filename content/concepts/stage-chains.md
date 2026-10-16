@@ -97,7 +97,7 @@ A label change on an issue whose claim is held re-routes nothing until the claim
 
 A chain spreads one issue's work across several runs, so Sortie ties those runs together. Every run carries a chain identifier, and each run a hop leads to inherits the identifier of the run that made the hop. A run that reached a hop decision also records the stage it targeted and the result: `advanced`, `partial`, `failed`, or `ceiling`.
 
-That record feeds three views. [`sortie stats`](/reference/cli/#stats) groups runs by chain, listing the chains in which a hop was due or made, and draws a funnel for each chain definition. The [dashboard's run history](/reference/dashboard/#run-history-table) shows each run's rule, chain, and stage path.
+That record feeds several views. [`sortie stats`](/reference/cli/#stats) groups runs by chain, listing the chains in which a hop was due or made, and draws a funnel for each chain definition. The dashboard's [History](/reference/dashboard/#history) shows each run's rule and the hop it made, and its [Analytics](/reference/dashboard/#analytics) draws a funnel for each chain.
 
 And Sortie emits `stage.advanced` when it makes a hop and `stage.not_advanced`, with the reason, when a due hop is not made. Both are ordinary events in the [event catalog](/reference/workflow-config/#event-catalog): no destination receives them until you list them, and once you do, a tracker comment, a Slack channel, or a webhook can tell you where each issue moved and where one stopped.
 

@@ -22,7 +22,7 @@ Sortie accepts exactly one workflow file per process. To run multiple workflows,
 
 ## Name your workflow files
 
-The default filename is `WORKFLOW.md`, but Sortie accepts any path. When you run multiple instances, give each file a descriptive name. The [dashboard](/reference/dashboard/) displays the base filename in its **Workflow** column. If every file is called `WORKFLOW.md`, you can't tell which session belongs to which project.
+The default filename is `WORKFLOW.md`, but Sortie accepts any path. When you run multiple instances, give each file a descriptive name. The [dashboard](/reference/dashboard/) displays the base filename on [Health](/reference/dashboard/#health) and in the **Workflow** line of each session. If every file is called `WORKFLOW.md`, you can't tell which session belongs to which project.
 
 Create a directory per workflow with a named file:
 
@@ -116,7 +116,7 @@ Fix the following issue.
 {{ .issue.description }}
 ```
 
-The dashboard will now show `billing.WORKFLOW.md` and `platform.WORKFLOW.md` in the Workflow column, making it immediately obvious which process owns each session.
+The dashboard will now show `billing.WORKFLOW.md` and `platform.WORKFLOW.md` on Health and in each session's Workflow line, making it immediately obvious which process owns each session.
 
 `db_path` is omitted in both files. It defaults to `.sortie.db` in the same directory as the workflow file, so billing gets `~/sortie/billing/.sortie.db` and platform gets `~/sortie/platform/.sortie.db`. No collision. If you prefer explicit paths:
 

@@ -253,7 +253,7 @@ Press **Ctrl+C** to stop Sortie.
 
 ### Verify the results
 
-Open the dashboard at `http://localhost:7678`. The run history shows the two completed mock sessions, one per issue.
+Open the dashboard at `http://localhost:7678`. [Overview](/reference/dashboard/#overview) lists both mock issues under **Ended today**, each as "Handed off to review", and [History](/reference/dashboard/#history) groups the two completed mock sessions by issue.
 
 Now open Gitea at `http://localhost:3000` and look at the two issues in `sortie/adapter-lab`. Each one now carries the `review` label instead of `backlog`, and both are still open, because `review` is not a terminal state. Notice a `review` label you never created: Sortie added it the first time it moved an issue into that state.
 

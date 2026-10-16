@@ -6,7 +6,7 @@ date: 2026-03-26
 weight: 60
 url: /reference/prometheus-metrics/
 ---
-Sortie exposes a `/metrics` endpoint in Prometheus text exposition format on the same port as the JSON API and HTML dashboard. The HTTP server starts by default on port `7678`. See [CLI reference](/reference/cli/#--port) for port and host configuration.
+Sortie exposes a `/metrics` endpoint in Prometheus text exposition format on the same port as the JSON API and web dashboard. The HTTP server starts by default on port `7678`. See [CLI reference](/reference/cli/#--port) for port and host configuration.
 
 > [!NOTE]
 > When the HTTP server is disabled (`--port 0`), the orchestrator uses a no-op metrics implementation. Metrics are not collected internally: they are discarded, not buffered.

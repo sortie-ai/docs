@@ -299,7 +299,7 @@ Now open the issue in GitLab. It carries the `review` label, the `backlog` label
 
 Neither change shows up as a comment on the issue. GitLab records a label swap and a state change as system notes in the activity feed, and Sortie filters system notes out when it reads an issue's comments, so nothing Sortie did here pollutes the thread an agent would later read.
 
-Open `http://127.0.0.1:7678/`. Sortie serves the dashboard there by default, with no configuration required. You will see summary cards and a run history row for the completed session, with its issue identifier, turn count, duration, and exit status.
+Open `http://127.0.0.1:7678/`. Sortie serves the dashboard there by default, with no configuration required. The address opens [Overview](/reference/dashboard/#overview), and **Ended today** names issue `2` with the outcome "Handed off to review". The completed session is a row on [History](/reference/dashboard/#history), with its status, turns, and duration.
 
 The loop is closed, and the last step is honestly yours. The `sortie/2` branch is pushed and ready, the issue is sitting in `review` with a link to the work, and opening the merge request from that branch is one click in GitLab.
 

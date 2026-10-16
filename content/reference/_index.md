@@ -14,7 +14,7 @@ Comprehensive reference for every CLI flag, configuration field, API endpoint, a
   {{< card link="workflow-config" title="Workflow File" subtitle="Every WORKFLOW.md configuration field." >}}
   {{< card link="environment" title="Environment Variables" subtitle="Every variable Sortie reads, injects, or filters." >}}
   {{< card link="http-api" title="HTTP API" subtitle="JSON endpoints, request/response schemas." >}}
-  {{< card link="dashboard" title="Dashboard" subtitle="Embedded HTML dashboard for session monitoring." >}}
+  {{< card link="dashboard" title="Dashboard" subtitle="The web dashboard: screens, attention items, actions, live updates, and keyboard shortcuts." >}}
   {{< card link="prometheus-metrics" title="Prometheus Metrics" subtitle="Gauges, counters, and histograms." >}}
   {{< card link="state-machine" title="State Machine" subtitle="Orchestration states, phases, and transitions." >}}
   {{< card link="reactions" title="Reactions" subtitle="Post-PR feedback loops: CI failure, review comments, bot review, merge conflicts, auto-merge, and merge completion." >}}

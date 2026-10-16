@@ -594,7 +594,7 @@ The [OpenCode adapter](/reference/adapter-opencode/#agent-section) waits at leas
 
 ### Usage reporting by agent kind
 
-Every agent kind Sortie ships declares when a session's token figures reach the orchestrator and what those figures attribute to. The dashboard prints that declaration in the **Usage reporting** field of an expanded [running session](/reference/dashboard/#running-sessions-table), and the [JSON API](/reference/http-api/#get-apiv1state-system-state) carries it as `usage_arrival` and `usage_attribution`.
+Every agent kind Sortie ships declares when a session's token figures reach the orchestrator and what those figures attribute to. The dashboard prints that declaration for each agent kind under **Usage reporting** in [**Workflow**](/reference/dashboard/#workflow), and the [JSON API](/reference/http-api/#get-apiv1state-system-state) carries it as `usage_arrival` and `usage_attribution`.
 
 The pair is resolved per session rather than fixed per kind: a kind's own pass-through block and whether the session runs over SSH can put a different pair in force, and the Usage reporting column names every case where they do.
 
@@ -617,7 +617,7 @@ A declaration is a promise about the kind, not about the runtime behind it, so a
 
 The `cost_budget` tool answers independently of that: `warning_reached` reads `used_tokens`, the sum of every completed session on the issue regardless of kind, so it can already read `true` for such a session while that session's own spend adds nothing to the sum. See [how to control agent costs](/guides/control-costs/#cap-tokens-per-issue) for what the ceiling does when a session reaches it, and the [logging guide](/guides/monitor-with-logs/#token-ceiling-stops-a-run-in-flight) for the records that surround it.
 
-A session's API request count is a count of requests only where figures arrive during each turn, the one arrival that emits a figure per model API request. The dashboard's **API Requests** field and the API's `api_request_count` carry a number for such a session while no turn has begun or once a figure has arrived. They carry no count for one whose first turn has begun with nothing counted, or for any other session.
+A session's API request count is a count of requests only where figures arrive during each turn, the one arrival that emits a figure per model API request. The API's `api_request_count` carries a number for such a session while no turn has begun or once a figure has arrived. It carries no count for one whose first turn has begun with nothing counted, or for any other session.
 
 [`token_rates`](#token_rates) prices a session from the figures it reports, so a kind reporting none has nothing to price and its estimated cost stays blank. [`sortie validate`](/reference/cli/#validate) reports an inert ceiling as an `agent.kind.no_usage_reporting` warning and an unpriceable kind as an `agent.kind.no_cost_estimate` warning, each naming the kind, so neither has to be discovered from a budget that never fires or a blank column.
 
@@ -1622,7 +1622,7 @@ Unknown top-level keys are collected into an extensions map for forward compatib
 
 ### `server`
 
-Embedded HTTP observability server. Exposes a JSON API, HTML dashboard, health probes, and Prometheus metrics on a single port. See the [HTTP API reference](/reference/http-api/) for endpoint details and the [Prometheus metrics reference](/reference/prometheus-metrics/) for metric definitions.
+Embedded HTTP observability server. Exposes a JSON API, web dashboard, health probes, and Prometheus metrics on a single port. See the [HTTP API reference](/reference/http-api/) for endpoint details and the [Prometheus metrics reference](/reference/prometheus-metrics/) for metric definitions.
 
 | Field  | Type        | Default     | Description                                                                      |
 | ------ | ----------- | ----------- | -------------------------------------------------------------------------------- |
@@ -1661,7 +1661,7 @@ logging:
 
 ### `token_rates`
 
-Per-adapter token pricing for cost estimation on the [dashboard](/reference/dashboard/#cost-estimation). Keys are agent adapter kind strings (e.g., `"claude-code"`, `"copilot-cli"`, `"opencode"`). All rates are in USD per 1 million tokens.
+Per-adapter token pricing for cost estimation on the [dashboard](/reference/dashboard/#how-the-screens-follow-the-workflow). Keys are agent adapter kind strings (e.g., `"claude-code"`, `"copilot-cli"`, `"opencode"`). All rates are in USD per 1 million tokens.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -1675,7 +1675,7 @@ An entry must set both `input_per_mtok` and `output_per_mtok` to price any usage
 
 Sortie prices fresh input, cache reads, cache writes, and output as disjoint buckets. Fresh input is `input_tokens - cache_read_tokens - cache_write_tokens`, floored at zero. This prevents cache tokens, which are already included in `input_tokens`, from being charged twice.
 
-An entry keyed to an agent kind that reports no token usage for the sessions a workflow produces has no effect: there is nothing to price, and the dashboard's Est. Cost field for such a session stays blank. [`sortie validate`](/reference/cli/#validate) reports that combination as an `agent.kind.no_cost_estimate` warning naming the kind, so it is not something to discover from a blank column.
+An entry keyed to an agent kind that reports no token usage for the sessions a workflow produces has no effect: there is nothing to price, and the dashboard reads "not measured" for such a session's cost. [`sortie validate`](/reference/cli/#validate) reports that combination as an `agent.kind.no_cost_estimate` warning naming the kind, so it is not something to discover from a blank column.
 
 Whether a kind reports usage can depend on the launch: `copilot-cli` reports it locally and none over SSH, so adding a [`worker.ssh_hosts`](#worker) pool can make a previously effective entry inert.
 

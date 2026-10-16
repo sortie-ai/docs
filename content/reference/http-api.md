@@ -6,7 +6,7 @@ date: 2026-04-13
 weight: 40
 url: /reference/http-api/
 ---
-Sortie embeds an HTTP server that exposes a JSON API, a stream of change signals and agent events, an HTML dashboard, health probes, and Prometheus metrics, all on a single port.
+Sortie embeds an HTTP server that exposes a JSON API, a stream of change signals and agent events, a [browser dashboard](/reference/dashboard/), health probes, and Prometheus metrics, all on a single port.
 
 ## Server configuration
 
@@ -45,54 +45,35 @@ For the full `server` extension schema, see [WORKFLOW.md configuration reference
 
 ---
 
-## GET /: HTML dashboard
+## GET /: Dashboard redirect
 
-Server-rendered HTML page showing real-time system state. Auto-refreshes in the browser.
-
-```sh
-curl http://localhost:7678/
-```
-
-The dashboard displays running sessions (identifier, state, turn count, duration, last event, tokens), the retry queue (identifier, attempt, due-in, error), summary cards (running count, retrying count, available slots, total tokens), uptime, version, aggregate runtime and token totals, and a run history table of completed sessions.
-
-Returns `text/html`. This is not a JSON endpoint.
-
-### Run history entries
-
-The run history table lists recently completed sessions. [`GET /api/v1/runs`](#get-apiv1runs-run-history) serves the same runs with more fields. Each entry contains:
-
-| Field | Type | Description |
-|---|---|---|
-| `identifier` | string | Tracker-assigned issue identifier (e.g., `"PROJ-123"`). |
-| `display_id` | string | Qualified form of `identifier` for trackers where the identifier alone is ambiguous, such as `"owner/repo#9"`. The dashboard shows it in place of `identifier` when set. Empty when `identifier` is already display-ready. |
-| `attempt` | integer | One-based retry attempt number. |
-| `status` | string | Terminal outcome: `"succeeded"`, `"failed"`, `"cancelled"`, `"ci_failed"`, `"needs_person"`, or `"budget_stopped"`. `"budget_stopped"` is a session the per-issue token ceiling cancelled while it was still running; `error` then carries the token figures behind the stop. |
-| `workflow_file` | string | Path to the workflow definition used for this run. |
-| `started_at` | string | Formatted start timestamp. |
-| `completed_at` | string | Formatted completion timestamp. |
-| `error` | string or null | Error message when the run did not succeed. `null` when `status` is `"succeeded"`. |
-| `turns_completed` | integer | Number of agent turns completed before exit. |
-| `rule_name` | string | [Dispatch rule](/reference/workflow-config/#dispatch) that routed the run. Empty when none did. |
-| `chain_id` | string | [Stage chain](/reference/workflow-config/#stage-chains) the run belongs to. Empty for a run recorded before stage chains existed. |
-| `stage_previous` | string | Rule whose [stage hop](/reference/state-machine/#stage-hop) led to the run. Empty when no hop did. |
-| `stage_target` | string | Rule the run's own hop decision targeted. Empty when the run's exit reached no hop decision. |
-| `stage_result` | string | Result of that hop decision: `"advanced"`, `"partial"`, `"failed"`, or `"ceiling"`. Empty when `stage_target` is. |
-
-#### Model and effort of a completed run
-
-Each completed run also stores the settings it ran with, in three text columns of `run_history`: `configured_model` and `configured_effort` (what the attempt was asked to run) and `reported_model` (what the runtime reported running). [Configured and reported model](#configured-and-reported-model) explains how to read the pair. The dashboard table does not show these columns. [`GET /api/v1/runs`](#get-apiv1runs-run-history) serves them as `configured_model`, `configured_effort`, and `model_name`, each omitted when empty:
+Redirects to the [dashboard](/reference/dashboard/).
 
 ```sh
-curl -s 'http://localhost:7678/api/v1/runs?limit=5' | jq '.runs[] | {issue_identifier, configured_model, configured_effort, model_name}'
+curl -i http://localhost:7678/
 ```
 
-The columns can also be read from the database directly:
+Returns `302 Found` with `Location: /ui/` and no body. The redirect is temporary, so browsers do not cache it.
+
+## GET /ui/: Dashboard
+
+Serves the dashboard, a single-page application compiled into the Sortie binary. The [dashboard reference](/reference/dashboard/) describes what it shows.
 
 ```sh
-sqlite3 .sortie.db "SELECT identifier, configured_model, configured_effort, reported_model FROM run_history ORDER BY started_at DESC LIMIT 5"
+curl -i http://localhost:7678/ui/
 ```
 
-An unset value is an empty string, not `NULL`. All three columns are empty on runs recorded before Sortie stored them and on `ci_failed` rows. [`sortie stats`](/reference/cli/#configured-model-breakdown) aggregates the configured model; it does not read `reported_model` or `configured_effort`.
+Every path under `/ui/` that is not a script or stylesheet returns the same HTML document, so a screen address such as `/ui/issues/MT-649` can be opened directly or bookmarked. The application reads its data from the JSON routes on this page and from the [event stream](#get-apiv1events-change-signals-and-agent-events).
+
+| Path | Response |
+|---|---|
+| `/ui/` and any other path below it | `200 OK`, `text/html; charset=utf-8`, `Cache-Control: no-cache`, with an `ETag`. A request carrying a matching `If-None-Match` gets `304 Not Modified`. |
+| `/ui/assets/<name>.js` and `/ui/assets/<name>.css` | `200 OK`, `text/javascript; charset=utf-8` or `text/css; charset=utf-8`, `Cache-Control: public, max-age=31536000, immutable`. File names carry a content hash. |
+| `/ui/assets/` with any other extension or an unknown name | `404 Not Found`. |
+
+Every response carries `X-Content-Type-Options: nosniff` and a `Content-Security-Policy` that allows only same-origin scripts, styles, and connections, and forbids framing.
+
+The route accepts `GET` and `HEAD`. Sortie's HTTP server has no authentication, so anyone who can reach the port can open the dashboard and use its actions. A deployment that others can reach must sit behind a reverse proxy with authentication or a VPN.
 
 ---
 
@@ -823,7 +804,7 @@ They stay fixed for the session, and the next attempt of the same issue resolves
 
 Nothing compares the two, and a reported model never replaces a configured one. They differ legitimately: a routing alias in `configured_model` resolves to a dated model name in `model_name`, and a runtime can fall back to another model when the configured one is unavailable. A mismatch is therefore not a fault by itself. Read `model_name` as what ran and `configured_model` as what the workflow asked for. The cost and quality of the work belong to the model that ran.
 
-The dashboard shows the same values as **Configured model**, **Configured effort**, and **Reported model**. Completed runs keep all three; see [run history entries](#run-history-entries).
+The dashboard shows both values. Completed runs keep all three; see [model and effort of a completed run](#model-and-effort-of-a-completed-run).
 
 `issue_title`, `issue_url`, `issue_labels`, `issue_type`, and `state` pass through the same masking as the logs: a value Sortie knows to be a secret reads `[redacted]`. A Jira link carries no user name or password written into `tracker.endpoint`.
 
@@ -1265,7 +1246,7 @@ Every parameter is optional. An empty value is the same as an absent one. Filter
 | `issue` | An issue identifier | Runs whose `issue_identifier` equals it. |
 | `issue_id` | A tracker issue ID | Runs whose `issue_id` equals it. |
 | `rule` | A dispatch rule name, or `<none>` | Runs whose `rule_name` equals it. `<none>` selects the runs that record no rule name, which the response serves without `rule_name`. |
-| `status` | A run status | Runs whose `status` equals it. The values are those listed under [run history entries](#run-history-entries). |
+| `status` | A run status | Runs whose `status` equals it: one of `"succeeded"`, `"failed"`, `"cancelled"`, `"ci_failed"`, `"needs_person"`, or `"budget_stopped"`. |
 | `stage` | A dispatch rule name | Runs whose exit reached a stage hop decision that targeted that rule, whatever its result. |
 | `since` | An RFC 3339 timestamp | Runs completed at or after it. Any UTC offset is accepted. |
 | `until` | An RFC 3339 timestamp | Runs completed before it. When both bounds are given, `since` must be before `until`. |
@@ -1357,11 +1338,11 @@ Runs are ordered by descending `run_id`, which is the order Sortie recorded them
 | `run_id` | integer | The run's key in run history, and the paging key. |
 | `issue_id` | string | The tracker's issue ID. |
 | `issue_identifier` | string | The issue identifier the run was recorded under. |
-| `display_identifier` | string | The qualified form of the identifier, as in [run history entries](#run-history-entries). Omitted when empty. |
+| `display_identifier` | string | The qualified form of the identifier for trackers where the identifier alone is ambiguous, such as `"owner/repo#9"`. Omitted when empty. |
 | `issue_title` | string | The issue title recorded with the run. Omitted when empty. Masked. |
 | `issue_url` | string | The tracker's web link to the issue. Omitted when empty. Masked. |
 | `attempt` | integer | One-based attempt number. |
-| `status` | string | Terminal outcome of the run. |
+| `status` | string | Terminal outcome of the run: `"succeeded"`, `"failed"`, `"cancelled"`, `"ci_failed"`, `"needs_person"`, or `"budget_stopped"`. `"budget_stopped"` is a session the per-issue token ceiling cancelled while it was still running; `error` then carries the token figures behind the stop. |
 | `error` | string or `null` | The run's error message. `null` when the run recorded none. Masked. A withheld handoff, an agent error, and a worker stage error read as a plain sentence, such as `Sortie stopped the session before the agent finished turn 1.`, with any message the agent supplied kept after a colon; every other error is served as stored. |
 | `rule_name` | string | The [dispatch rule](/reference/workflow-config/#dispatch) that routed the run. Omitted when none did. |
 | `agent_kind` | string | The agent adapter kind that ran the session. Omitted when empty. |
@@ -1390,6 +1371,22 @@ Runs are ordered by descending `run_id`, which is the order Sortie recorded them
 | `issue_outcome` | object or `null` | How the run's issue ended. The same object on every run of the issue. `null` when Sortie has not seen the issue end. See [Issue outcome](#issue-outcome). |
 
 A `status` of `"ci_failed"` marks a recorded CI result rather than an agent session: it has no `agent_kind`, and each origin member and `dispatch_id` is `""`.
+
+#### Model and effort of a completed run
+
+Each completed run also stores the settings it ran with, in three text columns of `run_history`: `configured_model` and `configured_effort` (what the attempt was asked to run) and `reported_model` (what the runtime reported running). [Configured and reported model](#configured-and-reported-model) explains how to read the pair. This route serves them as `configured_model`, `configured_effort`, and `model_name`, each omitted when empty:
+
+```sh
+curl -s 'http://localhost:7678/api/v1/runs?limit=5' | jq '.runs[] | {issue_identifier, configured_model, configured_effort, model_name}'
+```
+
+The columns can also be read from the database directly:
+
+```sh
+sqlite3 .sortie.db "SELECT identifier, configured_model, configured_effort, reported_model FROM run_history ORDER BY started_at DESC LIMIT 5"
+```
+
+An unset value is an empty string, not `NULL`. All three columns are empty on runs recorded before Sortie stored them and on `ci_failed` rows. [`sortie stats`](/reference/cli/#configured-model-breakdown) aggregates the configured model; it does not read `reported_model` or `configured_effort`.
 
 ### Issue outcome
 
@@ -1447,7 +1444,7 @@ Every parameter is optional. An empty value is the same as an absent one. Filter
 |---|---|---|
 | `issue` | An issue key | Issues with a run whose `issue_identifier` or `display_identifier` equals it, so `MT-649` and the qualified form `owner/repo#9` both work. |
 | `rule` | A dispatch rule name, or `<none>` | Issues with a run whose `rule_name` equals it. `<none>` selects the runs that record no rule name. |
-| `status` | A run status | Issues with a run whose `status` equals it. The values are those listed under [run history entries](#run-history-entries). |
+| `status` | A run status | Issues with a run whose `status` equals it: one of `"succeeded"`, `"failed"`, `"cancelled"`, `"ci_failed"`, `"needs_person"`, or `"budget_stopped"`. |
 | `stage` | A dispatch rule name | Issues with a run whose exit reached a stage hop decision that targeted that rule, whatever its result. |
 | `cursor` | A `next_cursor` value | Issues whose newest matching run was recorded before the run `cursor` names, and which have no matching run at or after it. An integer of at least `1`. |
 | `limit` | An integer from `1` to `50` | The page size, in issues. Default: `20`. |
@@ -1519,7 +1516,7 @@ Groups are ordered by the `run_id` of each issue's newest matching run, descendi
 |---|---|---|
 | `issue_id` | string | The tracker's issue ID. |
 | `issue_identifier` | string | The issue identifier of the issue's newest run. |
-| `display_identifier` | string | The qualified form of the identifier, as in [run history entries](#run-history-entries). Omitted when empty. |
+| `display_identifier` | string | The qualified form of the identifier for trackers where the identifier alone is ambiguous, such as `"owner/repo#9"`. Omitted when empty. |
 | `issue_title` | string | The issue title recorded with the issue's newest run. Omitted when empty. Masked. |
 | `issue_url` | string | The tracker's web link to the issue, from the same run. Omitted when empty. Masked. |
 | `status` | string | What the issue is doing now: one of the live values of `status` in [`GET /api/v1/{identifier}`](#get-apiv1identifier-issue-detail), or `"history"` when the issue is not active and only run history knows it. |
@@ -3176,7 +3173,9 @@ The response includes the header `Allow: GET` (or `Allow: POST` for the refresh,
 
 | Method | Path | Description | Content-Type |
 |---|---|---|---|
-| GET | `/` | HTML dashboard | `text/html` |
+| GET | `/` | Redirect to the dashboard (`302` to `/ui/`) | none |
+| GET | `/ui/` | Dashboard application and its assets | `text/html`, `text/javascript`, `text/css` |
+| GET | `/favicon.ico` | Icon for browsers that request it by default | `image/x-icon` |
 | GET | `/livez` | Liveness probe | `application/json` |
 | GET | `/readyz` | Readiness probe | `application/json` |
 | GET | `/api/v1/state` | Full system state snapshot | `application/json` |

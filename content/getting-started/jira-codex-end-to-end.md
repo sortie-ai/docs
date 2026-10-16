@@ -344,7 +344,7 @@ If the status did not change and you see a handoff warning in the logs, the Jira
 
 ### Check the dashboard
 
-Open `http://127.0.0.1:7678/` in a browser. You will see summary cards (running sessions, retry queue, free slots, total tokens consumed) and a run history table showing the completed session with its issue identifier, turn count, duration, and exit status.
+Open `http://127.0.0.1:7678/` in a browser. The address lands on [Overview](/reference/dashboard/#overview), where `PROJ-55` sits under **Ended today** as "Handed off to In Review". Open [History](/reference/dashboard/#history) to see its completed run with the turn count, duration, tokens, and status.
 
 {{% /steps %}}
 

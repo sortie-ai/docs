@@ -202,7 +202,7 @@ Two credentials do two jobs, and they are unrelated. `SORTIE_GITHUB_TOKEN` is th
 
 Before it starts work on an issue, Sortie opens a short-lived session and sends one request through it, so a login that cannot answer stops the run early with an error in the log instead of a run that completes empty.
 
-Budgeting works differently from an agent that reports tokens. Sortie has no way to measure Kiro CLI's token use on this route, so the logs carry no token counts and the dashboard's token total stays at zero. Budget enforcement is time-based: `agent.turn_timeout_ms` is the control, not a token cap. The [Kiro CLI reference](/reference/agent-client-protocol-kiro/#token-accounting-has-no-source-on-this-route) has the details.
+Budgeting works differently from an agent that reports tokens. Sortie has no way to measure Kiro CLI's token use on this route, so the logs carry no token counts and the dashboard writes "not measured" where other agents show a token count. Budget enforcement is time-based: `agent.turn_timeout_ms` is the control, not a token cap. The [Kiro CLI reference](/reference/agent-client-protocol-kiro/#token-accounting-has-no-source-on-this-route) has the details.
 
 ### Workspace and hooks
 
@@ -333,11 +333,11 @@ If the label did not change, check the Sortie logs for the transition error. The
 
 ### Check the dashboard
 
-The dashboard is served only while Sortie runs, so start it again with `sortie ./WORKFLOW.md` and open `http://127.0.0.1:7678/` in a browser, on Sortie's default port. You will see summary cards and a run history table with the completed session: its issue identifier, turn count, duration, and exit status. The Total Tokens card reads `0`, which is expected for Kiro CLI, as the budgeting note above explains.
+The dashboard is served only while Sortie runs, so start it again with `sortie ./WORKFLOW.md` and open `http://127.0.0.1:7678/` in a browser, on Sortie's default port. The address opens [Overview](/reference/dashboard/#overview), where **Ended today** lists the issue you handed off as "Handed off to review". Its run on [History](/reference/dashboard/#history) shows the turn count, duration, and status, and the **Tokens** column reads "not measured" instead of a number. That is expected for Kiro CLI, as the budgeting note above explains, and it is never written as zero ([how the dashboard words figures](/reference/dashboard/#how-figures-are-written)).
 
 ### Troubleshooting
 
-**The run shows no token-usage numbers.** The logs carry no token counts and the dashboard's Total Tokens card stays at `0`. This is not an error. While a session is running, its expanded row on the dashboard reads `not reported yet` under Tokens until the first turn ends, then `not reported`. Budget is time-based, so tune `agent.turn_timeout_ms` rather than a token cap.
+**The run shows no token-usage numbers.** The logs carry no token counts and the dashboard reads "not measured" in place of tokens, on **History** and in the session view of a running session. This is not an error. Budget is time-based, so tune `agent.turn_timeout_ms` rather than a token cap.
 
 **The run fails before any turn.** No `agent credential verified` line appears, and the error ends in what Kiro CLI printed before it exited, for example that you are not signed in. Run `kiro-cli login`, confirm it with `kiro-cli whoami`, and start Sortie from that same shell. Sortie retries the issue on its own once the login works.
 

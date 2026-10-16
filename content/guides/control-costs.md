@@ -51,7 +51,7 @@ agent:
   max_sessions: 3
 ```
 
-With `max_sessions: 3`, Sortie makes three attempts. If all three fail or produce incomplete results, the issue stays in its current tracker state and Sortie moves on. You will see it in the [dashboard](/reference/dashboard/) run history with the outcome of each attempt.
+With `max_sessions: 3`, Sortie makes three attempts. If all three fail or produce incomplete results, the issue stays in its current tracker state and Sortie moves on. You will see it in the dashboard's [History](/reference/dashboard/#history) with the outcome of each attempt.
 
 Set this to a real number in production. A value of `0` is fine for local testing.
 
@@ -247,11 +247,9 @@ These are worst cases in the sense that the system stops itself once it reaches 
 
 These surfaces give you cost visibility without any extra infrastructure.
 
-**Dashboard.** Each running session's expandable detail panel carries an `Est. Cost` field, which holds a figure once its agent kind has both an input and output rate in WORKFLOW.md and an em dash otherwise. An `Active Est. Cost (USD)` card aggregates the priced active sessions. The same panel's `Usage reporting` field states whether that session's agent kind reports token figures at all, which is what tells a blank cost apart from a missing rate.
+**Dashboard.** The session view of a running or finished session carries an **Est. cost** figure under **Usage**, and the issue page adds the cost to each run card and totals it in the **Budget and cost** panel. A figure appears once the session's agent kind has both an input and output rate in WORKFLOW.md. Without the rates it reads "unpriced", and a kind that reports no tokens reads "not measured". **Usage reporting** in [Workflow](/reference/dashboard/#workflow) states which kinds report token figures at all, which is what tells a missing cost apart from a missing rate.
 
-The run history table is a different surface: its columns are `Identifier`, `Status`, `Started`, and `Duration`, and expanding a row adds attempt, turns, workflow, and error. No cost or token figure appears there for a completed session, because the cost figures the dashboard renders describe live and aggregate state.
-
-For spend against runs that have already finished, reach for [`sortie stats`](/reference/cli/#stats) below. The HTTP server runs by default on `http://localhost:7678`. See the [dashboard reference](/reference/dashboard/#cost-estimation) for details.
+Finished runs keep their figures. [History](/reference/dashboard/#history) lists the tokens and cost of each run and each issue, and [Analytics](/reference/dashboard/#analytics) totals them over a range and breaks them down by rule, model, and agent. For spend in a script or a report, reach for [`sortie stats`](/reference/cli/#stats) below. The HTTP server runs by default on `http://localhost:7678`. See [how figures are written](/reference/dashboard/#how-figures-are-written) for the wording.
 
 Configure token rates to see cost estimates on the dashboard:
 

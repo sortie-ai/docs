@@ -155,7 +155,7 @@ Sortie transmits no usage data. There is no telemetry client, no analytics clien
 
 The only destinations a running instance reaches are the tracker, forge, and coding-agent endpoints its own configuration names; the endpoint literals compiled into the binary are limited to the public defaults for those integrations (`api.github.com`, `api.linear.app`, and the like), never a Sortie-operated collection point.
 
-The embedded HTTP server itself (dashboard, JSON API, and Prometheus metrics alike) binds to `127.0.0.1` on port `7678` by default, so none of it is reachable from elsewhere unless you deliberately pass `--host 0.0.0.0` or put a reverse proxy in front of it.
+The embedded HTTP server itself (dashboard, JSON API, and Prometheus metrics alike) binds to `127.0.0.1` on port `7678` by default, so none of it is reachable from elsewhere unless you deliberately pass `--host 0.0.0.0` or put a reverse proxy in front of it. The server has no authentication, and the dashboard can run a retry or acknowledge an item, so any exposure needs an authenticating proxy or a VPN; see the [dashboard security warning](/reference/dashboard/#security).
 
 One boundary needs stating precisely, because it is easy to misread. Sortie launches your coding agent as a subprocess and passes its own process environment through to it unfiltered. That agent is a separate program with its own vendor relationship and its own telemetry posture. Claude Code, Codex, and the others each make their own decisions about what they report home and to whom.
 

@@ -358,7 +358,7 @@ The `auto_merge deferred:` messages name the unmet precondition (`review decisio
 
 While Sortie watches a pull request, the status API lists the watch under `pending_reactions` in `GET /api/v1/state`, and under `pending_reactions` of `GET /api/v1/{identifier}` for one issue. Each row names the kind, the `reactions` key that configures it (`config_key`), why it waits (`wait`), when it checks next (`next_poll_at`), the attempts used against the budget (`used_attempts` and `max_attempts`), what the last check saw (`last_check`), `escalated_at` with its `escalation_trigger`, and when the watch ends unless it restarts (`watch_ends_at`). For one issue, `next_outcomes` of `GET /api/v1/{identifier}` also says in plain English what Sortie does next, for example if a check finds CI failing on the pull request before the watch ends.
 
-An issue that only waits on a reaction answers `GET /api/v1/{identifier}` with `status` `"pending_reactions"`. The dashboard does not show these rows. See the [HTTP API reference](/reference/http-api/#get-apiv1state-system-state) for the fields.
+An issue that only waits on a reaction answers `GET /api/v1/{identifier}` with `status` `"pending_reactions"`. The dashboard shows the watch as a station on [Pipeline](/reference/dashboard/#pipeline) and as a line of the **Pull request** panel on the [issue page](/reference/dashboard/#issue-page). See the [HTTP API reference](/reference/http-api/#get-apiv1state-system-state) for the fields.
 
 An escalated reaction is also listed in `attention`, together with everything else that needs a person. To read what is waiting on you:
 
@@ -366,15 +366,15 @@ An escalated reaction is also listed in `attention`, together with everything el
 curl -s http://localhost:7678/api/v1/state | jq '.attention[] | {issue_identifier, reason_text, why_text, clears_text}'
 ```
 
-The dashboard does not show this list either.
+The dashboard lists the same items under **Needs attention** on [Overview](/reference/dashboard/#attention-items).
 
 Once a reaction has been queued to run, it also appears in the retry queue. A CI fix, a review response, a bot review response, a merge conflict fix, or a label command waits in the retry queue until its timer fires, and the `retrying` list of `GET /api/v1/state` (and the `retry` object of `GET /api/v1/{identifier}`) names it: `reaction_kind` says which reaction, `reaction_config_key` says which `reactions` key in `WORKFLOW.md` configures it, and `attempt` and `error` are the retry's own.
 
-If the issue's state does not permit dispatch, `paused` reads `true` and `error` says why. The dashboard's retry table shows only the identifier, attempt, due time, and error, not the reaction. See the [HTTP API reference](/reference/http-api/#get-apiv1state-system-state) for the fields.
+If the issue's state does not permit dispatch, `paused` reads `true` and `error` says why. The **Retry** panel of the dashboard's [issue page](/reference/dashboard/#issue-page) shows when the retry is due, what started it, and the error. See the [HTTP API reference](/reference/http-api/#get-apiv1state-system-state) for the fields.
 
 When the continuation dispatches, the issue reappears as a running session for the duration of that turn, exactly like any other dispatch. Auto-merge and post-merge closure dispatch no turn at all, so they never appear as a running session or in the retry queue; for those, read their `pending_reactions` rows, the logs, the fingerprint rows below, or the counters above.
 
-A park, if the issue gets one, is listed under `parked` in the status API but not on the dashboard. See the [dashboard reference](/reference/dashboard/) for what that surface carries.
+A park, if the issue gets one, is listed under `parked` in the status API and shows on the dashboard as an [attention item](/reference/dashboard/#attention-items).
 
 To confirm which reactions the running process applies, read the `config` object of the status API:
 

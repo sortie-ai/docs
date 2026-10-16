@@ -41,7 +41,7 @@ When the budget is exhausted, you'll see this in the logs:
 level=WARN msg="effort budget exhausted, blocking re-dispatch" issue_id="PROJ-42" issue_identifier="PROJ-42" count=3 max_sessions=3
 ```
 
-At that point, the issue is no longer Sortie's problem. Check the [dashboard](/reference/dashboard/) run history to see what each session accomplished.
+At that point, the issue is no longer Sortie's problem. Check the issue's [page on the dashboard](/reference/dashboard/#issue-page) to see what each session accomplished.
 
 A second ceiling guards cost rather than attempts. When [`agent.max_tokens`](/reference/workflow-config/#agent) is set, Sortie also sums the tokens consumed across the issue's completed sessions before every re-dispatch and blocks the issue once the sum reaches the budget. The effect at that point is identical to session exhaustion: claim released, retry entry dropped, issue left for human review.
 
@@ -244,7 +244,7 @@ If the response is `404` with `retry_not_found`, the issue has no waiting retry:
 
 Three ways to confirm your retry settings are working.
 
-**Dashboard.** The web dashboard shows entries in `Retrying` state with their attempt count and time until the next retry fires. Issues that exhausted their session budget appear in the run history with all session outcomes. See the [dashboard reference](/reference/dashboard/).
+**Dashboard.** The web dashboard lists issues waiting on a retry under the **Retry scheduled** chip with a countdown to the due time, and the **Retry** panel of the issue page gives the attempt and the error. An issue that exhausted its session budget appears as an [attention item](/reference/dashboard/#attention-items), with all its session outcomes on the issue page and in [History](/reference/dashboard/#history).
 
 **Logs.** Search for these key messages:
 

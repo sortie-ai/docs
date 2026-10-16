@@ -315,13 +315,13 @@ The issue is open, `backlog` is gone, and `review` is present. If the label did 
 
 ### Check the dashboard
 
-The dashboard is served only while Sortie runs, so start it again with `sortie ./WORKFLOW.md` and open `http://127.0.0.1:7678/`. Run History lists issue `8` as `succeeded`, with `Attempt 1` and `Turns 1` in its expanded row.
+The dashboard is served only while Sortie runs, so start it again with `sortie ./WORKFLOW.md` and open `http://127.0.0.1:7678/`. [Overview](/reference/dashboard/#overview) lists issue `8` under **Ended today** as "Handed off to review". On [History](/reference/dashboard/#history), its run reads `Succeeded` with `1` in the **Turns** column.
 
-What the Total Tokens card reads depends on whether Sortie received usable records from Gemini. Sortie takes this runtime's token figures from Gemini's own telemetry, which it switches on because `agent.command` names `gemini`. When the turn ends, the card carries this run's tokens, and while Gemini works on your next issue its expanded Running Sessions row names the model it used.
+What the **Tokens** column reads depends on whether Sortie received usable records from Gemini. Sortie takes this runtime's token figures from Gemini's own telemetry, which it switches on because `agent.command` names `gemini`. When the turn ends, the column carries this run's tokens, and while Gemini works on your next issue its [session view](/reference/dashboard/#session-view) names the model Gemini reported.
 
-If the card stays at `0` and that row reads `not reported yet` under Tokens until the turn ends, then `not reported`, Sortie received no usable record from Gemini.
+If the column reads "not measured", Sortie received no usable record from Gemini.
 
-Usage reporting reads `figures arrive when a turn ends, per model` either way, because that is what the kind declares for a local launch before the runtime has answered for itself. The [Gemini CLI reference](/reference/agent-client-protocol-gemini/#token-accounting-reads-local-files-and-its-in-turn-signal-understates) has the rest.
+On the **Workflow** screen, **Usage reporting** reads `figures arrive when a turn ends, per model` either way, because that is what the kind declares for a local launch before the runtime has answered for itself. The [Gemini CLI reference](/reference/agent-client-protocol-gemini/#token-accounting-reads-local-files-and-its-in-turn-signal-understates) has the rest.
 
 ### Troubleshooting
 

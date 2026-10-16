@@ -172,7 +172,7 @@ Press **Ctrl+C** to stop Sortie.
 
 ### Verify the results
 
-While Sortie is running, open the dashboard at `127.0.0.1:7678` to watch the session live. Sortie serves it there by default, with no configuration required.
+While Sortie is running, open the dashboard at `127.0.0.1:7678`, which opens [Overview](/reference/dashboard/#overview). Sortie serves it there by default, with no configuration required. While the mock session runs, the test issue sits under **Active** with the **Agent running** chip. Select it and choose **Open live session** to follow the [session](/reference/dashboard/#session-view) as it happens. After the handoff the issue moves to **Ended today**.
 
 Now open your team in Linear in the browser. The test issue has moved to the `In Review` column. On a board view, the card sits under `In Review`; on a list view, its status reads `In Review`.
 

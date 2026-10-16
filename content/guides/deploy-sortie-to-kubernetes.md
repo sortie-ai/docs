@@ -302,7 +302,7 @@ spec:
       protocol: TCP
 ```
 
-This Service gives in-cluster access to the [HTML dashboard](/reference/dashboard/), [JSON API](/reference/http-api/), [Prometheus metrics](/reference/prometheus-metrics/), and health probes. To expose the dashboard externally, add an Ingress or LoadBalancer in front of it.
+This Service gives in-cluster access to the [web dashboard](/reference/dashboard/), [JSON API](/reference/http-api/), [Prometheus metrics](/reference/prometheus-metrics/), and health probes. To expose the dashboard externally, add an Ingress or LoadBalancer in front of it, with authentication, because the HTTP server has none (see the [security warning](/reference/dashboard/#security)).
 
 ### Apply the manifests
 

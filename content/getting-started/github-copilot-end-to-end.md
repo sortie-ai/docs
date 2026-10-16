@@ -302,7 +302,7 @@ If the label did not change: review the Sortie logs for error messages and confi
 
 ### Check the dashboard
 
-Open `http://127.0.0.1:7678/` in a browser while Sortie is running. You will see summary cards (running sessions, retry queue, free slots, total tokens) and a run history table showing the completed session with its issue identifier, turn count, duration, and exit status.
+Open `http://127.0.0.1:7678/` in a browser while Sortie is running. [Overview](/reference/dashboard/#overview) lists issue `5` under **Ended today** as "Handed off to review", which matches the label you just checked. Its completed run, with turns, duration, and status, is on [History](/reference/dashboard/#history).
 
 {{% /steps %}}
 

@@ -107,7 +107,7 @@ This is the line to look for when you want to know which model an issue was give
 
 An empty `rule_name` means no rule routed the issue. An empty `model` or `effort` means nothing is configured, so the runtime uses its own default.
 
-These are the configured values. The model the runtime reports running can differ, and is on the [dashboard](/reference/dashboard/#running-sessions-table) and in the [state API](/reference/http-api/#configured-and-reported-model).
+These are the configured values. The model the runtime reports running can differ, and is on the [session view](/reference/dashboard/#session-view) of the dashboard and in the [state API](/reference/http-api/#configured-and-reported-model).
 
 A retry logs the same four fields, beside the attempt number:
 

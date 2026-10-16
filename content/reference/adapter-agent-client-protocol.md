@@ -254,9 +254,7 @@ The transport carries no per-turn token counter the orchestrator can record as s
 
 A session no source measures emits no `token_usage` event. It is recorded unmeasured, contributes nothing to `agent.max_tokens`, advances no `sortie_tokens_total` series, is excluded from `sortie stats` token and cost figures, and is counted in that command's `tokens_unmeasured_runs`.
 
-What the dashboard shows for it depends on which way it went unmeasured, because the Usage reporting field states the declaration the session was dispatched under rather than what its runtime turned out to deliver. An SSH session is declared non-reporting before it starts: Usage reporting reads `this session reports no token usage`, and the Model, API Requests, Tokens, and Est. Cost fields below it show an em dash rather than a zero.
-
-A local session carries the reporting declaration whatever runtime it launches, so one no source measures reads `figures arrive when a turn ends, per model` all the same, with Model on `not reported yet`, API Requests on `not measured`, Tokens moving from `not reported yet` to `not reported` once its first turn ends, and Est. Cost on an em dash.
+What the dashboard shows for it is the same whichever way it went unmeasured: the session view reads "not measured" for the session's tokens and cost, never zero, and the totals that include the run say they leave it out. **Usage reporting** in [Workflow](/reference/dashboard/#workflow) states the declaration for the agent kind rather than what a session's runtime turned out to deliver, so it reads "reports tokens" for this kind even when a local session's runtime delivers no figure.
 
 Set `agent.max_tokens` and such a run also closes with `run reported no token usage, token ceiling could not bound it`; no dispatch-time warning precedes it, because the declaration the session was dispatched under said a figure would arrive.
 

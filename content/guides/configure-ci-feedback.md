@@ -367,7 +367,7 @@ grep "CI fix retries exhausted" sortie.log
 
 ### Dashboard and status API
 
-When the HTTP server is running (default on port 7678), the web dashboard shows entries in `Retrying` state with a `ci_fix` trigger label. Run history entries with status `ci_failed` indicate CI failures that were detected. See the [dashboard reference](/reference/dashboard/).
+When the HTTP server is running (default on port 7678), the web dashboard lists an issue with a CI fix waiting under the **Retry scheduled** chip on [Overview](/reference/dashboard/#overview), and the issue page shows that retry as started by "CI fix". Runs with the status **CI failed** in [History](/reference/dashboard/#history) indicate CI failures that were detected.
 
 The status API shows the watch itself. The row with `kind` `ci` in the `pending_reactions` list of `GET /api/v1/state` names the pull request, the verdict and failing checks of the last check (`last_check`), the fixes dispatched against `max_retries` (`used_attempts` and `max_attempts`), and `escalated_at` once the reaction has escalated for the current commit. See the [HTTP API reference](/reference/http-api/#get-apiv1state-system-state) for the fields.
 

@@ -174,12 +174,19 @@ The file is re-read on every WORKFLOW.md reload (file change detection). If the 
 
 Sets the listening port for the embedded HTTP server. The server starts by default on port `7678`. All observability surfaces share this port:
 
-- `/`: HTML dashboard ([dashboard reference](/reference/dashboard/))
+- `/`: redirects to `/ui/`
+- `/ui/`: web dashboard ([dashboard reference](/reference/dashboard/))
+- `/favicon.ico`: dashboard icon
 - `/api/v1/state`: JSON API ([HTTP API reference](/reference/http-api/))
 - `/api/v1/runs`: run history
+- `/api/v1/runs/issues`: run history grouped by issue
+- `/api/v1/runs/<dispatch_id>/events`: agent events of one run
+- `/api/v1/stats`: run statistics
+- `/api/v1/events`: change signals and agent events
 - `/api/v1/<identifier>`: per-issue detail and run history
 - `/api/v1/refresh`: trigger an immediate poll cycle
 - `/api/v1/retries/<identifier>/run`: make a scheduled retry due now
+- `/api/v1/attention/<id>/acknowledge`: acknowledge an attention item
 - `/api/v1/reactions/<identifier>/<kind>/check`: make a pending pull request reaction's next check due now
 - `/livez`: liveness probe
 - `/readyz`: readiness probe
@@ -348,7 +355,7 @@ Dot-context, unknown-variable, and unknown-field warnings cover the body, the de
 - **Unreachable `mcp_config`** (`agent.mcp_config`). An agent kind's pass-through block sets `mcp_config` (`mock.mcp_config`, for example; the `agent:` section carries no such key) for a kind whose adapter delivers the generated MCP configuration to the agent process in no form at all, so the value cannot reach the agent. `mock` is one such built-in kind, and any custom adapter declaring the same disposition draws the warning too. `claude-code` and `copilot-cli` deliver the generated file itself, so the check never fires for them. `codex`, `opencode`, and `agent-client-protocol` deliver that file's servers re-expressed rather than the file, and only on a local launch; the check does not fire for them either, because validation reads the workflow file offline and cannot know which sessions will be dispatched to an SSH host. Set `mcp_config` in one of those three blocks and dispatch the session over SSH, and you get neither the warning nor the effect.
 - **No tool execution channel** (`agent.kind.no_tool_channel`). The agent kind delivers no channel for Sortie's tools even on a local launch, so the session can neither call them nor be told about them. It fires for every kind whose adapter declares that it never delivers the generated MCP configuration, `mock` being one such built-in kind, and for any adapter that declares no MCP disposition at all. It does not fire for `codex`, `opencode`, or `agent-client-protocol`, whose channel exists locally; validation reads the workflow file offline and cannot know which sessions will be dispatched to an SSH host.
 - **Token ceiling on a kind that reports no usage** (`agent.kind.no_usage_reporting`). `agent.max_tokens` is set against an agent kind whose declared usage reporting yields no figure for the sessions this configuration produces, so the per-issue token ceiling has nothing to count against. Budget those sessions by time instead, through `agent.turn_timeout_ms`.
-- **Rates priced for a kind that reports no usage** (`agent.kind.no_cost_estimate`). A [`token_rates`](/reference/workflow-config/#token_rates) entry prices an agent kind that reports no token usage for the sessions this configuration produces, so no cost can be estimated for it and the dashboard's Est. Cost field stays blank. Remove the entry or move the workload to a kind that reports usage.
+- **Rates priced for a kind that reports no usage** (`agent.kind.no_cost_estimate`). A [`token_rates`](/reference/workflow-config/#token_rates) entry prices an agent kind that reports no token usage for the sessions this configuration produces, so no cost can be estimated for it and the dashboard reads "not measured" for its cost. Remove the entry or move the workload to a kind that reports usage.
 
 Unlike the two checks above them, the two usage checks read [`worker.ssh_hosts`](/reference/workflow-config/#worker) and resolve the disposition for a remote launch when the pool is non-empty. `copilot-cli` reports usage on a local launch and none over SSH, so a workflow that adds a host pool draws both warnings where the same file without one drew neither.
 
@@ -657,7 +664,7 @@ On a `base` database the group is named in the degraded-schema warning shown und
 
 #### Stage chain breakdown
 
-The `by stage chain` table (`by_chain` in JSON) groups runs by stage chain: one pass of one issue through the [stage chains](/reference/workflow-config/#stage-chains) the workflow configures, retries included. Each chain is named by a generated 26-character identifier, the one the [dashboard's run history](/reference/dashboard/#run-history-table) shows as **Chain**.
+The `by stage chain` table (`by_chain` in JSON) groups runs by stage chain: one pass of one issue through the [stage chains](/reference/workflow-config/#stage-chains) the workflow configures, retries included. Each chain is named by a generated 26-character identifier, the one `GET /api/v1/runs` returns as [`chain_id`](/reference/http-api/#get-apiv1runs-run-history).
 
 - Only chains where a hop was due or made are listed: at least one of the chain's runs in the range followed a hop or ended in a hop decision. Every run carries a chain identifier, including one that never takes part in a stage chain, so `by_chain` is a listing rather than a partition, and its run counts need not add up to the report's total.
 - A run recorded before Sortie stored chains carries none and is left out.
@@ -1465,5 +1472,5 @@ sortie mcp-server --workflow /opt/sortie/WORKFLOW.md
 - [WORKFLOW.md configuration reference](/reference/workflow-config/): all config fields
 - [Environment variables reference](/reference/environment/): `SORTIE_*` config overrides, agent runtime vars, `$VAR` indirection, hook env
 - [HTTP API reference](/reference/http-api/): JSON API endpoints and response shapes
-- [Dashboard reference](/reference/dashboard/): built-in HTML monitoring dashboard
+- [Dashboard reference](/reference/dashboard/): built-in web dashboard
 - [Prometheus metrics reference](/reference/prometheus-metrics/): metric names, types, labels, and PromQL examples

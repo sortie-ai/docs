@@ -290,7 +290,7 @@ You should see a commit hash. The `sortie/3` branch is on your Gitea instance, r
 
 Open the issue in Gitea. It now carries the `review` label instead of `backlog`, and it is still open, because `review` is not a terminal state. A reviewer can open a pull request from `sortie/3`, merge it, and close the issue. That last step is intentionally human: the handoff hands work to a person, it does not close it.
 
-Open `http://127.0.0.1:7678/`. Sortie serves the dashboard there by default, with no configuration required. You will see summary cards and a run history row for the completed session, with its issue identifier, turn count, duration, and exit status.
+Open `http://127.0.0.1:7678/`. Sortie serves the dashboard there by default, with no configuration required. Sortie sends you to [Overview](/reference/dashboard/#overview), where issue `3` waits under **Ended today** as "Handed off to review", the handoff to a person described above. Select the row and choose **Open page** for the completed run with its status, turns, and duration.
 
 {{% /steps %}}
 
