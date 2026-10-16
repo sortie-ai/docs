@@ -9,6 +9,92 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.28.0] - 2026-10-11
+
+### Added
+
+- The JSON API (`/api/v1/state` and `/api/v1/{identifier}`) now describes every active issue in full: its title and tracker link, type, labels, and state, its dispatch rule, stage, agent, and model, its spend against its budgets, why it waits, the pull request reactions it waits on and what each did, when its agent last sent an event, a plain English sentence on what it is doing, and what Sortie will do next. `/api/v1/state` also lists every active issue once in the order Sortie picked it up, and `/api/v1/{identifier}` now answers for parked, waiting, and finished issues. ([#1286](https://github.com/sortie-ai/sortie/issues/1286), [#1071](https://github.com/sortie-ai/sortie/issues/1071), [#1287](https://github.com/sortie-ai/sortie/issues/1287), [#1288](https://github.com/sortie-ai/sortie/issues/1288), [#1311](https://github.com/sortie-ai/sortie/issues/1311), [#1310](https://github.com/sortie-ai/sortie/issues/1310), [#1321](https://github.com/sortie-ai/sortie/issues/1321), [#1312](https://github.com/sortie-ai/sortie/issues/1312), [#1348](https://github.com/sortie-ai/sortie/issues/1348), [#1375](https://github.com/sortie-ai/sortie/issues/1375))
+
+- The JSON API (`/api/v1/state`) now reports Sortie's own health, including a WORKFLOW.md edit that failed to load and a failing tracker poll, and the workflow configuration in effect. ([#1289](https://github.com/sortie-ai/sortie/issues/1289), [#1290](https://github.com/sortie-ai/sortie/issues/1290), [#1300](https://github.com/sortie-ai/sortie/issues/1300))
+
+- The JSON API (`/api/v1/state`) now lists what needs a person, such as parked issues, budget holds, and escalated pull request reactions, each with why and what clears it. ([#1302](https://github.com/sortie-ai/sortie/issues/1302))
+
+- The JSON API now serves run history at `/api/v1/runs` and grouped by issue at `/api/v1/runs/issues`, with how each issue ended. ([#1291](https://github.com/sortie-ai/sortie/issues/1291), [#1313](https://github.com/sortie-ai/sortie/issues/1313), [#1299](https://github.com/sortie-ai/sortie/issues/1299))
+
+- The JSON API now serves the `sortie stats` report at `/api/v1/stats`. ([#1293](https://github.com/sortie-ai/sortie/issues/1293))
+
+- Sortie now keeps each agent run's events for at least 365 days and serves them at `/api/v1/runs/{dispatch_id}/events`. ([#1307](https://github.com/sortie-ai/sortie/issues/1307))
+
+- `/api/v1/events` streams change notices and a running agent's events as server-sent events, so a client refreshes only when something changed. ([#1294](https://github.com/sortie-ai/sortie/issues/1294), [#1308](https://github.com/sortie-ai/sortie/issues/1308))
+
+- The JSON API can now run a scheduled retry right away, check a pull request reaction right away, and acknowledge an item that needs a person. Sortie's HTTP server has no authentication, so a deployment others can reach must sit behind an authenticating reverse proxy or a VPN. ([#1304](https://github.com/sortie-ai/sortie/issues/1304), [#1305](https://github.com/sortie-ai/sortie/issues/1305), [#1303](https://github.com/sortie-ai/sortie/issues/1303))
+
+- `sortie stats` now breaks runs down by what started them, such as a poll dispatch, a retry, or a pull request reaction. ([#1336](https://github.com/sortie-ai/sortie/issues/1336))
+
+- `sortie stats --format json` now counts failed, stopped, and cancelled runs beside successful ones. ([#1296](https://github.com/sortie-ai/sortie/issues/1296))
+
+- `sortie stats` now shows a funnel for each stage chain: how many passes reached each stage, advanced, or stopped there. ([#1360](https://github.com/sortie-ai/sortie/issues/1360))
+
+### Changed
+
+- The built-in dashboard is now a live application at `/ui/`, and `/` redirects there. It shows what needs a person, every active issue, each issue's path through its pull request reactions, an issue page, a live view of each agent session, run history, analytics, Sortie's health, and the workflow in effect, and can retry an issue, check a pull request, or acknowledge an alert. ([#1296](https://github.com/sortie-ai/sortie/issues/1296), [#1297](https://github.com/sortie-ai/sortie/issues/1297), [#1298](https://github.com/sortie-ai/sortie/issues/1298), [#1299](https://github.com/sortie-ai/sortie/issues/1299), [#1300](https://github.com/sortie-ai/sortie/issues/1300), [#1309](https://github.com/sortie-ai/sortie/issues/1309), [#1375](https://github.com/sortie-ai/sortie/issues/1375))
+
+- Token figures on the dashboard and in the JSON API now leave out prompt cache reads, which are shown on their own; `agent.max_tokens` still counts them. ([#1361](https://github.com/sortie-ai/sortie/issues/1361))
+
+- The JSON API now reports a budget-held issue's unset limits and unmeasured token count as `null` instead of `0`, and the budget-hold comment and its notifications say "not measured" instead of `0`. ([#1315](https://github.com/sortie-ai/sortie/issues/1315))
+
+- Run and retry errors in the JSON API now read as plain sentences, for example "Sortie stopped the session before the agent finished turn 1.", instead of internal error text.
+
+- `sortie stats` now groups runs by the model the agent reported, falling back to the configured model only when the agent reported none.
+
+- `sortie stats` now stops with the diagnostics `sortie validate` prints when the workflow's dispatch rules do not load. ([#1360](https://github.com/sortie-ai/sortie/issues/1360))
+
+- The `tick completed` poll summary now logs at INFO only when it changes, so an idle Sortie no longer repeats it every poll; `--log-level debug` still shows every poll. ([#1350](https://github.com/sortie-ai/sortie/issues/1350))
+
+- Agent tool calls now log at debug level instead of info, and a failed call keeps only the first line of its error.
+
+### Fixed
+
+- Jira issue links no longer include a user name and password written into `tracker.endpoint`. ([#1286](https://github.com/sortie-ai/sortie/issues/1286))
+
+- A token ceiling turned on while a session is running now stops that session once the issue's total spend reaches `agent.max_tokens`, instead of letting the session spend up to the ceiling on its own. ([#1071](https://github.com/sortie-ai/sortie/issues/1071))
+
+- `sortie stats` no longer counts CI failures as runs without a price. ([#1071](https://github.com/sortie-ai/sortie/issues/1071))
+
+- A retry that came due but could not start now says why, instead of repeating an earlier run's error. ([#1287](https://github.com/sortie-ai/sortie/issues/1287))
+
+- The CI escalation message no longer reports one more CI fix than Sortie ran. ([#1288](https://github.com/sortie-ai/sortie/issues/1288))
+
+- Rechecking an escalated CI failure no longer uses up the issue's `agent.max_sessions` budget. ([#1288](https://github.com/sortie-ai/sortie/issues/1288))
+
+- Sortie no longer escalates review comments when `reactions.review_comments` is not configured. ([#1288](https://github.com/sortie-ai/sortie/issues/1288))
+
+- A CI or review comment escalation that fires while a fix is running no longer stops Sortie from watching that pull request. ([#1288](https://github.com/sortie-ai/sortie/issues/1288))
+
+- `cost_budget` no longer calls the token count complete while the running session has unreported spend. ([#1315](https://github.com/sortie-ai/sortie/issues/1315))
+
+- Auto-merge now stops watching a pull request that was merged without it, and the issue's next handoff gets a watch for its new pull request. ([#1313](https://github.com/sortie-ai/sortie/issues/1313))
+
+- A fix or review label added to a pull request during another Sortie run for its issue now starts its command once that run ends, instead of being ignored. ([#1312](https://github.com/sortie-ai/sortie/issues/1312))
+
+- An escalated pull request reaction now stays escalated across a restart and beyond `watch_window_ms` until its cause is resolved or a person moves the issue on, so Sortie no longer runs a second round of fixes after a restart. ([#1302](https://github.com/sortie-ai/sortie/issues/1302))
+
+- A passing re-run of a pull request's checks now ends its CI escalation. ([#1302](https://github.com/sortie-ai/sortie/issues/1302))
+
+- The last message shown for a running `agent-client-protocol` agent is now its whole latest message instead of its last streamed fragment. ([#1353](https://github.com/sortie-ai/sortie/issues/1353))
+
+- The user name in a tracker or tool server URL is now masked in logs and in the JSON API. ([#1300](https://github.com/sortie-ai/sortie/issues/1300))
+
+- Sortie again watches a pull request's CI and bot reviews after a fix command session pushes to it. ([#1368](https://github.com/sortie-ai/sortie/issues/1368))
+
+- A Claude Code run that ends on a message Claude Code writes itself, such as an API error notice, now records the model that did the work instead of `<synthetic>`.
+
+- A running agent's latest message no longer shows agent protocol markers such as `rate_limit_event` or `[tool: Bash]`.
+
+### Migrations
+
+- The upgrade migrates the state database on first start, which takes longer on a long run history. Runs, retries, and parked issues recorded before the upgrade show no title, link, trigger, session, SSH worker, pick-up time, or agent events, an issue that ended before it shows no outcome, and a pull request escalation standing at the upgrade is not restored. ([#1286](https://github.com/sortie-ai/sortie/issues/1286), [#1287](https://github.com/sortie-ai/sortie/issues/1287), [#1291](https://github.com/sortie-ai/sortie/issues/1291), [#1311](https://github.com/sortie-ai/sortie/issues/1311), [#1313](https://github.com/sortie-ai/sortie/issues/1313), [#1299](https://github.com/sortie-ai/sortie/issues/1299), [#1302](https://github.com/sortie-ai/sortie/issues/1302), [#1307](https://github.com/sortie-ai/sortie/issues/1307))
+
 ## [1.27.0] - 2026-10-11 { #1.27.0 }
 
 This release is mostly about multi-step work: one issue can now move through several stages, such as specify and then implement, without a person moving it along.
@@ -1262,6 +1348,7 @@ One thing to check after upgrading: if a script you run alongside an agent start
 - CI pipeline with `golangci-lint`, `gofmt` enforcement, and test execution via GitHub Actions.
 - Architecture Decision Records (ADR-0001 through ADR-0005).
 
+[1.28.0]: https://github.com/sortie-ai/sortie/compare/v1.27.0...v1.28.0
 [1.27.0]: https://github.com/sortie-ai/sortie/compare/v1.26.0...v1.27.0
 [1.26.0]: https://github.com/sortie-ai/sortie/compare/v1.25.0...v1.26.0
 [1.25.0]: https://github.com/sortie-ai/sortie/compare/v1.24.1...v1.25.0
