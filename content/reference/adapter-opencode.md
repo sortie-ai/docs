@@ -334,6 +334,8 @@ For this kind's declaration beside every other kind's, see the [usage reporting 
 
 The adapter emits at most one `token_usage` event per turn, when the export recovers a figure. A genuine zero still counts as recovered, so that session is recorded as measured rather than unmeasured; only a session for which no export ever recovered a figure, for any of the reasons above, is recorded as unmeasured.
 
+A turn that served model output counts toward `unaccounted_turns` when its export recovers no figure. It also counts when the turn did not run to its own finish, because it was stopped, failed, or cut short, even if the export returned a figure: that figure is not proven to cover the request in flight. A turn that finished and recovered a figure is covered.
+
 ### Model tracking
 
 The main stdout stream does not supply a stable final model identifier. The adapter reconstructs the reported model only from the export payload, using `providerID + "/" + modelID` from the last counted assistant message, when both fields are present. Those fields are the message's own `model.providerID` and `model.id`.

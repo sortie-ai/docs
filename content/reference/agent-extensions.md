@@ -657,7 +657,7 @@ At session exit, Sortie clears the row's dispatch ID before recording the finish
 
 A session whose coding agent reported no token usage is recorded as unmeasured: its spend is unknown, not zero, so it adds nothing to `used_tokens` and `unmeasured_sessions` counts it.
 
-A measured session can still leave spend out. When a turn reaches the model and the figure that arrives does not cover the whole of it, the difference reaches no counter: `used_tokens` omits it, and no response field counts it. `used_tokens_complete` is the only place it shows, which is why that field can read `false` while `unmeasured_sessions` is `0`.
+A measured session can still leave spend out. When a turn reaches the model and the figure that arrives does not cover the whole of it, the difference reaches no counter: `used_tokens` omits it, and no response field counts it. `used_tokens_complete` is the only place it shows, which is why that field can read `false` while `unmeasured_sessions` is `0`. The flag is not permanent within a run: when a later turn of the same session reports the runtime's session total, that total takes in the turns before it that ended normally without a figure, and the field reads `true` again if nothing else is left out. Turns before one that was stopped or failed after producing output, or whose figure rests on an estimated starting point, stay unaccounted, and so do the turns of an earlier run.
 
 Run-history rows written before the token columns existed (migration 011) read as zero, so spend recorded before the upgrade is invisible to the budget. Rows written before the measurement flag existed (migration 012) count as measured, because their provenance is not recoverable.
 

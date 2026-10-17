@@ -303,7 +303,7 @@ What the issue spent across its finished runs is under `history.totals` of the s
 curl -s http://localhost:7678/api/v1/MT-649 | jq '.history.totals'
 ```
 
-When `tokens_complete` is `false`, some runs reported no usage and the token figures are lower bounds. To see which runs cost the most, list them with `curl -s 'http://localhost:7678/api/v1/runs?issue=MT-649' | jq '.runs[] | {run_id, status, tokens: .tokens.total_tokens, estimated_cost_usd}'`. The [run history reference](/reference/http-api/#get-apiv1runs-run-history) defines the filters and every field.
+When `tokens_complete` is `false`, some runs reported no usage or ended a turn before reporting its final usage, and the token figures are lower bounds. To see which runs cost the most, list them with `curl -s 'http://localhost:7678/api/v1/runs?issue=MT-649' | jq '.runs[] | {run_id, status, tokens: .tokens.total_tokens, estimated_cost_usd}'`. The [run history reference](/reference/http-api/#get-apiv1runs-run-history) defines the filters and every field.
 
 **Prometheus.** The `sortie_tokens_total` counter tracks cumulative token consumption with a `type` label (`input`, `output`, `cache_read`, `cache_write`). Cache reads and writes are subsets of input, so don't sum every type. A PromQL query for hourly input token rate:
 

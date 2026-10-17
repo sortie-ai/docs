@@ -53,7 +53,7 @@ The orchestrator reacts to a normalized event vocabulary, not to your CLI's nati
 
 The data flows like this. `StartSession` receives `StartSessionParams` (the workspace path, an `AgentConfig`, the kind's resolved `Settings` block, an optional `ResumeSessionID` with the optional `ResumeUsage` that goes with it, SSH fields, and an MCP config path) and returns a `Session` whose `Internal any` field carries your adapter state opaquely.
 
-`RunTurn` receives that `Session` plus `RunTurnParams` (the rendered `Prompt`, the `Issue`, and the `OnEvent` callback) and returns a `TurnResult` (`SessionID`, `ExitReason`, `Usage`, `UsageMeasured`, `SpendUnaccounted`, `ResumeUsage`).
+`RunTurn` receives that `Session` plus `RunTurnParams` (the rendered `Prompt`, the `Issue`, and the `OnEvent` callback) and returns a `TurnResult` (`SessionID`, `ExitReason`, `Usage`, `UsageMeasured`, `SpendUnaccounted`, `SpendCoverable`, `CoversSession`, `ResumeUsage`). `FinalizeTurn` writes the three spend fields from the turn's evidence; see [Surface capabilities and budgeting](#surface-capabilities-and-budgeting).
 
 The orchestrator copies `SessionID` and token deltas out of the events and the result; it never reads `Session.Internal`. A non-empty `SessionID`, whether from a `session_started` event or from `TurnResult`, replaces whatever session id the orchestrator has accepted so far, for this run's dispatch record, its exit result, and what a continuation retry resumes under.
 
@@ -179,7 +179,7 @@ A Warn log Sortie emits once per run, naming your kind (see [monitor with logs](
 
 A kind declaring `UsageArrivalTurnEnd` reports through `agentcore.TurnEndUsage` instead of emitting the event or calling `agentcore.FinalizeTurn` yourself. Construct it with `agentcore.NewTurnEndUsage()` exactly once, directly in `StartSession`'s own method body outside every function literal, and store the pointer on your session state; return its `Snapshot()` from `GetUsage`.
 
-In `OnFinalize`, build an `*agentcore.RecoveredUsage{Run, Model}` when this turn settled a figure, or leave it `nil` when it settled nothing, and call `state.usage.Finalize(emit, logger, ev, sessionID, apiDurationMS, recovered)` in place of `agentcore.FinalizeTurn`: it emits the one `token_usage` event when `recovered` is non-nil, latches the run's measured verdict, and then calls `FinalizeTurn` itself for the turn's terminal event.
+In `OnFinalize`, build an `*agentcore.RecoveredUsage{Run, Model}` when this turn settled a figure, or leave it `nil` when it settled nothing, and call `state.usage.Finalize(emit, logger, ev, sessionID, apiDurationMS, recovered, *spend)` in place of `agentcore.FinalizeTurn`: it emits the one `token_usage` event when `recovered` is non-nil, latches the run's measured verdict, and then calls `FinalizeTurn` itself for the turn's terminal event.
 
 `TestUsageDeclarationContractInvariant` in `agentcore` enforces this shape: it fails a `turn_end` package that calls `agentcore.FinalizeTurn` directly, references `domain.EventTokenUsage` directly, or constructs `agentcore.NewTurnEndUsage()` anywhere but that one place. Copilot CLI and OpenCode are the worked examples: both recover their figure from a read that only completes after the subprocess exits, and hand it to `Finalize` as `recovered`.
 
@@ -368,13 +368,14 @@ This is the decision that shapes the whole adapter. Read your research note and 
 When the CLI emits JSONL (Claude Code and OpenCode do, in addition to Codex), `ParseLine` decodes each line into native events, drives an `agentcore.RunUsage` to produce `EventTokenUsage`, drives a `ToolTracker` to produce `EventToolResult`, and returns the terminal result line for `OnFinalize` to consume. This sketch follows the Claude Code adapter, an incremental kind; a kind declaring `UsageArrivalTurnEnd`, such as OpenCode, never touches `RunUsage` from `ParseLine` at all. See [Register the adapter](#register-the-adapter) for its pattern.
 
 ```go
-ParseLine: func(line []byte, emit func(domain.AgentEvent), pid string) (any, error) {
+ParseLine: func(line []byte, emit func(domain.AgentEvent), pid string, spend *agentcore.TurnSpend) (any, error) {
 	event, err := parseEvent(line)
 	if err != nil {
 		return nil, err // skeleton emits EventMalformed and continues to the next line
 	}
 	switch event.Type {
 	case "assistant":
+		spend.MarkModelReached()
 		if usage, id, ok := parseAssistantUsage(event); ok {
 			_, seen := state.turnMessages[id]
 			state.turnMessages[id] = agentcore.MaxUsage(state.turnMessages[id], usage)
@@ -390,6 +391,7 @@ ParseLine: func(line []byte, emit func(domain.AgentEvent), pid string) (any, err
 	case "result":
 		state.spent = agentcore.AddUsage(state.spent, authoritativeUsage(event))
 		state.acc.SetRunCumulative(state.spent) // settles the run's total, superseding every provisional figure
+		spend.MarkSettled()                      // the result's figure covers the whole turn
 		captured := event
 		return &captured, nil // terminal line: handed to OnFinalize as lastParsed
 	}
@@ -410,7 +412,7 @@ Populate every counter the runtime exposes. `InputTokens` includes prompt-cache 
 When the CLI emits a plain transcript with no event stream and no token reporting, `ParseLine` strips ANSI, captures the text into an `EventNotification` for observability, and reports no usage. There is no terminal line on stdout, so `ParseLine` always returns `(nil, nil)` and the outcome is decided later from the exit status and stderr.
 
 ```go
-ParseLine: func(line []byte, emit func(domain.AgentEvent), pid string) (any, error) {
+ParseLine: func(line []byte, emit func(domain.AgentEvent), pid string, _ *agentcore.TurnSpend) (any, error) {
 	text := agentcore.SanitizeLine(string(line))
 	if strings.TrimSpace(text) != "" {
 		state.work.ObserveAssistantOutput()
@@ -437,7 +439,7 @@ In both modes, `GetSessionID` returns your current session id and `GetUsage` ret
 
 ### Classify the outcome and pick the right error kind
 
-`OnFinalize` reports what it observed; it does not decide the turn. It receives `emit`, `lastParsed` (the last non-nil value `ParseLine` returned), `exitCode`, `waitErr`, `stderrLines`, and `earlyExit`, fills in an `agentcore.TurnEvidence`, and returns `agentcore.FinalizeTurn(emit, logger, ev, meta)`. `FinalizeTurn` applies the disposition rule every adapter shares, emits the terminal event, and builds the paired `(domain.TurnResult, *domain.AgentError)`. A kind declaring `UsageArrivalTurnEnd` returns `state.usage.Finalize(...)` instead, described under [Register the adapter](#register-the-adapter); it wraps this same call.
+`OnFinalize` reports what it observed; it does not decide the turn. It receives `emit`, `lastParsed` (the last non-nil value `ParseLine` returned), `exitCode`, `waitErr`, `stderrLines`, `earlyExit`, and `spend` (the turn's `*agentcore.TurnSpend`, which `ParseLine` marked), fills in an `agentcore.TurnEvidence`, and returns `agentcore.FinalizeTurn(emit, logger, ev, meta, *spend)`. `FinalizeTurn` applies the disposition rule every adapter shares, emits the terminal event, and builds the paired `(domain.TurnResult, *domain.AgentError)`. A kind declaring `UsageArrivalTurnEnd` returns `state.usage.Finalize(...)` instead, described under [Register the adapter](#register-the-adapter); it wraps this same call.
 
 That indirection is enforced, not advisory. Constructing a `domain.AgentEvent` or a `domain.AgentError` for your own turn outcome, or calling `agentcore.EmitTurnCompleted`, `EmitTurnFailed`, or `EmitTurnCancelled` directly, breaks the shared decision; a test in `agentcore` walks every adapter package and fails on it. `OnFinalize` must not call `EmitWarnLines` either: the skeleton does that for you when `FinalizeTurn` returns a non-nil error.
 
@@ -473,7 +475,7 @@ Everything collected up to that point is real, but a transcript ending there pro
 Apply exactly this test to a completion trailer. A signal that reports a failure survives the same cut, because a line you read is a line the runtime wrote.
 
 ```go
-OnFinalize: func(emit func(domain.AgentEvent), _ any, exitCode int, waitErr error, stderrLines []string, earlyExit *domain.AgentError) (domain.TurnResult, *domain.AgentError) {
+OnFinalize: func(emit func(domain.AgentEvent), _ any, exitCode int, waitErr error, stderrLines []string, earlyExit *domain.AgentError, spend *agentcore.TurnSpend) (domain.TurnResult, *domain.AgentError) {
 	trailerSeen := classifyStderr(stderrLines)
 
 	ev := agentcore.TurnEvidence{ExitObserved: true, ExitCode: exitCode, WaitErr: waitErr, EarlyExit: earlyExit}
@@ -485,7 +487,7 @@ OnFinalize: func(emit func(domain.AgentEvent), _ any, exitCode int, waitErr erro
 	}
 
 	return agentcore.FinalizeTurn(emit, state.logger(), ev,
-		agentcore.TurnMeta{SessionID: state.sessionID})
+		agentcore.TurnMeta{SessionID: state.sessionID}, *spend)
 },
 ```
 
@@ -518,7 +520,7 @@ A runtime whose own usage counter is cumulative over its session, earlier runs i
 
 1. In `StartSession`, build it with `agentcore.NewResumeBaseline`. Pass a zero `TokenUsage` for a session the run creates, including one a failed resume falls back to, and `params.ResumeUsage` for one it resumes. A nil argument gives an unknown baseline.
 2. On each reading of the counter, call `Observe(reading, own)` and report `Run()` as the run-cumulative figure. `own` is the part of the reading the runtime attributes to the current request or turn, or nil. A reading of all zeros has no effect. When the baseline is unknown, or a reading falls below the previous one, the baseline is estimated as the reading less `own`, the run's total so far is kept, and `Observe` returns `estimated` as true.
-3. Set `TurnResult.SpendUnaccounted` on a turn whose reading was estimated, because `own` may not cover everything the reading added, such as calls a sub-agent made.
+3. Call `spend.MarkEstimated()` on a turn whose reading was estimated, because `own` may not cover everything the reading added, such as calls a sub-agent made. `Observe` returns `estimated` as false when the re-derived baseline is zero in every counted component, since nothing was lost.
 4. Report `Resume()`, the latest reading and nil while the baseline is unknown, as `TurnResult.ResumeUsage` on every turn. The orchestrator keeps the figure of the working session's last turn with the run's history and hands it to the next run that resumes the session as `StartSessionParams.ResumeUsage`. A turn that ends without a usable reading must report nil, not the figure of an earlier turn, because the runtime may have saved calls that figure omits. The credential-verification session receives no `ResumeUsage` and its figure is not kept.
 
 A run that resumes a session whose previous run kept no figure, or kept one before Sortie recorded it, starts with an unknown baseline, so that one turn is estimated and flagged.
@@ -533,11 +535,20 @@ Token-usage emission is optional. If the CLI reports tokens while a turn is stil
 
 If the CLI reports no tokens at all, leave `TurnResult.Usage` at the zero value, emit no `EventTokenUsage`, and the agent is budgeted by time only, through `agent.turn_timeout_ms`. Token budgets are then inert, and `agent.turn_timeout_ms` is the time-based budget that remains.
 
-A third case cuts across both: the turn reached the model and you cannot prove your figures covered it. That happens when no figure came back for the turn at all, and it happens when one came back that fell short of the turn.
+A third case cuts across both: the turn reached the model and you cannot prove your figures covered it. That happens when no figure came back for the turn at all, when one came back that fell short of the turn, and when the turn ended before the runtime reported its final usage, whether it was stopped, crashed, lost its connection, or paused for a person's answer.
 
-Set `TurnResult.SpendUnaccounted` on either, and report whatever partial figure you do have in `Usage`, since a turn that produced nothing contributes no number and emits no `token_usage` event while a turn whose figure fell short reports and emits it as any measured turn does.
+You do not set `TurnResult.SpendUnaccounted`, `SpendCoverable`, or `CoversSession`. `agentcore.FinalizeTurn` writes all three from the turn's `agentcore.TurnSpend`, and `TestUsageDeclarationContractInvariant` fails an adapter package that assigns one of them. You supply the evidence. The skeleton creates one `TurnSpend` per `RunTurn` call and hands it to `ParseLine` and `OnFinalize`; a persistent-subprocess adapter declares its own at the top of each turn. Mark it as the turn unfolds, and pass it to `FinalizeTurn` or `TurnEndUsage.Finalize`:
 
-It is graded per turn and does not latch, so a later turn your figures do cover reports `false` again, which is what separates it from `UsageMeasured`. The orchestrator sums it across the run and stores the count, and that count is what turns `used_tokens_complete` false on the `cost_budget` tool and adds `unaccounted_turns` to the token-ceiling log records.
+- `MarkModelReached()` when the runtime served the turn output: a message or delta, a reasoning item, a tool call, a sub-agent task event, or a usage figure of this turn. A request-start announcement, the user's own or a replayed message, and session setup are not output. A sub-agent event's own token count proves output was served and never feeds your figure.
+- `MarkSettled()` when you hold a figure the runtime reported as covering the whole turn. Mark it only when the runtime's completion signal for the turn implies that, so a turn cut short is never settled.
+- `MarkSessionTotal()` as well when that figure is the runtime's running session total, which holds what every earlier completed turn of the session spent, read or not.
+- `MarkEstimated()` when the figure rests on an estimated resume baseline, as described under [Wire session continuity](#wire-session-continuity).
+
+A turn is flagged `SpendUnaccounted` when it is estimated, or when it was served output and never settled. It does not latch, so a later turn your figures do cover reports `false` again, which is what separates it from `UsageMeasured`. A flag does not change `Usage`: report whatever partial figure you hold, since a turn that produced nothing contributes no number and emits no `token_usage` event while a turn whose figure fell short reports and emits it as any measured turn does.
+
+The orchestrator sums the flags across the run and stores the count. A completed turn that was flagged for lack of a figure stops counting when a later turn of the same session settles with a session total, because that total includes it. A stopped or failed turn keeps counting, and so does one with an estimated baseline. The stored count is what turns `used_tokens_complete` false on the `cost_budget` tool and adds `unaccounted_turns` to the token-ceiling log records.
+
+**Verify:** the conformance suite in `internal/agent/agenttest/fakemodel` interrupts a turn once the fake model has served output and expects `SpendUnaccounted` true, and expects it false when the interrupt comes before any output.
 
 Tool permissions are surfaced through the passthrough config. Every run is unattended, so the default has to be a posture the runtime can carry through a turn without stopping to ask, and a pass-through value that reopens the interactive path is refused through the shared configuration-diagnostic channel rather than accepted.
 
