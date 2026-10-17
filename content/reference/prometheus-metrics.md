@@ -32,10 +32,10 @@ Monotonically increasing. Apply `rate()` or `increase()` to extract per-second o
 
 | Name | Labels | Description | Producing layer |
 |---|---|---|---|
-| `sortie_tokens_total` | `type` | Cumulative LLM tokens consumed. `type` is `input`, `output`, `cache_read`, or `cache_write`. The cache types are disjoint subsets of `input`, so summing every label value double-counts them. A `type` appears only once a non-zero amount has been recorded for it, and a session whose coding agent reported no token usage advances no series at all. | Coordination |
-| `sortie_agent_runtime_seconds_total` | - | Cumulative agent runtime. Incremented when a session ends, not while it runs. For live elapsed time, use the `sortie_active_sessions_elapsed_seconds` gauge. | Coordination |
+| `sortie_tokens_total` | `type`, `model` | Cumulative LLM tokens consumed. `type` is `input`, `output`, `cache_read`, or `cache_write`. The cache types are disjoint subsets of `input`, so summing every label value of `type` double-counts them. `model` is described in [the model label](#the-model-label). A series for a model that has never recorded tokens reports `0`, and a session whose coding agent reported no token usage advances no series. | Coordination |
+| `sortie_agent_runtime_seconds_total` | `model` | Cumulative agent runtime, per [model](#the-model-label). Incremented when a session ends, not while it runs. For live elapsed time, use the `sortie_active_sessions_elapsed_seconds` gauge. | Coordination |
 | `sortie_dispatches_total` | `outcome` | Dispatch attempts. `outcome` is `success` (worker spawned) or `error` (dispatch abandoned before a worker spawned: the selected agent kind or template is unavailable, or the resolved agent settings fail an error-severity check). | Coordination |
-| `sortie_worker_exits_total` | `exit_type` | Worker session completions. `exit_type` is `normal` (agent finished), `error` (agent or infrastructure failure), `cancelled` (reconciliation or shutdown), or `soft_stop` (the agent wrote a recognized control-file signal; see the [agent extensions reference](/reference/agent-extensions/)). | Coordination |
+| `sortie_worker_exits_total` | `exit_type`, `model` | Worker session completions, per [model](#the-model-label). `exit_type` is `normal` (agent finished), `error` (agent or infrastructure failure), `cancelled` (reconciliation or shutdown), or `soft_stop` (the agent wrote a recognized control-file signal; see the [agent extensions reference](/reference/agent-extensions/)). | Coordination |
 | `sortie_retries_total` | `trigger` | Retry scheduling events. `trigger` is `error` (failed attempt), `continuation` (successful turn, more work remains), `timer` (retry timer fired but the retry could not start and was put back), `stall` (stall timeout detected), or `ci_fix` (a CI failure scheduled a fix dispatch). A review, bot review, merge conflict, or label command continuation records no trigger. The same label appears as `trigger` on a [retrying row of the state API](/reference/http-api/#get-apiv1state-system-state). | Coordination |
 | `sortie_reconciliation_actions_total` | `action` | Reconciliation outcomes per issue checked. `action` is `stop` (issue state no longer active), `cleanup` (terminal state, workspace removed), `keep` (still active, no action), `sweep_cleanup` (terminal state, workspace removed by the periodic sweep), or `sweep_expired` (workspace removed by the sweep's age-based retention bound). | Coordination |
 | `sortie_poll_cycles_total` | `result` | Poll tick outcomes. `result` is `success` (fetched and dispatched), `error` (tracker fetch failed), or `skipped` (preflight validation failed, dispatch skipped). | Coordination |
@@ -61,6 +61,27 @@ Monotonically increasing. Apply `rate()` or `increase()` to extract per-second o
 | `sortie_self_review_iterations_total` | `verdict` | Self-review iterations by outcome. `verdict` is `pass` (verification succeeded), `iterate` (agent re-prompted for another attempt), or `none` (no verdict produced). Only recorded when [`self_review.enabled: true`](/reference/workflow-config/) is set. When self-review is disabled, this counter remains at zero. | Coordination |
 | `sortie_self_review_sessions_total` | `final_verdict` | Self-review sessions by final outcome. `final_verdict` is `pass`, `iterate`, or `none`. One increment per completed self-review session. Only recorded when self-review is enabled. | Coordination |
 | `sortie_self_review_cap_reached_total` | - | Self-review sessions that hit the iteration cap without passing. A sustained non-zero rate means verification commands are consistently failing. Check your `self_review.verify_commands` configuration. Only recorded when self-review is enabled. | Coordination |
+
+### The model label
+
+`sortie_tokens_total`, `sortie_agent_runtime_seconds_total`, and `sortie_worker_exits_total` carry a `model` label, so token use, runtime, and run outcomes can be split per model. Summing over `model` returns the totals these metrics reported before the label existed.
+
+The value is the first of these that names a model:
+
+1. The model named by the usage report that the tokens arrived in.
+2. The model the run last reported.
+3. The `model` configured for the run's agent settings.
+4. `<none>`, the placeholder `sortie stats` uses for a run with no model.
+
+Tokens count as usage arrives, so tokens recorded before a run's first model report stay under the configured model (or `<none>`) and do not move when the report comes. A run whose agent switches model splits its tokens between the models. Runtime and exit samples are recorded when the session ends, so they carry the model that `sortie stats` groups the run under: reported, else configured, else `<none>`.
+
+Label values are model names from your workflow configuration and from agent reports, passed through unchanged. The label grows with the models you use, not with issues or runs.
+
+**Series that report `0`.** After every start, the three metrics report `0` for each model your workflow configures and each model an earlier run reported. A reload of the workflow adds the models it newly configures. A query filtered to any other model returns no data until a run reports that model, so an alert on such a model needs `or vector(0)`. A configured model name that the agent reports under a different, resolved name keeps its own series, usually a flat `0`, beside the series of the reported name. The same holds for a model only earlier runs used.
+
+**First sample of a new model.** On a default Prometheus, `rate()` and `increase()` miss the first sample of a model that Sortie has never run before, because the series first appears with a non-zero value. Starting Prometheus with `--enable-feature=created-timestamp-zero-ingestion` closes the gap. The flag is experimental in Prometheus. It needs the protobuf scrape format, which `/metrics` serves with each series' creation time, so a scrape job that sets `scrape_protocols` must keep `PrometheusProto` in the list.
+
+`sortie_worker_duration_seconds` has no `model` label. For the mean session duration per model, divide the runtime counter by the exit counter, each summed by `model`.
 
 ## Histograms
 
@@ -116,6 +137,21 @@ sum(rate(sortie_tokens_total[5m])) by (type) * 60
 ```
 
 Tokens per minute, broken down by `input`, `output`, `cache_read`, and `cache_write`. Both cache series are subsets of `input`; don't sum all four series as total consumption.
+
+### Token use and runtime per model
+
+```promql
+sum(rate(sortie_tokens_total{type=~"input|output"}[1h])) by (model) * 3600
+```
+
+Input plus output tokens per hour for each model. The `type` filter excludes `cache_read` and `cache_write`, which are already part of `input`. For the mean session duration per model:
+
+```promql
+sum(increase(sortie_agent_runtime_seconds_total[1h])) by (model)
+/ sum(increase(sortie_worker_exits_total[1h])) by (model)
+```
+
+Runtime and exits are both recorded when a session ends, so the ratio is the average length of the sessions that finished in the window. A model with no exits in the window returns `NaN`.
 
 ### Dispatch throughput and error rate
 
@@ -243,10 +279,10 @@ The dashboard organizes panels into nine collapsible rows. Each panel maps to on
 | Overview | Active sessions | `sortie_sessions_running`, `sortie_sessions_retrying`, `sortie_slots_available` | Stat + time series |
 | Overview | Active sessions elapsed | `sortie_active_sessions_elapsed_seconds` | Stat |
 | Overview | Budget Blocked | `sortie_budget_exhausted_issues` | Stat by `reason` |
-| Throughput | Token consumption | `sortie_tokens_total` | Time series (rate) by `type` |
+| Throughput | Token consumption | `sortie_tokens_total` | Time series (rate), summed over `model`, by `type` |
 | Throughput | Dispatch outcomes | `sortie_dispatches_total` | Time series (rate), `success` vs `error` |
-| Throughput | Agent runtime | `sortie_agent_runtime_seconds_total` | Time series (rate) |
-| Workers | Worker exits | `sortie_worker_exits_total` | Time series (rate) by `exit_type` |
+| Throughput | Agent runtime | `sortie_agent_runtime_seconds_total` | Time series (rate) by `model` |
+| Workers | Worker exits | `sortie_worker_exits_total` | Time series (rate), summed over `model`, by `exit_type` |
 | Workers | Worker duration | `sortie_worker_duration_seconds` | Heatmap + p50/p95/p99 percentile lines |
 | Reliability | Retry activity | `sortie_retries_total` | Time series (rate) by `trigger` |
 | Reliability | Poll cycle health | `sortie_poll_cycles_total`, `sortie_poll_duration_seconds` | Count + duration overlay |

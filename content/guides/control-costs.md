@@ -305,13 +305,13 @@ curl -s http://localhost:7678/api/v1/MT-649 | jq '.history.totals'
 
 When `tokens_complete` is `false`, some runs reported no usage or ended a turn before reporting its final usage, and the token figures are lower bounds. To see which runs cost the most, list them with `curl -s 'http://localhost:7678/api/v1/runs?issue=MT-649' | jq '.runs[] | {run_id, status, tokens: .tokens.total_tokens, estimated_cost_usd}'`. The [run history reference](/reference/http-api/#get-apiv1runs-run-history) defines the filters and every field.
 
-**Prometheus.** The `sortie_tokens_total` counter tracks cumulative token consumption with a `type` label (`input`, `output`, `cache_read`, `cache_write`). Cache reads and writes are subsets of input, so don't sum every type. A PromQL query for hourly input token rate:
+**Prometheus.** The `sortie_tokens_total` counter tracks cumulative token consumption with a `type` label (`input`, `output`, `cache_read`, `cache_write`). Cache reads and writes are subsets of input, so don't sum every type. The `model` label splits the counter per model. A PromQL query for hourly input token rate:
 
 ```promql
-rate(sortie_tokens_total{type="input"}[1h])
+sum(rate(sortie_tokens_total{type="input"}[1h])) by (model)
 ```
 
-Set up alerting when token burn exceeds your budget threshold. The [Prometheus guide](/guides/monitor-with-prometheus/) walks through scrape config and alert rules.
+The [metrics reference](/reference/prometheus-metrics/#the-model-label) defines which model a sample counts under. Set up alerting when token burn exceeds your budget threshold. The [Prometheus guide](/guides/monitor-with-prometheus/) walks through scrape config and alert rules.
 
 **Logs.** Sortie's structured logs record what ran, not what it cost. No log line carries a dollar figure.
 

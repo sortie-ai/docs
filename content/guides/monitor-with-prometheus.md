@@ -37,7 +37,7 @@ sortie_dispatches_total{outcome="success"} 47
 sortie_dispatches_total{outcome="error"} 1
 # HELP sortie_tokens_total Cumulative LLM tokens consumed.
 # TYPE sortie_tokens_total counter
-sortie_tokens_total{type="input"} 284500
+sortie_tokens_total{model="claude-sonnet-4-5",type="input"} 284500
 ```
 
 If you get `connection refused`, Sortie isn't running or the server was disabled with `--port 0`. Check the startup logs. Sortie prints the listen address at boot. To use a different port, pass `--port <N>` or set `server.port` in your WORKFLOW.md front matter.
@@ -98,7 +98,7 @@ The dashboard includes these panels, grouped into collapsible rows:
 | Budget Blocked | Issues currently held out of dispatch by a budget ceiling, by reason |
 | Token consumption | Input, output, cache-read, and cache-write token rates over time |
 | Dispatch outcomes | Success vs. error dispatch rate |
-| Agent runtime | Cumulative agent runtime rate |
+| Agent runtime | Agent runtime rate, one line per model |
 | Worker exits | Worker completion rate by exit type |
 | Worker duration | Heatmap of session durations with p50, p95, p99 overlay lines |
 | Retry activity | Retry rate broken down by trigger (error, continuation, stall) |
