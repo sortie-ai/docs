@@ -226,11 +226,13 @@ Reported token counts are cumulative over the whole session the orchestrator ope
 
 ### Accumulation logic
 
-1. `tokenUsage.total` is thread-cumulative, so a resumed thread reports spend the current run did not incur. The adapter subtracts a baseline to recover this run's own contribution: at the first notification matching the running turn, the baseline is `total` minus `last`.
-2. Each later notification for the running turn reports `total` minus that baseline as the run-cumulative snapshot, emitted as one `token_usage` event.
-3. A notification whose `turnId` belongs to another turn raises the baseline instead of emitting an event, so a foreign turn's spend never lands in this run's total.
-4. `input_tokens` comes from `inputTokens`, `output_tokens` from `outputTokens`, and `cache_read_tokens` from `cachedInputTokens`. The notification exposes no cache-write count, so `cache_write_tokens` is `0`. `total_tokens` is computed as `input_tokens + output_tokens` rather than read from the notification's own `totalTokens`.
-5. A notification carrying no `tokenUsage` object emits no event and leaves the session's measurement state untouched. A session that never receives one is recorded as unmeasured rather than as having spent zero.
+1. `tokenUsage.total` is thread-cumulative, so a resumed thread reports spend the current run did not incur. The adapter subtracts a baseline to recover this run's own contribution. The baseline is zero for a thread the run starts, including when `thread/resume` fails and the adapter starts a new thread instead. When `thread/resume` succeeds, it is the thread figure the previous run ended with, which Sortie keeps with that run's history and looks up by issue and thread when it dispatches the continuation.
+2. When a resumed thread has no such figure, because the previous run recorded none or was recorded by a Sortie release that did not keep one, the first notification matching the running turn sets the baseline to `total` minus `last`. The turn is not marked as one whose spend is not fully accounted for.
+3. Each notification for the running turn reports `total` minus the baseline as the run-cumulative snapshot, emitted as one `token_usage` event.
+4. A notification whose `turnId` belongs to another turn emits no event and changes no figure, so a foreign turn's spend never lands in this run's total. It still counts as a usage measurement for the session. After `thread/resume` the app-server replays the restored total once under an earlier turn's id, which is the usual source of such a notification.
+5. Every turn result carries the latest thread `total` the adapter holds, which is the handed-over figure until a notification arrives, as the figure the next run starts from. The app-server persists each total as it emits it and restores the last one persisted. A session holding no figure reports none.
+6. `input_tokens` comes from `inputTokens`, `output_tokens` from `outputTokens`, and `cache_read_tokens` from `cachedInputTokens`. The notification exposes no cache-write count, so `cache_write_tokens` is `0`. `total_tokens` is computed as `input_tokens + output_tokens` rather than read from the notification's own `totalTokens`.
+7. A notification carrying no `tokenUsage` object emits no event and leaves the session's measurement state untouched. A session that never receives one is recorded as unmeasured rather than as having spent zero.
 
 ### Model tracking
 

@@ -51,9 +51,9 @@ The orchestrator reacts to a normalized event vocabulary, not to your CLI's nati
 | `tool_result` | `EventToolResult` | A tool call completed. Carries `ToolName` and `ToolDurationMS`. |
 | `malformed` | `EventMalformed` | An unparseable line from the agent. |
 
-The data flows like this. `StartSession` receives `StartSessionParams` (the workspace path, an `AgentConfig`, the kind's resolved `Settings` block, an optional `ResumeSessionID`, SSH fields, and an MCP config path) and returns a `Session` whose `Internal any` field carries your adapter state opaquely.
+The data flows like this. `StartSession` receives `StartSessionParams` (the workspace path, an `AgentConfig`, the kind's resolved `Settings` block, an optional `ResumeSessionID` with the optional `ResumeUsage` that goes with it, SSH fields, and an MCP config path) and returns a `Session` whose `Internal any` field carries your adapter state opaquely.
 
-`RunTurn` receives that `Session` plus `RunTurnParams` (the rendered `Prompt`, the `Issue`, and the `OnEvent` callback) and returns a `TurnResult` (`SessionID`, `ExitReason`, `Usage`, `UsageMeasured`, `SpendUnaccounted`).
+`RunTurn` receives that `Session` plus `RunTurnParams` (the rendered `Prompt`, the `Issue`, and the `OnEvent` callback) and returns a `TurnResult` (`SessionID`, `ExitReason`, `Usage`, `UsageMeasured`, `SpendUnaccounted`, `ResumeUsage`).
 
 The orchestrator copies `SessionID` and token deltas out of the events and the result; it never reads `Session.Internal`. A non-empty `SessionID`, whether from a `session_started` event or from `TurnResult`, replaces whatever session id the orchestrator has accepted so far, for this run's dispatch record, its exit result, and what a continuation retry resumes under.
 
@@ -388,7 +388,8 @@ ParseLine: func(line []byte, emit func(domain.AgentEvent), pid string) (any, err
 			emit(domain.AgentEvent{Type: domain.EventToolResult, ToolName: name, ToolDurationMS: durationMS})
 		}
 	case "result":
-		state.acc.AddTurn(event.Usage) // settles the turn's authoritative total, superseding every provisional one
+		state.spent = agentcore.AddUsage(state.spent, authoritativeUsage(event))
+		state.acc.SetRunCumulative(state.spent) // settles the run's total, superseding every provisional figure
 		captured := event
 		return &captured, nil // terminal line: handed to OnFinalize as lastParsed
 	}
@@ -398,7 +399,7 @@ ParseLine: func(line []byte, emit func(domain.AgentEvent), pid string) (any, err
 
 `state.acc` is an `agentcore.RunUsage`, constructed once with `agentcore.NewRunUsage()` in `StartSession` and never reset between turns; `GetUsage` returns its `Snapshot()`. `SetTurnProvisional` replaces the turn's in-flight contribution and returns the raised run-cumulative snapshot to emit; gate the emission on a message id's first sighting, since a streaming CLI can repeat one id across several deltas of the same API request.
 
-`AddTurn` folds a turn's authoritative total, read from its terminal event, into the run's settled total, superseding whatever the provisional figures already reported. Register tool starts with `ToolTracker.Begin(id, name)` and close them with `End(id)` to get the duration.
+`SetRunCumulative` replaces the run's settled total with the figure you pass and drops the turn's provisional contribution, superseding whatever the provisional figures already reported. This sketch assumes each terminal event reports only that process's own spend, so the adapter keeps a running sum (`state.spent`) across turns and settles it. A runtime whose terminal event reports a session-wide figure needs the baseline described under [wire session continuity](#wire-session-continuity) instead. Register tool starts with `ToolTracker.Begin(id, name)` and close them with `End(id)` to get the duration.
 
 Reset the per-turn state, message ids and tool tracker included, at the top of each `RunTurn`; `RunUsage` is the one field that survives across turns. Return the terminal event reference so the next step can read its status.
 
@@ -513,7 +514,16 @@ A session-id-based resume fits a CLI that owns an addressable identifier. Claude
 
 A cwd-scoped resume fits a CLI whose headless session id is not enumerable. Such a CLI cannot name its session, so the adapter adds a bare flag that continues the most recent conversation in the workspace directory, and sets it only after a turn the runtime itself reported complete (the `resumeRequested` field in the `OnFinalize` sketch above flips to true). Pick based on what your CLI exposes; both are valid.
 
-**Verify:** a test asserts that turn two of a resumed session includes your continuation flag and turn one does not.
+A runtime whose own usage counter is cumulative over its session, earlier runs included, reports more than the run spent when a later run resumes that session. Settle such a counter with `agentcore.ResumeBaseline` rather than a baseline of your own:
+
+1. In `StartSession`, build it with `agentcore.NewResumeBaseline`. Pass a zero `TokenUsage` for a session the run creates, including one a failed resume falls back to, and `params.ResumeUsage` for one it resumes. A nil argument gives an unknown baseline.
+2. On each reading of the counter, call `Observe(reading, own)` and report `Run()` as the run-cumulative figure. `own` is the part of the reading the runtime attributes to the current request or turn, or nil. A reading of all zeros has no effect. When the baseline is unknown, or a reading falls below the previous one, the baseline is estimated as the reading less `own`, the run's total so far is kept, and `Observe` returns `estimated` as true.
+3. Set `TurnResult.SpendUnaccounted` on a turn whose reading was estimated, because `own` may not cover everything the reading added, such as calls a sub-agent made.
+4. Report `Resume()`, the latest reading and nil while the baseline is unknown, as `TurnResult.ResumeUsage` on every turn. The orchestrator keeps the figure of the working session's last turn with the run's history and hands it to the next run that resumes the session as `StartSessionParams.ResumeUsage`. A turn that ends without a usable reading must report nil, not the figure of an earlier turn, because the runtime may have saved calls that figure omits. The credential-verification session receives no `ResumeUsage` and its figure is not kept.
+
+A run that resumes a session whose previous run kept no figure, or kept one before Sortie recorded it, starts with an unknown baseline, so that one turn is estimated and flagged.
+
+**Verify:** a test asserts that turn two of a resumed session includes your continuation flag and turn one does not. For a session-cumulative counter, it also asserts that a resumed session started with `ResumeUsage` reports only what its own turns added.
 
 ### Surface capabilities and budgeting
 

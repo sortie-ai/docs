@@ -238,8 +238,25 @@ Reported token counts are cumulative over the whole session the orchestrator ope
 
 1. Each `assistant` event carrying a `usage` object contributes a provisional per-message figure, keyed by the message id. Claude Code repeats one message id across every streamed event of the same model request and grows the usage object as the response generates, so the adapter keeps the largest value seen per id rather than summing the repeats.
 2. A `token_usage` event is emitted the first time a message id is seen, and not again for that id, so the count matches API requests rather than stream events.
-3. On the `result` event, the per-model `modelUsage` breakdown is summed across every model entry, added to the session's settled total, and the turn's provisional contribution is cleared. The reported snapshot is raised against the highest snapshot already reported, so settling never lowers a figure the turn already published. The top-level `usage` object is used only when `modelUsage` is absent or empty. `modelUsage` is preferred because the top-level figure excludes sub-agent activity while the breakdown includes it. See [how to use sub-agents](/guides/use-subagents-with-sortie/#account-for-sub-agent-costs).
+3. On the `result` event, the per-model `modelUsage` breakdown is summed across every model entry and settles the turn's contribution to the run's total, replacing the provisional one. What the sum means depends on the Claude Code release; see [Continuing a session](#continuing-a-session). The reported snapshot is raised against the highest snapshot already reported, so settling never lowers a figure the turn already published. The top-level `usage` object is used only when `modelUsage` is absent or empty. `modelUsage` is preferred because the top-level figure excludes sub-agent activity while the breakdown includes it. See [how to use sub-agents](/guides/use-subagents-with-sortie/#account-for-sub-agent-costs).
 4. In both shapes, `input_tokens` is the sum of the plain input count, cache-read tokens, and cache-creation tokens. `cache_read_tokens` and `cache_write_tokens` carry the two cache counts separately as disjoint subsets of input. `total_tokens` is computed as `input_tokens + output_tokens` rather than read from any vendor total.
+
+### Continuing a session
+
+Every turn is a new `claude` process, and a run can resume a session that earlier runs used. What the `result` event's `modelUsage` covers depends on the process that wrote it, which the adapter reads from `claude_code_version` on the `system/init` event on every turn.
+
+| Claude Code release | What `modelUsage` covers | What the adapter does |
+|---|---|---|
+| 2.1.277 and later, or a version string that is not valid semver | The whole session: every earlier turn and every earlier run on it | Treats the sum as a reading of the session's counter and subtracts the starting point, so the run's total counts only what the run added |
+| Earlier than 2.1.277, or no version on `system/init` | Only that process's own spend | Adds each result's sum to the run's total |
+
+Both columns report the same run total for a session the run created. Older releases are not refused.
+
+The starting point is zero for a session the run created. For a session the run resumes, it is the session figure the previous run ended with, which Sortie keeps with that run's history and looks up by issue and session when it dispatches the continuation. Only the working session's last turn supplies it, never the [credential-verification](/reference/workflow-config/#credential-verification) session.
+
+A turn that ends without a `result` event reports no session figure, because a stopped process saves the calls it completed and a killed one saves nothing, and the adapter cannot tell which. On 2.1.277 and later, a `result` with no `modelUsage` entry, or only zeros, as an `error_during_execution` result can carry, settles nothing and reports no session figure either.
+
+On 2.1.277 and later, when the starting point is unknown, the adapter estimates it as the first reading less that result's own top-level `usage`, and marks the turn as one whose spend is not fully accounted for, because calls made by sub-agents cannot be separated from the restored figure. This applies to the first turn of a continuation in two cases: the previous run's last turn reported no session figure, or the previous run was recorded by a Sortie release that did not keep one. It also happens when a reading falls below the one before it, which the adapter treats as the counter starting over; the run's total so far is kept. The turn counts toward `unaccounted_turns`, and `used_tokens_complete` on the [`cost_budget` tool](/reference/agent-extensions/#cost_budget) reads `false`. A continuation whose previous run ended its last turn with a `result` is exact and unflagged.
 
 ### Model tracking
 
