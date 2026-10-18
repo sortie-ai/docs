@@ -64,7 +64,7 @@ Monotonically increasing. Apply `rate()` or `increase()` to extract per-second o
 
 ### The model label
 
-`sortie_tokens_total`, `sortie_agent_runtime_seconds_total`, and `sortie_worker_exits_total` carry a `model` label, so token use, runtime, and run outcomes can be split per model. Summing over `model` returns the totals these metrics reported before the label existed.
+`sortie_tokens_total`, `sortie_agent_runtime_seconds_total`, and `sortie_worker_exits_total` carry a `model` label, so token use, runtime, and run outcomes can be split per model.
 
 The value is the first of these that names a model:
 
@@ -75,7 +75,7 @@ The value is the first of these that names a model:
 
 Tokens count as usage arrives, so tokens recorded before a run's first model report stay under the configured model (or `<none>`) and do not move when the report comes. A run whose agent switches model splits its tokens between the models. Runtime and exit samples are recorded when the session ends, so they carry the model that `sortie stats` groups the run under: reported, else configured, else `<none>`.
 
-Label values are model names from your workflow configuration and from agent reports, passed through unchanged. The label grows with the models you use, not with issues or runs.
+**Existing panels and alerts.** Every sample of the three metrics now carries `model`, so a query that plots or compares them without aggregating over `model` returns one series per model instead of one series. A threshold alert on such a query is evaluated for each model separately. A query that sums over `model`, or groups only by `type` or `exit_type`, returns the totals these metrics reported before the label existed. The series recorded before the label existed have no `model` label and stop receiving samples when Sortie starts with this version.
 
 **Series that report `0`.** After every start, the three metrics report `0` for each model your workflow configures and each model an earlier run reported. A reload of the workflow adds the models it newly configures. A query filtered to any other model returns no data until a run reports that model, so an alert on such a model needs `or vector(0)`. A configured model name that the agent reports under a different, resolved name keeps its own series, usually a flat `0`, beside the series of the reported name. The same holds for a model only earlier runs used.
 
@@ -123,6 +123,8 @@ You will not find `issue_id` or `issue_identifier` as Prometheus labels. This is
 Sortie's concurrency is O(10) agents, not O(10,000) microservice endpoints. Issue identifiers, though, are unbounded over time. Adding them as labels would create an ever-growing number of time series that degrades Prometheus storage and query performance for no operational benefit.
 
 Prometheus answers aggregate questions: "How many sessions are running?", "What is the token burn rate?", "Are dispatches failing?" The [JSON API](/reference/http-api/) answers per-issue questions: "What is PROJ-42 doing right now?", "How many tokens has this session consumed?" Use both.
+
+The `model` label is the one label whose values Sortie does not define. They are the models your workflow configures, the models earlier runs reported, and any model an agent reports while running, passed through unchanged and not capped or normalized. The number of series is therefore set by how many distinct models your agents use, not by issues or runs. Each model adds nine series: four token types, four exit types, and one runtime counter. See [the model label](#the-model-label).
 
 None of the labels above name the Sortie instance itself: Sortie has no per-instance identifier to put in a metric. Prometheus supplies that separation on the scrape side instead: every series gets an `instance` label (the scraped `host:port`) and a `job` label (the `job_name` from `scrape_configs`), regardless of what the exporter emits. Point one Prometheus at several Sortie processes and those two labels are what let you view each instance separately or sum across all of them. See [how to aggregate metrics across instances](/guides/aggregate-metrics-across-instances/).
 

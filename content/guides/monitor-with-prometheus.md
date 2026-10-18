@@ -22,22 +22,24 @@ Wire Sortie into your Prometheus and Grafana stack so you can track agent sessio
 Sortie starts the HTTP server by default on `127.0.0.1:7678`. The `/metrics` endpoint shares the same port as the JSON API and web dashboard. Confirm it is live:
 
 ```bash
-curl -s http://localhost:7678/metrics | head -20
+curl -s http://localhost:7678/metrics | grep -E '^sortie_(sessions_running|dispatches_total)|model="claude-sonnet-4-5"'
 ```
 
-You should see Prometheus text exposition format:
+The filter keeps two plain metrics and every series of one model. You should see Prometheus text exposition lines like these, with your own model names:
 
 ```
-# HELP sortie_sessions_running Number of currently running agent sessions.
-# TYPE sortie_sessions_running gauge
-sortie_sessions_running 2
-# HELP sortie_dispatches_total Dispatch attempts and their outcomes.
-# TYPE sortie_dispatches_total counter
-sortie_dispatches_total{outcome="success"} 47
+sortie_agent_runtime_seconds_total{model="claude-sonnet-4-5"} 5421.7
 sortie_dispatches_total{outcome="error"} 1
-# HELP sortie_tokens_total Cumulative LLM tokens consumed.
-# TYPE sortie_tokens_total counter
+sortie_dispatches_total{outcome="success"} 47
+sortie_sessions_running 2
+sortie_tokens_total{model="claude-sonnet-4-5",type="cache_read"} 198400
+sortie_tokens_total{model="claude-sonnet-4-5",type="cache_write"} 31700
 sortie_tokens_total{model="claude-sonnet-4-5",type="input"} 284500
+sortie_tokens_total{model="claude-sonnet-4-5",type="output"} 61200
+sortie_worker_exits_total{exit_type="cancelled",model="claude-sonnet-4-5"} 0
+sortie_worker_exits_total{exit_type="error",model="claude-sonnet-4-5"} 2
+sortie_worker_exits_total{exit_type="normal",model="claude-sonnet-4-5"} 39
+sortie_worker_exits_total{exit_type="soft_stop",model="claude-sonnet-4-5"} 0
 ```
 
 If you get `connection refused`, Sortie isn't running or the server was disabled with `--port 0`. Check the startup logs. Sortie prints the listen address at boot. To use a different port, pass `--port <N>` or set `server.port` in your WORKFLOW.md front matter.
@@ -84,7 +86,9 @@ Paste these queries into the Prometheus expression browser to confirm data is ar
 sortie_build_info{version="1.21.0", go_version="go1.26.1"} 1
 ```
 
-If all three queries return data, your scrape pipeline is working.
+**`sum by (model) (increase(sortie_tokens_total{type=~"input|output"}[1h]))`**: tokens used in the last hour, one series per model. A run whose agent named no model appears under `<none>`.
+
+If all four queries return data, your scrape pipeline is working.
 
 ### Import the Grafana dashboard
 
