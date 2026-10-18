@@ -1372,6 +1372,7 @@ One thing to check after upgrading: if a script you run alongside an agent start
 - CI pipeline with `golangci-lint`, `gofmt` enforcement, and test execution via GitHub Actions.
 - Architecture Decision Records (ADR-0001 through ADR-0005).
 
+[1.28.1]: https://github.com/sortie-ai/sortie/compare/v1.28.0...v1.28.1
 [1.28.0]: https://github.com/sortie-ai/sortie/compare/v1.27.0...v1.28.0
 [1.27.0]: https://github.com/sortie-ai/sortie/compare/v1.26.0...v1.27.0
 [1.26.0]: https://github.com/sortie-ai/sortie/compare/v1.25.0...v1.26.0
