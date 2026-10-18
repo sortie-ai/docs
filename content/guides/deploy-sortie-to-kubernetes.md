@@ -302,7 +302,7 @@ spec:
       protocol: TCP
 ```
 
-This Service gives in-cluster access to the [web dashboard](/reference/dashboard/), [JSON API](/reference/http-api/), [Prometheus metrics](/reference/prometheus-metrics/), and health probes. To expose the dashboard externally, add an Ingress or LoadBalancer in front of it, with authentication, because the HTTP server has none (see the [security warning](/reference/dashboard/#security)).
+This Service gives in-cluster access to the [web dashboard](/reference/dashboard/), [JSON API](/reference/http-api/), [Prometheus metrics](/reference/prometheus-metrics/), and health probes. To expose the dashboard externally, add an Ingress or LoadBalancer in front of it, with authentication, because the HTTP server has none (see the [security warning](/reference/dashboard/#security)). The Ingress must also pass on the `Host` header the browser sent, unchanged and with its port, or Sortie can refuse dashboard actions; see [cross-origin requests](/reference/http-api/#cross-origin-requests).
 
 ### Apply the manifests
 

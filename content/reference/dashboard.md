@@ -42,6 +42,8 @@ An address under `/ui/` that names no screen shows "This page does not exist." w
 Sortie binds to `127.0.0.1` by default, so only the machine it runs on reaches it. Any deployment that others can reach, including one started with `--host 0.0.0.0`, must put the port behind a reverse proxy that authenticates or behind a VPN.
 {{< /callout >}}
 
+The server refuses a dashboard action that a browser sends from a page on another origin, so a web page you have open cannot press these buttons for you. A reverse proxy must pass on the browser's `Host` header unchanged, port included; see [cross-origin requests](/reference/http-api/#cross-origin-requests).
+
 ## Layout
 
 ### Side rail
