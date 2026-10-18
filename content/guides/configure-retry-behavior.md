@@ -95,8 +95,6 @@ Release a parked issue with any one of three gestures:
 2. Remove the parking label, but only once Sortie has confirmed, on a later fetch, that the label actually reached the tracker. A label you see missing before that confirmation happened releases nothing.
 3. Let a later run for the same issue produce a work-observed verdict; the park lifts on its own.
 
-If [`tracker.query_filter`](/reference/workflow-config/#tracker) excludes the parking label from the issues Sortie fetches, Sortie can never confirm the label is present, so removing it never releases the park either. Release those issues by moving them to a different state instead.
-
 To find out which issues are parked right now, read the `parked` list of `GET /api/v1/state`, or ask for one issue with `GET /api/v1/{identifier}`, which answers with `status` `parked`. Each entry gives the title, link, reason, and parking label, plus the dispatch rule, agent, and model of the run that led to the park, so you can tell which stage got stuck. See the [HTTP API reference](/reference/http-api/#get-apiv1state-system-state).
 
 A review-comment or CI continuation retry is never stopped by this ceiling; it runs on its own retry budget. The consecutive-absence count is neither kept nor consulted when `tracker.handoff_evidence` is `off`.

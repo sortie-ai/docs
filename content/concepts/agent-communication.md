@@ -81,7 +81,7 @@ The file protocol is deliberately minimal. The agent writes a single recognized 
 
 If the file says `blocked`, Sortie does not schedule another attempt. Where the dispatch drives the issue's state, Sortie parks the issue instead of merely releasing it, attaching a label so it can be told apart from an abandoned one.
 
-The park lifts when a person moves the issue to a tracker state different from the one it was parked in, when a person removes the label and Sortie has confirmed on a later fetch that the removal actually reached the tracker, or when a later run for the issue produces observable work. Where `tracker.query_filter` excludes the parking label, Sortie never confirms the label is present, so removing it releases nothing there; those issues need to be released by moving them instead.
+The park lifts when a person moves the issue to a tracker state different from the one it was parked in, when a person removes the label and Sortie has confirmed on a later fetch that the removal actually reached the tracker, or when a later run for the issue produces observable work. A `tracker.query_filter` that hides issues carrying the label does not change this: Sortie reads every parked issue the candidate query leaves out directly, state and labels both, so it confirms the label and sees its removal the same way.
 
 If the file says `needs-human-review`, Sortie treats the work as finished: it runs the configured self-review phase first, where self-review is enabled, and only then transitions the issue to the configured handoff state in the tracker, so the team sees completed work waiting for review.
 
