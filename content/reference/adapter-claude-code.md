@@ -260,6 +260,8 @@ On 2.1.277 and later, when the starting point is unknown, the adapter estimates 
 
 A turn that produced model output and then ends without a usable `result` counts toward `unaccounted_turns` too: the process was stopped or crashed, the connection dropped, or the result carries no usage, as an `error_during_execution` result can. The figure that would have covered the turn never arrived, so the usage published while the turn streamed stays a lower bound.
 
+A turn that ended cleanly without a `result`, with the process exiting `0` after a message or tool call from the agent, stops counting once a later turn of the same session reports a session total: on 2.1.277 and later with session persistence on, that total includes what the earlier turn spent, sub-agent calls among it. A stopped, cancelled, or crashed turn keeps counting, and so does a turn that ended in an error result.
+
 ### Model tracking
 
 The `model` field from `assistant` events (e.g., `<model-id>`) is captured and included in `token_usage` events. The orchestrator uses this for per-model cost attribution.

@@ -197,6 +197,8 @@ How completely that total reflects reality depends on what your runtime reports.
 
 A runtime that reports only the primary agent's own usage leaves sub-agent spend outside what Sortie can see, and the ceiling undercounts by exactly that gap. For Claude Code, this is a real distinction the adapter handles: the top-level usage figure on the result event excludes sub-agent activity, so the adapter reads the per-model usage breakdown instead, because that one includes it.
 
+A turn that is cancelled, crashes, or otherwise ends without a result event never reports that breakdown, so its figure covers only what streamed before it ended. Sortie marks the turn as not fully measured instead: `used_tokens_complete` reads `false` on the `cost_budget` tool and the token totals are lower bounds. A turn that ended cleanly without a result clears the mark once a later turn of the same session reports its session total. See [continuing a session](/reference/adapter-claude-code/#continuing-a-session) for when that applies.
+
 For every other runtime, check your agent's own documentation on how it reports sub-agent usage before assuming the ceiling sees everything a delegation spends.
 
 See [how to control agent costs](/guides/control-costs/) for the full set of budget levers, and read the [`cost_budget` tool](/reference/agent-extensions/) if you want the agent itself to check remaining budget mid-session before it delegates further.
