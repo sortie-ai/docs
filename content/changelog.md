@@ -9,6 +9,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.28.1] - 2026-10-18 { #1.28.1 }
+
+This release closes a security hole in the HTTP server.
+
+A web page open in your browser could make your browser send a request to Sortie's HTTP server, even when Sortie listens only on your own machine. Such a page could start a retry, run a pull request check, acknowledge an attention item, or force a refresh. Sortie now refuses a request like that with a `403` and the error code `cross_origin_request_rejected`. Scripts, `curl`, Prometheus, and the dashboard itself work as before.
+
+Upgrade if you run Sortie where a browser can reach it. The server still has no login, so a deployment that others can reach still needs a proxy that asks for one, or a VPN.
+
+One thing to check after upgrading: if a reverse proxy sits in front of Sortie, make sure it passes on the `Host` header the browser sent, unchanged and with its port. A proxy that rewrites it can make Sortie refuse dashboard actions in a browser that does not send a `Sec-Fetch-Site` header. The refusal shows as a `cross-origin request rejected` warning in the log.
+
+### Security
+
+- A page served from another origin can no longer start a retry, run a reaction check, acknowledge an attention item, or force a refresh through Sortie's HTTP server. A reverse proxy in front of Sortie must pass on the browser's Host header unchanged, including its port. ([GHSA-hrwv-5v9g-qv57](https://github.com/sortie-ai/sortie/security/advisories/GHSA-hrwv-5v9g-qv57))
+
 ## [1.28.0] - 2026-10-11 { #1.28.0 }
 
 This release is mostly about seeing what Sortie is doing without reading its logs.

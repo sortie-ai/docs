@@ -45,6 +45,33 @@ For the full `server` extension schema, see [WORKFLOW.md configuration reference
 
 ---
 
+## Cross-origin requests
+
+The server refuses a state-changing request that a browser sends from a page on another origin. This keeps a web page you happen to have open from driving Sortie's POST endpoints, even when Sortie listens only on `127.0.0.1`.
+
+A request that is refused gets `403 Forbidden` with the error code `cross_origin_request_rejected` and the usual [error envelope](#error-envelope). Nothing changes. Sortie also logs a `WARN` line, `cross-origin request rejected`, with the attributes `method`, `path`, `origin`, `sec_fetch_site`, and `host`.
+
+The check runs before routing, on every path. A refused request therefore gets `403` where the route would have answered `404` or `405`, and `POST /livez` gets `403` rather than its usual `405`.
+
+Sortie decides in this order, using the first rule that applies:
+
+| Order | Condition | Result |
+|---|---|---|
+| 1 | The method is `GET`, `HEAD`, or `OPTIONS`. | Served. |
+| 2 | `Sec-Fetch-Site` is `same-origin` or `none`. | Served. |
+| 3 | `Sec-Fetch-Site` has any other value. | Refused, whatever `Origin` says. |
+| 4 | There is no `Sec-Fetch-Site` header and no `Origin` header. | Served. |
+| 5 | There is no `Sec-Fetch-Site` header, and the host and port of `Origin` equal the `Host` header. | Served. |
+| 6 | There is no `Sec-Fetch-Site` header, and `Origin` differs from `Host`. | Refused. |
+
+Requests from `curl`, scripts, and other tools that send neither `Origin` nor `Sec-Fetch-Site` are served as before. So are Prometheus scrapes and health probes, which use `GET`.
+
+Sortie compares `Origin` with `Host` only for a browser that sends no `Sec-Fetch-Site` header. That comparison ignores the scheme and includes the port, so a reverse proxy in front of Sortie must pass on the `Host` header the browser sent, unchanged, port included. A proxy that rewrites it makes Sortie refuse the dashboard actions of such a browser.
+
+The check separates browser pages from other clients; it does not authenticate anyone. The server still [has no authentication](/reference/dashboard/#security), and the check does not cover DNS rebinding.
+
+---
+
 ## GET /: Dashboard redirect
 
 Redirects to the [dashboard](/reference/dashboard/).
@@ -2610,6 +2637,7 @@ If Sortie is shutting down, the refresh is rejected:
 | Code | Meaning |
 |---|---|
 | `202 Accepted` | Refresh queued (or coalesced with a pending refresh). |
+| `403 Forbidden` | A browser sent the request from a page on another origin; nothing changed (`cross_origin_request_rejected`). See [cross-origin requests](#cross-origin-requests). |
 | `405 Method Not Allowed` | Used a method other than POST. |
 | `409 Conflict` | Server is draining; refresh rejected. |
 
@@ -2695,6 +2723,7 @@ If Sortie is shutting down, or began to before it took the request, nothing chan
 | Code | Meaning |
 |---|---|
 | `202 Accepted` | The retry is due now. |
+| `403 Forbidden` | A browser sent the request from a page on another origin; nothing changed (`cross_origin_request_rejected`). See [cross-origin requests](#cross-origin-requests). |
 | `404 Not Found` | No retry is scheduled for the identifier (`retry_not_found`). |
 | `405 Method Not Allowed` | Used a method other than POST. |
 | `409 Conflict` | Sortie is shutting down; nothing changed. |
@@ -2786,6 +2815,7 @@ If Sortie is shutting down, or began to before it took the request, nothing chan
 | Code | Meaning |
 |---|---|
 | `202 Accepted` | The reaction's next check is due now. |
+| `403 Forbidden` | A browser sent the request from a page on another origin; nothing changed (`cross_origin_request_rejected`). See [cross-origin requests](#cross-origin-requests). |
 | `404 Not Found` | No pending reaction of that kind exists for the identifier (`reaction_not_found`). |
 | `405 Method Not Allowed` | Used a method other than POST. |
 | `409 Conflict` | Sortie is shutting down; nothing changed. |
@@ -2878,6 +2908,7 @@ If Sortie is shutting down, or began to before it took the request, nothing chan
 | Code | Meaning |
 |---|---|
 | `200 OK` | The item is acknowledged, now or before. |
+| `403 Forbidden` | A browser sent the request from a page on another origin; nothing changed (`cross_origin_request_rejected`). See [cross-origin requests](#cross-origin-requests). |
 | `404 Not Found` | No current item has the `id` (`attention_item_not_found`). |
 | `405 Method Not Allowed` | Used a method other than POST. |
 | `409 Conflict` | Sortie is shutting down; nothing changed. |
@@ -3147,6 +3178,7 @@ All JSON API errors use a consistent structure:
 | `run_events_not_retained` | 404 | `GET /api/v1/runs/{dispatch_id}/events` has no events for the dispatch ID. |
 | `acknowledgement_not_saved` | 500 | `POST /api/v1/attention/{id}/acknowledge` could not save the acknowledgement; nothing changed. |
 | `acknowledge_unavailable` | 503 | `POST /api/v1/attention/{id}/acknowledge` was not taken; nothing changed. |
+| `cross_origin_request_rejected` | 403 | A browser sent a state-changing request from a page on another origin, or one Sortie could not confirm came from its own origin; nothing changed. See [cross-origin requests](#cross-origin-requests). |
 | `method_not_allowed` | 405 | The HTTP method is not supported on this endpoint. |
 | `internal_error` | 500 | Unexpected server error (e.g., JSON serialization failure). |
 
@@ -3168,6 +3200,8 @@ curl -X DELETE http://localhost:7678/api/v1/state
 ```
 
 The response includes the header `Allow: GET` (or `Allow: POST` for the refresh, retry, reaction check, and acknowledge endpoints).
+
+A state-changing request that is refused as [cross-origin](#cross-origin-requests) answers `403` before method enforcement applies.
 
 ## Endpoint summary
 
