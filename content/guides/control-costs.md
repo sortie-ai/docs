@@ -1,7 +1,7 @@
 ---
 title: "How to Control Agent Costs"
 linkTitle: "Control Agent Costs"
-description: "Configure per-session budgets, session limits, per-issue token budgets, turn caps, concurrency, and model selection to keep agent API spending predictable."
+description: "Configure per-turn budgets, session limits, per-issue token budgets, turn caps, concurrency, and model selection to keep agent API spending predictable."
 author: Sortie AI
 date: 2026-04-26
 weight: 110
@@ -14,13 +14,13 @@ Set hard spending caps, limit retries, throttle concurrency, and pick the right 
 - A working Sortie setup ([quick start](/getting-started/quick-start/))
 - An agent adapter configured (examples below use Claude Code, so adapt the extension block for your adapter)
 
-## The six cost levers
+## The cost levers
 
-Sortie has six independent controls that affect API spending. Four are generic orchestrator settings that apply to every adapter. Two are adapter-specific and live in the extension block for your agent. Together they determine your worst-case cost. Here they are, ordered by impact.
+Several independent controls affect API spending. The limits on sessions, tokens, turns, and concurrency are orchestrator settings that apply to every adapter. The per-turn money cap and the model and effort level live in the extension block for your agent, and which of them exist depends on the kind. Together they determine your worst-case cost. Here they are, ordered by impact.
 
-## Set a per-session budget
+## Set a per-turn budget
 
-The single most effective cost control is a per-invocation spending cap. The mechanism is adapter-specific: for Claude Code it's `claude-code.max_budget_usd`, which tells the CLI to stop when cumulative API cost for that invocation reaches the specified dollar amount. The agent exits with a `max_budget_reached` signal when the cap hits.
+The most effective cost control is a spending cap on each turn. Of the built-in agent kinds, only `claude-code` has one: `claude-code.max_budget_usd` tells the CLI to stop when the cumulative API cost of that turn reaches the given dollar amount. The agent exits with a `max_budget_reached` signal when the cap hits.
 
 ```yaml
 # Claude Code adapter example
@@ -28,11 +28,9 @@ claude-code:
   max_budget_usd: 3
 ```
 
-Other adapters may expose an equivalent field in their extension block. Check your adapter reference for the specific key name. For a kind without one, what bounds a session depends on whether that kind reports token usage at all: [`agent.max_tokens`](#cap-tokens-per-issue) counts against a kind whose figures reach Sortie, and `agent.turn_timeout_ms` is the bound left for a kind whose figures never do. The [usage reporting table](/reference/workflow-config/#usage-reporting-by-agent-kind) states which your kind is.
+The other kinds (`codex`, `copilot-cli`, `opencode`, and `agent-client-protocol`) have no money cap, and Sortie has no money limit per issue. What bounds their sessions depends on whether the kind reports token usage at all: [`agent.max_tokens`](#cap-tokens-per-issue) counts against a kind whose figures reach Sortie, and `agent.turn_timeout_ms` is the bound left for a kind whose figures never do. The [usage reporting table](/reference/workflow-config/#usage-reporting-by-agent-kind) states which your kind is. OpenCode, for example, exposes model selection but no budget field, so its hard limits are `agent.max_tokens`, `agent.max_sessions`, `agent.max_turns`, concurrency caps, and `turn_timeout_ms`. See the [OpenCode CLI adapter reference](/reference/adapter-opencode/) for the adapter-specific details.
 
-OpenCode, for example, exposes model selection but no built-in per-turn budget field, so the main hard limits are `agent.max_tokens`, `agent.max_sessions`, `agent.max_turns`, concurrency caps, and `turn_timeout_ms`. See the [OpenCode CLI adapter reference](/reference/adapter-opencode/) for the adapter-specific details.
-
-This cap applies **per `RunTurn` invocation**, not per issue. If the orchestrator calls `RunTurn` multiple times in a session (controlled by `agent.max_turns`), and the issue retries across multiple sessions (controlled by `agent.max_sessions`), the effective worst-case per-issue budget is:
+The cap applies to each turn, not to the issue. A session runs up to `agent.max_turns` turns, and an issue retries across up to `agent.max_sessions` sessions, so the worst-case money spend per issue is:
 
 $$
 \text{budget\_per\_turn} \times \text{agent.max\_turns} \times \text{agent.max\_sessions}
@@ -57,7 +55,9 @@ Set this to a real number in production. A value of `0` is fine for local testin
 
 ## Cap tokens per issue
 
-`agent.max_tokens` is a cumulative per-issue token ceiling. The orchestrator sums the `total_tokens` reported for every completed session of an issue from its run history, and once the sum reaches the budget it stops dispatching new sessions: the claim is released, the retry entry is dropped, and the issue stays in its current tracker state. While a session is running, its own spend counts toward that same sum. The default is `0`, which means unlimited.
+`agent.max_tokens` is a cumulative per-issue token ceiling. The orchestrator sums the tokens reported for every completed session of an issue from its run history, and once the sum reaches the budget it stops dispatching new sessions: the claim is released, the retry entry is dropped, and the issue stays in its current tracker state. While a session is running, its own spend counts toward that same sum. The default is `0`, which means unlimited.
+
+The count leaves out prompt-cache reads, for every agent kind: each session contributes its `total_tokens` less its `cache_read_tokens`, never below zero, and cache writes still count. A long conversation re-reads its history from the cache on every request, so those reads grow with the length of the conversation rather than with the work done, and the ceiling would otherwise fill on conversation length alone. When you pick a value, take the issue's spend from a figure that uses the same count: the **Tokens** meter in the dashboard's [Budget panel](/reference/dashboard/#issue-page), `used_tokens` on a running entry of the JSON API, or `used_tokens` from the `cost_budget` tool. A total that includes cache reads, such as `tokens.total_tokens` or the `sortie_tokens_total` counter, is larger and does not match what the ceiling compares.
 
 ```yaml
 agent:
@@ -82,7 +82,7 @@ How far past the ceiling a session gets depends on how often your adapter report
 
 A kind declaring `turn_end` reports only once a turn is over, so a long turn can carry the issue well past the ceiling before anything can act on it, and `agent.max_turns` with the per-turn caps above are what bound that. Your adapter's reference page names the declaration in its Adapter registration table.
 
-Two conditions leave a running session unbounded, and Sortie names both at the dispatch that starts it. A kind whose declaration promises no usage figure gets `token ceiling cannot bound this run`, carrying the kind and its `usage_arrival` value; `agent.turn_timeout_ms` is the only cap left for those sessions.
+Some conditions leave a running session unbounded, and Sortie names each at the dispatch that starts it. A kind whose declaration promises no usage figure gets `token ceiling cannot bound this run`, carrying the kind and its `usage_arrival` value; `agent.turn_timeout_ms` is the only cap left for those sessions.
 
 A failed read of the issue's already-completed spend gets `prior token spend unknown, token ceiling bounds this session only`: the new session still stops at the full budget, but what earlier sessions spent is not counted against it.
 
@@ -139,7 +139,7 @@ OpenCode and Codex do not expose a second inner-turn cap in Sortie. One `RunTurn
 
 ## Throttle concurrency
 
-Fewer concurrent agents means lower peak burn rate. Two fields control this:
+Fewer concurrent agents means lower peak burn rate. These fields control this:
 
 ```yaml
 agent:
@@ -178,7 +178,7 @@ Model pricing changes frequently. Check your provider's pricing page before maki
 
 ## Putting it all together
 
-Here's a production WORKFLOW.md snippet that combines all six levers, using the Claude Code adapter as the example:
+Here's a production WORKFLOW.md snippet that combines the levers above, using the Claude Code adapter as the example:
 
 ```yaml
 # WORKFLOW.md (cost-conscious production config)
@@ -237,7 +237,7 @@ The maximum spend per poll cycle (all concurrent agents hitting their budget sim
 | Concurrent agents | 2 | `agent.max_concurrent_agents` |
 | **Worst case per cycle** | **$54.00** | $27 × 2 |
 
-`max_tokens` adds a second, independent bound on the same issue: with `max_tokens: 1500000`, cumulative spend across all of an issue's sessions stops at roughly 1.5M tokens. The two bounds are complementary.
+`max_tokens` adds a second, independent bound on the same issue: with `max_tokens: 1500000`, cumulative spend across all of an issue's sessions, not counting cache reads, stops at roughly 1.5M tokens. The two bounds are complementary.
 
 The per-turn dollar cap bounds each session from inside; the token budget bounds the issue across sessions. The token check runs inside a session as well as between them, so the overshoot is one usage report rather than one whole session; where the adapter reports only at a turn boundary, the per-turn budget and turn limit are what bound it.
 
@@ -282,8 +282,8 @@ With `max_tokens: 500000` and `max_sessions: 5`, an issue whose third session is
 
 ```json
 {
-  "used_tokens": 120700,
-  "tokens_left": 379300,
+  "used_tokens": 112300,
+  "tokens_left": 387700,
   "sessions_after_this": 2,
   "used_tokens_complete": true,
   "issue_estimated_cost_usd": 0.49872,
@@ -291,7 +291,7 @@ With `max_tokens: 500000` and `max_sessions: 5`, an issue whose third session is
 }
 ```
 
-`used_tokens` counts the running session as it goes, so it matches the figure the ceiling stops on. `sessions_after_this` is how many more sessions the issue can get once the running one ends: the session budget counts finished sessions only, so the running one is subtracted separately, and `0` or less means this is the last session. A limit that is not configured comes back as `null`, which the `if` turns into a `null` headroom instead of an error.
+`used_tokens` counts the running session as it goes and leaves out cache reads, so it matches the figure the ceiling stops on. `sessions_after_this` is how many more sessions the issue can get once the running one ends: the session budget counts finished sessions only, so the running one is subtracted separately, and `0` or less means this is the last session. A limit that is not configured comes back as `null`, which the `if` turns into a `null` headroom instead of an error.
 
 When `used_tokens_complete` is `false`, some of the issue's spend went unrecorded and `tokens_left` is an upper bound. The cost is `null` unless `token_rates` prices the agent, and `issue_cost_status` says why. An issue the ceiling already holds has no `running` entry; its `budget_exhausted` entry carries `used_tokens`, `budget_tokens`, and `stopped_in_flight`.
 
@@ -335,7 +335,7 @@ See the [`stats` subcommand reference](/reference/cli/#stats) for the flags, the
 
 ## What we configured
 
-You now have six layers of cost protection:
+You now have these layers of cost protection:
 
 1. A **per-turn hard cap** (adapter-specific) that stops the agent mid-session when spending exceeds the budget
 2. A **session limit** that prevents infinite retries on stuck issues
@@ -344,4 +344,4 @@ You now have six layers of cost protection:
 5. A **concurrency cap** that limits parallel spending
 6. A **cost-efficient model and effort level** (adapter-specific) to reduce per-token spend
 
-The per-turn cap, session limit, and turn limit are multiplicative; they set your worst-case dollar ceiling. The token ceiling is an absolute cap on top of the multiplication: an issue stops consuming new sessions at the budget no matter how the factors line up. The concurrency cap and model choice control burn rate. The five hard ceilings fail safe: when one is hit, the agent stops. The token ceiling enforces against measured spend and announces, rather than hides, the sessions it could not measure.
+The per-turn cap, session limit, and turn limit are multiplicative; they set your worst-case dollar ceiling. The token ceiling is an absolute cap on top of the multiplication: an issue stops consuming new sessions at the budget no matter how the factors line up. The concurrency cap and model choice control burn rate. The hard ceilings fail safe: when one is hit, the agent stops. The token ceiling enforces against measured spend and announces, rather than hides, the sessions it could not measure.

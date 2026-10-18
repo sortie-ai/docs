@@ -127,6 +127,7 @@ curl http://localhost:7678/api/v1/state
         "cache_read_tokens": 8400,
         "cache_write_tokens": 1200
       },
+      "uncached_tokens": 7300,
       "model_name": "<model-id-reported-by-the-agent>",
       "rule_name": "bugfix",
       "stage_lineage": null,
@@ -151,7 +152,7 @@ curl http://localhost:7678/api/v1/state
       "budget_sessions": 5,
       "issue_tokens_completed": 105000,
       "unmeasured_sessions": 0,
-      "used_tokens": 120700,
+      "used_tokens": 112300,
       "used_tokens_complete": true,
       "budget_tokens": 500000,
       "estimated_cost_usd": 0.06372,
@@ -723,6 +724,7 @@ curl http://localhost:7678/api/v1/state
 | `self_review_iteration` | Self-review iterations completed in the current phase: `0` while the first one runs, and whenever `self_review_active` is `false`. |
 | `turn_count` | Number of turns this session has run: the coding turns plus any review and fix turns from self-review. Advances by one the instant a turn starts, the same way for every agent kind, and resets to `0` at the start of each attempt. [`agent.max_turns`](/reference/workflow-config/#agent) caps only the coding turns, so this figure can run higher once self-review is active. |
 | `tokens` | Nested object with `input_tokens`, `output_tokens`, `total_tokens`, `cache_read_tokens`, and `cache_write_tokens` for this session. `total_tokens` is `input_tokens + output_tokens`; both cache counters are disjoint subsets of `input_tokens`, never additions to it. Each member is an integer or `null`, and all five are `null` together exactly when `tokens_measured` is `false`. |
+| `uncached_tokens` | Integer or `null`. This session's tokens without cache reads: `tokens.total_tokens` less `tokens.cache_read_tokens`, floored at zero, so cache writes stay in it. It is the session's share of `used_tokens`. A sibling of `tokens`, not a member of it. `null` exactly when `tokens_measured` is `false`. |
 | `tokens_measured` | `false` until the coding agent reports token usage for this session, including before the first turn begins; that is what makes the members of `tokens` `null` rather than `0`. `true` once any usage figure has been reported. Stays `false` for the life of a session whose `usage_arrival` is `"none"`, whatever its runtime sends. |
 | `workspace_path` | Absolute filesystem path to the issue's workspace directory. |
 | `model_name` | LLM model the runtime reported running. Omitted when unknown, and when `usage_arrival` is `"none"`. It can differ from `configured_model`; see [configured and reported model](#configured-and-reported-model). |
@@ -752,8 +754,8 @@ curl http://localhost:7678/api/v1/state
 | `used_sessions` | Integer or `null`. The issue's completed sessions: the run-history count that [`agent.max_sessions`](/reference/workflow-config/#agent) is compared with. The running session is not counted, and a recorded CI result counts as a session, except that rechecking a head that already escalated records none. `null` when no read of the issue's run history has succeeded for this run. |
 | `budget_sessions` | Integer or `null`. `agent.max_sessions` as of the latest poll tick. `null` when `agent.max_sessions` is `0`, never `0`. Dispatch stops once the completed count reaches this value, and `used_sessions` leaves out the running session, so the issue can still be dispatched `budget_sessions` minus `used_sessions` minus `1` more times after the running session ends. Undefined when either key is `null`. |
 | `unmeasured_sessions` | Integer or `null`. Completed sessions whose token usage was never recorded, which `issue_tokens_completed` and `used_tokens` leave out. `null` exactly when `used_sessions` is. |
-| `issue_tokens_completed` | Integer or `null`. The summed `total_tokens` of the issue's completed sessions. `null` when no read of the run history has succeeded, and when the sum is `0` while a completed session is unmeasured or recorded a turn no figure covered. |
-| `used_tokens` | Integer or `null`. `issue_tokens_completed` plus this row's `tokens.total_tokens`, each counted as `0` when `null`. This is the sum [`agent.max_tokens`](/reference/workflow-config/#agent) is compared with, and it advances with each usage figure of the session. `null` when the sum is `0` and `used_tokens_complete` is `false`, so unknown spend never reads as zero. |
+| `issue_tokens_completed` | Integer or `null`. The summed tokens without cache reads of the issue's completed sessions (`total_tokens` less `cache_read_tokens`, floored at zero for each session). `null` when no read of the run history has succeeded, and when the sum is `0` while a completed session is unmeasured or recorded a turn no figure covered. |
+| `used_tokens` | Integer or `null`. `issue_tokens_completed` plus this row's `tokens.total_tokens` less its `tokens.cache_read_tokens` (floored at zero), each counted as `0` when `null`. This is the sum [`agent.max_tokens`](/reference/workflow-config/#agent) is compared with, so it leaves out cache reads, and it advances with each usage figure of the session. `null` when the sum is `0` and `used_tokens_complete` is `false`, so unknown spend never reads as zero. |
 | `used_tokens_complete` | Boolean. `true` exactly when `used_tokens` is the issue's whole spend: the completed sessions were read, none is unmeasured, none recorded a turn no figure covered, this session is measured, and it has recorded no such turn. When `false`, `used_tokens` is a lower bound. It ignores `tokens_pending`, which separately marks the turn in progress as not yet counted. |
 | `budget_tokens` | Integer or `null`. `agent.max_tokens` as of the latest poll tick. `null` when `agent.max_tokens` is `0`, never `0`. Token headroom: `budget_tokens` minus `used_tokens`, undefined when either is `null`, and negative when the session overshot the ceiling. The API serves no headroom key. |
 | `estimated_cost_usd` | Number or `null`. Estimated cost of this session from `tokens` and the [`token_rates`](/reference/workflow-config/#token_rates) entry of `agent_kind`, unrounded. Non-`null` exactly when `cost_status` is `"estimated"`. |
@@ -774,6 +776,7 @@ The same row on a session that has measured nothing, showing only the fields tha
     "cache_read_tokens": null,
     "cache_write_tokens": null
   },
+  "uncached_tokens": null,
   "api_request_count": null,
   "tokens_measured": false,
   "api_requests_measured": false,
@@ -858,7 +861,7 @@ A retry keeps the title, link, type, labels, and state it was scheduled with. So
 | `issue_type`, `issue_labels`, `state` | The issue's type, labels, and tracker state from the same read, under the rules of the `retrying[]` entries. Masked like the running row's. |
 | `reason` | `session_budget` or `token_budget`: which ceiling stopped dispatch. |
 | `used_sessions`, `budget_sessions` | Completed sessions for the issue against the configured `agent.max_sessions`. `budget_sessions` is `null` when no session budget is set, as on a `running[]` entry. |
-| `used_tokens`, `budget_tokens` | Measured cumulative tokens against the configured `agent.max_tokens`. `budget_tokens` is `null` when no token ceiling is set, as on a `running[]` entry. `used_tokens` is `null` only on a `session_budget` entry, in two cases: the token ceiling has not been evaluated for the issue (`agent.max_tokens` is `0`, or reading the issue's token spend failed), or the sum is `0` while a session reported no token usage or a turn went unaccounted for, so that `0` would stand for spend Sortie does not know. A non-zero sum is served as is and can still be a lower bound. |
+| `used_tokens`, `budget_tokens` | Measured cumulative tokens without cache reads against the configured `agent.max_tokens`. `budget_tokens` is `null` when no token ceiling is set, as on a `running[]` entry. `used_tokens` is `null` only on a `session_budget` entry, in two cases: the token ceiling has not been evaluated for the issue (`agent.max_tokens` is `0`, or reading the issue's token spend failed), or the sum is `0` while a session reported no token usage or a turn went unaccounted for, so that `0` would stand for spend Sortie does not know. A non-zero sum is served as is and can still be a lower bound. |
 | `unmeasured_sessions` | Count of the issue's sessions whose agent reported no token usage. `null` when the issue's token spend was not read. |
 | `stopped_in_flight` | Count of the issue's sessions that the token ceiling stopped while they were running, recorded with status `budget_stopped`. `null` when the issue's token spend was not read. |
 | `exhausted_at` | When the hold began. |
@@ -1290,6 +1293,7 @@ Sortie checks every parameter before it reads anything. A parameter outside this
         "cache_read_tokens": 30000,
         "cache_write_tokens": 4000
       },
+      "uncached_tokens": 31100,
       "tokens_measured": true,
       "unaccounted_turns": 0,
       "estimated_cost_usd": 0.1923,
@@ -1353,6 +1357,7 @@ Runs are ordered by descending `run_id`, which is the order Sortie recorded them
 | `dispatched_at` | string or `null` | When Sortie dispatched the first run of the pass the run belongs to, as in [dispatch time and stage position](#dispatch-time-and-stage-position). `null` when the pass cannot be dated. |
 | `turns_completed` | integer | Agent turns the run completed. |
 | `tokens` | object | The five token members of a running row's `tokens`. Each member is `null` when `tokens_measured` is `false`. A measured zero is `0`. |
+| `uncached_tokens` | integer or `null` | The run's tokens without cache reads: `tokens.total_tokens` less `tokens.cache_read_tokens`, floored at zero, so cache writes stay in it. A sibling of `tokens`, not a member of it. `null` exactly when `tokens_measured` is `false`. |
 | `tokens_measured` | boolean | `false` when the agent reported no token usage for the run. |
 | `unaccounted_turns` | integer | Turns of the run that reached the model without a token figure proven to cover the whole turn: the agent ended the turn before reporting its final usage, the report could not be read, or the figure rests on an estimated starting point after a resume. A turn that ended normally is left out when a later turn of the same run and session reports the session's running total, which includes it, unless a turn between them was stopped or failed after producing output, or rests on an estimated starting point. When non-zero, the figures in `tokens` are lower bounds. |
 | `estimated_cost_usd` | number or `null` | Estimated USD cost from `tokens` and the [`token_rates`](/reference/workflow-config/#token_rates) entry of `agent_kind`, unrounded. Non-`null` exactly when `cost_status` is `"estimated"` or `"partial"`. |
@@ -1494,6 +1499,7 @@ Sortie checks every parameter before it reads anything. A parameter outside this
           "cache_read_tokens": 30000,
           "cache_write_tokens": 4000
         },
+        "uncached_tokens": 31100,
         "tokens_complete": true,
         "estimated_cost_usd": 0.1923,
         "cost_status": "estimated"
@@ -1825,7 +1831,7 @@ Every `200` response carries `history`. The running and finished examples show i
   "next_outcomes": [
     {"condition": "If the run succeeds", "text": "Sortie moves the issue to In Review, and a pull request the run leaves gets the CI failure, review comments, bot review, merge conflicts, and auto-merge reactions."},
     {"condition": "If the run fails", "text": "Sortie retries with exponential backoff."},
-    {"condition": "If token use reaches 500K", "text": "Sortie stops the session and holds the issue at its token budget."}
+    {"condition": "If tokens reach 500K", "text": "Sortie stops the session and holds the issue at its token budget."}
   ],
   "issue": {
     "title": "Fix the flaky login test",
@@ -1866,6 +1872,7 @@ Every `200` response carries `history`. The running and finished examples show i
       "cache_read_tokens": 8400,
       "cache_write_tokens": 1200
     },
+    "uncached_tokens": 7300,
     "model_name": "<model-id-reported-by-the-agent>",
     "rule_name": "bugfix",
     "stage_lineage": null,
@@ -1890,7 +1897,7 @@ Every `200` response carries `history`. The running and finished examples show i
     "budget_sessions": 5,
     "issue_tokens_completed": 105000,
     "unmeasured_sessions": 0,
-    "used_tokens": 120700,
+    "used_tokens": 112300,
     "used_tokens_complete": true,
     "budget_tokens": 500000,
     "estimated_cost_usd": 0.06372,
@@ -1964,6 +1971,7 @@ Every `200` response carries `history`. The running and finished examples show i
           "cache_read_tokens": 20000,
           "cache_write_tokens": 2000
         },
+        "uncached_tokens": 25000,
         "tokens_measured": true,
         "unaccounted_turns": 0,
         "estimated_cost_usd": 0.174,
@@ -2000,6 +2008,7 @@ Every `200` response carries `history`. The running and finished examples show i
           "cache_read_tokens": 30000,
           "cache_write_tokens": 3000
         },
+        "uncached_tokens": 30000,
         "tokens_measured": true,
         "unaccounted_turns": 0,
         "estimated_cost_usd": 0.261,
@@ -2025,6 +2034,7 @@ Every `200` response carries `history`. The running and finished examples show i
         "cache_read_tokens": 50000,
         "cache_write_tokens": 5000
       },
+      "uncached_tokens": 55000,
       "tokens_complete": true,
       "estimated_cost_usd": 0.435,
       "cost_status": "estimated"
@@ -2409,6 +2419,7 @@ When no live entry holds the issue but run history does, `status` is `"history"`
           "cache_read_tokens": 30000,
           "cache_write_tokens": 4000
         },
+        "uncached_tokens": 31100,
         "tokens_measured": true,
         "unaccounted_turns": 0,
         "estimated_cost_usd": 0.1923,
@@ -2444,6 +2455,7 @@ When no live entry holds the issue but run history does, `status` is `"history"`
         "cache_read_tokens": 30000,
         "cache_write_tokens": 4000
       },
+      "uncached_tokens": 31100,
       "tokens_complete": true,
       "estimated_cost_usd": 0.1923,
       "cost_status": "estimated"
@@ -2534,7 +2546,8 @@ Every `200` response carries `history`. It is `null` when the issue has no recor
 | `run_count` | Every run of the issue, a recorded CI result included. |
 | `unmeasured_runs` | Runs whose agent reported no token usage. |
 | `tokens` | The five token members of a running row's `tokens`. Each is `null` when its sum is `0` and `tokens_complete` is `false`, so spend Sortie does not know never reads as zero. |
-| `tokens_complete` | `true` when no run is unmeasured and no run has an unaccounted turn. When `false`, the figures in `tokens` are lower bounds. |
+| `uncached_tokens` | Integer or `null`. The issue's tokens without cache reads over all of its runs: for each run, `total_tokens` less `cache_read_tokens`, floored at zero, summed. This is the count [`agent.max_tokens`](/reference/workflow-config/#agent) is compared with. `null` under the rule of the members of `tokens`. |
+| `tokens_complete` | `true` when no run is unmeasured and no run has an unaccounted turn. When `false`, the figures in `tokens` and `uncached_tokens` are lower bounds. |
 | `estimated_cost_usd` | Number or `null`. The sum of the estimates of the issue's runs, priced by agent kind under [`token_rates`](/reference/workflow-config/#token_rates). Unrounded. |
 | `cost_status` | `"estimated"`, `"partial"`, `"unpriced"`, or `"unmeasured"`, with the meaning of `issue_cost_status` in the [`GET /api/v1/state` field notes](#field-notes). |
 

@@ -201,8 +201,8 @@ The margin holds these panels, each only when it applies.
 | **Retry N** | While the issue waits for a retry: when it is **Due**, what it was **Started by**, the **Error**, and **Retry now**. |
 | **What happens next** | The conditions and what Sortie does under each. |
 | **Pull request #N** | The repository, branch, and head commit, then one line per watched reaction with its state, the time of its next check, how many fixes it has used of its limit, and **Check now**. A reaction's state reads "fixing", "checks failing", "checks passing", "comments arriving", "comments to answer", "conflict", "waiting", or "escalated". |
-| **Budget** or **Budget and cost** | Meters for **Sessions** and **Tokens and cache reads** against the issue's limits, "No token budget" when none is set, and, with `token_rates`, the **Estimated cost** with its share for pull request fixes and for stage runs or the rule. |
-| **Route** or **Agent** | **Entry rule**, **Stage** (with its place in the chain), and **Agent** (kind and model). |
+| **Budget** or **Budget and cost** | Meters for **Sessions** and **Tokens** against the issue's limits, "No token budget" when none is set, and, with `token_rates`, the **Estimated cost** with its share for pull request fixes and for stage runs or the rule. |
+| **Route** or **Agent** | **Entry rule**, **Stage** (with its place in the chain), **Agent** (the agent kind), and **Model**, which reads "agent default" when no model is named. |
 | **Issue** | **Status**, **Type**, and **Labels**. |
 
 A failed read of run history shows "Run history could not be read." above the story. An issue Sortie no longer knows reads "Sortie no longer knows" followed by its key.
@@ -404,7 +404,7 @@ The dashboard shows only what the workflow configures. Every row below changes w
 
 ## How figures are written
 
-Costs are estimates, built from the rates in `token_rates`, and the dashboard says so with the words "estimated", "est.", and "Estimated cost". Token figures leave out cache reads, which the dashboard shows separately where it has them. `agent.max_tokens` still counts cache reads, which is why the budget meter reads **Tokens and cache reads**. Durations use at most two units ("1h 17m"), tokens read as "830K" or "48.03M", costs read with two decimals below $100 and as whole dollars from $100, and a share strictly between 0 and 100 percent never rounds to either end.
+Costs are estimates, built from the rates in `token_rates`, and the dashboard says so with the words "estimated", "est.", and "Estimated cost". Token figures leave out cache reads, which the dashboard shows separately where it has them. `agent.max_tokens` leaves them out too, so the budget meter reads **Tokens** and counts the same figure. Durations use at most two units ("1h 17m"), tokens read as "830K" or "48.03M", costs read with two decimals below $100 and as whole dollars from $100, and a share strictly between 0 and 100 percent never rounds to either end.
 
 A figure Sortie does not have is never written as zero.
 
@@ -413,10 +413,10 @@ A figure Sortie does not have is never written as zero.
 | "not measured" | The agent reported no token usage for the run, or none has arrived yet. It stands for a token figure and for a cost that depends on one. |
 | "unpriced" | The tokens are known but `token_rates` has no complete rate for the run's agent kind. The tally reads "cost unpriced". |
 | "not recorded" | Sortie's run history does not hold the figure, or has no value for it, as for **Mean turns** of a group with no turn count. The tally reads "tokens not recorded". |
-| "not reported" | The agent named no model, as in **Reported model**. In the budget panel, "No token budget: tokens not reported." |
+| "not reported" | The agent named no model, as in **Reported model**. In the budget panel, "No token budget: tokens not reported." when no token budget is set, and "Tokens not reported." when one is. |
 | "N runs not measured" and "N runs unpriced" | A total that leaves those runs out. The tally reads "(N runs not measured)" and "(N runs unpriced)". |
 | "every run measured" | A token total with no run left out. |
-| "at least" | A held token budget whose figure is a lower bound because part of the issue's spend was not measured, as in "used at least 4.2M tokens and cache reads of its budget". |
+| "at least" | A held token budget whose figure is a lower bound because part of the issue's spend was not measured, as in "used at least 4.2M tokens of its budget". |
 | "unknown" | A time, duration, or cost the dashboard cannot state. |
 
 ## Keyboard shortcuts and command palette

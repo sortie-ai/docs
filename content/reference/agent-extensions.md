@@ -651,7 +651,7 @@ No parameters. The agent sends an empty JSON object:
 
 ### How it works
 
-The tool sums `total_tokens` across the issue's `run_history` rows (one per completed session) and adds the running session's recorded total from `session_metadata`. The orchestrator updates `session_metadata` incrementally during the session, throttled to at most one write per issue every two seconds and driven by token usage events, so the running number stays current. That total is added only when the stored dispatch ID matches `SORTIE_DISPATCH_ID`, so a stale row from an earlier dispatch is never counted.
+The tool counts tokens without prompt-cache reads, the count [`agent.max_tokens`](/reference/workflow-config/#agent) is compared with. For each of the issue's `run_history` rows (one per completed session) it takes `total_tokens` less `cache_read_tokens`, floored at zero, so cache writes still count. It sums those and adds the running session's recorded `total_tokens` less `cache_read_tokens` from `session_metadata`. The orchestrator updates `session_metadata` incrementally during the session, throttled to at most one write per issue every two seconds and driven by token usage events, so the running number stays current. That total is added only when the stored dispatch ID matches `SORTIE_DISPATCH_ID`, so a stale row from an earlier dispatch is never counted.
 
 At session exit, Sortie clears the row's dispatch ID before recording the finished run in `run_history`, so a completed session's row is never mistaken for one still running.
 
@@ -671,9 +671,9 @@ The fields below are returned under `data` in the standard success envelope:
 
 | Field | Type | Description |
 |---|---|---|
-| `used_tokens` | integer | Cumulative `total_tokens` across the issue's completed sessions, plus the running session's recorded spend. |
+| `used_tokens` | integer | Cumulative tokens without cache reads across the issue's completed sessions, plus the running session's recorded spend counted the same way. It is lower than a token total your runtime reports, because cache reads are left out, so do not compare the two. |
 | `budget_tokens` | integer | The configured [`agent.max_tokens`](/reference/workflow-config/#agent). `0` means unlimited. |
-| `remaining_tokens` | integer or null | `budget_tokens - used_tokens`, floored at 0. `null` when the budget is unlimited, so the agent can tell "no limit" from "nothing left". |
+| `remaining_tokens` | integer or null | `budget_tokens - used_tokens`, floored at 0, so it is counted without cache reads too. `null` when the budget is unlimited, so the agent can tell "no limit" from "nothing left". |
 | `used_sessions` | integer | Completed sessions for the issue. The running session is not counted. Unmeasured sessions still count here, because [`agent.max_sessions`](/reference/workflow-config/#agent) counts sessions rather than spend. |
 | `budget_sessions` | integer | The configured [`agent.max_sessions`](/reference/workflow-config/#agent). `0` means unlimited. |
 | `unmeasured_sessions` | integer | Completed sessions whose coding agent reported no token usage. `used_tokens` excludes them rather than counting them as zero spend. |

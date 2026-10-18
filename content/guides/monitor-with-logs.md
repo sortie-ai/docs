@@ -335,7 +335,7 @@ The ERROR means Sortie gave up. This issue won't be retried. Fix the underlying 
 time=2026-03-26T14:35:22.000+00:00 level=WARN msg="token budget exhausted, blocking re-dispatch" issue_id=abc123 issue_identifier=MT-649 reason=token_budget used_tokens=52000 budget_tokens=50000 used_sessions=3 budget_sessions=5
 ```
 
-This fires when `agent.max_tokens` is set and an issue's cumulative tokens across every completed session reach the configured ceiling. It is the pre-dispatch lane: it runs before a scheduled retry fires and blocks that dispatch. A session already running is stopped by a separate record, below. `used_tokens` is the issue's running total; `budget_tokens` is the ceiling it hit. `used_sessions` and `budget_sessions` report the same comparison for the session-count budget, in case the issue is close to both ceilings at once.
+This fires when `agent.max_tokens` is set and an issue's cumulative tokens across every completed session reach the configured ceiling. It is the pre-dispatch lane: it runs before a scheduled retry fires and blocks that dispatch. A session already running is stopped by a separate record, below. `used_tokens` is the issue's running total without prompt-cache reads, the count `agent.max_tokens` is compared with; `budget_tokens` is the ceiling it hit. `used_sessions` and `budget_sessions` report the same comparison for the session-count budget, in case the issue is close to both ceilings at once.
 
 A session whose coding agent reported no token usage at all is recorded as unmeasured and contributes nothing to `used_tokens`. When an issue is still under the ceiling but its total is known to fall short of what the issue really spent, Sortie says so and dispatches anyway:
 
