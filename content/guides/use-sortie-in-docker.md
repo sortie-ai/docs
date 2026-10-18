@@ -7,7 +7,7 @@ date: 2026-04-26
 weight: 180
 url: /guides/use-sortie-in-docker/
 ---
-Build a container image that pairs Sortie with your agent of choice. The published Sortie image is [distroless](https://github.com/GoogleContainerTools/distroless) and contains only the binary. You copy it into your own image and choose the base OS, runtime, and packages your agent needs.
+Build a container image that pairs Sortie with your agent of choice. The published Sortie image is [distroless](https://github.com/GoogleContainerTools/distroless) and holds the binary plus a `NOTICE` file with third-party attributions. You copy the binary into your own image and choose the base OS, runtime, and packages your agent needs.
 
 This guide supports two valid starting points:
 
@@ -36,7 +36,7 @@ The rest of this guide shows how to create equivalent Dockerfiles yourself, then
 
 ## Install Sortie into your image
 
-Sortie publishes a distroless image at `ghcr.io/sortie-ai/sortie`. It contains one file: `/usr/bin/sortie`. Copy the binary into your own Dockerfile using a multi-stage build:
+Sortie publishes a distroless image at `ghcr.io/sortie-ai/sortie`. The binary is `/usr/bin/sortie`, and the attributions are in `/usr/share/doc/sortie/NOTICE`. Copy the binary into your own Dockerfile using a multi-stage build:
 
 ```dockerfile
 FROM ghcr.io/sortie-ai/sortie:latest AS sortie
@@ -55,7 +55,7 @@ This pattern keeps Sortie agent-agnostic: it does not dictate your OS, package m
 
 ## Build an agent image
 
-Sortie's own image is distroless and holds only the binary, so the image you run is your agent's runtime with Sortie copied into it. The recipe is the same whichever agent you pick: start from the published image as a named stage, choose a base that provides the agent's runtime, install the agent, create a non-root user, copy the binary across, and make Sortie the entrypoint.
+Sortie's own image is distroless and holds only the binary and its `NOTICE` file, so the image you run is your agent's runtime with Sortie copied into it. The recipe is the same whichever agent you pick: start from the published image as a named stage, choose a base that provides the agent's runtime, install the agent, create a non-root user, copy the binary across, and make Sortie the entrypoint.
 
 Create `Dockerfile.agent`:
 

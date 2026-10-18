@@ -20,7 +20,7 @@ Run Sortie in a Kubernetes cluster using plain manifests: a Deployment, Persiste
 
 ### Build and push your image
 
-Sortie's published image is distroless. It contains only the binary. Build an agent-specific image using one of the example Dockerfiles, then push it to your container registry:
+Sortie's published image is distroless. It holds the binary and a `NOTICE` file. Build an agent-specific image using one of the example Dockerfiles, then push it to your container registry:
 
 ```sh
 docker build -f examples/docker/claude-code.Dockerfile -t registry.example.com/sortie-claude:v1.0.0 .
