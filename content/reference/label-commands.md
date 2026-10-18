@@ -115,7 +115,7 @@ Because the read-only turn loop is not gated on issue state, its turn budget res
 
 ### The `label_review` continuation key
 
-The dispatch injects the PR coordinates on turn one through the `label_review` continuation key. Its value is a map on a review dispatch and nil on every other dispatch.
+The dispatch injects the PR coordinates through the `label_review` continuation key on every turn of the review run. Its value is a map on a review dispatch and nil on every other dispatch.
 
 | Field          | Type    | Meaning                                                       |
 | -------------- | ------- | ------------------------------------------------------------- |
@@ -125,9 +125,7 @@ The dispatch injects the PR coordinates on turn one through the `label_review` c
 | `actor`        | string  | login that applied the review label                          |
 | `requested_at` | string  | RFC 3339 timestamp of the confirmed labeling gesture          |
 
-**Template contract.** The prompt template must contain a `{{ if .label_review }}` branch instructing the agent to fetch the diff and post its review. Without that branch, a review dispatch renders the normal work prompt against the scratch directory and posts no review.
-
-Go templates give no signal of which keys a template referenced, so the missing branch cannot be detected at render time. The workflow loader logs an advisory warning at load when `label_commands` is active with a non-empty review label but the template text does not reference `label_review`. The warning never fails the load.
+**Template contract.** A `{{ if .label_review }}` branch in the prompt template is optional. A branch replaces the built-in review prompt, which asks the agent to fetch the diff, review it, and post its review comments. The [built-in reaction prompts](/reference/workflow-config/#built-in-reaction-prompts) section states the rule that chooses between the two.
 
 **Credentials.** The reviewing agent inherits the orchestrator's process environment, so SCM credentials present there (the standard token or CLI-auth deployment) reach a no-clone session even with the setup hooks skipped. Auth provisioned solely by a workspace setup hook (for example a checkout-scoped git credential helper written during `after_create`) does not exist in a review session, because no such hook runs. An operator relying on hook-local auth must also expose the credential in the orchestrator's environment for review sessions.
 
@@ -159,7 +157,7 @@ Because the fix turn loop is not gated on issue state, its turn budget rests on 
 
 ### The `label_fix` continuation key
 
-The dispatch injects the PR coordinates and the head branch through the `label_fix` continuation key. Its value is a map on a fix dispatch and nil on every other dispatch, mirroring `label_review` with the added `branch` field.
+The dispatch injects the PR coordinates and the head branch through the `label_fix` continuation key on every turn of the fix run. Its value is a map on a fix dispatch and nil on every other dispatch, mirroring `label_review` with the added `branch` field.
 
 | Field          | Type    | Meaning                                                       |
 | -------------- | ------- | ------------------------------------------------------------- |
@@ -170,9 +168,7 @@ The dispatch injects the PR coordinates and the head branch through the `label_f
 | `actor`        | string  | login that applied the fix label                             |
 | `requested_at` | string  | RFC 3339 timestamp of the confirmed labeling gesture          |
 
-**Template contract.** The prompt template must contain a `{{ if .label_fix }}` branch instructing the agent to check out the branch, address the review comments, push fixes, and post a summary comment. The workflow loader logs an advisory warning at load when `label_commands` is active with a non-empty fix label but the template text does not reference `label_fix`.
-
-Unlike a misfired review dispatch, which runs against a scratch directory and structurally pushes and posts nothing, a misfired fix dispatch runs the normal work prompt against a real checkout with push capability, so it cannot be assumed to be inert. The warning stays advisory (it never fails the load), because a text scan over template source is a heuristic.
+**Template contract.** A `{{ if .label_fix }}` branch in the prompt template is optional. A branch replaces the built-in fix prompt, which asks the agent to check out the head branch, address the outstanding review comments, push the fixes to that branch, and post a summary comment. The [built-in reaction prompts](/reference/workflow-config/#built-in-reaction-prompts) section states the rule that chooses between the two.
 
 **Credentials.** The fix agent inherits the orchestrator's process environment and any checkout-scoped credential the operator setup hooks provision during `after_create`. Because the fix session runs those hooks, it has more credential paths available than a review session, not fewer.
 

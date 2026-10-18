@@ -364,8 +364,6 @@ Every check in this group runs for every agent kind the configuration can reach,
 **Recorded advisories:**
 
 - **Label-commands poll interval clamped** (`reactions.label_commands.poll_interval_ms.clamped`). [`reactions.label_commands.poll_interval_ms`](/reference/workflow-config/#reactionslabel_commands) is set below its floor of `30000`; the floor is used instead.
-- **Label-commands review branch missing** (`reactions.label_commands.review_branch_missing`). `reactions.label_commands` is active with a review label, but neither the prompt body nor a shared block it calls has a `{{ if .label_review }}` branch, so a review dispatch posts no review.
-- **Label-commands fix branch missing** (`reactions.label_commands.fix_branch_missing`). `reactions.label_commands` is active with a fix label, but neither the prompt body nor a shared block it calls has a `{{ if .label_fix }}` branch, so a fix dispatch runs the normal work prompt against a checkout that can push.
 - **Env file missing** (`env_file.missing`). The file named by [`--env-file`](#--env-file) or `SORTIE_ENV_FILE` does not exist; no values are read from it.
 - **Env override replaced a non-mapping section** (`env_override.section_replaced`). A [`SORTIE_*` override](/reference/environment/#configuration-overrides) targets a section that is not a YAML mapping; the section is replaced with one holding only the overridden settings.
 - **Deprecated agent kind** (`agent.kind.deprecated`). A reachable agent kind is registered as deprecated: it still runs unchanged, and the message names the kind that replaces it and says a later release removes it. One warning per deprecated kind, for every kind named by `agent.kind`, `dispatch.default.agent`, or a `dispatch.rules[i].agent`. Move the workflow to the replacement kind to end it.
@@ -516,8 +514,6 @@ Warning diagnostics use a separate set of check values. They appear only in the 
 | `agent.kind.no_usage_reporting` | `agent.max_tokens` is set against an agent kind that reports no token usage for the sessions this configuration produces, so the per-issue token ceiling has nothing to count against. |
 | `agent.kind.no_cost_estimate` | `token_rates` prices an agent kind that reports no token usage for the sessions this configuration produces, so no cost can be estimated for it. |
 | `reactions.label_commands.poll_interval_ms.clamped` | `reactions.label_commands.poll_interval_ms` is set below its floor of `30000`; the floor is used instead. |
-| `reactions.label_commands.review_branch_missing` | `reactions.label_commands` is active with a review label, but neither the prompt body nor a shared block it calls has a `{{ if .label_review }}` branch, so a review dispatch posts no review. |
-| `reactions.label_commands.fix_branch_missing` | `reactions.label_commands` is active with a fix label, but neither the prompt body nor a shared block it calls has a `{{ if .label_fix }}` branch, so a fix dispatch runs the normal work prompt against a checkout that can push. |
 | `env_file.missing` | The file named by [`--env-file`](#--env-file) or `SORTIE_ENV_FILE` does not exist; no values are read from it. |
 | `env_override.section_replaced` | A `SORTIE_*` override targets a section that is not a YAML mapping; the section is replaced with one holding only the overridden settings. |
 | `agent.kind.deprecated` | A reachable agent kind is deprecated: it still runs, and the message names its replacement. |

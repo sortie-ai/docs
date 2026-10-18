@@ -158,7 +158,7 @@ If `.sortie/scm.json` is absent, is missing the pull request identity, or fails 
 
 ## What the agent sees
 
-On a CI-fix continuation dispatch, Sortie injects failure context into the first-turn prompt via the `{{ .ci_failure }}` template variable. This variable is `nil` on normal dispatches and non-CI retries, so your template can conditionally render it.
+On a CI-fix dispatch, Sortie injects failure context through the `{{ .ci_failure }}` template variable. The variable is set on every turn of the CI-fix run and is `nil` on normal dispatches and non-CI retries, so your template can conditionally render it.
 
 The `ci_failure` object contains:
 
@@ -170,7 +170,7 @@ The `ci_failure` object contains:
 | `failing_count` | integer | Number of failing checks. |
 | `ref` | string | The git ref (branch or SHA) that was checked. |
 
-Add a conditional block to your prompt template:
+A template needs no block to act on a failure: without one, Sortie sends a built-in prompt that lists the failing checks and the log excerpt and asks the agent to fix the cause and push to the branch the checks ran on. To write your own instructions, add a conditional block to your prompt template. A block replaces the built-in prompt:
 
 ````jinja
 {{ if .ci_failure }}
@@ -213,7 +213,7 @@ FAIL	example.com/app/internal/orchestrator	1.204s
 
 The first line tells the agent whether it reads the failing step or only the end of the job log. The [excerpt format reference](/reference/reactions/#reactionsci_failure) lists every form of that line. Your template can print the excerpt as it is.
 
-The failure context is injected on the first turn of the CI-fix dispatch only. It persists in the agent's conversation history from turn 1, so subsequent turns within the same session don't need it repeated.
+A block like this one renders again on every turn of the CI-fix run. To send the failure details once, put the block's text inside `{{ if not .run.is_continuation }}`. On later turns the template then renders the same text with and without the failure, and Sortie sends the short built-in resume text in place of the template, which points the agent back to its first-turn instructions. For the rule behind that choice, see [built-in reaction prompts](/reference/workflow-config/#built-in-reaction-prompts).
 
 For more on template syntax, see [Write a prompt template](/guides/write-prompt-template/).
 

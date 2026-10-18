@@ -118,7 +118,7 @@ Debounce prevents premature dispatch while a reviewer is still commenting. A rev
 
 ## What the agent sees
 
-The agent receives review comments through the `review_comments` template variable. Add a conditional block to your prompt template:
+The agent receives review comments through the `review_comments` template variable, set on every turn of a review-fix run. Without a block that uses it, Sortie sends a built-in prompt that lists every comment with its reviewer and location and asks the agent to address each one and push to the pull request's branch. To write your own instructions, add a conditional block to your prompt template. A block replaces the built-in prompt:
 
 ```
 {{ if .review_comments }}
@@ -150,9 +150,9 @@ Each comment exposes:
 
 For template syntax details, see [Write a prompt template](/guides/write-prompt-template/).
 
-### Make sure the template shows the comments
+### Choose between an added block and an exclusive branch
 
-Sortie counts a comment as given only when the first prompt of a run shows it, and records that when the run exits normally. If your template never prints `review_comments`, nothing is recorded and the same comments can start another turn. Keep the block above in the template the review turns use.
+A review-fix run counts every comment it carries as given, whichever prompt it receives, and records that when the run exits normally. The shape of your template decides what else the run receives. An added block, like the one above, sends the work prompt and the comments, on every turn of the run. A branch in an exclusive `{{ if }}` / `{{ else }}` chain sends the comments without the work prompt. The rule is in [built-in reaction prompts](/reference/workflow-config/#built-in-reaction-prompts).
 
 ### Give a new run its pending review comments
 

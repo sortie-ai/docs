@@ -46,46 +46,45 @@ reactions:
 
 `provider` is the activation key; with the block absent or `provider` empty, label commands are off. Each label defaults to its namespaced name; set either to an explicit empty string to disable that command, or to a custom name to point at a team label. Every field in this block takes effect at startup, so you restart Sortie after changing it. For the field table, see the [workflow configuration reference](/reference/workflow-config/).
 
-## Add the template branches
+## Write your own instructions (optional)
 
-The review dispatch injects PR coordinates into a `.label_review` map, and the fix dispatch injects them into a `.label_fix` map (with the head branch added). Your prompt template turns those coordinates into instructions with a `{{ if .label_review }}` branch and a `{{ if .label_fix }}` branch. The shipped example workflows in `examples/` already carry both:
+Label commands work without a template change. When the prompt template has no branch for a command, Sortie sends a built-in prompt. The review prompt asks the agent to fetch the diff of the pull request, review it, and post its review comments. The fix prompt asks the agent to check out the head branch, address the outstanding review comments, push the fixes to that branch, and post a summary comment.
+
+To give the agent your own instructions, add a branch for the command. The review dispatch injects PR coordinates into a `.label_review` map, and the fix dispatch injects them into a `.label_fix` map (with the head branch added). A branch replaces the built-in prompt for its command. The shipped example workflows in `examples/` chain both branches ahead of the work prompt, so a label run receives only its own instructions:
 
 ```gotemplate
 {{ if .label_review }}
 
 ## Review This Pull Request
 
-Produce a code review of pull request #{{ .label_review.pr_number }} in
+Produce a code review of pull request {{ .label_review.pr_number }} in
 {{ .label_review.owner }}/{{ .label_review.repo }}, requested by {{ .label_review.actor }}.
 
 1. Fetch the diff for this PR using your SCM tooling.
 2. Review the changes for correctness, clarity, and regressions.
 3. Post your review comments on the PR. Do not modify the branch or push commits.
-{{ end }}
+4. Write `needs-human-review` to `.sortie/status` to signal completion.
 
-{{ if .label_fix }}
+{{ else if .label_fix }}
 
 ## Fix This Pull Request
 
-Check out {{ .label_fix.branch }} for pull request #{{ .label_fix.pr_number }} in
+Check out {{ .label_fix.branch }} for pull request {{ .label_fix.pr_number }} in
 {{ .label_fix.owner }}/{{ .label_fix.repo }}, requested by {{ .label_fix.actor }}.
 
 1. Fetch the outstanding review comments for this PR using your SCM tooling.
 2. Address the feedback and push the fixes to {{ .label_fix.branch }}.
 3. Post a summary comment on the PR describing the changes you made.
 4. Write `needs-human-review` to `.sortie/status` to signal completion.
+
+{{ else }}
+
+<your work prompt>
+
 {{ end }}
 ```
 
-The agent fetches the diff or the comments and posts to the PR through its own SCM tooling; the orchestrator injects only the coordinates and posts nothing. For the full continuation-key schema, see the [label commands reference](/reference/label-commands/).
-
-Without the `label_review` branch, a review dispatch renders your normal work prompt and posts nothing. Sortie cannot detect the missing branch when it renders the template, so it records an advisory warning, both in the run log and in `sortie validate`'s report (see the [CLI reference](/reference/cli/#advisory-warnings) for how often each reports it). Grep your logs for it:
-
-```
-label_commands active but prompt template has no label_review branch
-```
-
-The fix command has the parallel warning, `label_commands active but prompt template has no label_fix branch`. Both are advisory and never fail the load.
+The agent fetches the diff or the comments and posts to the PR through its own SCM tooling; the orchestrator injects only the coordinates and posts nothing. For the full continuation-key schema, see the [label commands reference](/reference/label-commands/). For how Sortie chooses between your branch and the built-in prompt, and what a branch appended to the work prompt does, see [built-in reaction prompts](/reference/workflow-config/#built-in-reaction-prompts).
 
 ## Validate and restart
 
@@ -158,7 +157,7 @@ curl -s http://localhost:7678/api/v1/MT-649 | jq '.pending_reactions[] | select(
 
 `"retry_slot"` means the command waits for that run. Remove the label to cancel it.
 
-**The session runs but no review or fix appears.** The prompt template is missing the `{{ if .label_review }}` (or `{{ if .label_fix }}`) branch, so the dispatch rendered your normal work prompt. Run `sortie validate` to see the advisory offline: it reports `reactions.label_commands.review_branch_missing` (or `..._fix_branch_missing`) every time you run it, unlike the run log, which prints the matching warning only once. Add the branch from the shipped example, and reload.
+**The session runs but no review or fix appears.** The agent posts and pushes through its own SCM tooling, so it needs credentials that reach the forge. A review session runs no setup hooks, so a credential that only a hook provides is missing there; see the [credentials note](/reference/label-commands/#the-label_review-continuation-key) in the reference. If you wrote your own branch, check that it asks the agent to post the review or push the fix.
 
 **The label never disappears after the session starts.** The label-removal write failed (a missing scope or a transport error). Sortie logs a warning and proceeds, because acceptance rests on its own record rather than on the removal. Remove the stale label manually before you issue the next command.
 

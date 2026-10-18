@@ -1779,7 +1779,7 @@ worker:
 
 The markdown body after the closing `---` is a Go `text/template` rendered per issue. The template engine runs in strict mode (`missingkey=error`): referencing an undefined variable or function fails rendering immediately.
 
-The template receives four core top-level variables on every render, `.issue`, `.attempt`, `.run`, and `.stage`, plus six reaction continuation variables that are `nil` except on the first turn of the matching reaction-triggered dispatch (`.review_comments` and `.bot_review_comments` are also set on the first turn of a new run, as described under each): `.ci_failure`, `.review_comments`, `.bot_review_comments`, `.merge_conflict`, `.label_review`, and `.label_fix`. Every continuation variable defaults to `nil` so a template referencing it renders under `missingkey=error` even when the corresponding reaction is never configured.
+The template receives four core top-level variables on every render, `.issue`, `.attempt`, `.run`, and `.stage`, plus reaction continuation variables that are `nil` except on every turn of the matching reaction run (`.review_comments` and `.bot_review_comments` are also set on the first turn of a new run, as described under each): `.ci_failure`, `.review_comments`, `.bot_review_comments`, `.merge_conflict`, `.label_review`, and `.label_fix`. Every continuation variable defaults to `nil` so a template referencing it renders under `missingkey=error` even when the corresponding reaction is never configured.
 
 ### `.issue`
 
@@ -1834,7 +1834,7 @@ Present on every render, first and continuation turns alike, and never `nil`, so
 
 ### `.ci_failure`
 
-Available only on the first turn of a CI-fix continuation dispatch. `nil` on normal dispatches and non-CI retries.
+Set on every turn of a CI-fix run. `nil` on normal dispatches and non-CI retries.
 
 | Field                    | Type            | Description                                                                                       |
 | ------------------------ | --------------- | ------------------------------------------------------------------------------------------------- |
@@ -1846,7 +1846,7 @@ Available only on the first turn of a CI-fix continuation dispatch. `nil` on nor
 
 ### `.review_comments`
 
-Set on the first turn of a review-fix continuation dispatch, and on the first turn of a new run of an issue whose pull request holds review comments no earlier run was given, under the conditions in [comments already given](/reference/reactions/#comments-already-given). `nil` on every other turn.
+Set on every turn of a review-fix run, and on the first turn of a new run of an issue whose pull request holds review comments no earlier run was given, under the conditions in [comments already given](/reference/reactions/#comments-already-given). `nil` on every other turn.
 
 A list of maps, one per actionable review comment. Outdated comments (referring to code modified by a subsequent push) are excluded.
 
@@ -1874,13 +1874,13 @@ A list of maps, one per actionable review comment. Outdated comments (referring 
 
 ### `.bot_review_comments`
 
-Set on the first turn of a bot-review-fix continuation dispatch, triggered by [`reactions.bot_review`](/reference/reactions/#reactionsbot_review), and on the first turn of a new run of an issue whose pull request holds bot comments no earlier run was given, under the same conditions as `.review_comments`. `nil` on every other turn.
+Set on every turn of a bot-review-fix run, triggered by [`reactions.bot_review`](/reference/reactions/#reactionsbot_review), and on the first turn of a new run of an issue whose pull request holds bot comments no earlier run was given, under the same conditions as `.review_comments`. `nil` on every other turn.
 
 Same per-element shape as [`.review_comments`](#review_comments): a list of maps with `.id`, `.file`, `.start_line`, `.end_line`, `.reviewer` (the bot's login), and `.body`.
 
 ### `.merge_conflict`
 
-Available only on the first turn of a merge-conflict-resolution continuation dispatch, triggered by [`reactions.merge_conflicts`](/reference/reactions/#reactionsmerge_conflicts). `nil` on normal dispatches and non-conflict retries.
+Set on every turn of a merge-conflict-resolution run, triggered by [`reactions.merge_conflicts`](/reference/reactions/#reactionsmerge_conflicts). `nil` on normal dispatches and non-conflict retries.
 
 | Field                        | Type    | Description                                                                    |
 | ---------------------------- | ------- | -------------------------------------------------------------------------------- |
@@ -1891,7 +1891,7 @@ Available only on the first turn of a merge-conflict-resolution continuation dis
 
 ### `.label_review`
 
-Available only on the first turn of a read-only label-review dispatch, triggered when an operator applies [`reactions.label_commands.review_label`](#reactionslabel_commands) to a Sortie-managed PR. `nil` on every other dispatch.
+Set on every turn of a read-only label-review run, triggered when an operator applies [`reactions.label_commands.review_label`](#reactionslabel_commands) to a Sortie-managed PR. `nil` on every other dispatch.
 
 | Field                          | Type    | Description                                            |
 | ------------------------------- | ------- | -------------------------------------------------------- |
@@ -1901,11 +1901,11 @@ Available only on the first turn of a read-only label-review dispatch, triggered
 | `.label_review.actor`          | string  | Login of the operator who applied the review label.       |
 | `.label_review.requested_at`   | string  | RFC 3339 timestamp of the labeling gesture.                |
 
-The orchestrator injects only these coordinates. It never fetches the PR diff and never posts a comment itself; a template that omits `{{ if .label_review }}` produces no review on a label-review dispatch.
+The orchestrator injects only these coordinates. It never fetches the PR diff and never posts a comment itself; a template that omits `{{ if .label_review }}` gets the [built-in review prompt](#built-in-reaction-prompts).
 
 ### `.label_fix`
 
-Available only on the first turn of a fix dispatch, triggered when an operator applies [`reactions.label_commands.fix_label`](#reactionslabel_commands) to a Sortie-managed PR. `nil` on every other dispatch.
+Set on every turn of a fix run, triggered when an operator applies [`reactions.label_commands.fix_label`](#reactionslabel_commands) to a Sortie-managed PR. `nil` on every other dispatch.
 
 | Field                       | Type    | Description                                              |
 | ----------------------------- | ------- | ------------------------------------------------------------ |
@@ -1916,7 +1916,77 @@ Available only on the first turn of a fix dispatch, triggered when an operator a
 | `.label_fix.actor`           | string  | Login of the operator who applied the fix label.               |
 | `.label_fix.requested_at`    | string  | RFC 3339 timestamp of the labeling gesture.                     |
 
-The orchestrator injects only these coordinates. It never fetches review comments and never pushes or comments itself; a template that omits `{{ if .label_fix }}` runs the normal work prompt against a real checkout with push capability instead of producing a fix.
+The orchestrator injects only these coordinates. It never fetches review comments and never pushes or comments itself; a template that omits `{{ if .label_fix }}` gets the [built-in fix prompt](#built-in-reaction-prompts).
+
+### Built-in reaction prompts
+
+Each reaction variable has a built-in prompt, so a reaction run always has instructions for its reaction. A branch in the template replaces the built-in prompt for its variable. No setting changes the built-in text.
+
+Sortie chooses on every turn of a reaction run, against the template that run renders: the one a [dispatch rule](#dispatch) routes the run to, or the one the run was frozen with. A reaction run is a run that a reaction starts, error retries included. The choice happens when Sortie renders the prompt, not when the workflow loads, so `sortie validate` has no missing-branch warning to give. Sortie renders the template twice, once with the run's reaction data and once without it:
+
+- When the render with the data is not blank and differs from the render without it, Sortie sends the render with the data. This is the operator's branch.
+- Otherwise Sortie renders the built-in prompt for the variable with the same data and sends that.
+
+These cases follow from the rule:
+
+- A branch that renders only whitespace counts as no branch.
+- A template that renders the same text with and without the data counts as no branch, because it does not react to the variable.
+- A template that cannot render without the data, such as one that reads `{{ .label_fix.branch }}` outside any `{{ if .label_fix }}` block, counts as having a branch. Its render with the data is sent, and a failure of that render fails the run like any other template error.
+
+The built-in prompts ask for the following.
+
+| Variable | The agent is asked to |
+| -------- | --------------------- |
+| `.ci_failure` | Fix the failing checks, listed with the log excerpt of the first failing one. Commit and push the fix to the branch the checks ran on. |
+| `.review_comments`, `.bot_review_comments` | Address every comment, each listed with its author and location. Commit and push the changes to the pull request's branch. |
+| `.merge_conflict` | Fetch the base branch, rebase the pull request's branch onto it, resolve every conflict while keeping the intent of the pull request and the base changes, and push. |
+| `.label_review` | Fetch the diff of the pull request, review it, and post the review comments, without modifying the branch or pushing. |
+| `.label_fix` | Check out the pull request's branch, fetch the outstanding review comments, address them, push to that branch only, and post a summary comment. |
+
+The log excerpt and each comment body come from outside Sortie. The built-in prompts pass them as JSON strings inside `<ci_log>` and `<review_comment>` blocks and tell the agent to treat them as data, not instructions. JSON encoding escapes quotes, line breaks, and angle brackets, so the text cannot close its block.
+
+The first-turn text of each built-in prompt ends by asking the agent to signal its outcome, as the status instructions Sortie appends to every first turn describe, so a run that finishes its task ends without using every turn. On later turns the built-in prompt sends the agent back to the instructions it received at the start of the session and adds no task. That text suits a session whose first turn came from an operator's branch as well as one whose first turn came from the built-in prompt.
+
+An operator's branch renders again on every turn and sends the same text each time. To send shorter text on later turns, test `.run.is_continuation` inside the branch:
+
+```
+{{ if .label_fix }}
+{{ if .run.is_continuation }}
+<fix resume text>
+{{ else }}
+<fix instructions>
+{{ end }}
+{{ else if .run.is_continuation }}
+<resume text>
+{{ else }}
+<work prompt>
+{{ end }}
+```
+
+A top-level `{{ if .run.is_continuation }}` that keeps the reaction branches only in its first-turn text does not do this. On later turns it renders the same resume text with and without the data, so Sortie sends the built-in continuation text instead.
+
+**A reaction block inside the work prompt.** A block appended to the work prompt counts as the operator's branch, because the render differs with the data. The run then receives the whole work prompt with the block on every turn. To send only the reaction's instructions, put the branches in one exclusive chain, with the work prompt in the last `else`:
+
+```
+{{ if .label_review }}
+<review instructions>
+{{ else if .label_fix }}
+<fix instructions>
+{{ else if .merge_conflict }}
+<conflict instructions>
+{{ else }}
+<work prompt>
+{{ end }}
+```
+
+An appended block keeps the task description in front of the agent, which suits instructions that build on the work prompt. An exclusive chain keeps the work prompt out of a reaction run, which suits a fix on a checkout that can push. The shipped example workflows use the exclusive chain.
+
+`.review_comments` and `.bot_review_comments` also reach the first turn of a new run, and the shape of the branch decides what each kind of run receives:
+
+| Template shape | New run given the comments | Review-fix run |
+| -------------- | -------------------------- | -------------- |
+| An added block | The work prompt and the comments | The work prompt and the comments |
+| An exclusive branch, or no block | No comments | The comments in the branch or the built-in prompt, and no work prompt |
 
 ### Turn semantics
 
@@ -1927,9 +1997,10 @@ The full template is rendered on every turn. The runtime passes the complete ren
 | First run                    | `0`                | `false`                  | n/a                                          | `nil`                                 |
 | Continuation                  | same as turn 1     | `true`                   | n/a                                          | `nil`                                 |
 | Retry after error             | `>= 1`             | `false`                  | n/a                                          | `nil`                                 |
-| Reaction-triggered dispatch (CI-fix, review-fix, bot-review-fix, merge-conflict, label-review, label-fix) | same as previous   | `false`                  | populated (see the variable's own section above) | `nil`                                 |
+| First turn of a reaction-triggered dispatch (CI-fix, review-fix, bot-review-fix, merge-conflict, label-review, label-fix) | same as previous   | `false`                  | populated (see the variable's own section above) | `nil`                                 |
+| Continuation turn of a reaction run | same as turn 1 | `true` | populated, as on turn 1 | `nil` |
 
-Only the one continuation variable matching the triggering reaction is non-nil on that dispatch's first turn; the other five are `nil`. On continuation turns, if the rendered prompt is empty, Sortie substitutes a built-in default continuation prompt. On the first turn, an empty rendered prompt is passed through as-is.
+Only the continuation variable matching the triggering reaction is non-nil on a reaction run; every other one is `nil`. On a run that no reaction started, an empty rendered prompt on a continuation turn is replaced by a built-in default continuation prompt, and an empty first-turn prompt is passed through as-is. On a reaction run, a blank render or one that ignores the reaction's variable yields the built-in prompt for the variable on any turn; see [Built-in reaction prompts](#built-in-reaction-prompts).
 
 ### Template functions
 

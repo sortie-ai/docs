@@ -101,7 +101,7 @@ When a poll finds a changed set whose comments were all given before, because a 
 
 A comment the agent received but left unaddressed is not sent again when its siblings go away; it comes back with the next new comment. A turn that does start carries every remaining comment, the ones the agent already has included.
 
-**What counts as given.** A run is given the comments its first prompt shows, recorded when the run exits normally. A prompt shows them when rendering it without the kind's template variable changes the text, so a template that never prints `review_comments` (or `bot_review_comments`) hands nothing over and the same comments can start another turn. A run that fails or is cancelled records nothing.
+**What counts as given.** A review-fix run is given every comment it carries, whether its prompt comes from the template or from the [built-in prompt](/reference/workflow-config/#built-in-reaction-prompts). A new run is given the comments its first prompt shows. That prompt shows them when rendering it without the kind's template variable changes the text, so a template that never prints `review_comments` (or `bot_review_comments`) hands a new run nothing and the same comments can start a later turn. Either way, Sortie records the comments when the run exits normally. A run that fails or is cancelled records nothing.
 
 **What else is not new.** A comment carried by the issue's turn that is still running is not new. For `bot_review`, a comment an earlier spent-budget pass or triage escalation already reported to a person is not new either; that record is forgotten together with the kind's attempt counter (see [retry budgets](#retry-budgets)) and is never stored, so a restart clears it.
 
