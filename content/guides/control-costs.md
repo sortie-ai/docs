@@ -263,7 +263,7 @@ token_rates:
     cache_write_per_mtok: 0.00
 ```
 
-Without `token_rates`, the dashboard shows raw token counts only. See the [`token_rates` reference](/reference/workflow-config/#token_rates) for the full schema.
+Without `token_rates`, the dashboard shows raw token counts only. Set the rates before the runs you want priced: Sortie prices each run once, when it finishes, so a run that finished without a rate stays unpriced, and a later rate change leaves past costs as they were. An edit applies without a restart. See the [`token_rates` reference](/reference/workflow-config/#token_rates) for the full schema and the reload rules.
 
 **JSON API.** To see what one issue has spent and how much of its budget is left while a session runs, read the issue's running entry:
 
@@ -323,7 +323,7 @@ For the spend figures themselves, reach for `sortie stats` or the `sortie_tokens
 
 **`sortie stats`.** The `stats` subcommand reports what finished work actually cost, aggregated from the local database over a range you choose and broken down by outcome, coding agent, dispatch rule, and prompt template.
 
-It is the only one of these surfaces that reports historical spend against completed runs rather than live or per-event figures, which makes it the one to reach for when the question is which dispatch rule or prompt template is burning the budget. Cost figures need `token_rates`, exactly as the dashboard does; without it you get token counts and no dollars.
+It is the only one of these surfaces that reports historical spend against completed runs rather than live or per-event figures, which makes it the one to reach for when the question is which dispatch rule or prompt template is burning the budget. It reads the cost recorded with each run, so runs that finished without a rate for their agent kind show token counts and no dollars.
 
 ```sh
 sortie stats --since 24h WORKFLOW.md

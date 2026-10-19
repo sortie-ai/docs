@@ -545,13 +545,13 @@ For details on each check, see [GitHub adapter validate-time checks](/reference/
 
 ### `stats`
 
-Reports how past runs went and what they cost. Sortie appends one row to `run_history` each time an agent session finishes; `stats` reads that history back over a time range and aggregates it into run counts, the number of issues those runs belong to, success rate, duration percentiles, turns, token sums, and derived cost, broken down by outcome, by coding agent, by dispatch rule, by prompt template, by configured model, by stage chain, by retry trigger, and by run origin, plus a funnel for each stage chain. The database is opened read-only, so the command is safe to run while the orchestrator is working, and it makes no network call. A running Sortie serves the same report over HTTP at [`GET /api/v1/stats`](/reference/http-api/#get-apiv1stats-run-statistics).
+Reports how past runs went and what they cost. Sortie appends one row to `run_history` each time an agent session finishes; `stats` reads that history back over a time range and aggregates it into run counts, the number of issues those runs belong to, success rate, duration percentiles, turns, token sums, and the estimated cost recorded with each run, broken down by outcome, by coding agent, by dispatch rule, by prompt template, by configured model, by stage chain, by retry trigger, and by run origin, plus a funnel for each stage chain. The database is opened read-only, so the command is safe to run while the orchestrator is working, and it makes no network call. A running Sortie serves the same report over HTTP at [`GET /api/v1/stats`](/reference/http-api/#get-apiv1stats-run-statistics).
 
 ```
 sortie stats [--format text|json] [--since value] [--until value] [workflow-path]
 ```
 
-The workflow file supplies three things: `db_path`, which locates the database; [`token_rates`](/reference/workflow-config/#token_rates), which prices the recorded token counts; and the [`dispatch`](/reference/workflow-config/#dispatch) section, whose stage chains define the [stage funnels](#stage-funnels). The command reads those, opens the database read-only, writes the report, and exits. It does not start the orchestrator, apply migrations, spawn agents, or write anything.
+The workflow file supplies two things: `db_path`, which locates the database, and the [`dispatch`](/reference/workflow-config/#dispatch) section, whose stage chains define the [stage funnels](#stage-funnels). The command reads those, opens the database read-only, writes the report, and exits. It does not start the orchestrator, apply migrations, spawn agents, or write anything. It prices nothing either: it reads the cost Sortie recorded with each run when the run finished, so the [`token_rates`](/reference/workflow-config/#token_rates) the file holds now plays no part in the report.
 
 The command loads the `dispatch` section on every run, whether or not it defines a stage chain. A section that does not load, such as a rule whose prompt template file is missing, stops the command with the error on stderr, in the form `sortie validate` prints it, and exit code `1`. No report is written.
 
@@ -632,7 +632,15 @@ A degraded report is still a report: the warning goes to stderr in text mode and
 
 The remedy is to run the orchestrator once with this workflow. Startup applies the pending migrations, and runs recorded from then on carry the full set. `stats` cannot do this itself; its read-only connection cannot apply a migration.
 
-A full-tier database that predates `cache_write_tokens` remains full. The command reports `cache_write` as `0` and prices those historical input tokens at `input_per_mtok`, matching how they were recorded before the cache-write counter existed.
+A full-tier database that predates `cache_write_tokens` remains full. The command reports `cache_write` as `0` for those runs, whose input tokens were priced at `input_per_mtok`, matching how they were recorded before the cache-write counter existed.
+
+On a `full` database written before Sortie recorded the cost of each run, the report leaves out cost: every cost figure is `null` (`-` in text), `cost_unpriced_runs` is `0`, and `warnings` carries this message. The exit code is `0`.
+
+```
+warning: this database was written before sortie recorded the cost of each run, so the report leaves out cost. Run sortie once with this workflow to add it.
+```
+
+The start that adds the cost columns also prices the runs recorded before them, once, under the `token_rates` in force at that start. When the database also predates the column of a breakdown, such as the [configured model](#configured-model-breakdown), the report carries that breakdown's warning instead, ending with `The report also leaves out cost until then.`
 
 When `run_history` is absent altogether, or missing any of `status`, `agent_adapter`, `started_at`, or `completed_at`, the file is not a Sortie database and the command exits `1`:
 
@@ -645,7 +653,7 @@ sortie stats: run_history table not found or missing base columns
 The `by configured model` table (`by_model` in JSON) groups runs by the `model` their resolved settings carried when they started, the value a [dispatch rule](/reference/workflow-config/#dispatch) can set per issue. It is not the model the runtime reported running; the two can differ, and [how the two differ](/reference/http-api/#configured-and-reported-model) is explained with the running session fields. `stats` groups by the configured value only.
 
 - A run that configured no model, so the runtime used its own default, is grouped under `<none>`. So is every run recorded before Sortie stored the configured model, and every `ci_failed` run, which records no model.
-- Cost is priced at the rate of the run's coding agent, as in every other breakdown. `token_rates` has no per-model entry, so two models of one agent kind are priced alike.
+- Each run's cost was priced at the rate of its coding agent, as in every other breakdown. `token_rates` has no per-model entry, so two models of one agent kind are priced alike.
 - The table follows the prompt-template table in text output.
 
 On a `full` database written before Sortie recorded the configured model, the report carries no breakdown: `by_model` is `[]`, never `null`, the text report omits the table, and `warnings` carries this message. The exit code is `0`.
@@ -849,9 +857,9 @@ This warning comes second to last in the precedence of breakdown warnings, ahead
 
 Both formats carry the same figures. Breakdown rows are sorted by descending run count, with ties broken by ascending name. A run that recorded no dispatch rule, prompt template, or configured model appears under the sentinel name `<none>`, which also covers an empty agent adapter. Rounding is fixed so repeated runs over the same data produce identical output: rates and shares to four decimals, cost and mean turns to two, mean duration to one.
 
-The summary's duration and mean-turn figures cover **succeeded runs only**, so they describe the work that landed rather than the volume attempted. Token sums, and every cost figure derived from them, cover **measured runs only**: a run whose coding agent reported no token usage records that fact and is left out of those figures instead of counting as a run that spent nothing.
+The summary's duration and mean-turn figures cover **succeeded runs only**, so they describe the work that landed rather than the volume attempted. Token sums and cost figures cover **measured runs only**: a run whose coding agent reported no token usage records that fact and is left out of those figures instead of counting as a run that spent nothing.
 
-A run counts as succeeded when its status is exactly `succeeded`. Cost is never stored; it is derived at report time from the token counts and the configured rates. See [control agent costs](/guides/control-costs/#monitor-spending) for where this fits among the other cost surfaces.
+A run counts as succeeded when its status is exactly `succeeded`. Cost is the estimate Sortie recorded when each run finished, under the `token_rates` in force then, and is never priced again; a run that spent no tokens adds to no cost figure. See [control agent costs](/guides/control-costs/#monitor-spending) for where this fits among the other cost surfaces.
 
 **Text** (default): the report is written to stdout. Warnings are written to stderr, after a blank line, one per line, each prefixed `warning: `. The two streams can be redirected independently.
 
@@ -905,10 +913,10 @@ The outcome table shows `SHARE`, a group's runs over total runs. Every other bre
 
 The `covering:` line is prose rather than a sentinel. It reads `every run on record` when neither bound was given, `<since> onward` with only `--since`, `the start of the record until <until>` with only `--until`, and `<since> until <until>` with both.
 
-When the workflow sets no `token_rates`, token counts are still reported and the cost line is replaced:
+When no run in the range that spent tokens was priced, with or without `token_rates` in the workflow, token counts are still reported and the cost line reads:
 
 ```
-cost                    not estimated; set token_rates in the workflow to price these runs
+cost (measured runs)    -   per succeeded run -
 ```
 
 Four disclosure counters each add a footnote below the tables when they are not zero:
@@ -917,7 +925,7 @@ Four disclosure counters each add a footnote below the tables when they are not 
 note: 2 of these runs took no measurable time. A run that a CI result closed out carries the same start and finish time.
 note: the duration figures skip 1 of these runs, whose recorded start and finish times were unusable.
 note: the token and cost figures skip 4 of these runs, because the coding agent behind them reported no token usage.
-note: the cost figures skip 3 of these runs, because token_rates has no price for the coding agent behind them.
+note: the cost figures skip 3 of these runs, because token_rates had no price for the coding agent behind them when they were recorded.
 ```
 
 A range that matches no runs is a success, not a failure. The header still prints, one of two lines follows, and the exit code is `0`:
@@ -944,7 +952,7 @@ Envelope:
 | `since` | string or null | The `--since` bound, RFC3339 UTC. `null` when the flag was omitted, meaning the range is open at the start. |
 | `until` | string or null | The `--until` bound, RFC3339 UTC. `null` when the flag was omitted, meaning the range is open at the end. |
 | `schema_tier` | string | `"full"` or `"base"`. See [schema tiers](#schema-tiers). |
-| `warnings` | array of string | Advisory messages: a degraded schema or a missing breakdown, or a malformed, incomplete, or unrecognized `token_rates` value. Empty when there is nothing to report, never `null`. The `warning: ` prefix belongs to text rendering and is not part of these strings. |
+| `warnings` | array of string | Advisory messages: a degraded schema, a missing breakdown, or a missing recorded cost. `token_rates` advisories are not listed; `sortie validate` reports them. Empty when there is nothing to report, never `null`. The `warning: ` prefix belongs to text rendering and is not part of these strings. |
 | `summary` | object | Report-wide figures. Always present. |
 | `by_status` | array of object | Breakdown by outcome. |
 | `by_adapter` | array of object | Breakdown by coding agent. |
@@ -968,11 +976,11 @@ Envelope:
 | `duration_seconds` | object | Duration figures over succeeded runs only. |
 | `mean_turns_succeeded` | number or null | Mean turns completed over succeeded runs. `null` on the `base` tier and when no run succeeded, never `0` in either case. |
 | `tokens` | object or null | Token sums over the measured runs in the range. `null` on the `base` tier and when no run in the range was measured. |
-| `cost_usd` | number or null | Estimated cost over every priced run in the range. `null` on the `base` tier and when no run could be priced, never `0` in either case. |
+| `cost_usd` | number or null | Estimated cost over every priced run in the range. `null` on the `base` tier, on a database that records no cost, and when no run that spent tokens was priced, never `0` in those cases. |
 | `cost_per_succeeded_run_usd` | number or null | `cost_usd` divided by the succeeded runs that were measured. `null` whenever `cost_usd` is `null`, and when no measured run succeeded. |
 | `zero_duration_runs` | integer | Runs that took no measurable time. A run that a CI result closed out carries the same start and finish time. |
 | `duration_excluded_runs` | integer | Runs left out of every duration figure because their stored timestamps could not be parsed or ran backwards. |
-| `cost_unpriced_runs` | integer | Runs left out of the cost figures because `token_rates` has no complete entry for their coding agent. An entry is complete only when it sets both input and output rates. A `ci_failed` run records a CI verdict and no coding agent, so it is never counted here. |
+| `cost_unpriced_runs` | integer | Measured runs that spent tokens and were recorded without a cost, left out of the cost figures: `token_rates` had no complete entry for their coding agent when they finished, they reported their spend only as a total, or they were recorded before Sortie stored costs and no start has priced them yet. An entry is complete only when it sets both input and output rates. It counts these runs whether or not the workflow sets `token_rates` now. `0` on a database that records no cost. A `ci_failed` run records a CI verdict and no coding agent, so it is never counted here. |
 | `tokens_unmeasured_runs` | integer | Runs left out of the token and cost figures because the coding agent behind them reported no token usage. `0` on the `base` tier, where the distinction was never recorded. |
 
 Each element of `by_status`, `by_adapter`, `by_rule`, `by_template`, `by_model`, `by_chain`, `by_trigger`, and `by_origin`:
@@ -990,7 +998,7 @@ Each element of `by_status`, `by_adapter`, `by_rule`, `by_template`, `by_model`,
 | `cost_usd` | number or null | Estimated cost over this group's priced runs. `null` on the `base` tier and when the group holds no priced run. |
 | `cost_per_succeeded_run_usd` | number or null | `cost_usd` divided by this group's succeeded runs that were measured. `null` whenever `cost_usd` is `null`, and when the group has no measured succeeded run. |
 | `tokens_unmeasured_runs` | integer | This group's runs left out of the token and cost figures because the coding agent behind them reported no token usage. `0` on the `base` tier. |
-| `cost_unpriced_runs` | integer | This group's runs left out of the cost figures because `token_rates` has no complete entry for their coding agent. `0` on the `base` tier and while `token_rates` configures no rates. A `ci_failed` run is never counted. |
+| `cost_unpriced_runs` | integer | This group's runs counted as in `summary.cost_unpriced_runs`. `0` on the `base` tier and on a database that records no cost. A `ci_failed` run is never counted. |
 
 Each element of `by_chain` adds three fields after these:
 

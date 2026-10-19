@@ -262,7 +262,7 @@ With no run on record the screen reads "No run has finished yet." A filter that 
 
 ## Analytics
 
-**Analytics** answers: how do runs go over time, and where do they spend their effort? A **Range** control picks **24 hours**, **7 days** (the default), or **Since first run**, and a label states the start of the range. A range without a run reads "No run finished in this range." (or "No run has finished yet." for **Since first run**). Warnings about the report, such as a bad `token_rates` entry, appear above the figures.
+**Analytics** answers: how do runs go over time, and where do they spend their effort? A **Range** control picks **24 hours**, **7 days** (the default), or **Since first run**, and a label states the start of the range. A range without a run reads "No run finished in this range." (or "No run has finished yet." for **Since first run**). Warnings about the report, such as a database written before Sortie recorded a figure, appear above the figures.
 
 ![Analytics over 7 days with the success rate and summary figures, the Outcomes bar, a stage chain funnel table, and the By rule and By model breakdown tables](/img/dashboard/analytics.webp)
 
@@ -406,14 +406,14 @@ The dashboard shows only what the workflow configures. Every row below changes w
 
 ## How figures are written
 
-Costs are estimates, built from the rates in `token_rates`, and the dashboard says so with the words "estimated", "est.", and "Estimated cost". Token figures leave out cache reads, which the dashboard shows separately where it has them. `agent.max_tokens` leaves them out too, so the budget meter reads **Tokens** and counts the same figure. Durations use at most two units ("1h 17m"), tokens read as "830K" or "48.03M", costs read with two decimals below $100 and as whole dollars from $100, and a share strictly between 0 and 100 percent never rounds to either end.
+Costs are estimates, built from the rates in `token_rates`, and the dashboard says so with the words "estimated", "est.", and "Estimated cost". A finished run keeps the cost recorded when it finished, whatever the rates say now. Token figures leave out cache reads, which the dashboard shows separately where it has them. `agent.max_tokens` leaves them out too, so the budget meter reads **Tokens** and counts the same figure. Durations use at most two units ("1h 17m"), tokens read as "830K" or "48.03M", costs read with two decimals below $100 and as whole dollars from $100, and a share strictly between 0 and 100 percent never rounds to either end.
 
 A figure Sortie does not have is never written as zero.
 
 | Wording | Means |
 |---|---|
 | "not measured" | The agent reported no token usage for the run, or none has arrived yet. It stands for a token figure and for a cost that depends on one. |
-| "unpriced" | The tokens are known but `token_rates` has no complete rate for the run's agent kind. The tally reads "cost unpriced". |
+| "unpriced" | The tokens are known but `token_rates` has no complete rate for the agent kind of a running session, or had none when a finished run was recorded. The tally reads "cost unpriced". |
 | "not recorded" | Sortie's run history does not hold the figure, or has no value for it, as for **Mean turns** of a group with no turn count. The tally reads "tokens not recorded". |
 | "not reported" | The agent named no model, as in **Reported model**. In the budget panel, "No token budget: tokens not reported." when no token budget is set, and "Tokens not reported." when one is. |
 | "N runs not measured" and "N runs unpriced" | A total that leaves those runs out. The tally reads "(N runs not measured)" and "(N runs unpriced)". |

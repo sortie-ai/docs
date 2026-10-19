@@ -84,7 +84,7 @@ curl -sS 'http://localhost:7678/api/v1/stats?since=24h' \
       https://metrics.internal.example/sortie
 ```
 
-The server listens on `127.0.0.1` unless you set `--host`, so a collector on another machine needs an address it can reach. The body carries `workflow_path` and `db_path` and applies no masking, so expose the port only to collectors you trust. The route prices runs with the `token_rates` the process started with, and the command reads the workflow file on each run, so the two differ after an edit until the restart.
+The server listens on `127.0.0.1` unless you set `--host`, so a collector on another machine needs an address it can reach. The body carries `workflow_path` and `db_path` and applies no masking, so expose the port only to collectors you trust. The route and the command both read the cost recorded with each run, so they report the same cost for the same range.
 
 A few fields in the envelope matter to whatever receives it:
 
@@ -92,7 +92,7 @@ A few fields in the envelope matter to whatever receives it:
 |---|---|
 | `schema_tier` | `"full"` or `"base"`. On `"base"`, token and cost figures are `null` because the database is missing at least one of the column groups the full report needs, not because the runs cost nothing. Check this before reading a null as a zero. |
 | `summary.tokens_unmeasured_runs` | How many runs in range reported no token usage at all, so the token and cost figures exclude them rather than counting them as zero. A `"full"` report can still carry a null `tokens` when every run in range is unmeasured, which is why the tier alone does not tell a missing figure from an unmeasured one. Each breakdown row carries its own count under the same name. |
-| `warnings` | Non-empty when the report is degraded, for example by a partially migrated database or a malformed or incomplete `token_rates` entry. Tells a clean aggregate from a degraded one. A coding agent with no complete rate entry is counted in `summary.cost_unpriced_runs`, and in the `cost_unpriced_runs` of each breakdown row that holds its runs. |
+| `warnings` | Non-empty when the report is degraded, for example by a partially migrated database. Tells a clean aggregate from a degraded one. A run that spent tokens and was recorded without a cost, because its coding agent had no complete rate entry when it finished, is counted in `summary.cost_unpriced_runs`, and in the `cost_unpriced_runs` of each breakdown row that holds it. |
 | `workflow_path` | The workflow file this instance loaded when it produced the report. A local filesystem path, useful for identifying the source inside your own network. |
 | `db_path` | The SQLite database the figures came from. The same local-path caveat as `workflow_path` applies once a document leaves the host it was generated on. |
 

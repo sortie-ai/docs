@@ -1665,7 +1665,7 @@ Per-adapter token pricing for cost estimation on the [dashboard](/reference/dash
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `token_rates` | map | _(absent)_ | Top-level extension key. Keys are agent adapter kind strings. With rates configured, the dashboard shows estimated cost, the [JSON API](/reference/http-api/#get-apiv1state-system-state) prices each running session and its issue, and the [`sortie stats`](/reference/cli/#stats) subcommand and [`GET /api/v1/stats`](/reference/http-api/#get-apiv1stats-run-statistics) price the runs they aggregate from run history. When absent or empty, the dashboard shows raw token counts without cost estimates, the JSON API reads `unpriced` for every measured running session, and `sortie stats` and `GET /api/v1/stats` report no cost figures. |
+| `token_rates` | map | _(absent)_ | Top-level extension key. Keys are agent adapter kind strings. With rates configured, the dashboard shows estimated cost, the [JSON API](/reference/http-api/#get-apiv1state-system-state) prices each running session and its issue, and the [`sortie stats`](/reference/cli/#stats) subcommand and [`GET /api/v1/stats`](/reference/http-api/#get-apiv1stats-run-statistics) report the cost recorded with each run they aggregate from run history. When absent or empty, the dashboard shows raw token counts without cost estimates, the JSON API reads `unpriced` for every measured running session, and every run that finishes and spent tokens is recorded unpriced, so `sortie stats` and `GET /api/v1/stats` report no cost for it. |
 | `token_rates.<kind>.input_per_mtok` | number | _(not set)_ | USD per million fresh input tokens, and the fallback rate for either cache class when its rate is omitted. Required with `output_per_mtok` for this kind to produce cost estimates. |
 | `token_rates.<kind>.output_per_mtok` | number | _(not set)_ | USD per million output tokens. Required with `input_per_mtok` for this kind to produce cost estimates. |
 | `token_rates.<kind>.cache_read_per_mtok` | number | `input_per_mtok` | USD per million cache-read tokens. |
@@ -1687,10 +1687,13 @@ Validation rules:
 - Unknown keys inside an entry produce a warning and are ignored.
 - An entry missing `input_per_mtok` or `output_per_mtok` produces a warning and prices nothing.
 - An entry keyed to the empty string is dropped with a warning. It prices no kind.
+- On a reload, a `token_rates` that is not a map keeps every entry in force, and an entry that is not a map or holds an invalid rate keeps the rates it had before the reload. An entry the reload adds is read as at startup.
 
-These warnings are configuration advisories under the `token_rates` check. They appear in `sortie validate` without changing `valid` or the exit status, in a dry run, and once per applicable configuration in the running orchestrator's log. `sortie stats` and `GET /api/v1/stats` also include the warnings in their report because they affect which runs they can price.
+These warnings are configuration advisories under the `token_rates` check. They appear in `sortie validate` without changing `valid` or the exit status, in a dry run, and once per applicable configuration in the running orchestrator's log.
 
-Token rates do not reload dynamically. Changes require a process restart, consistent with `server.port` and `server.host`. `GET /api/v1/stats` prices at the rates the process started with, while `sortie stats` reads the workflow file on each run, so after an edit the two price differently until the restart.
+Sortie prices a finished run once, when it records the run, under the rates in force then, and stores the cost with it. A recorded cost never changes: editing `token_rates` or restarting leaves the cost of past runs as it was on the dashboard, in the JSON API, in `sortie stats`, and in `GET /api/v1/stats`. Runs recorded by a release that did not store costs are priced once, at the first start of a release that does, under the `token_rates` in force at that start. A start that fails to price them logs the error and starts anyway, and they read as unpriced until a later start prices them.
+
+`token_rates` reloads with the rest of WORKFLOW.md, without a restart. New rates apply to the estimate of running sessions from the next poll tick, to every run that finishes after the reload, and to `config.token_rates` of [`GET /api/v1/state`](/reference/http-api/#get-apiv1state-system-state). An edit that gives an entry an invalid value keeps that entry's previous rates, as the validation rules above state.
 
 ```yaml
 token_rates:
@@ -2085,6 +2088,6 @@ Sortie watches `WORKFLOW.md` for filesystem changes and re-applies configuration
 | `server.host`                          | Requires restart.                      |
 | `logging.level`                        | Requires restart.                      |
 | `logging.format`                       | Requires restart.                      |
-| `token_rates.*`                        | Requires restart.                      |
+| `token_rates.*`                        | Next poll tick for the estimate of a running session; the next run that finishes for its recorded cost. A cost already recorded never changes. |
 
 An in-flight agent session keeps its agent and prompt template frozen at first dispatch. The exception is exit-time behavior: the destinations of the session events a worker exit produces, including those enabled by `tracker.comments.on_completion` and `tracker.comments.on_failure`, are selected against the active configuration when the worker exits, so a reload during a session can change whether it posts a completion or failure comment.
