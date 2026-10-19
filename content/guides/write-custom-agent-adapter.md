@@ -46,14 +46,14 @@ The orchestrator reacts to a normalized event vocabulary, not to your CLI's nati
 | `turn_completed` | `EventTurnCompleted` | The turn finished successfully. |
 | `turn_failed` | `EventTurnFailed` | The turn finished with a failure. |
 | `turn_cancelled` | `EventTurnCancelled` | The turn was cancelled (context cancellation or stall). |
-| `token_usage` | `EventTokenUsage` | Normalized input, output, total, cache-read, and cache-write counters. Drives token-based budgets. |
+| `token_usage` | `EventTokenUsage` | Normalized input, output, total, cache-read, and cache-write counters, plus the same counters per model when the runtime splits its usage by model. Drives token-based budgets and the per-model token series. |
 | `notification` | `EventNotification` | An informational message, surfaced for observability. A frame that carries no text for a person, such as a native event type name, a method name, or a lifecycle marker, is reported with an empty `Message`, never with the frame's name or a placeholder. The orchestrator counts it as activity for stall detection and does not keep it in the run's events. |
 | `tool_result` | `EventToolResult` | A tool call completed. Carries `ToolName` and `ToolDurationMS`. |
 | `malformed` | `EventMalformed` | An unparseable line from the agent. |
 
-The data flows like this. `StartSession` receives `StartSessionParams` (the workspace path, an `AgentConfig`, the kind's resolved `Settings` block, an optional `ResumeSessionID` with the optional `ResumeUsage` that goes with it, SSH fields, and an MCP config path) and returns a `Session` whose `Internal any` field carries your adapter state opaquely.
+The data flows like this. `StartSession` receives `StartSessionParams` (the workspace path, an `AgentConfig`, the kind's resolved `Settings` block, an optional `ResumeSessionID` with the optional `ResumeUsage` and `ResumeUsageByModel` that go with it, SSH fields, and an MCP config path) and returns a `Session` whose `Internal any` field carries your adapter state opaquely.
 
-`RunTurn` receives that `Session` plus `RunTurnParams` (the rendered `Prompt`, the `Issue`, and the `OnEvent` callback) and returns a `TurnResult` (`SessionID`, `ExitReason`, `Usage`, `UsageMeasured`, `SpendUnaccounted`, `SpendCoverable`, `CoversSession`, `ResumeUsage`). `FinalizeTurn` writes the three spend fields from the turn's evidence; see [Surface capabilities and budgeting](#surface-capabilities-and-budgeting).
+`RunTurn` receives that `Session` plus `RunTurnParams` (the rendered `Prompt`, the `Issue`, and the `OnEvent` callback) and returns a `TurnResult` (`SessionID`, `ExitReason`, `Usage`, `UsageMeasured`, `SpendUnaccounted`, `SpendCoverable`, `CoversSession`, `ResumeUsage`, `ResumeUsageByModel`). `FinalizeTurn` writes the three spend fields from the turn's evidence; see [Surface capabilities and budgeting](#surface-capabilities-and-budgeting).
 
 The orchestrator copies `SessionID` and token deltas out of the events and the result; it never reads `Session.Internal`. A non-empty `SessionID`, whether from a `session_started` event or from `TurnResult`, replaces whatever session id the orchestrator has accepted so far, for this run's dispatch record, its exit result, and what a continuation retry resumes under.
 
@@ -179,7 +179,7 @@ A Warn log Sortie emits once per run, naming your kind (see [monitor with logs](
 
 A kind declaring `UsageArrivalTurnEnd` reports through `agentcore.TurnEndUsage` instead of emitting the event or calling `agentcore.FinalizeTurn` yourself. Construct it with `agentcore.NewTurnEndUsage()` exactly once, directly in `StartSession`'s own method body outside every function literal, and store the pointer on your session state; return its `Snapshot()` from `GetUsage`.
 
-In `OnFinalize`, build an `*agentcore.RecoveredUsage{Run, Model}` when this turn settled a figure, or leave it `nil` when it settled nothing, and call `state.usage.Finalize(emit, logger, ev, sessionID, apiDurationMS, recovered, *spend)` in place of `agentcore.FinalizeTurn`: it emits the one `token_usage` event when `recovered` is non-nil, latches the run's measured verdict, and then calls `FinalizeTurn` itself for the turn's terminal event.
+In `OnFinalize`, build an `*agentcore.RecoveredUsage{Run, ByModel, Model}` (`ByModel` is nil when your source names no model per count) when this turn settled a figure, or leave it `nil` when it settled nothing, and call `state.usage.Finalize(emit, logger, ev, sessionID, apiDurationMS, recovered, *spend)` in place of `agentcore.FinalizeTurn`: it emits the one `token_usage` event when `recovered` is non-nil, latches the run's measured verdict, and then calls `FinalizeTurn` itself for the turn's terminal event.
 
 `TestUsageDeclarationContractInvariant` in `agentcore` enforces this shape: it fails a `turn_end` package that calls `agentcore.FinalizeTurn` directly, references `domain.EventTokenUsage` directly, or constructs `agentcore.NewTurnEndUsage()` anywhere but that one place. Copilot CLI and OpenCode are the worked examples: both recover their figure from a read that only completes after the subprocess exits, and hand it to `Finalize` as `recovered`.
 
@@ -381,7 +381,7 @@ ParseLine: func(line []byte, emit func(domain.AgentEvent), pid string, spend *ag
 			state.turnMessages[id] = agentcore.MaxUsage(state.turnMessages[id], usage)
 			snapshot := state.acc.SetTurnProvisional(sumTurnMessages(state.turnMessages))
 			if !seen {
-				emit(domain.AgentEvent{Type: domain.EventTokenUsage, Usage: snapshot, Model: state.lastModel})
+				emit(domain.AgentEvent{Type: domain.EventTokenUsage, Usage: snapshot, UsageByModel: state.acc.ByModel(), Model: state.lastModel})
 			}
 		}
 	case "tool_result":
@@ -518,10 +518,10 @@ A cwd-scoped resume fits a CLI whose headless session id is not enumerable. Such
 
 A runtime whose own usage counter is cumulative over its session, earlier runs included, reports more than the run spent when a later run resumes that session. Settle such a counter with `agentcore.ResumeBaseline` rather than a baseline of your own:
 
-1. In `StartSession`, build it with `agentcore.NewResumeBaseline`. Pass a zero `TokenUsage` for a session the run creates, including one a failed resume falls back to, and `params.ResumeUsage` for one it resumes. A nil argument gives an unknown baseline.
-2. On each reading of the counter, call `Observe(reading, own)` and report `Run()` as the run-cumulative figure. `own` is the part of the reading the runtime attributes to the current request or turn, or nil. A reading of all zeros has no effect. When the baseline is unknown, or a reading falls below the previous one, the baseline is estimated as the reading less `own`, the run's total so far is kept, and `Observe` returns `estimated` as true.
+1. In `StartSession`, build it with `agentcore.NewResumeBaseline(resume, resumeByModel)`. Pass a zero `TokenUsage` and a nil map for a session the run creates, including one a failed resume falls back to, and `params.ResumeUsage` and `params.ResumeUsageByModel` for one it resumes. A nil `resume` gives an unknown baseline. The baseline uses the per-model map only when it sums to `resume` in every class.
+2. On each reading of the counter, call `Observe(reading, readingByModel, own)` and report `Run()` as the run-cumulative figure, and its per-model split as the figure's `UsageByModel`. Pass a nil `readingByModel` when the runtime reports no split. `own` is the part of the reading the runtime attributes to the current request or turn, or nil. A reading of all zeros has no effect. When the baseline is unknown, or a reading falls below the previous one, the baseline is estimated as the reading less `own`, the run's total so far is kept, and `Observe` returns `estimated` as true.
 3. Call `spend.MarkEstimated()` on a turn whose reading was estimated, because `own` may not cover everything the reading added, such as calls a sub-agent made. `Observe` returns `estimated` as false when the re-derived baseline is zero in every counted component, since nothing was lost.
-4. Report `Resume()`, the latest reading and nil while the baseline is unknown, as `TurnResult.ResumeUsage` on every turn. The orchestrator keeps the figure of the working session's last turn with the run's history and hands it to the next run that resumes the session as `StartSessionParams.ResumeUsage`. A turn that ends without a usable reading must report nil, not the figure of an earlier turn, because the runtime may have saved calls that figure omits. The credential-verification session receives no `ResumeUsage` and its figure is not kept.
+4. Report `Resume()`, the latest reading and nil while the baseline is unknown, as `TurnResult.ResumeUsage` on every turn, and its second result, the reading's split by model, as `TurnResult.ResumeUsageByModel`. The orchestrator keeps the figures of the working session's last turn with the run's history and hands them to the next run that resumes the session as `StartSessionParams.ResumeUsage` and `StartSessionParams.ResumeUsageByModel`. A turn that ends without a usable reading must report nil, not the figure of an earlier turn, because the runtime may have saved calls that figure omits. The credential-verification session receives no `ResumeUsage` and its figure is not kept.
 
 A run that resumes a session whose previous run kept no figure, or kept one before Sortie recorded it, starts with an unknown baseline, so that one turn is estimated and flagged.
 
@@ -532,6 +532,8 @@ A run that resumes a session whose previous run kept no figure, or kept one befo
 Make the agent's capabilities and limitations visible to operators, because they change how a workflow must be configured.
 
 Token-usage emission is optional. If the CLI reports tokens while a turn is still in flight, drive an `agentcore.RunUsage` and emit `EventTokenUsage` as figures arrive. If your authoritative figure only settles after the turn's work is over, report it through `agentcore.TurnEndUsage` instead, covered under [Register the adapter](#register-the-adapter).
+
+If the runtime reports usage split by model, carry the split through as `AgentEvent.UsageByModel` instead of summing it into one total under one model name. Each entry is the run-cumulative count of one model, in the same input, output, cache-read, and cache-write classes and the same scope as `Usage`, and together the entries cover at most `Usage` class by class. The orchestrator credits each named model its share of what the event adds, which is what splits `sortie_tokens_total` by model. Report model names as the runtime spells them, because they also label metrics and run history; mapping them to `token_rates` keys is not the adapter's job. A runtime that names no model per count leaves `UsageByModel` nil and the whole sample counts under the event's `Model`.
 
 If the CLI reports no tokens at all, leave `TurnResult.Usage` at the zero value, emit no `EventTokenUsage`, and the agent is budgeted by time only, through `agent.turn_timeout_ms`. Token budgets are then inert, and `agent.turn_timeout_ms` is the time-based budget that remains.
 

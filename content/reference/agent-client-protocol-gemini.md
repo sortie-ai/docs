@@ -75,6 +75,8 @@ The runtime's own workspace-trust guard raises an error only in its own headless
 
 This runtime never sends the protocol's standard usage notification. Sortie measures it anyway, from two files the runtime itself writes on the machine that ran it: its OpenTelemetry output, checked first, and its own session transcript (the file under `~/.gemini/tmp/<project>/chats/`, or the same layout under `GEMINI_CLI_HOME`), read only once the first hasn't caught up within several seconds, with whichever of the two then shows the larger total winning. The transcript is written before a prompt result comes back, so it still holds a figure for a turn Sortie cancels before the telemetry batch lands.
 
+Each telemetry record and each transcript message names its model, and the winning source's figure is kept per model. A record that names no model adds to no entry (see [the model label](/reference/prometheus-metrics/#the-model-label)).
+
 To get the first file at all, Sortie sets four environment variables on the launch: `GEMINI_TELEMETRY_ENABLED=true`, `GEMINI_TELEMETRY_TARGET=local`, `GEMINI_TELEMETRY_LOG_PROMPTS=false`, and `GEMINI_TELEMETRY_OUTFILE` pointing into a private directory it creates for the session and removes when the session ends. It appends those four to the environment it starts from, so they override any value already set there for the session's runtime, and nothing else on the machine sees them.
 
 A Sortie process killed rather than stopped can leave that directory behind. This combination is what makes Gemini CLI the one runtime on this kind whose local sessions are measured at all.

@@ -240,6 +240,8 @@ A turn that served model output and ends with any status other than `completed`,
 
 The reported model comes from the `model` field of whichever response opened the session's thread (`thread/start` or `thread/resume`), read once at session start and reused for every `token_usage` event afterward rather than re-read per turn. It reflects the runtime's own report, not a mirror of the `codex.model` value the adapter requested. The field is empty when the response omits it; that is never treated as an error.
 
+The token notification carries no per-model split, so every token the adapter reports counts under the tracked model at that moment, as [the model label](/reference/prometheus-metrics/#the-model-label) describes.
+
 A running turn can be moved to a different model by a `model/rerouted` notification. When its destination model is named, it replaces the tracked model for the rest of the session; a reroute with no named destination leaves the tracked model unchanged. Either way, the adapter emits a `notification` event describing the reroute, so stall detection still sees activity.
 
 ### API timing
