@@ -706,14 +706,16 @@ curl http://localhost:7678/api/v1/state
         "output_per_mtok": 15,
         "cache_read_per_mtok": 0.3,
         "cache_write_per_mtok": null,
-        "complete": true
+        "complete": true,
+        "per_kind": true
       },
       "codex": {
         "input_per_mtok": 2.5,
         "output_per_mtok": null,
         "cache_read_per_mtok": null,
         "cache_write_per_mtok": null,
-        "complete": false
+        "complete": false,
+        "per_kind": true
       }
     }
   },
@@ -785,10 +787,10 @@ curl http://localhost:7678/api/v1/state
 | `used_tokens` | Integer or `null`. `issue_tokens_completed` plus this row's `tokens.total_tokens` less its `tokens.cache_read_tokens` (floored at zero), each counted as `0` when `null`. This is the sum [`agent.max_tokens`](/reference/workflow-config/#agent) is compared with, so it leaves out cache reads, and it advances with each usage figure of the session. `null` when the sum is `0` and `used_tokens_complete` is `false`, so unknown spend never reads as zero. |
 | `used_tokens_complete` | Boolean. `true` exactly when `used_tokens` is the issue's whole spend: the completed sessions were read, none is unmeasured, none recorded a turn no figure covered, this session is measured, and it has recorded no such turn. When `false`, `used_tokens` is a lower bound. It ignores `tokens_pending`, which separately marks the turn in progress as not yet counted. |
 | `budget_tokens` | Integer or `null`. `agent.max_tokens` as of the latest poll tick. `null` when `agent.max_tokens` is `0`, never `0`. Token headroom: `budget_tokens` minus `used_tokens`, undefined when either is `null`, and negative when the session overshot the ceiling. The API serves no headroom key. |
-| `estimated_cost_usd` | Number or `null`. Estimated cost of this session so far, from `tokens` and the [`token_rates`](/reference/workflow-config/#token_rates) entry of `agent_kind` in force, unrounded. Non-`null` exactly when `cost_status` is `"estimated"`. |
-| `cost_status` | String. `"estimated"` (a zero rate also gives this); `"unpriced"` when the session is measured and `token_rates` holds no entry with both `input_per_mtok` and `output_per_mtok` for `agent_kind`, an absent `token_rates` included, or when its spend so far arrived as a total with no split by token class; `"unmeasured"` when `tokens_measured` is `false`. |
+| `estimated_cost_usd` | Number or `null`. Estimated cost of this session so far, from `tokens` and the rates in force for the session's models, unrounded: a [`token_rates`](/reference/workflow-config/#token_rates) entry, else the [price table](/reference/workflow-config/#price_table). Non-`null` exactly when `cost_status` is `"estimated"` or `"partial"`. |
+| `cost_status` | String. `"estimated"` (a zero rate also gives this); `"partial"` when the estimate is a lower bound because a token class the session spent has no rate; `"unpriced"` when the session is measured and no rate prices its model (no price table lists it and no `token_rates` entry prices it), when a [kind entry](/reference/workflow-config/#kind-entries) of `agent_kind` lacks `input_per_mtok` or `output_per_mtok`, when no rate source is available, or when its spend so far arrived as a total with no split by token class; `"unmeasured"` when `tokens_measured` is `false`. |
 | `issue_estimated_cost_usd` | Number or `null`. Estimated cost of the whole issue: the sum of the costs recorded with its completed sessions and the estimate of this one, over the parts that are priced. Unrounded. Non-`null` exactly when `issue_cost_status` is `"estimated"` or `"partial"`. |
-| `issue_cost_status` | String. `"estimated"` when the estimate covers the issue's whole spend, which requires `used_tokens_complete` to be `true`. `"partial"` when it is a lower bound because a part that spent tokens is left out. `"unpriced"` when no priced part spent tokens and a part that did has no rate. `"unmeasured"` when `used_tokens` is `null`, and when no part is priced or unpriced. A session measured at zero tokens leaves nothing out, so a missing rate for its kind does not make an otherwise complete issue `"partial"`. |
+| `issue_cost_status` | String. `"estimated"` when the estimate covers the issue's whole spend, which requires `used_tokens_complete` to be `true`. `"partial"` when it is a lower bound because a part that spent tokens is left out. `"unpriced"` when no priced part spent tokens and a part that did has no rate. `"unmeasured"` when `used_tokens` is `null`, and when no part is priced or unpriced. A session measured at zero tokens leaves nothing out, so a missing rate for its model does not make an otherwise complete issue `"partial"`. |
 
 The issue-level keys are always present on a running row. A limit key (`budget_tokens`, `budget_sessions`) set to `null` means no limit is configured. A usage key (`used_sessions`, `unmeasured_sessions`, `issue_tokens_completed`, `used_tokens`) set to `null` means unknown. The [`cost_budget` tool](/reference/agent-extensions/#cost_budget) reports figures under some of the same names to the agent; there a limit that is not configured reads `0`.
 
@@ -1170,9 +1172,9 @@ It is `null` where Sortie cannot date the pass: a retry or hop stored without a 
 | `running_unreported` | Currently running sessions whose agent kind reports usage, which have reported no figure yet and can still report one. |
 | `running_non_reporting` | Currently running sessions that will contribute no figure: `usage_arrival` is `"none"`, or it reports figures and the moment one could have arrived has passed with nothing counted. The two counts partition the running sessions the token totals exclude, so a session moves from `running_unreported` to this one rather than staying in limbo. |
 
-**`active_estimated_cost_usd`:** Estimated total cost across currently running sessions, computed from configured [token rates](/reference/workflow-config/#token_rates) and each running session's agent adapter kind. Sessions whose `tokens_measured` is `false` are excluded. Omitted when no running, measured session matches an entry containing both input and output rates. It equals the sum of `estimated_cost_usd` over the `running[]` entries whose `cost_status` is `"estimated"`. This is a presentation-layer estimate, not provider billing data.
+**`active_estimated_cost_usd`:** Estimated total cost across currently running sessions, computed from the rates in force: [`token_rates`](/reference/workflow-config/#token_rates) entries over the [price table](/reference/workflow-config/#price_table). Sessions whose `tokens_measured` is `false` are excluded. Omitted when no rate source is available, and when no running, measured session is priced. It equals the sum of `estimated_cost_usd` over the `running[]` entries whose `cost_status` is `"estimated"` or `"partial"`. This is a presentation-layer estimate, not provider billing data.
 
-**`cost_unpriced_running`:** Count of running, measured sessions that `active_estimated_cost_usd` leaves out because their agent kind has no `token_rates` entry or its entry lacks `input_per_mtok` or `output_per_mtok`. Present, zero included, whenever `token_rates` holds any agent-kind entry, complete or not; omitted when `token_rates` is absent or empty. When present, it equals the number of `running[]` entries whose `cost_status` is `"unpriced"`. Without `token_rates`, every measured `running[]` entry reads `"unpriced"` while this key is absent.
+**`cost_unpriced_running`:** Count of running, measured sessions that `active_estimated_cost_usd` leaves out because no rate prices them. Present, zero included, whenever a rate source is available: a price table is in force, which is the default, or `token_rates` holds an entry. Omitted when `price_table.embedded` is `false`, no `price_table.replace_file` is set, and `token_rates` holds no entry; every measured `running[]` entry then reads `"unpriced"` while this key is absent. When present, it equals the number of `running[]` entries whose `cost_status` is `"unpriced"`. The dashboard shows cost exactly when this key is present.
 
 **`rate_limits`:** Reserved for future use. Currently an empty object.
 
@@ -1221,9 +1223,10 @@ Most members follow the last successful load of `WORKFLOW.md`; a reload that fai
 | `escalation` | A member of every reaction that escalates: `"label"`, `"comment"`, or `"none"`. A reaction configured without a mode reads `"none"`. |
 | `escalation_label` | Present only when `escalation` is `"label"`: the configured label, or `needs-human` when the block names none. |
 | `triage` | A member of `ci_failure`, `review_comments`, `bot_review`, and `merge_conflicts`. `true` when the kind runs a [triage command](/reference/reactions/#triage-command) before it dispatches a fix. It reports the block the process started with, for `ci_failure` too. |
-| `token_rates` | A member per agent kind, keyed as written in [`token_rates`](/reference/workflow-config/#token_rates), or `null` when `token_rates` is absent or empty. |
-| `token_rates.<kind>.input_per_mtok`, `output_per_mtok`, `cache_read_per_mtok`, `cache_write_per_mtok` | Number, or `null` when the rate is not set or was rejected as invalid. An unset cache rate prices that token class at the input rate; `config` serves the configured `null`, not the substituted rate. |
-| `token_rates.<kind>.complete` | `true` exactly when `input_per_mtok` and `output_per_mtok` are both set, which is the condition for pricing a session of the kind. |
+| `token_rates` | A member per entry, keyed as written in [`token_rates`](/reference/workflow-config/#token_rates) by agent kind or model name, or `null` when `token_rates` is absent or empty. `null` does not mean nothing is priced: the price table can still price runs. |
+| `token_rates.<key>.input_per_mtok`, `output_per_mtok`, `cache_read_per_mtok`, `cache_write_per_mtok` | Number, or `null` when the rate is not set or was rejected as invalid. An unset cache rate of a kind entry prices that token class at the input rate, and an unset rate of a model entry comes from the price table that lists the model; `config` serves the configured `null`, not the substituted rate. |
+| `token_rates.<key>.complete` | `true` exactly when the entry prices on its own: `input_per_mtok` and `output_per_mtok` are both set for a kind entry, all four rates are set for a model entry. |
+| `token_rates.<key>.per_kind` | `true` exactly when the key names a registered agent kind, so the entry prices every model of that kind alike. `false` for a model entry. |
 
 **`version` and `started_at`:** `version` is the Sortie version, the same value `/readyz` serves. `started_at` is when the process started, in UTC, so it and the `uptime_seconds` of `/readyz` count from one instant.
 
@@ -1387,8 +1390,8 @@ Runs are ordered by descending `run_id`, which is the order Sortie recorded them
 | `uncached_tokens` | integer or `null` | The run's tokens without cache reads: `tokens.total_tokens` less `tokens.cache_read_tokens`, floored at zero, so cache writes stay in it. A sibling of `tokens`, not a member of it. `null` exactly when `tokens_measured` is `false`. |
 | `tokens_measured` | boolean | `false` when the agent reported no token usage for the run. |
 | `unaccounted_turns` | integer | Turns of the run that reached the model without a token figure proven to cover the whole turn: the agent ended the turn before reporting its final usage, the report could not be read, or the figure rests on an estimated starting point after a resume. A turn that ended normally is left out when a later turn of the same run and session reports the session's running total, which includes it, unless a turn between them was stopped or failed after producing output, or rests on an estimated starting point. When non-zero, the figures in `tokens` are lower bounds. |
-| `estimated_cost_usd` | number or `null` | The estimated USD cost recorded when the run finished, from `tokens` and the [`token_rates`](/reference/workflow-config/#token_rates) entry of `agent_kind` in force then, unrounded. Never priced again, so a later edit of `token_rates` does not change it. Non-`null` exactly when `cost_status` is `"estimated"` or `"partial"`. |
-| `cost_status` | string | The status recorded with the cost. `"unmeasured"` when `tokens_measured` is `false`. `"estimated"` when the run has no unaccounted turns and either spent no tokens or was priced by `token_rates`. `"partial"` when the run has unaccounted turns and was priced or spent no tokens, so the estimate is a lower bound. `"unpriced"` when the run spent tokens and `token_rates` had no entry with both `input_per_mtok` and `output_per_mtok` for `agent_kind` when it finished, or the run reported its spend only as a total. |
+| `estimated_cost_usd` | number or `null` | The estimated USD cost recorded when the run finished, from `tokens` and the rates in force then for the run's models ([`token_rates`](/reference/workflow-config/#token_rates) entries over the [price table](/reference/workflow-config/#price_table)), unrounded. Never priced again, so a later edit of the rates does not change it. Non-`null` exactly when `cost_status` is `"estimated"` or `"partial"`. |
+| `cost_status` | string | The status recorded with the cost. `"unmeasured"` when `tokens_measured` is `false`. `"estimated"` when the run has no unaccounted turns and either spent no tokens or every token class it spent was priced. `"partial"` when the estimate is a lower bound: the run has unaccounted turns and was priced or spent no tokens, or a token class it spent had no rate. `"unpriced"` when the run spent tokens and no rate priced any of them when it finished, or the run reported its spend only as a total. |
 | `chain_id` | string | The stage chain the run belongs to. Omitted when empty. |
 | `stage_previous`, `stage_previous_outcome` | string | The rule whose hop led to the run, and the outcome of the run that made it. Omitted when empty. |
 | `stage_target`, `stage_result` | string | The rule the run's own hop decision targeted, and its result: `"advanced"`, `"partial"`, `"failed"`, or `"ceiling"`. Omitted when the run reached no decision. |
@@ -1801,7 +1804,7 @@ The body is compact JSON with the shape of the command's `--format json` output.
 
 ### Pricing and reload
 
-The route prices nothing. It reads the cost recorded with each run, as `sortie stats` does, so the two report the same cost for the same range whatever [`token_rates`](/reference/workflow-config/#token_rates) holds now. `warnings` carries no `token_rates` advisory; `sortie validate` and the service log report those.
+The route prices nothing. It reads the cost recorded with each run, as `sortie stats` does, so the two report the same cost for the same range whatever the [rates](/reference/workflow-config/#token_rates) are now. `warnings` carries no `token_rates` advisory; `sortie validate` and the service log report those.
 
 The route builds the funnels from the `dispatch` rules in force at the time of the request, so it follows a reload of the workflow. `sortie stats` reads the workflow file each time it runs, so after an edit of the `dispatch` section the command shows the new chains before the process has reloaded it.
 
@@ -2575,7 +2578,7 @@ Every `200` response carries `history`. It is `null` when the issue has no recor
 | `tokens` | The five token members of a running row's `tokens`. Each is `null` when its sum is `0` and `tokens_complete` is `false`, so spend Sortie does not know never reads as zero. |
 | `uncached_tokens` | Integer or `null`. The issue's tokens without cache reads over all of its runs: for each run, `total_tokens` less `cache_read_tokens`, floored at zero, summed. This is the count [`agent.max_tokens`](/reference/workflow-config/#agent) is compared with. `null` under the rule of the members of `tokens`. |
 | `tokens_complete` | `true` when no run is unmeasured and no run has an unaccounted turn. When `false`, the figures in `tokens` and `uncached_tokens` are lower bounds. |
-| `estimated_cost_usd` | Number or `null`. The sum of the costs recorded with the issue's runs, each priced by agent kind under the [`token_rates`](/reference/workflow-config/#token_rates) in force when it finished. Unrounded. |
+| `estimated_cost_usd` | Number or `null`. The sum of the costs recorded with the issue's runs, each priced under the rates in force when it finished. Unrounded. |
 | `cost_status` | `"estimated"`, `"partial"`, `"unpriced"`, or `"unmeasured"`, with the meaning of `issue_cost_status` in the [`GET /api/v1/state` field notes](#field-notes). |
 
 **`hops` members:**

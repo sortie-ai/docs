@@ -1661,59 +1661,110 @@ logging:
 
 ### `token_rates`
 
-Per-adapter token pricing for cost estimation on the [dashboard](/reference/dashboard/#how-the-screens-follow-the-workflow). Keys are agent adapter kind strings (e.g., `"claude-code"`, `"copilot-cli"`, `"opencode"`). All rates are in USD per 1 million tokens.
+Rate overrides for cost estimation on the [dashboard](/reference/dashboard/#how-the-screens-follow-the-workflow). Without `token_rates`, Sortie prices runs from the price table built into the binary (see [`price_table`](#price_table)), so the section is optional. Keys are agent adapter kinds (for example `"claude-code"`, `"copilot-cli"`, `"opencode"`) or model names. All rates are in USD per 1 million tokens.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `token_rates` | map | _(absent)_ | Top-level extension key. Keys are agent adapter kind strings. With rates configured, the dashboard shows estimated cost, the [JSON API](/reference/http-api/#get-apiv1state-system-state) prices each running session and its issue, and the [`sortie stats`](/reference/cli/#stats) subcommand and [`GET /api/v1/stats`](/reference/http-api/#get-apiv1stats-run-statistics) report the cost recorded with each run they aggregate from run history. When absent or empty, the dashboard shows raw token counts without cost estimates, the JSON API reads `unpriced` for every measured running session, and every run that finishes and spent tokens is recorded unpriced, so `sortie stats` and `GET /api/v1/stats` report no cost for it. |
-| `token_rates.<kind>.input_per_mtok` | number | _(not set)_ | USD per million fresh input tokens, and the fallback rate for either cache class when its rate is omitted. Required with `output_per_mtok` for this kind to produce cost estimates. |
-| `token_rates.<kind>.output_per_mtok` | number | _(not set)_ | USD per million output tokens. Required with `input_per_mtok` for this kind to produce cost estimates. |
-| `token_rates.<kind>.cache_read_per_mtok` | number | `input_per_mtok` | USD per million cache-read tokens. |
-| `token_rates.<kind>.cache_write_per_mtok` | number | `input_per_mtok` | USD per million cache-write tokens. |
+| `token_rates` | map | _(absent)_ | Top-level extension key. A key that names a registered agent kind is a [kind entry](#kind-entries); any other key is a [model entry](#model-entries). |
+| `token_rates.<key>.input_per_mtok` | number | _(not set)_ | USD per million fresh input tokens. A kind entry needs it, with `output_per_mtok`, to price anything. |
+| `token_rates.<key>.output_per_mtok` | number | _(not set)_ | USD per million output tokens. A kind entry needs it, with `input_per_mtok`, to price anything. |
+| `token_rates.<key>.cache_read_per_mtok` | number | _(not set)_ | USD per million cache-read tokens. Unset in a kind entry, cache reads are priced at `input_per_mtok`. Unset in a model entry, the rate comes from the price table that lists the model, and the class is not priced when no table does. |
+| `token_rates.<key>.cache_write_per_mtok` | number | _(not set)_ | USD per million cache-write tokens, unset under the same rule as `cache_read_per_mtok`. |
 
-An entry must set both `input_per_mtok` and `output_per_mtok` to price any usage. Cache rates are optional: an omitted cache-read or cache-write rate falls back to `input_per_mtok`. A zero value is valid.
+A zero rate is valid. Sortie prices fresh input, cache reads, cache writes, and output as disjoint buckets. Fresh input is `input_tokens - cache_read_tokens - cache_write_tokens`, floored at zero. This prevents cache tokens, which are already included in `input_tokens`, from being charged twice.
 
-Sortie prices fresh input, cache reads, cache writes, and output as disjoint buckets. Fresh input is `input_tokens - cache_read_tokens - cache_write_tokens`, floored at zero. This prevents cache tokens, which are already included in `input_tokens`, from being charged twice.
+#### Kind entries
 
-An entry keyed to an agent kind that reports no token usage for the sessions a workflow produces has no effect: there is nothing to price, and the dashboard reads "not measured" for such a session's cost. [`sortie validate`](/reference/cli/#validate) reports that combination as an `agent.kind.no_cost_estimate` warning naming the kind, so it is not something to discover from a blank column.
+A kind entry prices every model of its agent kind alike, and takes precedence over every price table and every model entry for that kind. It must set both `input_per_mtok` and `output_per_mtok`; an entry that lacks either prices nothing, and a run of that kind reads as unpriced, because the price tables are not consulted for a kind that has an entry. Cache rates are optional: an omitted cache-read or cache-write rate falls back to `input_per_mtok`.
+
+A kind entry turns off per-model pricing for its kind, so [`sortie validate`](/reference/cli/#validate) warns about it under the check `token_rates.per_kind`. Use a model entry to price one model without giving up per-model pricing for the rest.
+
+An entry keyed to an agent kind that reports no token usage for the sessions a workflow produces has no effect: there is nothing to price, and the dashboard reads "not measured" for such a session's cost. `sortie validate` reports that combination as an `agent.kind.no_cost_estimate` warning naming the kind, so it is not something to discover from a blank column.
 
 Whether a kind reports usage can depend on the launch: `copilot-cli` reports it locally and none over SSH, so adding a [`worker.ssh_hosts`](#worker) pool can make a previously effective entry inert.
+
+#### Model entries
+
+A model entry prices one model. It matches a model name that:
+
+1. equals the entry's key;
+2. maps to the same price table entry as the key does, so `anthropic/claude-sonnet-4-5` takes the entry keyed `claude-sonnet-4-5`; or
+3. for a model that no price table in force lists, equals the key once letter case and a dot or hyphen between two digits are set aside, so `My-Local-Model` takes the entry keyed `my-local-model`.
+
+When two entries match a name only by the second or third rule, neither prices it. A name that is only a prefix of a key never matches.
+
+For a model that a price table in force lists, a model entry may set any subset of the four rates, and Sortie takes each rate it leaves unset from the table. For a model that no table lists, the entry should set all four rates. An entry that leaves one unset draws the warning `token_rates.model_incomplete`, which names the unset rates and does not fail the load. The entry prices the token classes it sets, and a run that spends an unset class is recorded as partial: its cost is a lower bound.
+
+A model entry prices each of a run's models separately and the run's cost is the sum. Outside a kind entry no rate is ever substituted for another: a class that has tokens and no rate adds nothing.
 
 Validation rules:
 
 - `token_rates` must be a map when present. Non-map values produce a warning (not a fatal error).
-- Each agent-kind value must be a map. A different type produces a warning, and the entry prices nothing.
+- Each entry value must be a map. A different type produces a warning, and the entry prices nothing.
 - Rate values must be finite, non-negative numbers. Invalid values produce a warning and are treated as not configured.
 - Unknown keys inside an entry produce a warning and are ignored.
-- An entry missing `input_per_mtok` or `output_per_mtok` produces a warning and prices nothing.
-- An entry keyed to the empty string is dropped with a warning. It prices no kind.
+- A kind entry missing `input_per_mtok` or `output_per_mtok` produces a warning and prices nothing.
+- An entry keyed to the empty string is dropped with a warning. It prices nothing.
 - On a reload, a `token_rates` that is not a map keeps every entry in force, and an entry that is not a map or holds an invalid rate keeps the rates it had before the reload. An entry the reload adds is read as at startup.
 
-These warnings are configuration advisories under the `token_rates` check. They appear in `sortie validate` without changing `valid` or the exit status, in a dry run, and once per applicable configuration in the running orchestrator's log.
+These warnings are configuration advisories under the `token_rates` check, and the two further advisories above are `token_rates.per_kind` and `token_rates.model_incomplete`. They appear in `sortie validate` without changing `valid` or the exit status, in a dry run, and once per applicable configuration in the running orchestrator's log.
 
-Sortie prices a finished run once, when it records the run, under the rates in force then, and stores the cost with it. A recorded cost never changes: editing `token_rates` or restarting leaves the cost of past runs as it was on the dashboard, in the JSON API, in `sortie stats`, and in `GET /api/v1/stats`. Runs recorded by a release that did not store costs are priced once, at the first start of a release that does, under the `token_rates` in force at that start. A start that fails to price them logs the error and starts anyway, and they read as unpriced until a later start prices them.
+Sortie prices a finished run once, when it records the run, under the rates in force then, and stores the cost with it. A recorded cost never changes: editing `token_rates` or restarting leaves the cost of past runs as it was on the dashboard, in the JSON API, in `sortie stats`, and in `GET /api/v1/stats`. Runs recorded by a release that did not store costs are priced once, at the first start of a release that does, under the rates in force at that start. A start that fails to price them logs the error and starts anyway, and they read as unpriced until a later start prices them.
 
 `token_rates` reloads with the rest of WORKFLOW.md, without a restart. New rates apply to the estimate of running sessions from the next poll tick, to every run that finishes after the reload, and to `config.token_rates` of [`GET /api/v1/state`](/reference/http-api/#get-apiv1state-system-state). An edit that gives an entry an invalid value keeps that entry's previous rates, as the validation rules above state.
 
 ```yaml
 token_rates:
-  claude-code:
-    input_per_mtok: 3.00
-    output_per_mtok: 15.00
-    cache_read_per_mtok: 0.30
-    cache_write_per_mtok: 3.75
-  copilot-cli:
-    input_per_mtok: 2.00
-    output_per_mtok: 8.00
-    cache_read_per_mtok: 0.20
-    cache_write_per_mtok: 2.50
+  # Kind entry: every model of the kind is priced alike.
   codex:
     input_per_mtok: 2.50
     output_per_mtok: 10.00
     cache_read_per_mtok: 0.25
+  # Model entries: the key is a model name, not an agent kind.
+  claude-sonnet-4-5:
+    input_per_mtok: 2.00            # the other rates come from the price table
+  my-local-model:                   # no price table lists this model
+    input_per_mtok: 0.20
+    output_per_mtok: 0.60
+    cache_read_per_mtok: 0.02
+    cache_write_per_mtok: 0.25
 ```
 
 See [how to control agent costs](/guides/control-costs/) for operational guidance on cost monitoring.
+
+### `price_table`
+
+The price table that prices runs when `token_rates` does not. Sortie ships one inside the binary: a snapshot of the public LiteLLM `model_prices_and_context_window.json` price list, listing models with their input, output, cache-read, and cache-write rates. It works offline and needs no configuration.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `price_table` | map | _(absent)_ | Top-level extension key. A value that is not a map fails the load. |
+| `price_table.embedded` | boolean | `true` | `false` removes the built-in table from the rates in force. A value that is not a boolean fails the load. |
+| `price_table.replace_file` | path | _(not set)_ | A price table of your own that replaces the built-in table. Supports `$VAR` and `~` expansion. A relative path is read from the directory of WORKFLOW.md. A value that is not a string fails the load. |
+
+A [kind entry](#kind-entries) of a run's agent kind prices the run first. Otherwise each model is priced from the price table, and a [model entry](#model-entries) for the model overrides the table's rate for each class the entry sets. With `replace_file` set, your file is the only table; the built-in table is not consulted, and a model your file does not list is unpriced unless a model entry prices it. A table that fails to load never falls back to the built-in table.
+
+The file is a JSON object keyed by model name, in the format of the LiteLLM price list. Each entry is an object whose rates are in USD per token, not per million:
+
+| Entry field | Meaning |
+|---|---|
+| `input_cost_per_token` | Rate for fresh input tokens. |
+| `output_cost_per_token` | Rate for output tokens. |
+| `cache_read_input_token_cost` | Rate for cache-read tokens. |
+| `cache_creation_input_token_cost` | Rate for cache-write tokens. |
+| `litellm_provider` | Provider of the model, used to match names of the form `provider/model`. |
+
+Every field is optional. A class an entry has no rate for is not priced. A name is matched to a key by equality, then by equality once letter case and a dot or hyphen between two digits are set aside (`claude-opus-4.6` matches `claude-opus-4-6`), then, for a name of the form `provider/model`, by the one entry listed for `model` under that provider. A name that matches two keys, a name that is only a prefix of a key, and a placeholder written between angle brackets match none.
+
+Validation rules:
+
+- The file must be readable and a JSON object, every rate must be a finite, non-negative number, and at least one entry must carry a rate. Otherwise the load fails under the check `price_table.replace_file`.
+- A `replace_file` set through a `$VAR` that resolves to an empty string fails the load under the same check.
+- When the load fails at startup, Sortie does not start. On a reload, it keeps the previous configuration and rates, and the workflow health in [`GET /api/v1/state`](/reference/http-api/#get-apiv1state-system-state) reports the failed load.
+
+No rate source is available when `price_table.embedded` is `false`, no `replace_file` is set, and `token_rates` holds no entry. The dashboard then shows no cost, `GET /api/v1/state` omits `active_estimated_cost_usd` and `cost_unpriced_running`, and every finished run that spent tokens is recorded as unpriced.
+
+`price_table` reloads with the rest of WORKFLOW.md, and `replace_file` is read again on every load, so an edited file applies from the next load. A cost already recorded never changes.
 
 ### `worker`
 
@@ -2088,6 +2139,6 @@ Sortie watches `WORKFLOW.md` for filesystem changes and re-applies configuration
 | `server.host`                          | Requires restart.                      |
 | `logging.level`                        | Requires restart.                      |
 | `logging.format`                       | Requires restart.                      |
-| `token_rates.*`                        | Next poll tick for the estimate of a running session; the next run that finishes for its recorded cost. A cost already recorded never changes. |
+| `token_rates.*`, `price_table.*`       | Next poll tick for the estimate of a running session; the next run that finishes for its recorded cost. A cost already recorded never changes. A `price_table.replace_file` that fails to load keeps the previous configuration. |
 
 An in-flight agent session keeps its agent and prompt template frozen at first dispatch. The exception is exit-time behavior: the destinations of the session events a worker exit produces, including those enabled by `tracker.comments.on_completion` and `tracker.comments.on_failure`, are selected against the active configuration when the worker exits, so a reload during a session can change whether it posts a completion or failure comment.

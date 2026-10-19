@@ -128,7 +128,7 @@ A chip shows only while it has issues, and the whole row of chips shows only whi
 
 Each row shows the issue title, a second line with the key, the rule (or the stage and its place in the chain, such as "implement, 2 of 3"), and the agent kind, then Sortie's sentence about the issue, and a time. The time counts down to the due time for a retry and counts up from the start of the current state for every other row. A running issue whose agent has sent no event for longer than usual carries a stall marker. A held issue whose item was acknowledged reads "Acknowledged at" with the time. A click opens the peek.
 
-**Ended today** lists the issues that ended today and that Sortie no longer holds, newest ending first, each with its outcome, such as "Reached done", "Handed off to Review", or "Merged #1331", and the time. Beside the heading a tally line lists, for example, 2 issues ended, 23 runs finished, 7 succeeded, 16 failed, and 48.03M tokens with "(6 runs not measured)", plus stopped and cancelled counts when there are any and an estimated cost when `token_rates` is configured. A **History** link follows. The tally reads "No run finished today." when none did, and it is absent before the first run and while run history is unavailable ("Run history is not available.").
+**Ended today** lists the issues that ended today and that Sortie no longer holds, newest ending first, each with its outcome, such as "Reached done", "Handed off to Review", or "Merged #1331", and the time. Beside the heading a tally line lists, for example, 2 issues ended, 23 runs finished, 7 succeeded, 16 failed, and 48.03M tokens with "(6 runs not measured)", plus stopped and cancelled counts when there are any and an estimated cost when a rate source is available. A **History** link follows. The tally reads "No run finished today." when none did, and it is absent before the first run and while run history is unavailable ("Run history is not available.").
 
 ## Pipeline
 
@@ -192,7 +192,7 @@ The story is the issue's history, newest at the bottom, grouped into chapters.
 - Each stage of a chain is a chapter named after its rule, and a stage that ran again reads "again". Work on the pull request, such as CI fixes and review fixes, forms chapters named "Pull request" with its number. Work outside a stage chain forms chapters named "Work".
 - An issue in a stage chain opens with a summary of the stages done, the current stage with its place, such as "implement (2 of 3)", and the stages ahead. Its **All stages** button lists every stage with its time span. A stage that did not hop to the next reads "hop to" the target "not made" with the reason.
 - Every chapter but the current one is folded to one line with its run count, time span, and outcome.
-- Each run is a card with its number, its status, what started it ("CI fix", "Retry after an error", "Continuation", and so on), its time span and duration, its error when it failed, its turns, its tokens, its estimated cost when `token_rates` is configured, and a **Session timeline** link to the [session view](#session-view).
+- Each run is a card with its number, its status, what started it ("CI fix", "Retry after an error", "Continuation", and so on), its time span and duration, its error when it failed, its turns, its tokens, its estimated cost when a rate source is available, and a **Session timeline** link to the [session view](#session-view).
 - The current chapter closes on Sortie's sentence about the issue. When older runs are not loaded, a line says how many are not listed, and **Show older runs** loads them.
 
 The margin holds these panels, each only when it applies.
@@ -203,7 +203,7 @@ The margin holds these panels, each only when it applies.
 | **Retry N** | While the issue waits for a retry: when it is **Due**, what it was **Started by**, the **Error**, and **Retry now**. |
 | **What happens next** | The conditions and what Sortie does under each. |
 | **Pull request #N** | The repository, branch, and head commit, then one line per watched reaction with its state, the time of its next check, how many fixes it has used of its limit, and **Check now**. A reaction's state reads "fixing", "checks failing", "checks passing", "comments arriving", "comments to answer", "conflict", "waiting", or "escalated". |
-| **Budget** or **Budget and cost** | Meters for **Sessions** and **Tokens** against the issue's limits, "No token budget" when none is set, and, with `token_rates`, the **Estimated cost** with its share for pull request fixes and for stage runs or the rule. |
+| **Budget** or **Budget and cost** | Meters for **Sessions** and **Tokens** against the issue's limits, "No token budget" when none is set, and, when a rate source is available, the **Estimated cost** with its share for pull request fixes and for stage runs or the rule. |
 | **Route** or **Agent** | **Entry rule**, **Stage** (with its place in the chain), **Agent** (the agent kind), and **Model**, which reads "agent default" when no model is named. |
 | **Issue** | **Status**, **Type**, and **Labels**. |
 
@@ -245,7 +245,7 @@ Filters sit above the table, and each is part of the address.
 | **Run status** | **Succeeded**, **Failed**, **CI failed**, **Stopped for a person**, **Stopped at a budget**, or **Cancelled**. |
 | **Hop to** | Runs that hopped to one stage. Shown when the workflow has stage chains. |
 
-Each issue is a header row and its newest runs beneath it. The header shows the outcome mark, the issue title linking to the issue page, and a second line with the key, Sortie's sentence about the issue, its run count, its tokens, its cache reads when it has any, and its estimated cost when `token_rates` is configured. At the right it shows when the issue ended. **Show more runs** loads the issue's earlier runs.
+Each issue is a header row and its newest runs beneath it. The header shows the outcome mark, the issue title linking to the issue page, and a second line with the key, Sortie's sentence about the issue, its run count, its tokens, its cache reads when it has any, and its estimated cost when a rate source is available. At the right it shows when the issue ended. **Show more runs** loads the issue's earlier runs.
 
 | Column | Shows |
 |---|---|
@@ -255,7 +255,7 @@ Each issue is a header row and its newest runs beneath it. The header shows the 
 | **Duration** | From start to end. |
 | **Turns** | Turns completed. |
 | **Tokens** | Tokens without cache reads. The tooltip gives the cache reads. |
-| **Est. cost** | The estimated cost. Shown when `token_rates` is configured. |
+| **Est. cost** | The estimated cost. Shown when a rate source is available. |
 | **Finished** | When the run ended. |
 
 With no run on record the screen reads "No run has finished yet." A filter that matches nothing reads "No finished run matches these filters." with a **Clear filters** button. Without run history the screen reads "Run history is not available.", and a failed read reads "Run history could not be read.".
@@ -276,7 +276,7 @@ The summary opens with the success rate, large, and "N of M runs succeeded" unde
 | **Turns per succeeded run** | The mean. Shown once a run succeeded. |
 | **Tokens** | Tokens without cache reads, with "N runs not measured" or "every run measured". |
 | **Cache reads** | Cache read tokens, when there are any. |
-| **Estimated cost** | The estimated cost with the runs it leaves out. Shown when `token_rates` is configured. |
+| **Estimated cost** | The estimated cost with the runs it leaves out. Shown when a rate source is available. |
 
 **Outcomes** is one bar that shows how the runs ended, with a legend and a count for each outcome that has runs: **Succeeded**, **Stopped for a person or budget**, **Cancelled**, and **Failed**. A tooltip gives a segment's count and share.
 
@@ -306,7 +306,7 @@ The breakdowns follow, each a table sortable by any column header, 20 rows at a 
 | **By retry trigger** | What caused a retry | It has a group. |
 | **Why runs started** | What started a run: a poll, a retry, a stage hop, or a pull request reaction | It has a group. |
 
-Each table has the columns **Runs** (with a bar), **Success** (with a bar, and **Share** in **By run status**), **Duration** (a mark from the median to the 95th percentile and the same range in text), **Mean turns**, **Tokens**, and **Est. cost** when `token_rates` is configured.
+Each table has the columns **Runs** (with a bar), **Success** (with a bar, and **Share** in **By run status**), **Duration** (a mark from the median to the 95th percentile and the same range in text), **Mean turns**, **Tokens**, and **Est. cost** when a rate source is available.
 
 ## Health
 
@@ -334,7 +334,7 @@ A failing row reads, for example, "3 ticks in a row failed since 14:02; last suc
 | **Reactions** | One row per configured [reaction](/reference/reactions/): **Kind**, **Limit** (fixes, fix runs, merge strategy, or target state), and **Escalation**. Without reactions it reads "No reactions: Sortie's part ends at" the handoff state. |
 | **Tracker** | **Kind**, the **Active**, **In progress**, **Handoff**, **No change**, and **Terminal** states, and the **Poll** interval. |
 | **Agent** | **Kind**, **Max turns**, **Stall timeout**, **Retry backoff**, **Concurrency** with any per-state limits, **Token budget**, **Session budget**, **Usage reporting** for each agent kind in use, and **SSH workers** with their per-host limit. |
-| **Token rates** | The rate of each agent kind for **Input**, **Output**, **Cache read**, and **Cache write**, per million tokens. A kind without both **Input** and **Output** reads "Not priced without `input_per_mtok` and `output_per_mtok`." Without `token_rates` the panel reads "Not set: no cost is shown." |
+| **Token rates** | The rate of each `token_rates` entry, an agent kind or a model name, for **Input**, **Output**, **Cache read**, and **Cache write**, per million tokens. A kind entry without both **Input** and **Output** reads "Not priced without `input_per_mtok` and `output_per_mtok`." Without `token_rates` the panel reads "Not set: costs come from the price table." while a rate source is available, and "Not set: no cost is shown." when none is. |
 
 **Usage reporting** reads "reports tokens", "reports none", or "not declared" for each kind. See [`token_rates`](/reference/workflow-config/#token_rates) and the [usage reporting table](/reference/workflow-config/#usage-reporting-by-agent-kind).
 
@@ -400,20 +400,20 @@ The dashboard shows only what the workflow configures. Every row below changes w
 | Dispatch rules | The **Rule** menu on **Overview** and **Pipeline**, the rule on each row and run, the **Rule** filter and column in **History**, and **By rule** in **Analytics**, which stays hidden while every run used the default. |
 | [Stage chains](/concepts/stage-chains/) | The rule menu grouped by chain, the stage and its place on rows ("implement, 2 of 3"), the stage meter on lanes, the "stages done" legend entry, the stage summary and stage chapters on the issue page, the **Hop to** filter in **History**, one funnel table per chain in **Analytics**, and the chains in **Workflow**. |
 | Pull request [reactions](/reference/reactions/) | One station per reaction on **Pipeline** and the issue page, the **Waiting on PR** chip, the pull request chapters and the **Pull request** panel with **Check now**, escalations as attention items, and the **Reactions** panel in **Workflow**. Without reactions the lane ends at the handoff state. |
-| `token_rates` | The **Est. cost** column in **History** and **Analytics**, the **Estimated cost** figure, the cost in run cards, the peek, the **Budget and cost** panel, and the **Ended today** tally. Without `token_rates` none of these appears, and the **Est. cost** row of a session view whose tokens were measured reads "unpriced". |
+| A rate source: the built-in price table, [`price_table.replace_file`](/reference/workflow-config/#price_table), or [`token_rates`](/reference/workflow-config/#token_rates) | The **Est. cost** column in **History** and **Analytics**, the **Estimated cost** figure, the cost in run cards, the peek, the **Budget and cost** panel, and the **Ended today** tally. The built-in table is on by default, so these appear unless `price_table.embedded` is `false` and neither `price_table.replace_file` nor `token_rates` is set. Then none of them appears, and the **Est. cost** row of a session view whose tokens were measured reads "unpriced". |
 | An agent kind that [reports no token usage](/reference/workflow-config/#usage-reporting-by-agent-kind) | "not measured" in place of its tokens and cost on every screen, "reports none" under **Usage reporting** in **Workflow**, and a **Tokens** line of "not measured" in the session view. |
 | `agent.max_sessions` or `agent.max_tokens` | The budget meters on the issue page, the budget attention items, and the **Session budget** and **Token budget** lines in **Workflow**. See [how to control agent costs](/guides/control-costs/). |
 
 ## How figures are written
 
-Costs are estimates, built from the rates in `token_rates`, and the dashboard says so with the words "estimated", "est.", and "Estimated cost". A finished run keeps the cost recorded when it finished, whatever the rates say now. Token figures leave out cache reads, which the dashboard shows separately where it has them. `agent.max_tokens` leaves them out too, so the budget meter reads **Tokens** and counts the same figure. Durations use at most two units ("1h 17m"), tokens read as "830K" or "48.03M", costs read with two decimals below $100 and as whole dollars from $100, and a share strictly between 0 and 100 percent never rounds to either end.
+Costs are estimates, built from the rates in force (`token_rates` entries over the price table), and the dashboard says so with the words "estimated", "est.", and "Estimated cost". A finished run keeps the cost recorded when it finished, whatever the rates say now. Token figures leave out cache reads, which the dashboard shows separately where it has them. `agent.max_tokens` leaves them out too, so the budget meter reads **Tokens** and counts the same figure. Durations use at most two units ("1h 17m"), tokens read as "830K" or "48.03M", costs read with two decimals below $100 and as whole dollars from $100, and a share strictly between 0 and 100 percent never rounds to either end.
 
 A figure Sortie does not have is never written as zero.
 
 | Wording | Means |
 |---|---|
 | "not measured" | The agent reported no token usage for the run, or none has arrived yet. It stands for a token figure and for a cost that depends on one. |
-| "unpriced" | The tokens are known but `token_rates` has no complete rate for the agent kind of a running session, or had none when a finished run was recorded. The tally reads "cost unpriced". |
+| "unpriced" | The tokens are known but no rate prices the model of a running session, or none did when a finished run was recorded. The tally reads "cost unpriced". |
 | "not recorded" | Sortie's run history does not hold the figure, or has no value for it, as for **Mean turns** of a group with no turn count. The tally reads "tokens not recorded". |
 | "not reported" | The agent named no model, as in **Reported model**. In the budget panel, "No token budget: tokens not reported." when no token budget is set, and "Tokens not reported." when one is. |
 | "N runs not measured" and "N runs unpriced" | A total that leaves those runs out. The tally reads "(N runs not measured)" and "(N runs unpriced)". |

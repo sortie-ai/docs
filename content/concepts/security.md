@@ -153,7 +153,7 @@ The cost is real and worth stating. An agent denied consent may abandon a route 
 
 Sortie transmits no usage data. There is no telemetry client, no analytics client, and no update check anywhere in the codebase. This is a property you can confirm by searching the source, not an inference from watching network traffic.
 
-The only destinations a running instance reaches are the tracker, forge, and coding-agent endpoints its own configuration names; the endpoint literals compiled into the binary are limited to the public defaults for those integrations (`api.github.com`, `api.linear.app`, and the like), never a Sortie-operated collection point.
+The only destinations a running instance reaches are the tracker, forge, and coding-agent endpoints its own configuration names, plus one public file: the model price list Sortie downloads at startup and once a day to estimate run costs, unless you turn that off with [`price_table.fetch: false`](/reference/workflow-config/#price_table). That download sends no run data. The endpoint literals compiled into the binary are limited to the public defaults for those integrations (`api.github.com`, `api.linear.app`, and the like) and that price list's address, never a Sortie-operated collection point.
 
 The embedded HTTP server itself (dashboard, JSON API, and Prometheus metrics alike) binds to `127.0.0.1` on port `7678` by default, so none of it is reachable from elsewhere unless you deliberately pass `--host 0.0.0.0` or put a reverse proxy in front of it. The server has no authentication, and the dashboard can run a retry or acknowledge an item, so any exposure needs an authenticating proxy or a VPN; see the [dashboard security warning](/reference/dashboard/#security).
 

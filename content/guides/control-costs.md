@@ -247,23 +247,43 @@ These are worst cases in the sense that the system stops itself once it reaches 
 
 These surfaces give you cost visibility without any extra infrastructure.
 
-**Dashboard.** The session view of a running or finished session carries an **Est. cost** figure under **Usage**, and the issue page adds the cost to each run card and totals it in the **Budget and cost** panel. A figure appears once the session's agent kind has both an input and output rate in WORKFLOW.md. Without the rates it reads "unpriced", and a kind that reports no tokens reads "not measured". **Usage reporting** in [Workflow](/reference/dashboard/#workflow) states which kinds report token figures at all, which is what tells a missing cost apart from a missing rate.
+**Dashboard.** The session view of a running or finished session carries an **Est. cost** figure under **Usage**, and the issue page adds the cost to each run card and totals it in the **Budget and cost** panel. A figure appears once a rate prices the session's model. Sortie ships a price table for common models, so most sessions are priced with no configuration. A model the table does not list reads "unpriced", and a kind that reports no tokens reads "not measured". **Usage reporting** in [Workflow](/reference/dashboard/#workflow) states which kinds report token figures at all, which is what tells a missing cost apart from a missing rate.
 
 Finished runs keep their figures. [History](/reference/dashboard/#history) lists the tokens and cost of each run and each issue, and [Analytics](/reference/dashboard/#analytics) totals them over a range and breaks them down by rule, model, and agent. For spend in a script or a report, reach for [`sortie stats`](/reference/cli/#stats) below. The HTTP server runs by default on `http://localhost:7678`. See [how figures are written](/reference/dashboard/#how-figures-are-written) for the wording.
 
-Configure token rates to see cost estimates on the dashboard:
+Sortie prices runs from a price table built into the binary, so cost estimates need no setup. To price a model the table does not list, or to change a rate, add the rates to WORKFLOW.md. Set them before the runs you want priced: Sortie prices each run once, when it finishes, so a run that finished without a rate stays unpriced, and a later rate change leaves past costs as they were. An edit applies without a restart.
+
+**Price a model the table does not list.** Key an entry by the model name your agent reports and set all four rates. Rates are in USD per million tokens, yours to supply and illustrative here:
 
 ```yaml
-# Rates are yours to supply and are illustrative here.
 token_rates:
-  claude-code:
+  my-local-model:
     input_per_mtok: 0.00
     output_per_mtok: 0.00
     cache_read_per_mtok: 0.00
     cache_write_per_mtok: 0.00
 ```
 
-Without `token_rates`, the dashboard shows raw token counts only. Set the rates before the runs you want priced: Sortie prices each run once, when it finishes, so a run that finished without a rate stays unpriced, and a later rate change leaves past costs as they were. An edit applies without a restart. See the [`token_rates` reference](/reference/workflow-config/#token_rates) for the full schema and the reload rules.
+Leave a rate out and [`sortie validate`](/reference/cli/#validate) warns with `token_rates.model_incomplete`. The runs that spend that token class are then recorded as partial, so their cost is a lower bound.
+
+**Override one rate of a listed model.** Set only the rate you want to change. Sortie takes the rest from the table:
+
+```yaml
+token_rates:
+  claude-sonnet-4-5:
+    input_per_mtok: 0.00
+```
+
+**Use your own price table.** If you negotiate prices or need figures that do not change with a release, point `price_table.replace_file` at a file in the [LiteLLM price list format](/reference/workflow-config/#price_table). It replaces the built-in table, so a model your file does not list stays unpriced unless a `token_rates` entry prices it. A relative path is read from the directory of WORKFLOW.md. If the file cannot be loaded, Sortie refuses to start, or keeps the previous configuration on a reload; it never falls back to the built-in table.
+
+```yaml
+price_table:
+  replace_file: ./prices.json
+```
+
+**Turn the built-in table off.** Set `price_table.embedded: false` to price only what `token_rates` or your own table covers. With no `token_rates` and no `price_table.replace_file`, the dashboard then shows token counts only.
+
+Avoid keying an entry by an agent kind such as `claude-code` unless you want one rate for every model that kind runs. That entry turns off per-model pricing for the kind, and `sortie validate` warns about it with `token_rates.per_kind`. See the [`token_rates`](/reference/workflow-config/#token_rates) and [`price_table`](/reference/workflow-config/#price_table) references for the full schema and the reload rules.
 
 **JSON API.** To see what one issue has spent and how much of its budget is left while a session runs, read the issue's running entry:
 
@@ -293,7 +313,7 @@ With `max_tokens: 500000` and `max_sessions: 5`, an issue whose third session is
 
 `used_tokens` counts the running session as it goes and leaves out cache reads, so it matches the figure the ceiling stops on. `sessions_after_this` is how many more sessions the issue can get once the running one ends: the session budget counts finished sessions only, so the running one is subtracted separately, and `0` or less means this is the last session. A limit that is not configured comes back as `null`, which the `if` turns into a `null` headroom instead of an error.
 
-When `used_tokens_complete` is `false`, some of the issue's spend went unrecorded and `tokens_left` is an upper bound. The cost is `null` unless `token_rates` prices the agent, and `issue_cost_status` says why. An issue the ceiling already holds has no `running` entry; its `budget_exhausted` entry carries `used_tokens`, `budget_tokens`, and `stopped_in_flight`.
+When `used_tokens_complete` is `false`, some of the issue's spend went unrecorded and `tokens_left` is an upper bound. The cost is `null` unless a rate prices the session's model, and `issue_cost_status` says why. An issue the ceiling already holds has no `running` entry; its `budget_exhausted` entry carries `used_tokens`, `budget_tokens`, and `stopped_in_flight`.
 
 Replace `/api/v1/MT-649` with `/api/v1/state` and `.running` with `.running[]` to list every running issue. The [HTTP API reference](/reference/http-api/#get-apiv1state-system-state) defines each key and every `cost_status` value.
 
@@ -323,7 +343,7 @@ For the spend figures themselves, reach for `sortie stats` or the `sortie_tokens
 
 **`sortie stats`.** The `stats` subcommand reports what finished work actually cost, aggregated from the local database over a range you choose and broken down by outcome, coding agent, dispatch rule, and prompt template.
 
-It is the only one of these surfaces that reports historical spend against completed runs rather than live or per-event figures, which makes it the one to reach for when the question is which dispatch rule or prompt template is burning the budget. It reads the cost recorded with each run, so runs that finished without a rate for their agent kind show token counts and no dollars.
+It is the only one of these surfaces that reports historical spend against completed runs rather than live or per-event figures, which makes it the one to reach for when the question is which dispatch rule or prompt template is burning the budget. It reads the cost recorded with each run, so runs that finished without a rate for their models show token counts and no dollars.
 
 ```sh
 sortie stats --since 24h WORKFLOW.md

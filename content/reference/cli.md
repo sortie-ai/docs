@@ -316,6 +316,7 @@ The pipeline checks:
 - `dispatch.max_consecutive_hops`, when written, is an integer greater than `0` and at least the number of hops in the longest stage chain, reported as `config.dispatch.max_consecutive_hops`.
 - Stage label collisions (`dispatch.stage.collision`). Each rule's stage label is compared, without regard to case, against the active and terminal states, `tracker.handoff_state`, `tracker.in_progress_state`, `tracker.no_change_state`, every reaction's `escalation_label`, and the parking label (`needs-human` unless `reactions.review_comments.escalation_label` names another). Each match is one error, which names the rule and the value it collides with. The check reads configuration only and makes no tracker call.
 - Agent-adapter config validation, for every agent kind the configuration can reach: the default `agent.kind`, the kind a [dispatch default](/reference/workflow-config/#dispatch) names, and the kind each dispatch rule selects. Every rule that carries a settings block is also checked on its resolved block, the top-level block of its kind with the rule's block laid over it, and each message opens with `dispatch rule "<name>" (dispatch.rules[<i>].<kind>): `. A rule's block therefore draws the same errors and warnings a top-level block would. A registered kind the configuration never names is skipped, because reporting a fault in a block no run reads would be noise. These checks cover the pass-through values that would let the agent stop and wait for a person, and they run offline with no network access and no subprocess launch. The Codex, Claude Code, Copilot CLI, and OpenCode adapters each declare them: see [Codex](/reference/adapter-codex/#validate-time-checks), [Claude Code](/reference/adapter-claude-code/#validate-time-checks), [Copilot CLI](/reference/adapter-copilot/#validate-time-checks), and [OpenCode](/reference/adapter-opencode/#validate-time-checks).
+- [`price_table`](/reference/workflow-config/#price_table) is a map, `price_table.embedded` is a boolean, and `price_table.replace_file`, when set, is a string that resolves to a non-empty path naming a readable price table (`price_table.replace_file`). A table that fails to load never falls back to the built-in table.
 - Workspace root directory exists (or can be created) and is writable.
 
 The pipeline does **not** check:
@@ -373,7 +374,9 @@ Every check in this group runs for every agent kind the configuration can reach,
 - **Deprecated comment escalation** (`reactions.<kind>.escalation.deprecated`). A reaction with a provider sets `escalation: comment`. The message names `escalation: none` and the `escalation.<kind>` event to list in a `tracker_comment` entry. One warning per reaction.
 - **Implicit tracker comment** (`notifications.tracker_comment.implicit_auto_merge`, `notifications.tracker_comment.implicit_budget_hold`). A tracker is configured, no `tracker_comment` entry exists, and the workflow relies on the auto-merge success comment (the auto-merge reaction has a provider) or the budget-hold comment (`agent.max_sessions` or `agent.max_tokens` is above `0`). The comment keeps posting. Adding an entry that lists `auto_merge.merged` or `budget.held` ends the warning, and an entry that omits the event ends the comment.
 - **Notification entry without `events`** (`notifications[<i>].events.missing`). A `webhook` or `slack` entry omits `events` and so receives `agent.message` only. The message suggests `events: [agent.message]`. One warning per entry.
-- **Invalid token rate entry** (`token_rates`). The block or an entry has the wrong type, an entry uses an empty kind or unknown key, a rate is invalid, or an entry lacks `input_per_mtok` or `output_per_mtok`. The warning names the rejected value or incomplete entry; the workflow remains valid.
+- **Invalid token rate entry** (`token_rates`). The block or an entry has the wrong type, an entry uses an empty key or unknown key, a rate is invalid, or a kind entry lacks `input_per_mtok` or `output_per_mtok`. The warning names the rejected value or incomplete entry; the workflow remains valid.
+- **Kind entry turns off per-model pricing** (`token_rates.per_kind`). A [`token_rates`](/reference/workflow-config/#kind-entries) entry is keyed by an agent kind, so it prices every model of that kind alike. One warning per such entry. Key the entry by a model name to price that model alone.
+- **Incomplete entry for an unlisted model** (`token_rates.model_incomplete`). A [`token_rates`](/reference/workflow-config/#model-entries) entry is keyed by a model that the price table the configuration selects does not list, and it leaves one of its four rates unset. That table is your [`price_table.replace_file`](/reference/workflow-config/#price_table) when set, else the built-in table. The warning names the unset rates. The entry still prices the classes it sets, and a run that spends an unset class is recorded as partial.
 - **Session budget shorter than a stage chain** (`dispatch.next.max_sessions`). `agent.max_sessions` is above `0` and smaller than the number of runs the longest stage chain needs, one per rule on it, so an issue on that chain exhausts its session budget before the chain ends. The message reads `agent.max_sessions <n> is smaller than the <runs> runs the longest stage chain needs (<path>); an issue on it exhausts its session budget before the chain ends`, where `<path>` lists the chain's rule names, as in `specify -> implement`. One warning, for the longest chain.
 
 Each of these is recomputed fresh every time the configuration is built. `sortie validate` and `sortie` [`--dry-run`](#--dry-run) report every currently-applicable advisory on every invocation, with no memory of an earlier run. The long-running process is the exception: its run log records an advisory once and again only after the condition has cleared and returned, kept in memory for the life of the process, so a restart logs it again immediately if the condition still holds. None of them affect `valid` or the exit code.
@@ -482,6 +485,7 @@ The `check` field in JSON output and the prefix in text output use these values:
 | `agent.kind` | Missing `agent.kind` field. |
 | `agent.command` | A reachable agent kind launches a process but would run nothing: the default kind has no `agent.command` and no default command, or a `dispatch` rule routes to a kind with no default command that is not the default kind. The message names the selector. |
 | `agent_adapter` | Unknown agent adapter kind. |
+| `price_table.replace_file` | `price_table.replace_file` is not a string, resolves to an empty string through a `$VAR`, names a file that cannot be read, or names a file that is not a valid price table. |
 | `tracker.project.format` | `tracker.project` is non-empty but not in `owner/repo` format (GitHub adapter). |
 | `dispatch.agent.missing_block` | A `dispatch.default.agent` or `dispatch.rules[i].agent` names a registered kind, other than `agent.kind`, with no top-level settings block in the front matter, and at least one selector of that kind is not a rule carrying its own settings block. |
 | `config.dispatch.rules[<i>].stage` | A rule's `stage` is not a string, has no character other than white space, or repeats an earlier rule's stage label regardless of case. |
@@ -524,6 +528,8 @@ Warning diagnostics use a separate set of check values. They appear only in the 
 | `notifications.tracker_comment.implicit_auto_merge`, `notifications.tracker_comment.implicit_budget_hold` | The workflow relies on the auto-merge success comment or the budget-hold comment while no `tracker_comment` entry exists. |
 | `notifications[<i>].events.missing` | A `webhook` or `slack` entry omits `events`. |
 | `token_rates` | A `token_rates` value is malformed, incomplete, or contains an unrecognized key. The invalid part is ignored or the incomplete entry prices nothing. |
+| `token_rates.per_kind` | A `token_rates` entry is keyed by an agent kind, so it prices every model of that kind alike and turns off per-model pricing for it. |
+| `token_rates.model_incomplete` | A `token_rates` entry for a model that no price table in force lists leaves a rate unset. It prices only the classes it sets. |
 | `tracker.active_states.empty` | `tracker.active_states` is empty, so no issue is dispatched. The check does not block startup. |
 | `dispatch.next.max_sessions` | `agent.max_sessions` is above `0` and smaller than the number of runs the longest stage chain needs, so an issue on that chain exhausts its session budget before the chain ends. |
 
@@ -640,7 +646,7 @@ On a `full` database written before Sortie recorded the cost of each run, the re
 warning: this database was written before sortie recorded the cost of each run, so the report leaves out cost. Run sortie once with this workflow to add it.
 ```
 
-The start that adds the cost columns also prices the runs recorded before them, once, under the `token_rates` in force at that start. When the database also predates the column of a breakdown, such as the [configured model](#configured-model-breakdown), the report carries that breakdown's warning instead, ending with `The report also leaves out cost until then.`
+The start that adds the cost columns also prices the runs recorded before them, once, under the rates in force at that start. When the database also predates the column of a breakdown, such as the [configured model](#configured-model-breakdown), the report carries that breakdown's warning instead, ending with `The report also leaves out cost until then.`
 
 When `run_history` is absent altogether, or missing any of `status`, `agent_adapter`, `started_at`, or `completed_at`, the file is not a Sortie database and the command exits `1`:
 
@@ -653,7 +659,7 @@ sortie stats: run_history table not found or missing base columns
 The `by configured model` table (`by_model` in JSON) groups runs by the `model` their resolved settings carried when they started, the value a [dispatch rule](/reference/workflow-config/#dispatch) can set per issue. It is not the model the runtime reported running; the two can differ, and [how the two differ](/reference/http-api/#configured-and-reported-model) is explained with the running session fields. `stats` groups by the configured value only.
 
 - A run that configured no model, so the runtime used its own default, is grouped under `<none>`. So is every run recorded before Sortie stored the configured model, and every `ci_failed` run, which records no model.
-- Each run's cost was priced at the rate of its coding agent, as in every other breakdown. `token_rates` has no per-model entry, so two models of one agent kind are priced alike.
+- Each run's cost is the one recorded when it finished, as in every other breakdown. Sortie prices a run per model, so two models of one agent kind are priced at their own rates, unless a [`token_rates` kind entry](/reference/workflow-config/#kind-entries) prices that kind alike. A run is grouped under its one configured model whatever models it spent tokens on.
 - The table follows the prompt-template table in text output.
 
 On a `full` database written before Sortie recorded the configured model, the report carries no breakdown: `by_model` is `[]`, never `null`, the text report omits the table, and `warnings` carries this message. The exit code is `0`.
@@ -859,7 +865,7 @@ Both formats carry the same figures. Breakdown rows are sorted by descending run
 
 The summary's duration and mean-turn figures cover **succeeded runs only**, so they describe the work that landed rather than the volume attempted. Token sums and cost figures cover **measured runs only**: a run whose coding agent reported no token usage records that fact and is left out of those figures instead of counting as a run that spent nothing.
 
-A run counts as succeeded when its status is exactly `succeeded`. Cost is the estimate Sortie recorded when each run finished, under the `token_rates` in force then, and is never priced again; a run that spent no tokens adds to no cost figure. See [control agent costs](/guides/control-costs/#monitor-spending) for where this fits among the other cost surfaces.
+A run counts as succeeded when its status is exactly `succeeded`. Cost is the estimate Sortie recorded when each run finished, under the rates in force then, and is never priced again; a run that spent no tokens adds to no cost figure. See [control agent costs](/guides/control-costs/#monitor-spending) for where this fits among the other cost surfaces.
 
 **Text** (default): the report is written to stdout. Warnings are written to stderr, after a blank line, one per line, each prefixed `warning: `. The two streams can be redirected independently.
 
@@ -913,7 +919,7 @@ The outcome table shows `SHARE`, a group's runs over total runs. Every other bre
 
 The `covering:` line is prose rather than a sentinel. It reads `every run on record` when neither bound was given, `<since> onward` with only `--since`, `the start of the record until <until>` with only `--until`, and `<since> until <until>` with both.
 
-When no run in the range that spent tokens was priced, with or without `token_rates` in the workflow, token counts are still reported and the cost line reads:
+When no run in the range that spent tokens was priced, token counts are still reported and the cost line reads:
 
 ```
 cost (measured runs)    -   per succeeded run -
@@ -925,7 +931,7 @@ Four disclosure counters each add a footnote below the tables when they are not 
 note: 2 of these runs took no measurable time. A run that a CI result closed out carries the same start and finish time.
 note: the duration figures skip 1 of these runs, whose recorded start and finish times were unusable.
 note: the token and cost figures skip 4 of these runs, because the coding agent behind them reported no token usage.
-note: the cost figures skip 3 of these runs, because token_rates had no price for the coding agent behind them when they were recorded.
+note: the cost figures skip 3 of these runs, because Sortie had no price for the models they used when they were recorded.
 ```
 
 A range that matches no runs is a success, not a failure. The header still prints, one of two lines follows, and the exit code is `0`:
@@ -980,7 +986,7 @@ Envelope:
 | `cost_per_succeeded_run_usd` | number or null | `cost_usd` divided by the succeeded runs that were measured. `null` whenever `cost_usd` is `null`, and when no measured run succeeded. |
 | `zero_duration_runs` | integer | Runs that took no measurable time. A run that a CI result closed out carries the same start and finish time. |
 | `duration_excluded_runs` | integer | Runs left out of every duration figure because their stored timestamps could not be parsed or ran backwards. |
-| `cost_unpriced_runs` | integer | Measured runs that spent tokens and were recorded without a cost, left out of the cost figures: `token_rates` had no complete entry for their coding agent when they finished, they reported their spend only as a total, or they were recorded before Sortie stored costs and no start has priced them yet. An entry is complete only when it sets both input and output rates. It counts these runs whether or not the workflow sets `token_rates` now. `0` on a database that records no cost. A `ci_failed` run records a CI verdict and no coding agent, so it is never counted here. |
+| `cost_unpriced_runs` | integer | Measured runs that spent tokens and were recorded without a cost, left out of the cost figures: Sortie had no price for the models they used when they finished, they reported their spend only as a total, or they were recorded before Sortie stored costs and no start has priced them yet. It counts these runs whatever the workflow sets now. `0` on a database that records no cost. A `ci_failed` run records a CI verdict and no coding agent, so it is never counted here. |
 | `tokens_unmeasured_runs` | integer | Runs left out of the token and cost figures because the coding agent behind them reported no token usage. `0` on the `base` tier, where the distinction was never recorded. |
 
 Each element of `by_status`, `by_adapter`, `by_rule`, `by_template`, `by_model`, `by_chain`, `by_trigger`, and `by_origin`:

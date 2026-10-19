@@ -340,7 +340,7 @@ A turn that served model output counts toward `unaccounted_turns` when its expor
 
 The main stdout stream does not supply a stable final model identifier. The adapter reconstructs the reported model only from the export payload, using `providerID + "/" + modelID` from the last counted assistant message, when both fields are present. Those fields are the message's own `model.providerID` and `model.id`.
 
-Each counted message also adds to a per-model count keyed `providerID/modelID`. A message whose payload lacks either value adds to no entry, so per-model attribution works only when the export includes both (see [the model label](/reference/prometheus-metrics/#the-model-label)). Sortie ignores the export payload's vendor cost field and derives estimates from the normalized token counters and configured `token_rates` instead.
+Each counted message also adds to a per-model count keyed `providerID/modelID`. A message whose payload lacks either value adds to no entry, so per-model attribution works only when the export includes both (see [the model label](/reference/prometheus-metrics/#the-model-label)). Sortie ignores the export payload's vendor cost field and derives estimates from the normalized token counters and the rates in force (`token_rates` over the [price table](/reference/workflow-config/#price_table)) instead.
 
 ### API timing
 
