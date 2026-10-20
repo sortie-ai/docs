@@ -9,6 +9,91 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.29.0] - 2026-10-20 { #1.29.0 }
+
+This release is mostly about money: you can now cap what agents spend in dollars, and the cost figures behind that cap are ones you can trust.
+
+You can set a dollar limit per issue, and a daily and a monthly limit for the whole instance. When an issue reaches its limit, Sortie stops working on it and says so on the issue. When the instance reaches a limit, no new sessions start until the day or month resets. The dashboard shows spend against each limit.
+
+Costs work without any setup. Sortie ships with model prices and downloads a fresh price list every day, so new models are priced too. A new Prices screen shows which price applies to each model and where it comes from. A run's cost is fixed when it finishes, so changing prices or restarting no longer rewrites the cost of past runs, and price edits apply without a restart.
+
+Claude Code runs with more than one turn no longer count their tokens several times, which made costs too high and hit the token limit early. A pull request merged by hand just before Sortie's own auto-merge now gets the same notification and branch cleanup. Removing the parking label from an issue now releases it. Startup with a GitHub or Gitea tracker no longer leaves the dashboard unreachable for tens of seconds.
+
+Before you upgrade, check two things. The token limit no longer counts cached prompt reads, so with the same setting runs are stopped much later, and issues already held at the limit may start again; lower the limit or switch to a dollar limit. Token, runtime and exit metrics now split by model, so alerts and panels on raw series get one series per model.
+
+### Added
+
+- Sortie now prices runs from a price table built into the binary when `token_rates` is absent, accepts `token_rates` entries for single models that override some or all of a model's rates, and can price from a table of your own with `price_table.replace_file` or drop the built-in table with `price_table.embedded: false`; entries for an agent kind price as before, and `config.token_rates` in `GET /api/v1/state` gains `per_kind` to tell the two kinds of entry apart. ([#1413](https://github.com/sortie-ai/sortie/issues/1413))
+
+- `sortie validate` now warns when a `token_rates` entry for an agent kind turns off per-model pricing (`token_rates.per_kind`) or an entry for a model no price table lists leaves a rate unset (`token_rates.model_incomplete`), and fails with an error when `price_table.replace_file` cannot be loaded (`price_table.replace_file`) or is set together with `price_table.replace_url` (`price_table.replace_conflict`). ([#1413](https://github.com/sortie-ai/sortie/issues/1413))
+
+- Sortie now keeps model prices current by downloading an updated price list at startup and once a day, so runs on models released after your Sortie version are priced; `price_table.fetch: false` or `SORTIE_PRICE_TABLE_FETCH=false` turns this off. `price_table.replace_url` now prices runs from a price list you host. ([#1414](https://github.com/sortie-ai/sortie/issues/1414))
+
+- `agent.max_cost_usd` (or `SORTIE_AGENT_MAX_COST_USD`) caps an issue's estimated cost in US dollars: once its runs reach the limit, Sortie stops dispatching the issue, posts the budget-hold comment, and stops a run in progress as soon as the run's reported usage carries the issue there. The figure is the estimated cost the dashboard shows, priced per model; a run Sortie cannot fully price counts only what it priced, and Sortie logs that the figure is incomplete. A run can pass the limit by what the agent spends before its next usage report, so leave headroom. The issue page shows a cost meter against the limit, the peek shows the cost against the limit, `GET /api/v1/state` serves `budget_usd` and, on held issues, `used_usd`, and the agent's `cost_budget` tool reports `used_usd`, `budget_usd`, `remaining_usd`, and `used_usd_complete`. ([#1392](https://github.com/sortie-ai/sortie/issues/1392))
+
+- `sortie validate` and the service now warn when `agent.max_cost_usd` is set and an agent kind the workflow dispatches reports no token usage (`agent.max_cost_usd.no_usage_reporting`), or when no price source is configured (`agent.max_cost_usd.no_rate_source`); the limit cannot hold an issue under either configuration, and Sortie keeps dispatching. ([#1392](https://github.com/sortie-ai/sortie/issues/1392))
+
+- `agent.max_daily_cost_usd` and `agent.max_monthly_cost_usd` (or `SORTIE_AGENT_MAX_DAILY_COST_USD` and `SORTIE_AGENT_MAX_MONTHLY_COST_USD`) cap what the whole instance spends in estimated cost in a UTC calendar day and a UTC calendar month. Once the runs that ended in the window and the sessions still running reach a limit, Sortie starts no new agent session, retries and pull request follow-ups included, until the window resets or you raise the limit. Sessions already running finish, so the total can pass the limit by what they spend. A run Sortie cannot fully price counts only what it priced, and Sortie logs that the total is incomplete. Overview shows each window's spend against its limit and when it resets, the attention list shows the hold, and `GET /api/v1/state` serves both windows under `spend_ceiling`. The windows start at midnight UTC, while the dashboard's "today" starts at midnight in your browser's time zone. ([#1393](https://github.com/sortie-ai/sortie/issues/1393))
+
+- `sortie validate` and the service now warn when `agent.max_daily_cost_usd` or `agent.max_monthly_cost_usd` is set and an agent kind the workflow dispatches reports no token usage, or when no price source is configured; Sortie keeps dispatching. ([#1393](https://github.com/sortie-ai/sortie/issues/1393))
+
+- The session view of a finished run now lists the run's cost per model, naming the token classes that had no rate for a model Sortie could not fully price, and run rows of the JSON API carry the same per-model spend as `model_usage`. `GET /api/v1/stats` and `sortie stats --format json` also count the runs recorded with a lower-bound cost as `cost_partial_runs`, in the summary and in every breakdown entry. ([#1421](https://github.com/sortie-ai/sortie/issues/1421))
+
+- Analytics now charts the estimated spend per UTC day for the 7, 30, and 90 day ranges and per UTC month for all time, so you can see which day a cost jumped and compare it with the days and months `agent.max_daily_cost_usd` and `agent.max_monthly_cost_usd` count. A day or month that leaves out runs Sortie could not price or measure is drawn with a diagonal hatch. The summary and every breakdown with a cost column also show the cost per succeeded run. `sortie stats --format json` and `GET /api/v1/stats` serve the same spend as `spend`. ([#1422](https://github.com/sortie-ai/sortie/issues/1422))
+
+- The dashboard's new Prices screen shows, for every model your runs used and every model your workflow configures, the rates in force for it, whether each rate comes from a `token_rates` entry, your own price table, the downloaded table, or the table built into Sortie. It also shows each price source: your `token_rates` entries, your own table, whether the download is on and when it last succeeded or why it is failing, the built-in table's upstream revision and its date, and how many days old the prices in force are. `GET /api/v1/prices` serves the same data. ([#1419](https://github.com/sortie-ai/sortie/issues/1419))
+
+### Changed
+
+- `sortie_tokens_total`, `sortie_agent_runtime_seconds_total`, and `sortie_worker_exits_total` now carry a `model` label, so a dashboard can show token use, agent runtime, and run outcomes per model: the model the agent reported, else the configured `model`, else `<none>`. A query that sums one of these metrics returns what it did before, but a panel or alert on raw series now gets one series per model, and the example Grafana dashboard's Agent Runtime panel plots one line per model. After each restart these metrics report `0` for every configured model and every model an earlier run reported; a query filtered to any other model returns no data until a run reports that model, so an alert on it needs `or vector(0)`. On a default Prometheus, `rate()` and `increase()` miss the first sample of a model sortie has never run before; Prometheus's experimental `created-timestamp-zero-ingestion` feature flag counts it. ([#1343](https://github.com/sortie-ai/sortie/issues/1343))
+
+- A pull request reaction whose branch is missing from the workflow prompt now gets Sortie's built-in instructions on every turn of the run, a branch you write still takes precedence, and a continuation switch outside the branch now gets Sortie's continuation text. The example workflows now keep each reaction's instructions apart from the work prompt. ([#1357](https://github.com/sortie-ai/sortie/issues/1357))
+
+- `agent.max_tokens` no longer counts prompt cache reads, on every agent kind, so the limit follows the work an issue did rather than how long its agent's conversation has grown. With the same setting, issues are held and runs stopped much later than before (on one reported history, at about 37 times the spend), and an issue already held at the limit runs again once its count without cache reads is below it. `agent.token_warning_percent`, the dashboard's budget meter and messages, the JSON API, and the agent's `cost_budget` tool use the same count, and the dashboard labels it tokens again instead of tokens and cache reads. ([#1381](https://github.com/sortie-ai/sortie/issues/1381))
+
+- Each run's estimated cost is now recorded when the run finishes, with the source and version of the rates that priced it, and is never priced again: editing `token_rates` or restarting no longer changes the cost of past runs on the dashboard, in the JSON API, in `sortie stats`, or in `GET /api/v1/stats`, and the command and the route report the same cost for the same range. Runs recorded before you upgrade are priced once, at the first start after the upgrade, under the rates in force then. `sortie stats` and `GET /api/v1/stats` now count as unpriced every run that used tokens without a price, and only those, even when the workflow sets no `token_rates`, and show no cost rather than `$0.00` for a range in which no run that used tokens was priced. They no longer list `token_rates` warnings, which `sortie validate` and the service log still report. ([#1410](https://github.com/sortie-ai/sortie/issues/1410))
+
+- `token_rates` now reloads with the rest of WORKFLOW.md: an edit applies to the runs that finish after it and to the estimates of running sessions without a restart, and `config.token_rates` in `GET /api/v1/state` serves the rates in force. An edit that gives an entry an invalid rate keeps that entry's previous rates. ([#1410](https://github.com/sortie-ai/sortie/issues/1410))
+
+- The dashboard now marks a cost that is only a lower bound with the words "at least" before the amount (Analytics underlines the amount with dots and says so on hover), writes a cost above zero and under one cent as "under $0.01" instead of "$0.00", and shows the exact amount of a cost on hover on every screen but Analytics. `GET /api/v1/stats` and `sortie stats --format json` no longer round `cost_usd` to cents. ([#1421](https://github.com/sortie-ai/sortie/issues/1421))
+
+- The breakdown by model in `sortie stats`, `GET /api/v1/stats`, and Analytics now counts a run under every model it spent tokens on, with that model's tokens and cost, so a run that used two models appears in both rows and the rows' run counts can add up to more than the runs. `cost_per_succeeded_run_usd` is no longer rounded to cents. ([#1422](https://github.com/sortie-ai/sortie/issues/1422))
+
+### Removed
+
+- Running entries in the JSON API no longer carry `issue_uncached_tokens`; `used_tokens` now reports the same figure. ([#1381](https://github.com/sortie-ai/sortie/issues/1381))
+
+### Fixed
+
+- `claude-code` runs of more than one turn, and runs that continue an earlier session, no longer record a multiple of their token use, which overstated cost and reached `agent.max_tokens` early. Each turn now counts once and a continuing run counts only its own turns; runs already recorded keep their figures. ([#1399](https://github.com/sortie-ai/sortie/issues/1399))
+
+- A `claude-code` run that continues a session whose previous run ended mid-turn, or was recorded before this release, now marks its first turn's spend as partial. ([#1399](https://github.com/sortie-ai/sortie/issues/1399))
+
+- A continuing `copilot-cli` run is no longer charged the previous run's last turn when its own first turn ends without the CLI saving usage. ([#1399](https://github.com/sortie-ai/sortie/issues/1399))
+
+- A turn that ends before the agent reports its final token use (a stop, a crash, a dropped connection, or a pause for a person's answer), or whose report Sortie could not read with no later turn's report covering it, now marks the run's tokens and cost as partial, and a `codex` run that continues a session recorded before this release marks its first turn partial, as `claude-code` does. ([#1363](https://github.com/sortie-ai/sortie/issues/1363))
+
+- When a person or the forge merges a pull request just before the auto-merge reaction's own merge call, Sortie now sends the `auto_merge.merged` notification, merge comment included, and deletes the head branch when `delete_branch` is `true`, as it does after a merge it made itself. ([#1328](https://github.com/sortie-ai/sortie/issues/1328))
+
+- On Gitea, the `auto_merge.merged` notification, merge comment included, no longer ends with an empty `Merge commit: .` line. ([#1328](https://github.com/sortie-ai/sortie/issues/1328))
+
+- Sortie no longer warns that a workflow is missing a `label_review` or `label_fix` branch, a warning that was wrong for prompts that test those keys with `{{ if .label_review }}` or `{{ if .label_fix }}`. ([#1357](https://github.com/sortie-ai/sortie/issues/1357))
+
+- The dashboard's budget panel no longer says tokens were not reported for an issue that `agent.max_sessions` holds while `agent.max_tokens` is `0`. ([#1381](https://github.com/sortie-ai/sortie/issues/1381))
+
+- `sortie validate` reports `agent.kind.no_cost_estimate` only for a `token_rates` entry that sets both `input_per_mtok` and `output_per_mtok`, and no longer for an entry missing either rate, which prices nothing. ([#1408](https://github.com/sortie-ai/sortie/issues/1408))
+
+- Removing the parking label from a parked issue now releases it on the next poll even when `tracker.query_filter` excludes issues that carry the label; before, only moving the issue to another state did. An issue whose label was removed before you upgrade stays parked until you move it to another state, or add the label back, wait for the next poll, and remove it again. ([#1406](https://github.com/sortie-ai/sortie/issues/1406))
+
+- `sortie_tokens_total` now counts a run's tokens under each model the run used instead of counting all of them under one model. ([#1409](https://github.com/sortie-ai/sortie/issues/1409))
+
+- On a local launch with Claude Code 2.1.304 or later, a `claude-code` agent again sees Sortie's own tools from the start of every turn instead of having to look them up before it can call them.
+
+- The budget panel of an issue no longer shows a cost share as "not measured" when one of its runs was measured but could not be priced: the share now reads "unpriced", or "at least" the priced amount when other runs in it were priced.
+
+- When a `price_table.replace_file` table fails to load, the error names the file as the setting gives it, not the full path Sortie built from it, so the Health screen no longer shows the directory on the host it was read from. ([#1419](https://github.com/sortie-ai/sortie/issues/1419))
+- With a GitHub or Gitea tracker, Sortie reads issue states up to 8 at a time instead of one by one, so a start after many recent runs no longer keeps the dashboard unreachable for tens of seconds. ([#1419](https://github.com/sortie-ai/sortie/issues/1419))
+
 ## [1.28.1] - 2026-10-18 { #1.28.1 }
 
 This release closes a security hole in the HTTP server.
@@ -1372,6 +1457,7 @@ One thing to check after upgrading: if a script you run alongside an agent start
 - CI pipeline with `golangci-lint`, `gofmt` enforcement, and test execution via GitHub Actions.
 - Architecture Decision Records (ADR-0001 through ADR-0005).
 
+[1.29.0]: https://github.com/sortie-ai/sortie/compare/v1.28.1...v1.29.0
 [1.28.1]: https://github.com/sortie-ai/sortie/compare/v1.28.0...v1.28.1
 [1.28.0]: https://github.com/sortie-ai/sortie/compare/v1.27.0...v1.28.0
 [1.27.0]: https://github.com/sortie-ai/sortie/compare/v1.26.0...v1.27.0
