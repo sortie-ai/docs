@@ -43,7 +43,7 @@ level=WARN msg="effort budget exhausted, blocking re-dispatch" issue_id="PROJ-42
 
 At that point, the issue is no longer Sortie's problem. Check the issue's [page on the dashboard](/reference/dashboard/#issue-page) to see what each session accomplished.
 
-A second ceiling guards cost rather than attempts. When [`agent.max_tokens`](/reference/workflow-config/#agent) is set, Sortie also sums the tokens consumed across the issue's completed sessions before every re-dispatch and blocks the issue once the sum reaches the budget. The effect at that point is identical to session exhaustion: claim released, retry entry dropped, issue left for human review.
+A second ceiling guards cost rather than attempts. When [`agent.max_tokens`](/reference/workflow-config/#agent) is set, Sortie also sums the tokens consumed across the issue's completed sessions before every re-dispatch and blocks the issue once the sum reaches the budget. The effect at that point is identical to session exhaustion: claim released, retry entry dropped, issue left for human review. [`agent.max_cost_usd`](/reference/workflow-config/#agent) does the same for the issue's estimated cost in dollars.
 
 It differs in one way that matters here: this ceiling does not wait for a session boundary. Reaching it during a session cancels that session, and when that cancellation is what ends the attempt, it is recorded `budget_stopped` with no retry scheduled.
 
@@ -273,6 +273,6 @@ grep "issue parked" sortie.log
 
 ## What we configured
 
-You now have control over Sortie's retry behavior: how many times it retries (`max_sessions`), how much an issue may spend across those attempts (`max_tokens`), how long it waits between retries (`max_retry_backoff_ms`), how it detects stuck sessions (`stall_timeout_ms`), when it gives up on a single turn (`turn_timeout_ms`), and how many consecutive absences of observable work it tolerates before parking an issue (`max_consecutive_absences`). The continuation retry for successful-but-incomplete work runs at a fixed 1-second interval and needs no configuration.
+You now have control over Sortie's retry behavior: how many times it retries (`max_sessions`), how much an issue may spend across those attempts (`max_tokens` and `max_cost_usd`), how long it waits between retries (`max_retry_backoff_ms`), how it detects stuck sessions (`stall_timeout_ms`), when it gives up on a single turn (`turn_timeout_ms`), and how many consecutive absences of observable work it tolerates before parking an issue (`max_consecutive_absences`). The continuation retry for successful-but-incomplete work runs at a fixed 1-second interval and needs no configuration.
 
 For the full state machine and backoff formulas, see the [state machine reference](/reference/state-machine/). For all config field defaults in one place, see the [workflow config reference](/reference/workflow-config/). For budget and cost controls that complement retry settings, see [how to control agent costs](/guides/control-costs/).

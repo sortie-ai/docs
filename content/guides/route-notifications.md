@@ -160,7 +160,7 @@ For each reaction that uses it, set `escalation: none` and list `escalation.<kin
 
 ### If you use auto-merge or a per-issue budget
 
-The auto-merge success comment and the budget-hold comment have no setting of their own. They post while no `tracker_comment` entry exists, and they stop the moment you add one that omits them. Do not lose them by accident: list `auto_merge.merged` if you use the auto-merge reaction, and `budget.held` if `agent.max_sessions` or `agent.max_tokens` is above `0`.
+The auto-merge success comment and the budget-hold comment have no setting of their own. They post while no `tracker_comment` entry exists, and they stop the moment you add one that omits them. Do not lose them by accident: list `auto_merge.merged` if you use the auto-merge reaction, and `budget.held` if `agent.max_sessions`, `agent.max_tokens`, or `agent.max_cost_usd` is above `0`.
 
 ### If a `slack` or `webhook` entry has no `events`
 

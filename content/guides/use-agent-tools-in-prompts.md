@@ -80,6 +80,17 @@ of starting anything new.
 
 `warning_reached` and a hand-picked `remaining_tokens` threshold answer the same question two ways; use whichever fits how you think about the budget, or both. See [how to control agent costs](/guides/control-costs/#warn-before-the-ceiling-stops-a-run) for choosing the percentage.
 
+When [`agent.max_cost_usd`](/reference/workflow-config/#agent) is set, `cost_budget` also returns the issue's estimated cost as `used_usd`, `budget_usd`, `remaining_usd`, and `used_usd_complete`. With no money ceiling the result carries none of the four, so a prompt that reads them must name the absent case the way the `null` case is named above, and there is no `warning_reached` for money:
+
+```plaintext
+Call the cost_budget tool. If remaining_usd is absent, there is no money
+budget; proceed normally. If remaining_usd is less than 2, finish the
+most important change, commit what works, and summarize what remains
+instead of starting anything new.
+```
+
+`used_usd_complete: false` means `used_usd` is a lower bound and `remaining_usd` is optimistic. The figure is Sortie's estimate and can differ from a cost your runtime reports, so do not compare the two.
+
 ## Guide the agent to review prior history
 
 On continuation and retry runs, the agent has no memory of what happened before. Tell it to check:

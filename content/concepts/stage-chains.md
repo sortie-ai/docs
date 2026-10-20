@@ -85,7 +85,7 @@ A hop that would go past `dispatch.max_consecutive_hops` is not made, and the is
 
 The count resets when Sortie sees the issue outside the active states (after a handoff, in a terminal state, or in any other state a person moved it to) and when a park is placed on the issue or released. It does not reset when a stage label changes while the issue stays active. That is deliberate: a label moved by a person and a label moved by automation look the same to Sortie, and resetting on either would let automation rebuild the cycle the ceiling exists to stop.
 
-The ceiling has a limit worth knowing. Automation that moves every handed-off issue back into an active state creates a loop that leaves and re-enters the active states, and the ceiling resets on each pass. That loop exists without chains too; a chain does not widen it. The per-issue budgets `agent.max_sessions` and `agent.max_tokens` sum every stage an issue passes through and bound it where you set them. `sortie validate` warns when `agent.max_sessions` is too small for the longest chain to finish.
+The ceiling has a limit worth knowing. Automation that moves every handed-off issue back into an active state creates a loop that leaves and re-enters the active states, and the ceiling resets on each pass. That loop exists without chains too; a chain does not widen it. The per-issue budgets `agent.max_sessions`, `agent.max_tokens`, and `agent.max_cost_usd` sum every stage an issue passes through and bound it where you set them. `sortie validate` warns when `agent.max_sessions` is too small for the longest chain to finish.
 
 ## Stepping in
 

@@ -1,7 +1,7 @@
 ---
 title: "How to Control Agent Costs"
 linkTitle: "Control Agent Costs"
-description: "Configure per-turn budgets, session limits, per-issue token budgets, turn caps, concurrency, and model selection to keep agent API spending predictable."
+description: "Configure per-turn budgets, session limits, per-issue token and dollar budgets, turn caps, concurrency, and model selection to keep agent API spending predictable."
 author: Sortie AI
 date: 2026-04-26
 weight: 110
@@ -16,7 +16,7 @@ Set hard spending caps, limit retries, throttle concurrency, and pick the right 
 
 ## The cost levers
 
-Several independent controls affect API spending. The limits on sessions, tokens, turns, and concurrency are orchestrator settings that apply to every adapter. The per-turn money cap and the model and effort level live in the extension block for your agent, and which of them exist depends on the kind. Together they determine your worst-case cost. Here they are, ordered by impact.
+Several independent controls affect API spending. The limits on sessions, tokens, dollars per issue, turns, and concurrency are orchestrator settings that apply to every adapter. The per-turn money cap and the model and effort level live in the extension block for your agent, and which of them exist depends on the kind. Together they determine your worst-case cost. Here they are, ordered by impact.
 
 ## Set a per-turn budget
 
@@ -28,7 +28,7 @@ claude-code:
   max_budget_usd: 3
 ```
 
-The other kinds (`codex`, `copilot-cli`, `opencode`, and `agent-client-protocol`) have no money cap, and Sortie has no money limit per issue. What bounds their sessions depends on whether the kind reports token usage at all: [`agent.max_tokens`](#cap-tokens-per-issue) counts against a kind whose figures reach Sortie, and `agent.turn_timeout_ms` is the bound left for a kind whose figures never do. The [usage reporting table](/reference/workflow-config/#usage-reporting-by-agent-kind) states which your kind is. OpenCode, for example, exposes model selection but no budget field, so its hard limits are `agent.max_tokens`, `agent.max_sessions`, `agent.max_turns`, concurrency caps, and `turn_timeout_ms`. See the [OpenCode CLI adapter reference](/reference/adapter-opencode/) for the adapter-specific details.
+The other kinds (`codex`, `copilot-cli`, `opencode`, and `agent-client-protocol`) have no per-turn money cap. What bounds their sessions depends on whether the kind reports token usage at all: [`agent.max_tokens`](#cap-tokens-per-issue) and [`agent.max_cost_usd`](#cap-an-issues-spend-in-dollars) count against a kind whose figures reach Sortie, and `agent.turn_timeout_ms` is the bound left for a kind whose figures never do. The [usage reporting table](/reference/workflow-config/#usage-reporting-by-agent-kind) states which your kind is. OpenCode, for example, exposes model selection but no budget field, so its hard limits are `agent.max_tokens`, `agent.max_sessions`, `agent.max_turns`, concurrency caps, and `turn_timeout_ms`. See the [OpenCode CLI adapter reference](/reference/adapter-opencode/) for the adapter-specific details.
 
 The cap applies to each turn, not to the issue. A session runs up to `agent.max_turns` turns, and an issue retries across up to `agent.max_sessions` sessions, so the worst-case money spend per issue is:
 
@@ -57,7 +57,9 @@ Set this to a real number in production. A value of `0` is fine for local testin
 
 `agent.max_tokens` is a cumulative per-issue token ceiling. The orchestrator sums the tokens reported for every completed session of an issue from its run history, and once the sum reaches the budget it stops dispatching new sessions: the claim is released, the retry entry is dropped, and the issue stays in its current tracker state. While a session is running, its own spend counts toward that same sum. The default is `0`, which means unlimited.
 
-The count leaves out prompt-cache reads, for every agent kind: each session contributes its `total_tokens` less its `cache_read_tokens`, never below zero, and cache writes still count. A long conversation re-reads its history from the cache on every request, so those reads grow with the length of the conversation rather than with the work done, and the ceiling would otherwise fill on conversation length alone. When you pick a value, take the issue's spend from a figure that uses the same count: the **Tokens** meter in the dashboard's [Budget panel](/reference/dashboard/#issue-page), `used_tokens` on a running entry of the JSON API, or `used_tokens` from the `cost_budget` tool. A total that includes cache reads, such as `tokens.total_tokens` or the `sortie_tokens_total` counter, is larger and does not match what the ceiling compares.
+The count leaves out prompt-cache reads, for every agent kind, so an issue is held and a run stopped later than a count that included them would do it: each session contributes its `total_tokens` less its `cache_read_tokens`, never below zero, and cache writes still count. A long conversation re-reads its history from the cache on every request, so those reads grow with the length of the conversation rather than with the work done, and the ceiling would otherwise fill on conversation length alone. When you pick a value, take the issue's spend from a figure that uses the same count: the **Tokens** meter in the dashboard's [Budget panel](/reference/dashboard/#issue-page), `used_tokens` on a running entry of the JSON API, or `used_tokens` from the `cost_budget` tool. A total that includes cache reads, such as `tokens.total_tokens` or the `sortie_tokens_total` counter, is larger and does not match what the ceiling compares.
+
+If you upgrade with `max_tokens` already set, the same value now lets an issue spend more before it is held. An issue already held at the ceiling runs again on the next poll tick once its count without cache reads is below the value, and the history of past runs is counted the new way as well. Re-check the value against the figures above, and lower it if you meant it as a spending limit.
 
 ```yaml
 agent:
@@ -66,7 +68,7 @@ agent:
 
 This cap lives in the orchestrator, not in the agent's own budget field, so it applies whether or not your agent has one. It enforces against what your agent runtime actually reports: an adapter that never reports token counts produces a sum that never reaches the ceiling, and `agent.turn_timeout_ms` is the backstop for that case. [`sortie validate`](/reference/cli/#validate) names that pairing before you run it, as an `agent.kind.no_usage_reporting` warning naming the kind, so an inert ceiling is not something to infer from a budget that never fires.
 
-It is also the only orchestrator-level cap denominated in actual consumption: `max_sessions` bounds how many attempts an issue gets, `max_tokens` bounds what those attempts may consume in total. The two ceilings are independent, and whichever fills first wins.
+`max_sessions` bounds how many attempts an issue gets. `max_tokens` and [`max_cost_usd`](#cap-an-issues-spend-in-dollars) are the two orchestrator-level caps on what those attempts consume, in tokens and in dollars. The three ceilings are independent, and whichever is reached first wins.
 
 The ceiling binds the session in progress, not only the next one. Each token figure your agent runtime reports goes against the issue's total as it arrives. The moment that total reaches the budget, Sortie cancels the running session.
 
@@ -115,6 +117,50 @@ Once the issue's live token sum reaches the threshold, Sortie logs one `token wa
 The threshold has no effect while `max_tokens` is `0`: there is no ceiling to warn ahead of. [`sortie validate`](/reference/cli/#validate) flags that combination as an `ineffective_setting` warning. `token_warning_percent` accepts `0` to `99`; `0`, the default, disables the warning. A run warns at most once: after the first warning, later usage figures from the same run never repeat it.
 
 See [token warning threshold](/guides/monitor-with-logs/#token-warning-threshold) for the log record and the [`cost_budget` tool](/reference/agent-extensions/#cost_budget) for the response fields.
+
+## Cap an issue's spend in dollars
+
+`agent.max_cost_usd` is a per-issue ceiling in US dollars on the issue's estimated cost. It works like `max_tokens`: Sortie adds up the cost recorded with each of the issue's finished runs, adds the running session's live estimate, and stops once the total reaches the ceiling. The default is `0`, which means unlimited.
+
+Use it when you budget in dollars and not in tokens. Tokens from different models are not comparable, and a token count that leaves out cache reads says little about the bill, while the estimated cost is priced per model and per token class. Set it beside `max_tokens` rather than instead of it when you also want a bound that does not depend on prices: the two ceilings are independent, and whichever is reached first wins. An issue past several ceilings at once is reported with the money budget first.
+
+```yaml
+agent:
+  max_tokens: 1500000
+  max_cost_usd: 25
+```
+
+The figure differs from the token count in two ways:
+
+- **Cache reads are priced.** `max_tokens` leaves them out, but the estimated cost includes them at the cache-read rate, so a long conversation raises the cost even when it raises no token count.
+- **It is an estimate.** It is Sortie's figure from its price rates, not your provider's bill, and can differ from a cost your runtime reports.
+
+To pick a value, read the figure the ceiling compares: the **Cost** meter in the dashboard's [Budget panel](/reference/dashboard/#issue-page), `issue_estimated_cost_usd` on a running entry of the JSON API, or `used_usd` from the `cost_budget` tool. The meter appears once the ceiling is set and a rate source is available. Built-in prices cover common models with no configuration; [`token_rates`](/reference/workflow-config/#token_rates) and [`price_table`](/reference/workflow-config/#price_table) describe where prices come from and how to change them.
+
+### What you see when the ceiling bites
+
+The ceiling is enforced at the same points as the token ceiling. Before a dispatch, Sortie holds the issue: it releases the claim, drops the retry, posts one comment on the issue that states the estimated cost against the ceiling, and shows a "Money budget reached" item under **Needs attention** in the dashboard. The hold clears on the next poll tick after you raise `max_cost_usd` above what the issue has used, or remove it.
+
+During a session, Sortie cancels the run as soon as a usage figure carries the issue's cost to the ceiling. The run is recorded `budget_stopped`, its `error` reads `money ceiling reached: used $X of $Y`, the claim is released, and no retry is scheduled. The log carries `run stopped by money ceiling`, and `sortie_runs_stopped_by_budget_total` counts it under reason `money_budget`. The same cancellations that can pre-empt a token stop can pre-empt this one; see [Cap tokens per issue](#cap-tokens-per-issue) for which runs end up recorded `budget_stopped`.
+
+A session stops at the first usage figure after the spend, so a run can pass the ceiling by what the agent spends before that report. A kind whose figures arrive during each turn overshoots by about one model request; a kind whose figures arrive when a turn ends can overshoot by a whole turn. Leave headroom below the amount you cannot afford to exceed.
+
+### When the cost cannot be fully priced
+
+A run whose model no rate prices, a token class with no rate, or usage that was not fully reported leaves the figure incomplete. The figure is then a lower bound: the ceiling counts only what Sortie could price. While that lower bound is below the ceiling, Sortie logs `money budget cannot be fully evaluated, allowing dispatch` and dispatches anyway. Once the priced part alone reaches the ceiling, the hold applies, and the comment and the dashboard say "at least" before the amount.
+
+The remedy is to price the model, with a [`token_rates`](/reference/workflow-config/#token_rates) entry or a price table that lists it. Runs recorded before you did so stay unpriced.
+
+### Check the configuration
+
+[`sortie validate`](/reference/cli/#validate) warns about two settings under which the ceiling cannot hold an issue, and the running service logs the same warnings. Neither blocks dispatch, and `validate` still exits `0`:
+
+- `agent.max_cost_usd.no_usage_reporting`: an agent kind the workflow dispatches reports no token usage, so its sessions never produce a figure to price. `agent.turn_timeout_ms` is the only bound left for them.
+- `agent.max_cost_usd.no_rate_source`: no price source is configured, so no run can be priced.
+
+A model that the configured rates do not list draws no warning, because Sortie only learns about it when a run of that model is recorded.
+
+Agents can read the money figures themselves: while the ceiling is set, the `cost_budget` tool also returns `used_usd`, `budget_usd`, `remaining_usd`, and `used_usd_complete`. `token_warning_percent` does not apply to the money ceiling. Grep your logs for `money budget` and `money ceiling` to find every record it emits. See the [`agent` section reference](/reference/workflow-config/#agent) for validation, the environment override, and reload behavior.
 
 ## Limit turns per session
 
@@ -198,6 +244,7 @@ agent:
   max_turns: 3
   max_sessions: 3
   max_tokens: 1500000
+  max_cost_usd: 25
   max_concurrent_agents: 2
   max_concurrent_agents_by_state:
     to do: 1
@@ -239,7 +286,9 @@ The maximum spend per poll cycle (all concurrent agents hitting their budget sim
 
 `max_tokens` adds a second, independent bound on the same issue: with `max_tokens: 1500000`, cumulative spend across all of an issue's sessions, not counting cache reads, stops at roughly 1.5M tokens. The two bounds are complementary.
 
-The per-turn dollar cap bounds each session from inside; the token budget bounds the issue across sessions. The token check runs inside a session as well as between them, so the overshoot is one usage report rather than one whole session; where the adapter reports only at a turn boundary, the per-turn budget and turn limit are what bound it.
+`max_cost_usd` bounds the same issue in dollars: with `max_cost_usd: 25`, the estimated cost across all of an issue's sessions stops at roughly $25, below the $27 product above, and it counts cache reads, which the token budget does not. The money check, like the token check, runs inside a session as well as between them.
+
+The per-turn dollar cap bounds each session from inside; the token and dollar budgets bound the issue across sessions. The token check runs inside a session as well as between them, so the overshoot is one usage report rather than one whole session; where the adapter reports only at a turn boundary, the per-turn budget and turn limit are what bound it.
 
 These are worst cases in the sense that the system stops itself once it reaches them. Treat them as close bounds rather than hard ceilings: Claude Code checks the dollar cap at a turn boundary, not mid-turn, so an individual turn can finish slightly over its own budget. Real costs will be well below the table because most turns don't exhaust the budget, most sessions succeed early, and `max_budget_usd` is a ceiling, not a target.
 
@@ -251,7 +300,7 @@ These surfaces give you cost visibility without any extra infrastructure.
 
 Finished runs keep their figures. [History](/reference/dashboard/#history) lists the tokens and cost of each run and each issue, and [Analytics](/reference/dashboard/#analytics) totals them over a range and breaks them down by rule, model, and agent. For spend in a script or a report, reach for [`sortie stats`](/reference/cli/#stats) below. The HTTP server runs by default on `http://localhost:7678`. See [how figures are written](/reference/dashboard/#how-figures-are-written) for the wording.
 
-Sortie prices runs from a price table built into the binary, so cost estimates need no setup. To price a model the table does not list, or to change a rate, add the rates to WORKFLOW.md. Set them before the runs you want priced: Sortie prices each run once, when it finishes, so a run that finished without a rate stays unpriced, and a later rate change leaves past costs as they were. An edit applies without a restart.
+Sortie prices runs from a price table built into the binary and refreshed by a daily download, so cost estimates need no setup, even with no `token_rates` and no network access. The figure is an estimate from four rates per model, not your provider's bill. To price a model the table does not list, or to change a rate, add the rates to WORKFLOW.md. Set them before the runs you want priced: Sortie prices each run once, when it finishes, so a run that finished without a rate stays unpriced, and a later rate change leaves past costs as they were. An edit applies without a restart.
 
 **Price a model the table does not list.** Key an entry by the model name your agent reports and set all four rates. Rates are in USD per million tokens, yours to supply and illustrative here:
 
@@ -274,14 +323,16 @@ token_rates:
     input_per_mtok: 0.00
 ```
 
-**Use your own price table.** If you negotiate prices or need figures that do not change with a release, point `price_table.replace_file` at a file in the [LiteLLM price list format](/reference/workflow-config/#price_table). It replaces the built-in table, so a model your file does not list stays unpriced unless a `token_rates` entry prices it. A relative path is read from the directory of WORKFLOW.md. If the file cannot be loaded, Sortie refuses to start, or keeps the previous configuration on a reload; it never falls back to the built-in table.
+**Use your own price table.** If you negotiate prices or need figures that do not change with a release, point `price_table.replace_file` at a file in the [LiteLLM price list format](/reference/workflow-config/#price_table). It replaces the built-in and downloaded tables, so a model your file does not list stays unpriced unless a `token_rates` entry prices it. To keep the file on a server instead, set `price_table.replace_url`; use one of the two, not both. A relative path is read from the directory of WORKFLOW.md. If the file cannot be loaded, Sortie refuses to start, or keeps the previous configuration on a reload; it never falls back to the built-in table.
 
 ```yaml
 price_table:
   replace_file: ./prices.json
 ```
 
-**Turn the built-in table off.** Set `price_table.embedded: false` to price only what `token_rates` or your own table covers. With no `token_rates` and no `price_table.replace_file`, the dashboard then shows token counts only.
+**Stop the price download.** Sortie downloads the current price list at startup and once a day. On a network-restricted or audited deployment, set `price_table.fetch: false` or `SORTIE_PRICE_TABLE_FETCH=false`. The built-in table keeps pricing runs. See [the runtime download](/reference/workflow-config/#runtime-download) for the address, the refresh, and the copy kept beside the database.
+
+**Turn the built-in table off.** Set `price_table.embedded: false` to price only what `token_rates`, the download, or your own table covers. With no `token_rates` entry and no `price_table.replace_file`, and the download off or not yet accepted, the dashboard shows token counts only.
 
 Avoid keying an entry by an agent kind such as `claude-code` unless you want one rate for every model that kind runs. That entry turns off per-model pricing for the kind, and `sortie validate` warns about it with `token_rates.per_kind`. See the [`token_rates`](/reference/workflow-config/#token_rates) and [`price_table`](/reference/workflow-config/#price_table) references for the full schema and the reload rules.
 
@@ -333,7 +384,7 @@ sum(rate(sortie_tokens_total{type="input"}[1h])) by (model)
 
 The [metrics reference](/reference/prometheus-metrics/#the-model-label) defines which model a sample counts under. Set up alerting when token burn exceeds your budget threshold. The [Prometheus guide](/guides/monitor-with-prometheus/) walks through scrape config and alert rules.
 
-**Logs.** Sortie's structured logs record what ran, not what it cost. No log line carries a dollar figure.
+**Logs.** Sortie's structured logs record what ran, not what it cost. The only records that carry a dollar figure are the ones the per-issue dollar ceiling writes; see [Money budget](/guides/monitor-with-logs/#money-budget).
 
 Several carry a token count, gated on `agent.max_tokens` being set: `token budget exhausted, blocking re-dispatch` when an issue reaches the ceiling between sessions, `run stopped by token ceiling`, logged once at the run's exit when the ceiling's own cancellation is confirmed to be what ended it, and `token budget cannot be fully evaluated, allowing dispatch` when it has not but the sum is known to fall short of what the issue really spent. Each of those three carries `used_tokens`, the issue's measured cumulative tokens, and `budget_tokens`, the ceiling; the stop record adds `session_tokens`, what the session it cancelled had spent on its own.
 
@@ -360,8 +411,9 @@ You now have these layers of cost protection:
 1. A **per-turn hard cap** (adapter-specific) that stops the agent mid-session when spending exceeds the budget
 2. A **session limit** that prevents infinite retries on stuck issues
 3. A **per-issue token ceiling** that stops new sessions once measured cumulative spend crosses the budget
-4. A **turn limit** that bounds orchestrator loop iterations per session
-5. A **concurrency cap** that limits parallel spending
-6. A **cost-efficient model and effort level** (adapter-specific) to reduce per-token spend
+4. A **per-issue money ceiling** that does the same for the estimated cost in dollars
+5. A **turn limit** that bounds orchestrator loop iterations per session
+6. A **concurrency cap** that limits parallel spending
+7. A **cost-efficient model and effort level** (adapter-specific) to reduce per-token spend
 
-The per-turn cap, session limit, and turn limit are multiplicative; they set your worst-case dollar ceiling. The token ceiling is an absolute cap on top of the multiplication: an issue stops consuming new sessions at the budget no matter how the factors line up. The concurrency cap and model choice control burn rate. The hard ceilings fail safe: when one is hit, the agent stops. The token ceiling enforces against measured spend and announces, rather than hides, the sessions it could not measure.
+The per-turn cap, session limit, and turn limit are multiplicative; they set your worst-case dollar ceiling. The token ceiling is an absolute cap on top of the multiplication: an issue stops consuming new sessions at the budget no matter how the factors line up. The concurrency cap and model choice control burn rate. The hard ceilings fail safe: when one is hit, the agent stops. The token ceiling enforces against measured spend and announces, rather than hides, the sessions it could not measure. The money ceiling counts only what Sortie could price and says so when the figure is a lower bound.

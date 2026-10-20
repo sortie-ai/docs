@@ -453,7 +453,7 @@ dispatch:
 
 The rule a `next` names must carry `stage`, but the first rule of a chain does not have to. To start the chain from a label your team already uses, replace `stage: stage-specify` with `match: { labels: ["feature"] }`. A person then labels the issue `feature` once, and Sortie applies the stage labels from there.
 
-Every stage runs its own session, so an issue needs at least four sessions to get through this chain. `agent.max_sessions` and `agent.max_tokens` count every stage of the issue. If you set `agent.max_sessions`, make it at least the number of stages in the longest chain; `sortie validate` warns with `dispatch.next.max_sessions` when it is smaller.
+Every stage runs its own session, so an issue needs at least four sessions to get through this chain. `agent.max_sessions`, `agent.max_tokens`, and `agent.max_cost_usd` count every stage of the issue. If you set `agent.max_sessions`, make it at least the number of stages in the longest chain; `sortie validate` warns with `dispatch.next.max_sessions` when it is smaller.
 
 ### Place an issue on a stage or send it back
 

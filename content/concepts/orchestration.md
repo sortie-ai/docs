@@ -89,7 +89,7 @@ And `agent.max_sessions` provides a hard ceiling as defense-in-depth: after N co
 
 The token budget, `agent.max_tokens`, is its sibling, with one structural difference. A session ceiling can only be crossed between sessions, so checking it where the next dispatch is decided is enough.
 
-A token ceiling is crossed inside a session, by the turn that spends past it, so a check that ran only at the dispatch decision would always arrive one session late, and the session that broke the budget would be the one session it could never stop. Sortie evaluates the token sum on the event loop instead, as each usage figure arrives, and cancels the run that carries it over. Whichever ceiling fills first releases the claim.
+A token ceiling is crossed inside a session, by the turn that spends past it, so a check that ran only at the dispatch decision would always arrive one session late, and the session that broke the budget would be the one session it could never stop. Sortie evaluates the token sum on the event loop instead, as each usage figure arrives, and cancels the run that carries it over. The money budget, `agent.max_cost_usd`, is checked at the same points and in the same way, against the issue's estimated cost. Whichever ceiling fills first releases the claim.
 
 The design philosophy: every failure path has a bounded resolution. No failure mode leads to infinite resource consumption.
 

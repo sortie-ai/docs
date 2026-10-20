@@ -6,7 +6,7 @@ date: 2026-03-26
 weight: 90
 url: /reference/agent-extensions/
 ---
-Agents running inside a Sortie session have two extension surfaces beyond the codebase and rendered prompt: a **file-based signaling protocol** and **callable tools** delivered over MCP. The file protocol lets the agent influence orchestration flow by writing a single file. The tools give the agent structured access to tracker data, session metadata, run history, and the issue's token budget, plus an outbound notification path to a human operator.
+Agents running inside a Sortie session have two extension surfaces beyond the codebase and rendered prompt: a **file-based signaling protocol** and **callable tools** delivered over MCP. The file protocol lets the agent influence orchestration flow by writing a single file. The tools give the agent structured access to tracker data, session metadata, run history, and the issue's token and money budgets, plus an outbound notification path to a human operator.
 
 See also: [agent communication model](/concepts/agent-communication/) for why two channels exist, [environment variables reference](/reference/environment/#mcp-server-environment) for MCP server environment, [WORKFLOW.md configuration](/reference/workflow-config/) for the `agent` section.
 
@@ -565,7 +565,7 @@ Per entry:
 | `agent_adapter` | string | Which agent adapter was used (e.g., `claude-code`). |
 | `started_at` | string | ISO-8601 timestamp. |
 | `completed_at` | string | ISO-8601 timestamp. |
-| `status` | string | Terminal status: `succeeded`, `failed`, `cancelled`, `ci_failed`, `needs_person`, or `budget_stopped`. `needs_person` marks a run that stopped because the agent asked for a decision only a person could give; it is distinct from `failed` and takes no retry. `budget_stopped` marks a run the per-issue token ceiling stopped in flight; it is distinct from `cancelled`, which covers a stall, a terminal tracker state, and shutdown. |
+| `status` | string | Terminal status: `succeeded`, `failed`, `cancelled`, `ci_failed`, `needs_person`, or `budget_stopped`. `needs_person` marks a run that stopped because the agent asked for a decision only a person could give; it is distinct from `failed` and takes no retry. `budget_stopped` marks a run the per-issue token or money ceiling stopped in flight; it is distinct from `cancelled`, which covers a stall, a terminal tracker state, and shutdown. |
 | `error` | string or null | Error message if failed; `null` on success. |
 
 ### Example response
@@ -635,7 +635,7 @@ The failure shape is the same structured envelope every built-in tool uses.
 
 ## `cost_budget`
 
-Read-only token accounting for the current issue. The agent calls this tool to check cumulative token spend across all of the issue's sessions and the remaining budget, then decide whether to skip an expensive step, return partial work, or hand off before the token ceiling cancels the session it is running in or blocks the next one.
+Read-only token and cost accounting for the current issue. The agent calls this tool to check cumulative token spend across all of the issue's sessions and the remaining budget, then decide whether to skip an expensive step, return partial work, or hand off before the token ceiling or, when one is set, the money ceiling cancels the session it is running in or blocks the next one.
 
 Where `sortie_status` reports token usage for the current session (read from `.sortie/state.json`), `cost_budget` reports cumulative spend across every session for the issue (read from SQLite) and compares it against the configured budget. When [`agent.token_warning_percent`](/reference/workflow-config/#agent) is set, the tool's own description also tells the agent to watch for `warning_reached` and wrap up before the ceiling stops the run.
 
@@ -654,6 +654,8 @@ No parameters. The agent sends an empty JSON object:
 The tool counts tokens without prompt-cache reads, the count [`agent.max_tokens`](/reference/workflow-config/#agent) is compared with. For each of the issue's `run_history` rows (one per completed session) it takes `total_tokens` less `cache_read_tokens`, floored at zero, so cache writes still count. It sums those and adds the running session's recorded `total_tokens` less `cache_read_tokens` from `session_metadata`. The orchestrator updates `session_metadata` incrementally during the session, throttled to at most one write per issue every two seconds and driven by token usage events, so the running number stays current. That total is added only when the stored dispatch ID matches `SORTIE_DISPATCH_ID`, so a stale row from an earlier dispatch is never counted.
 
 At session exit, Sortie clears the row's dispatch ID before recording the finished run in `run_history`, so a completed session's row is never mistaken for one still running.
+
+While [`agent.max_cost_usd`](/reference/workflow-config/#agent) is above `0`, the tool also reports the issue's estimated cost in US dollars. It is the cost recorded with each of the issue's finished runs plus the running session's estimate from the same `session_metadata` row, folded by the rule the orchestrator enforces the money ceiling with. The running session's part counts only when the stored dispatch ID matches `SORTIE_DISPATCH_ID`. The tool reads the stored costs and never a rate. Cache reads are priced, so `used_usd` is not derived from `used_tokens`.
 
 A session whose coding agent reported no token usage is recorded as unmeasured: its spend is unknown, not zero, so it adds nothing to `used_tokens` and `unmeasured_sessions` counts it.
 
@@ -680,16 +682,20 @@ The fields below are returned under `data` in the standard success envelope:
 | `used_tokens_complete` | boolean | `false` when `unmeasured_sessions` is above `0`, when a completed session or the running session left a turn's spend unaccounted for, when no dispatch ID was supplied, or when no session record matches the supplied dispatch ID. `true` otherwise. On `false`, treat `used_tokens` as a lower bound and `remaining_tokens` as an upper bound. |
 | `warning_tokens` | integer | The configured [`agent.token_warning_percent`](/reference/workflow-config/#agent) threshold, in tokens. Present only while the tool server's own configuration sets that field above `0`; absent otherwise, together with `warning_reached`. |
 | `warning_reached` | boolean | `true` once `used_tokens` has reached `warning_tokens`. Present under the same condition as `warning_tokens`. |
+| `used_usd` | number | The issue's estimated cost in US dollars: the recorded cost of its completed sessions plus the running session's estimate. Present only while the tool server's own configuration sets [`agent.max_cost_usd`](/reference/workflow-config/#agent) above `0`; absent otherwise, together with the next three. It is Sortie's estimate from its price rates, not your provider's bill, and can differ from a cost your runtime reports, so do not compare the two. |
+| `budget_usd` | number | The configured `agent.max_cost_usd`. |
+| `remaining_usd` | number | `budget_usd - used_usd`, or `0` once `used_usd` reaches `budget_usd`. |
+| `used_usd_complete` | boolean | `false` when part of the spend could not be priced or was not fully reported, because a run is recorded unpriced or partial, a session left a turn's spend unaccounted for, no dispatch ID was supplied, or no session record matches the supplied dispatch ID. On `false`, treat `used_usd` as a lower bound and `remaining_usd` as an upper bound. |
 
 `used_tokens` includes the running session while `used_sessions` excludes it. The asymmetry is deliberate: a session is either finished or not, tokens accrue continuously, and a reading that ignored in-flight spend would be useless at exactly the moment the agent consults it.
 
-`warning_tokens` and `warning_reached` appear together or not at all, so a deployment that never sets `agent.token_warning_percent` gets a result byte-identical to one from before the warning threshold existed.
+`warning_tokens` and `warning_reached` appear together or not at all, so a deployment that never sets `agent.token_warning_percent` gets a result byte-identical to one from before the warning threshold existed. The four money fields follow the same rule for `agent.max_cost_usd`. `agent.token_warning_percent` applies to tokens only, so the tool serves no money warning.
 
 The orchestrator enforces the same ceiling against a fresher figure than this one. `used_tokens` carries the running session's spend as last written to `session_metadata`, at most one write per issue every two seconds, while the check that stops a session in flight adds that session's live in-memory total instead. The reading an agent gets back therefore trails the enforced figure by up to one write interval, and never leads it.
 
-When the sum reaches a non-zero `budget_tokens`, the running session is cancelled and the next re-dispatch for the issue is blocked. See [how to control agent costs](/guides/control-costs/) for the enforcement behavior and budget strategy.
+When the sum reaches a non-zero `budget_tokens`, or `used_usd` reaches `budget_usd`, the running session is cancelled and the next re-dispatch for the issue is blocked. See [how to control agent costs](/guides/control-costs/) for the enforcement behavior and budget strategy.
 
-The [JSON API](/reference/http-api/#get-apiv1state-system-state) serves a running issue's spend under the same key names, taken from the orchestrator's live state rather than from the stored row. It differs from this tool: `budget_tokens` and `budget_sessions` are `null`, not `0`, when no limit is set, and there is no `remaining_tokens`.
+The [JSON API](/reference/http-api/#get-apiv1state-system-state) serves a running issue's spend under the same key names, taken from the orchestrator's live state rather than from the stored row. It differs from this tool: `budget_tokens` and `budget_sessions` are `null`, not `0`, when no limit is set, there is no `remaining_tokens`, and `budget_usd` is `null` when no money ceiling is set, where this tool omits the money fields.
 
 ### Example response
 
@@ -740,6 +746,27 @@ The [JSON API](/reference/http-api/#get-apiv1state-system-state) serves a runnin
     "budget_sessions": 5,
     "unmeasured_sessions": 1,
     "used_tokens_complete": false
+  }
+}
+```
+
+**Success with a money ceiling configured:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "used_tokens": 384000,
+    "budget_tokens": 1000000,
+    "remaining_tokens": 616000,
+    "used_sessions": 2,
+    "budget_sessions": 5,
+    "unmeasured_sessions": 0,
+    "used_tokens_complete": true,
+    "used_usd": 8.42,
+    "budget_usd": 25,
+    "remaining_usd": 16.58,
+    "used_usd_complete": true
   }
 }
 ```

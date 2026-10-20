@@ -182,6 +182,7 @@ curl http://localhost:7678/api/v1/state
       "used_tokens": 112300,
       "used_tokens_complete": true,
       "budget_tokens": 500000,
+      "budget_usd": 25,
       "estimated_cost_usd": 0.06372,
       "cost_status": "estimated",
       "issue_estimated_cost_usd": 0.49872,
@@ -244,6 +245,9 @@ curl http://localhost:7678/api/v1/state
       "budget_sessions": 3,
       "used_tokens": null,
       "budget_tokens": null,
+      "used_usd": null,
+      "used_usd_complete": null,
+      "budget_usd": null,
       "unmeasured_sessions": null,
       "stopped_in_flight": null,
       "exhausted_at": "2026-03-26T14:12:00Z",
@@ -624,6 +628,7 @@ curl http://localhost:7678/api/v1/state
       "max_retry_backoff_ms": 300000,
       "max_sessions": 5,
       "max_tokens": 500000,
+      "max_cost_usd": 25,
       "max_concurrent_agents": 4,
       "max_concurrent_agents_by_state": {}
     },
@@ -787,12 +792,13 @@ curl http://localhost:7678/api/v1/state
 | `used_tokens` | Integer or `null`. `issue_tokens_completed` plus this row's `tokens.total_tokens` less its `tokens.cache_read_tokens` (floored at zero), each counted as `0` when `null`. This is the sum [`agent.max_tokens`](/reference/workflow-config/#agent) is compared with, so it leaves out cache reads, and it advances with each usage figure of the session. `null` when the sum is `0` and `used_tokens_complete` is `false`, so unknown spend never reads as zero. |
 | `used_tokens_complete` | Boolean. `true` exactly when `used_tokens` is the issue's whole spend: the completed sessions were read, none is unmeasured, none recorded a turn no figure covered, this session is measured, and it has recorded no such turn. When `false`, `used_tokens` is a lower bound. It ignores `tokens_pending`, which separately marks the turn in progress as not yet counted. |
 | `budget_tokens` | Integer or `null`. `agent.max_tokens` as of the latest poll tick. `null` when `agent.max_tokens` is `0`, never `0`. Token headroom: `budget_tokens` minus `used_tokens`, undefined when either is `null`, and negative when the session overshot the ceiling. The API serves no headroom key. |
+| `budget_usd` | Number or `null`. `agent.max_cost_usd` as of the latest poll tick. `null` when `agent.max_cost_usd` is `0`, never `0`. The ceiling compares it with the issue's estimated cost, the figure `issue_estimated_cost_usd` serves, which is a lower bound unless `issue_cost_status` is `"estimated"`. The API serves no money headroom key. |
 | `estimated_cost_usd` | Number or `null`. Estimated cost of this session so far, from `tokens` and the rates in force for the session's models, unrounded: a [`token_rates`](/reference/workflow-config/#token_rates) entry, else the [price table](/reference/workflow-config/#price_table). Non-`null` exactly when `cost_status` is `"estimated"` or `"partial"`. |
 | `cost_status` | String. `"estimated"` (a zero rate also gives this); `"partial"` when the estimate is a lower bound because a token class the session spent has no rate; `"unpriced"` when the session is measured and no rate prices its model (no price table lists it and no `token_rates` entry prices it), when a [kind entry](/reference/workflow-config/#kind-entries) of `agent_kind` lacks `input_per_mtok` or `output_per_mtok`, when no rate source is available, or when its spend so far arrived as a total with no split by token class; `"unmeasured"` when `tokens_measured` is `false`. |
 | `issue_estimated_cost_usd` | Number or `null`. Estimated cost of the whole issue: the sum of the costs recorded with its completed sessions and the estimate of this one, over the parts that are priced. Unrounded. Non-`null` exactly when `issue_cost_status` is `"estimated"` or `"partial"`. |
 | `issue_cost_status` | String. `"estimated"` when the estimate covers the issue's whole spend, which requires `used_tokens_complete` to be `true`. `"partial"` when it is a lower bound because a part that spent tokens is left out. `"unpriced"` when no priced part spent tokens and a part that did has no rate. `"unmeasured"` when `used_tokens` is `null`, and when no part is priced or unpriced. A session measured at zero tokens leaves nothing out, so a missing rate for its model does not make an otherwise complete issue `"partial"`. |
 
-The issue-level keys are always present on a running row. A limit key (`budget_tokens`, `budget_sessions`) set to `null` means no limit is configured. A usage key (`used_sessions`, `unmeasured_sessions`, `issue_tokens_completed`, `used_tokens`) set to `null` means unknown. The [`cost_budget` tool](/reference/agent-extensions/#cost_budget) reports figures under some of the same names to the agent; there a limit that is not configured reads `0`.
+The issue-level keys are always present on a running row. A limit key (`budget_tokens`, `budget_usd`, `budget_sessions`) set to `null` means no limit is configured. A usage key (`used_sessions`, `unmeasured_sessions`, `issue_tokens_completed`, `used_tokens`) set to `null` means unknown. The [`cost_budget` tool](/reference/agent-extensions/#cost_budget) reports figures under some of the same names to the agent; there a limit that is not configured reads `0`.
 
 The same row on a session that has measured nothing, showing only the fields that differ:
 
@@ -880,7 +886,7 @@ A retry that is rescheduled this way and advances its attempt waits the backoff 
 
 A retry keeps the title, link, type, labels, and state it was scheduled with. Sortie stores them with the retry and restores them at startup, so a restart serves what was served before it. A retry stored by an earlier release has none of them until the next poll whose candidates include its issue, or until the retry next fires. A read never replaces a title or link the retry already holds. The retry stores `configured_model` and `dispatched_at` the same way.
 
-**`budget_exhausted[]` entries:** Issues held out of dispatch by a per-issue budget ceiling ([`agent.max_sessions`](/reference/workflow-config/#agent) or [`agent.max_tokens`](/reference/workflow-config/#agent)).
+**`budget_exhausted[]` entries:** Issues held out of dispatch by a per-issue budget ceiling ([`agent.max_sessions`](/reference/workflow-config/#agent), [`agent.max_tokens`](/reference/workflow-config/#agent), or [`agent.max_cost_usd`](/reference/workflow-config/#agent)).
 
 | Field | Description |
 |---|---|
@@ -888,11 +894,12 @@ A retry keeps the title, link, type, labels, and state it was scheduled with. So
 | `status_text`, `status_text_full` | The row's [status sentences](#status-sentences). Always present. |
 | `issue_title`, `issue_url` | The tracker's title and web link, as read by the poll that last rebuilt the held set, or by the retry the hold was found on until the next poll. Each omitted when empty. Masked like the running row's. |
 | `issue_type`, `issue_labels`, `state` | The issue's type, labels, and tracker state from the same read, under the rules of the `retrying[]` entries. Masked like the running row's. |
-| `reason` | `session_budget` or `token_budget`: which ceiling stopped dispatch. |
+| `reason` | `session_budget`, `token_budget`, or `money_budget`: which ceiling stopped dispatch. An issue past several ceilings carries `money_budget` first, then `token_budget`, then `session_budget`. |
 | `used_sessions`, `budget_sessions` | Completed sessions for the issue against the configured `agent.max_sessions`. `budget_sessions` is `null` when no session budget is set, as on a `running[]` entry. |
 | `used_tokens`, `budget_tokens` | Measured cumulative tokens without cache reads against the configured `agent.max_tokens`. `budget_tokens` is `null` when no token ceiling is set, as on a `running[]` entry. `used_tokens` is `null` only on a `session_budget` entry, in two cases: the token ceiling has not been evaluated for the issue (`agent.max_tokens` is `0`, or reading the issue's token spend failed), or the sum is `0` while a session reported no token usage or a turn went unaccounted for, so that `0` would stand for spend Sortie does not know. A non-zero sum is served as is and can still be a lower bound. |
-| `unmeasured_sessions` | Count of the issue's sessions whose agent reported no token usage. `null` when the issue's token spend was not read. |
-| `stopped_in_flight` | Count of the issue's sessions that the token ceiling stopped while they were running, recorded with status `budget_stopped`. `null` when the issue's token spend was not read. |
+| `used_usd`, `used_usd_complete`, `budget_usd` | The issue's estimated cost in US dollars against the configured `agent.max_cost_usd`. `used_usd_complete` is `false` exactly when `used_usd` is a lower bound, because a run is recorded unpriced or partial or part of the spend was not measured. `used_usd` and `used_usd_complete` are `null` while the money ceiling has not been evaluated for the issue (`agent.max_cost_usd` is `0`, or reading the issue's run history failed). `budget_usd` is `null` when no money ceiling is set, as `budget_tokens` is. |
+| `unmeasured_sessions` | Count of the issue's sessions whose agent reported no token usage. `null` when the issue's spend was not read. |
+| `stopped_in_flight` | Count of the issue's sessions that a budget ceiling stopped while they were running, recorded with status `budget_stopped`. `null` when the issue's spend was not read. |
 | `exhausted_at` | When the hold began. |
 | `rule_name`, `agent_kind`, `configured_model` | The dispatch rule, agent kind, and model of the dispatch the hold blocks. Each omitted when empty. |
 | `stage_lineage`, `stage_position` | Always present. The lineage and chain position of the blocked dispatch, under the rules of the `retrying[]` entries and [dispatch time and stage position](#dispatch-time-and-stage-position). |
@@ -1081,22 +1088,23 @@ A `reaction_escalated` item for a row rebuilt after a restart carries `open_issu
 
 | Member | Kind | Value |
 |---|---|---|
-| `reason` | `parked`, `budget_held` | The row's `reason`: `agent_blocked` or `handoff_absence`; `session_budget` or `token_budget`. |
+| `reason` | `parked`, `budget_held` | The row's `reason`: `agent_blocked` or `handoff_absence`; `session_budget`, `token_budget`, or `money_budget`. |
 | `label` | `parked` | The row's `label`. |
 | `used_sessions`, `budget_sessions` | `budget_held` with `session_budget` | The row's values. |
 | `used_tokens`, `used_tokens_complete`, `budget_tokens` | `budget_held` with `token_budget` | The row's `used_tokens` (omitted when the row's is `null`) and `budget_tokens`. `used_tokens_complete` is `false` exactly when `used_tokens` is a lower bound. |
+| `used_usd`, `used_usd_complete`, `budget_usd` | `budget_held` with `money_budget` | The row's `used_usd` (omitted when the row's is `null`), `used_usd_complete`, and `budget_usd`. `used_usd_complete` is `false` exactly when `used_usd` is a lower bound. |
 | `reaction_kind`, `config_key`, `pull_request`, `escalation_trigger` | `reaction_escalated` | The row's `kind`, `config_key`, `pull_request`, and `escalation_trigger`, in the shapes the row serves. |
 | `used_attempts`, `max_attempts` | `reaction_escalated` | The row's values, each omitted when `null`. |
 | `last_check` | `reaction_escalated` | The row's `last_check`, omitted when `null`. |
 | `file` | `workflow_reload_failed` | `health.workflow.file`. |
 | `error` | `workflow_reload_failed`, `preflight_failed` | The check's `error`, as `health` serves it. |
 
-`reason_text`, `why_text`, and `clears_text` are English sentences that Sortie takes from the same table of wording as the [status sentences](#status-sentences), one template per park reason, per budget reason, per check, and per kind of escalating reaction. They follow the same rules: each states only a fact Sortie records, is masked like `issue_title`, and carries no cost, clock time, or date. A part that cannot be rendered reads `Status not available`, and the item stays, so the list and its count never drop a cause. The `reason_text` of each kind:
+`reason_text`, `why_text`, and `clears_text` are English sentences that Sortie takes from the same table of wording as the [status sentences](#status-sentences), one template per park reason, per budget reason, per check, and per kind of escalating reaction. They follow the same rules: each states only a fact Sortie records, is masked like `issue_title`, and carries no clock time or date. It carries no cost either, except that the `why_text` of a `money_budget` hold states the issue's estimated cost against its ceiling, prefixed `at least` when the cost is a lower bound. A part that cannot be rendered reads `Status not available`, and the item stays, so the list and its count never drop a cause. The `reason_text` of each kind:
 
 | `kind` | `reason_text` |
 |---|---|
 | `parked` | `Parked: the agent needs a person` for `agent_blocked`; `Parked: no evidence of work` for `handoff_absence`. |
-| `budget_held` | `Token budget reached` for `token_budget`; `Session budget reached` for `session_budget`. |
+| `budget_held` | `Money budget reached` for `money_budget`; `Token budget reached` for `token_budget`; `Session budget reached` for `session_budget`. |
 | `reaction_escalated` | `CI escalated on #<number>`, `Review comments escalated on #<number>`, `Bot review escalated on #<number>`, `Merge conflict escalated on #<number>`, `Auto-merge escalated on #<number>`, or `Merge completion escalated on #<number>`, by reaction kind. |
 | `workflow_reload_failed` | `<file> failed to load`. |
 | `preflight_failed` | `Dispatch preflight failed`. |
@@ -1112,7 +1120,7 @@ Items are ordered by `severity` (`critical` before `warning`), then by `since` (
 | `kind` | Parts |
 |---|---|
 | `parked` | The issue ID; the park time cut to whole seconds in RFC 3339, or `""` when the stored time cannot be read. |
-| `budget_held` | The issue ID; the `reason`; the ceiling the reason names as a decimal number, `budget_tokens` for `token_budget` and `budget_sessions` for `session_budget`. |
+| `budget_held` | The issue ID; the `reason`; the ceiling the reason names as a decimal number, `budget_usd` for `money_budget`, `budget_tokens` for `token_budget`, and `budget_sessions` for `session_budget`. |
 | `reaction_escalated` | The issue ID; the row's `kind`; `escalated_at` in RFC 3339 with nanoseconds, trailing zeros dropped. |
 | `workflow_reload_failed` | `failing_since` in RFC 3339 with nanoseconds, trailing zeros dropped. |
 | `preflight_failed` | `failing_since` in RFC 3339 with nanoseconds, trailing zeros dropped. |
@@ -1174,7 +1182,7 @@ It is `null` where Sortie cannot date the pass: a retry or hop stored without a 
 
 **`active_estimated_cost_usd`:** Estimated total cost across currently running sessions, computed from the rates in force: [`token_rates`](/reference/workflow-config/#token_rates) entries over the [price table](/reference/workflow-config/#price_table). Sessions whose `tokens_measured` is `false` are excluded. Omitted when no rate source is available, and when no running, measured session is priced. It equals the sum of `estimated_cost_usd` over the `running[]` entries whose `cost_status` is `"estimated"` or `"partial"`. This is a presentation-layer estimate, not provider billing data.
 
-**`cost_unpriced_running`:** Count of running, measured sessions that `active_estimated_cost_usd` leaves out because no rate prices them. Present, zero included, whenever a rate source is available: a price table is in force, which is the default, or `token_rates` holds an entry. Omitted when `price_table.embedded` is `false`, no `price_table.replace_file` is set, and `token_rates` holds no entry; every measured `running[]` entry then reads `"unpriced"` while this key is absent. When present, it equals the number of `running[]` entries whose `cost_status` is `"unpriced"`. The dashboard shows cost exactly when this key is present.
+**`cost_unpriced_running`:** Count of running, measured sessions that `active_estimated_cost_usd` leaves out because no rate prices them. Present, zero included, whenever a rate source is available: a price table is in force, which is the default, or `token_rates` holds an entry. Omitted when no price table is in force and `token_rates` holds no entry (see [`price_table`](/reference/workflow-config/#price_table)); every measured `running[]` entry then reads `"unpriced"` while this key is absent. When present, it equals the number of `running[]` entries whose `cost_status` is `"unpriced"`. The dashboard shows cost exactly when this key is present.
 
 **`rate_limits`:** Reserved for future use. Currently an empty object.
 
@@ -1196,6 +1204,7 @@ Most members follow the last successful load of `WORKFLOW.md`; a reload that fai
 | `agent.stall_timeout_ms` | Integer, or `null` when stall detection is off. |
 | `agent.max_retry_backoff_ms` | The cap on retry backoff in milliseconds. |
 | `agent.max_sessions`, `agent.max_tokens` | Integer, or `null` when the key is `0` or negative, which means no session budget or no token ceiling. A running row's `budget_sessions` and `budget_tokens` are the values as of the latest poll tick, so for up to one poll interval after a reload these members can differ from them. |
+| `agent.max_cost_usd` | Number, or `null` when the key is `0`, which means no money ceiling. A running row's `budget_usd` is the value as of the latest poll tick, so for up to one poll interval after a reload this member can differ from it. |
 | `agent.max_concurrent_agents` | The global concurrency cap. |
 | `agent.max_concurrent_agents_by_state` | Per-state caps, keyed by lowercase state name, positive values only. `{}` when none. |
 | `worker.ssh_hosts` | The configured SSH hosts, each listed once, in the order written. `[]` when sessions run on the machine running Sortie. |
@@ -1376,7 +1385,7 @@ Runs are ordered by descending `run_id`, which is the order Sortie recorded them
 | `issue_title` | string | The issue title recorded with the run. Omitted when empty. Masked. |
 | `issue_url` | string | The tracker's web link to the issue. Omitted when empty. Masked. |
 | `attempt` | integer | One-based attempt number. |
-| `status` | string | Terminal outcome of the run: `"succeeded"`, `"failed"`, `"cancelled"`, `"ci_failed"`, `"needs_person"`, or `"budget_stopped"`. `"budget_stopped"` is a session the per-issue token ceiling cancelled while it was still running; `error` then carries the token figures behind the stop. |
+| `status` | string | Terminal outcome of the run: `"succeeded"`, `"failed"`, `"cancelled"`, `"ci_failed"`, `"needs_person"`, or `"budget_stopped"`. `"budget_stopped"` is a session the per-issue token or money ceiling cancelled while it was still running; `error` then carries the figures behind the stop: the tokens used and the ceiling, or `money ceiling reached: used $X of $Y`. |
 | `error` | string or `null` | The run's error message. `null` when the run recorded none. Masked. A withheld handoff, an agent error, and a worker stage error read as a plain sentence, such as `Sortie stopped the session before the agent finished turn 1.`, with any message the agent supplied kept after a colon; every other error is served as stored. |
 | `rule_name` | string | The [dispatch rule](/reference/workflow-config/#dispatch) that routed the run. Omitted when none did. |
 | `agent_kind` | string | The agent adapter kind that ran the session. Omitted when empty. |
@@ -1861,6 +1870,7 @@ Every `200` response carries `history`. The running and finished examples show i
   "next_outcomes": [
     {"condition": "If the run succeeds", "text": "Sortie moves the issue to In Review, and a pull request the run leaves gets the CI failure, review comments, bot review, merge conflicts, and auto-merge reactions."},
     {"condition": "If the run fails", "text": "Sortie retries with exponential backoff."},
+    {"condition": "If the money budget is reached", "text": "Sortie stops the session and holds the issue at its money budget."},
     {"condition": "If tokens reach 500K", "text": "Sortie stops the session and holds the issue at its token budget."}
   ],
   "issue": {
@@ -1930,6 +1940,7 @@ Every `200` response carries `history`. The running and finished examples show i
     "used_tokens": 112300,
     "used_tokens_complete": true,
     "budget_tokens": 500000,
+    "budget_usd": 25,
     "estimated_cost_usd": 0.06372,
     "cost_status": "estimated",
     "issue_estimated_cost_usd": 0.49872,
@@ -2182,6 +2193,9 @@ When an issue has neither a running session nor a pending retry, but is held out
     "budget_sessions": 3,
     "used_tokens": null,
     "budget_tokens": null,
+    "used_usd": null,
+    "used_usd_complete": null,
+    "budget_usd": null,
     "unmeasured_sessions": null,
     "stopped_in_flight": null,
     "exhausted_at": "2026-03-26T14:12:00Z",
@@ -2544,7 +2558,7 @@ Every `200` response carries `next_outcomes`: the branches ahead of the issue, e
 
 The list follows the workflow in effect, in this order:
 
-1. A running work session yields what follows if the run succeeds and if it fails, and, when `agent.max_tokens` is set and the session's agent reports token usage, what follows if the issue's token use reaches that budget. A retry queued beside the session drops the failure pair, and also the success pair when `tracker.handoff_state` is unset. A session that runs a reaction continuation or a label command yields none of these, because the issue's pending reactions say what follows it.
+1. A running work session yields what follows if the run succeeds and if it fails, and, when `agent.max_tokens` or `agent.max_cost_usd` is set and the session's agent reports token usage, what follows if the issue's token use reaches the token budget or its estimated cost reaches the money budget, the money pair first. A retry queued beside the session drops the failure pair, and also the success pair when `tracker.handoff_state` is unset. A session that runs a reaction continuation or a label command yields none of these, because the issue's pending reactions say what follows it.
 2. Otherwise, a retry that is not `paused` yields what happens when it comes due, and an issue between stages yields what happens when a poll tick reads its stage label.
 3. Each pending reaction then yields what happens when a check finds its event, in the order `ci`, `review`, `bot-review`, `merge-conflict`, `merge`, `merge-completion`, `label-review`, `label-fix`.
 
@@ -2553,7 +2567,7 @@ An issue with none of these serves `[]`, as a `"history"` response always does.
 - A pair never names a reaction that `config.reactions` of [`GET /api/v1/state`](#get-apiv1state-system-state) lacks, nor a stage the dispatch rules do not hold. A reaction whose `escalated_at` is not `null` yields no pair.
 - A pair calls the pull request it watches "the pull request", and names it by number, as in `PR #944`, only when the issue's pending reactions watch more than one pull request.
 - The condition of a watched reaction carries the time left in which a check can still lead to the outcome: the time to its `watch_ends_at`, measured from the time the snapshot was generated. For `review` it also leaves out the wait a found comment still has, one `polling.interval_ms` and, unless the comments already wait to settle, `debounce_ms`. A reaction with less than one second left yields no pair.
-- An outcome that would start a session names the hold instead when the session budget or the token budget would stop it. A reaction configured with a triage command says that the command runs, in place of the fix, and one whose fixes are used up says how Sortie escalates, in the order the reaction's own pass decides them.
+- An outcome that would start a session names the hold instead when the money budget, the token budget, or the session budget would stop it, in that precedence, and names the money budget by its setting, never by an amount. A reaction configured with a triage command says that the command runs, in place of the fix, and one whose fixes are used up says how Sortie escalates, in the order the reaction's own pass decides them.
 - The list is not exhaustive. It leaves out what the configuration does not decide: a stop the agent requests, a person's tracker or pull request edit other than a label command, a failed tracker, forge, or database call, a withheld handoff and the park it leads to, and a wait for a free agent slot. A branch missing from the list can still happen.
 - The wording follows the rules of the [status sentences](#status-sentences): English, rendered on each request and stored nowhere, masked, with no clock time, date, or cost, and with stage wording only when the workflow has stage chains. A pair that cannot be rendered is left out of the list, and Sortie logs the failure.
 
@@ -2667,7 +2681,7 @@ Makes the scheduled retry of an issue due now, so it runs without waiting out it
 curl -X POST http://localhost:7678/api/v1/retries/MT-650/run
 ```
 
-The retry takes the path of a retry whose timer fired. It passes the same checks, among them the limit on agents running at once, the `agent.max_sessions` and `agent.max_tokens` budgets, and a fresh read of the issue from the tracker, and a retry that the issue's state pauses stays paused. A retry that still cannot start is put back at the attempt number and the due time it had before the request, or due at once when that time has passed, so a request never leaves a retry waiting longer or at a later attempt than before. The put-back sets the entry's `error` to its own reason.
+The retry takes the path of a retry whose timer fired. It passes the same checks, among them the limit on agents running at once, the `agent.max_sessions`, `agent.max_tokens`, and `agent.max_cost_usd` budgets, and a fresh read of the issue from the tracker, and a retry that the issue's state pauses stays paused. A retry that still cannot start is put back at the attempt number and the due time it had before the request, or due at once when that time has passed, so a request never leaves a retry waiting longer or at a later attempt than before. The put-back sets the entry's `error` to its own reason.
 
 A retry that has a stored row has the row saved with the new due time, so a restart before the retry runs does not undo the request. A retry for a pull request reaction has no stored row. A failed save is logged and does not change the response.
 

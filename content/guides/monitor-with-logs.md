@@ -406,6 +406,32 @@ This fires when [`agent.token_warning_percent`](/reference/workflow-config/#agen
 
 Sortie logs this once per run: a run that crosses the threshold again on a later usage figure does not log a second time, and a run that never crosses it does not log at all. See [how to control agent costs](/guides/control-costs/#warn-before-the-ceiling-stops-a-run) for choosing a percentage, and the [`cost_budget` tool](/reference/agent-extensions/#cost_budget) for how the agent reads the same condition mid-session.
 
+### Money budget
+
+When [`agent.max_cost_usd`](/reference/workflow-config/#agent) is set, the money ceiling logs beside the token ceiling, in the same three places. Before a dispatch, a scheduled retry that finds the issue at the ceiling logs:
+
+```
+time=2026-03-26T14:35:22.000+00:00 level=WARN msg="money budget exhausted, blocking re-dispatch" issue_id=abc123 issue_identifier=MT-649 reason=money_budget used_usd=25.31 budget_usd=25 used_sessions=3 budget_sessions=5
+```
+
+`used_usd` is the issue's estimated cost in US dollars and `budget_usd` the ceiling. The poll tick's rebuild records the same hold once, as `candidate held by budget ceiling` with `reason=money_budget`, `used_usd`, `budget_usd`, and `ceiling_setting=agent.max_cost_usd`. A run in progress is stopped by a separate record, logged at the run's exit:
+
+```
+time=2026-03-26T14:41:07.000+00:00 level=WARN msg="run stopped by money ceiling" issue_id=abc123 issue_identifier=MT-649 session_id=session-abc-002 reason=money_budget used_usd=25.31 budget_usd=25 issue_cost_completed=19.8 session_cost_usd=5.51 cost_complete=true sum_source=confirmed_read ceiling_setting=agent.max_cost_usd unmeasured_sessions=0 unaccounted_turns=0
+```
+
+Read `session_cost_usd` against `issue_cost_completed` to see who spent the budget: the session's own estimate and what the issue's earlier runs had already recorded add up to `used_usd`. `cost_complete` is `false` when the figure is a lower bound. `sum_source` reads as it does for the token record, and the two counts at the end appear only with `confirmed_read`.
+
+An issue below the ceiling whose figure is only a lower bound dispatches, and Sortie says so:
+
+```
+time=2026-03-26T14:35:22.000+00:00 level=WARN msg="money budget cannot be fully evaluated, allowing dispatch" issue_id=abc123 issue_identifier=MT-649 used_usd=11.2 budget_usd=25 unmeasured_sessions=0 unaccounted_turns=0 partial_sessions=1 unpriced_sessions=1
+```
+
+`partial_sessions` counts the issue's runs recorded with only part of their spend priced, and `unpriced_sessions` counts the runs recorded with no price at all. The other two counts are the ones the token record carries.
+
+Three more records mirror the token ceiling's failure cases and leave the work going: `money budget check failed, proceeding with dispatch` when the read before a retry fails, `prior spend unknown, money ceiling bounds this session only` when the read at dispatch fails, and `in-flight money ceiling check failed, run continues`, once per run, when the read that would confirm a stop fails.
+
 ### Dispatch preflight failures
 
 ```
@@ -446,6 +472,12 @@ Find sessions the token ceiling stopped in flight:
 
 ```bash
 grep 'run stopped by token ceiling' sortie.log
+```
+
+Find issues blocked by the money budget, and sessions the money ceiling stopped in flight:
+
+```bash
+grep -e 'money budget exhausted' -e 'run stopped by money ceiling' sortie.log
 ```
 
 Find runs that crossed the token warning threshold:

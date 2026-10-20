@@ -82,8 +82,17 @@ The three `SORTIE_TRACKER_COMMENTS_*` variables are deprecated with the keys the
 | `SORTIE_AGENT_MAX_RETRY_BACKOFF_MS` | [`agent.max_retry_backoff_ms`](/reference/workflow-config/#agent) | int |
 | `SORTIE_AGENT_MAX_SESSIONS` | [`agent.max_sessions`](/reference/workflow-config/#agent) | int |
 | `SORTIE_AGENT_MAX_TOKENS` | [`agent.max_tokens`](/reference/workflow-config/#agent) | int |
+| `SORTIE_AGENT_MAX_COST_USD` | [`agent.max_cost_usd`](/reference/workflow-config/#agent) | number |
 | `SORTIE_AGENT_TOKEN_WARNING_PERCENT` | [`agent.token_warning_percent`](/reference/workflow-config/#agent) | int |
 | `SORTIE_AGENT_MAX_CONSECUTIVE_ABSENCES` | [`agent.max_consecutive_absences`](/reference/workflow-config/#agent) | int |
+
+### Price table variables
+
+| Env var | Overrides | Type |
+|---|---|---|
+| `SORTIE_PRICE_TABLE_FETCH` | [`price_table.fetch`](/reference/workflow-config/#price_table) | bool (`true`/`false`/`1`/`0`) |
+
+`SORTIE_PRICE_TABLE_FETCH=false` stops the download of the shared price table, which is how a network-restricted or audited deployment keeps the request off the wire. It does not stop the download of a table named by `price_table.replace_url`. No other `price_table` key has an override.
 
 ### Top-level variables
 
@@ -107,6 +116,7 @@ When [`--env-file`](/reference/cli/#--env-file) is provided, the CLI resolves th
 |---|---|---|
 | string | Used as-is | - |
 | int | Parsed as an integer, with leading and trailing whitespace trimmed first. | Startup error: `config: polling.interval_ms: invalid integer value: abc (from SORTIE_POLLING_INTERVAL_MS)` |
+| number | Parsed as a decimal number, with leading and trailing whitespace trimmed first. | Startup error: `config: agent.max_cost_usd: invalid number value: abc (from SORTIE_AGENT_MAX_COST_USD)` |
 | bool | Accepts `true`, `false`, `1`, `0` (case-insensitive) | Startup error naming the env var and rejected value |
 | csv | Comma-separated. Items trimmed. Empty items discarded. Empty string produces an empty list. | - |
 
