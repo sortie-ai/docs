@@ -71,6 +71,8 @@ If no slot is available, the entry is rescheduled at the next attempt number, so
 
 The worker runs the agent kind and template recorded on the entry, unless the configuration in force no longer reaches that kind or no longer holds that template; then the current dispatch rules route the issue again and the worker starts a new session instead of resuming the earlier one. An entry whose agent kind has no adapter is rescheduled with backoff and keeps its claim.
 
+While an [instance spend ceiling](/reference/workflow-config/#agent) holds, the fire dispatches nothing and the entry is re-armed one `polling.interval_ms` ahead, unchanged: it keeps its attempt number, its error, and its stored row, and the wait adds no backoff step. An entry that then finds no slot or no SSH host also keeps its attempt number, where other entries advance to the next attempt.
+
 **Claimed → Released.** The claim is removed and no retry is scheduled:
 
 - Reconciliation detects the tracker state is terminal or no longer in `active_states`. On a label-modelled tracker, an issue that reads no state label counts only at the second consecutive reading.
@@ -308,6 +310,7 @@ An issue is eligible for dispatch when all conditions are true:
 | Not budget-exhausted | The issue is not already held by a per-issue `agent.max_sessions`, `agent.max_tokens`, or `agent.max_cost_usd` ceiling, rebuilt each poll tick from run history. |
 | Not parked | The issue is not already parked. A park holds the issue until a later poll tick observes a release gesture. |
 | Stage hop label observed | After a [stage hop](#stage-hop), the issue dispatches on no rule until a read has shown the label the hop added. When the candidate list lacks that label, Sortie reads the issue once by ID that tick. A read that shows the label releases the hold. A read that shows the issue active without the label also releases it, logs `stage hop target label absent, hold released`, and routes the issue by the labels that read returned. A read that finds the issue terminal or outside the active states resets the hop count and dispatches nothing. A read that shows no state holds the issue for that tick and logs `stage hop target read showed no state, holding issue`; reconciliation resets the count at the second consecutive reading with no state. A failed read holds the issue until the next tick. A released hold stays released across a restart. |
+| Instance spend ceiling not reached | The estimated cost of the current UTC day is below `agent.max_daily_cost_usd`, and that of the current UTC month is below `agent.max_monthly_cost_usd`, for each that is set. A held candidate is counted under `daily_spend_ceiling` or `monthly_spend_ceiling`, the monthly reason when both hold. |
 | Global slots available | `running_count < agent.max_concurrent_agents`. |
 | Per-state slots available | Running count for this state < `agent.max_concurrent_agents_by_state[state]` (if configured). |
 | No blocker is still active | Every entry in `blocked_by` has a non-empty state that is in `tracker.terminal_states`. An entry with an empty state, or a state outside `terminal_states`, holds the issue. |
@@ -321,7 +324,7 @@ Jira and Linear return each issue's blockers together with the candidate list, s
 
 GitLab declares that it has no blocking relation to read at all, so its issues carry an authoritative empty list from the candidate fetch and are never held for this reason. See the [GitHub](/reference/adapter-github/#blocker-extraction) and [Gitea](/reference/adapter-gitea/#blocker-extraction) adapter references for the read cost and how a failed read is handled.
 
-A held candidate is not silent: it logs one record and increments the `sortie_candidate_holds_total` counter with a `reason` label, one of:
+A held candidate is not silent: it increments the `sortie_candidate_holds_total` counter with a `reason` label, and a candidate held by a blocker also logs one record. The reason is one of:
 
 | Reason | Meaning |
 |---|---|
@@ -329,8 +332,10 @@ A held candidate is not silent: it logs one record and increments the `sortie_ca
 | `blockers_unresolved` | The blocker read for this candidate was attempted and failed, or this poll already gave up on further reads after an earlier failure. Retried on a later poll. |
 | `blockers_not_read` | This poll's read budget was already spent on other candidates before reaching this one. Retried on a later poll. |
 | `blockers_incomplete` | The candidate's producer marked the list unresolved and nothing was available to complete it. |
+| `daily_spend_ceiling` | The instance's spend in the UTC day has reached `agent.max_daily_cost_usd`. Logged once when the hold begins, not per candidate. |
+| `monthly_spend_ceiling` | The instance's spend in the UTC month has reached `agent.max_monthly_cost_usd`. Logged once when the hold begins, not per candidate. |
 
-`sortie --dry-run` reports the same reason per candidate as `skip_reason` (see the [CLI reference](/reference/cli/#--dry-run)), and the [Prometheus metrics reference](/reference/prometheus-metrics/#counters) documents the counter in full.
+`sortie --dry-run` reports the blocker reasons (`blocked_by`, `blockers_unresolved`, `blockers_not_read`, and `blockers_incomplete`) per candidate as `skip_reason` (see the [CLI reference](/reference/cli/#--dry-run)) and does not evaluate the spend ceiling, and the [Prometheus metrics reference](/reference/prometheus-metrics/#counters) documents the counter in full.
 
 ---
 

@@ -432,6 +432,38 @@ time=2026-03-26T14:35:22.000+00:00 level=WARN msg="money budget cannot be fully 
 
 Three more records mirror the token ceiling's failure cases and leave the work going: `money budget check failed, proceeding with dispatch` when the read before a retry fails, `prior spend unknown, money ceiling bounds this session only` when the read at dispatch fails, and `in-flight money ceiling check failed, run continues`, once per run, when the read that would confirm a stop fails.
 
+### Instance spend ceiling
+
+When [`agent.max_daily_cost_usd`](/reference/workflow-config/#agent) or `agent.max_monthly_cost_usd` is set, Sortie evaluates each window on every poll tick and every retry check. None of these records carries issue fields, because a window belongs to no issue. When a window first reaches its ceiling, Sortie logs:
+
+```
+time=2026-03-26T17:02:44.000+00:00 level=WARN msg="spend ceiling reached, holding dispatch" window=daily used_usd=100.4 used_usd_complete=true budget_usd=100 ceiling_setting=agent.max_daily_cost_usd resets_at=2026-03-27T00:00:00.000Z
+```
+
+`window` is `daily` or `monthly`, and `resets_at` is the next 00:00 UTC. `used_usd_complete` is `false` when the figure is a lower bound. The record appears once per hold, not once per tick. While the hold lasts, a retry that comes due logs a debug record naming the reason and when Sortie checks it again:
+
+```
+time=2026-03-26T17:03:44.000+00:00 level=DEBUG msg="retry held by spend ceiling, rechecking" issue_id=abc123 issue_identifier=MT-649 reason=daily_spend_ceiling attempt=2 delay_ms=30000
+```
+
+`attempt` is the retry's own attempt number, which the hold leaves unchanged. When a window stops holding, because it reset or you raised or removed the ceiling, Sortie logs:
+
+```
+time=2026-03-27T00:00:11.000+00:00 level=INFO msg="spend ceiling hold ended" window=daily budget_usd=100 used_usd=0 ceiling_setting=agent.max_daily_cost_usd dispatch_held=false
+```
+
+`dispatch_held` is `true` when the other window still holds. After you remove the ceiling, `budget_usd` reads `0` and `used_usd` is absent.
+
+A window below its ceiling whose figure is only a lower bound dispatches, and Sortie says so once for the window:
+
+```
+time=2026-03-26T14:35:22.000+00:00 level=WARN msg="spend ceiling cannot be fully evaluated, allowing dispatch" window=daily used_usd=61.2 budget_usd=100 unmeasured_sessions=0 unaccounted_turns=0 partial_sessions=1 unpriced_sessions=2
+```
+
+`unmeasured_sessions` counts the runs and running sessions that report no token usage, `unaccounted_turns` the turns whose usage was not accounted, `partial_sessions` the runs priced in part, and `unpriced_sessions` the runs with no price. When the read of run history fails, Sortie keeps the last result, or treats the window as not holding when it has none, and logs `spend ceiling check failed, keeping the last result` with `window` and `error`.
+
+A held candidate logs no per-issue record; `sortie_candidate_holds_total` counts it under reason `daily_spend_ceiling` or `monthly_spend_ceiling`. See [Cap what the whole instance spends](/guides/control-costs/#cap-what-the-whole-instance-spends) for what the hold stops and when it ends.
+
 ### Dispatch preflight failures
 
 ```
@@ -478,6 +510,12 @@ Find issues blocked by the money budget, and sessions the money ceiling stopped 
 
 ```bash
 grep -e 'money budget exhausted' -e 'run stopped by money ceiling' sortie.log
+```
+
+Find when an instance spend ceiling began and ended holding dispatch:
+
+```bash
+grep -e 'spend ceiling reached' -e 'spend ceiling hold ended' sortie.log
 ```
 
 Find runs that crossed the token warning threshold:

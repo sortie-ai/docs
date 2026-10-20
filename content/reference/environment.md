@@ -83,6 +83,8 @@ The three `SORTIE_TRACKER_COMMENTS_*` variables are deprecated with the keys the
 | `SORTIE_AGENT_MAX_SESSIONS` | [`agent.max_sessions`](/reference/workflow-config/#agent) | int |
 | `SORTIE_AGENT_MAX_TOKENS` | [`agent.max_tokens`](/reference/workflow-config/#agent) | int |
 | `SORTIE_AGENT_MAX_COST_USD` | [`agent.max_cost_usd`](/reference/workflow-config/#agent) | number |
+| `SORTIE_AGENT_MAX_DAILY_COST_USD` | [`agent.max_daily_cost_usd`](/reference/workflow-config/#agent) | number |
+| `SORTIE_AGENT_MAX_MONTHLY_COST_USD` | [`agent.max_monthly_cost_usd`](/reference/workflow-config/#agent) | number |
 | `SORTIE_AGENT_TOKEN_WARNING_PERCENT` | [`agent.token_warning_percent`](/reference/workflow-config/#agent) | int |
 | `SORTIE_AGENT_MAX_CONSECUTIVE_ABSENCES` | [`agent.max_consecutive_absences`](/reference/workflow-config/#agent) | int |
 

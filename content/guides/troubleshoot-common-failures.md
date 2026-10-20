@@ -390,6 +390,8 @@ Sortie is polling but finds nothing to dispatch. At the default log level this l
 
 10. **The running configuration is not the file you edited.** A reload that fails validation keeps the previous configuration in force. Sortie logs the failure and reports it in the `health` block of the state endpoint: `curl -s localhost:7678/api/v1/state | jq '.health.workflow'` prints the error, the time of the last successful load, and how many loads have failed since. A `status` of `fail` means the process still runs the older file; `/readyz` keeps passing in that case. Run `sortie validate` on the file, fix the error it reports, and the next reload clears the failure. To see what the process applies instead, run `curl -s localhost:7678/api/v1/state | jq '.config.tracker.active_states, [.config.dispatch.rules[].name]'`. See the [HTTP API reference](/reference/http-api/#get-apiv1state-system-state) for every `health` and `config` member.
 
+11. **The instance spend ceiling was reached.** With `agent.max_daily_cost_usd` or `agent.max_monthly_cost_usd` set, Sortie starts no agent session for any issue once the UTC day's or month's estimated cost reaches the ceiling, and scheduled retries wait with their attempt numbers kept. Check the "Daily spend ceiling reached" or "Monthly spend ceiling reached" item under **Needs attention** on the dashboard, `curl -s localhost:7678/api/v1/state | jq '.spend_ceiling'` for `holds_dispatch` and `resets_at`, or grep your logs for `spend ceiling reached`. Dispatch resumes after the window resets or after you raise or remove the ceiling. See [how to control agent costs](/guides/control-costs/#cap-what-the-whole-instance-spends).
+
 ## Sortie won't start at all
 
 ```
