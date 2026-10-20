@@ -463,8 +463,6 @@ Costs are estimates, built from the rates in force (`token_rates` entries over t
 
 A figure Sortie does not have is never written as zero. A cost above zero and under one cent reads "under $0.01", so only a cost of zero reads "$0.00". Hovering a cost shows its exact amount on every screen but **Analytics**, which never repeats an amount in a hover: a lower-bound cost there is its amount cut down with a dotted underline, and its hover says it leaves out the runs Sortie could not price or measure.
 
-![History rows of two issues: one waiting on a retry with its runs priced in full, and one whose total reads "at least $2.70 estimated" because two of its runs show "not measured" for tokens and cost](/img/dashboard/cost-wording.webp)
-
 | Wording | Means |
 |---|---|
 | "not measured" | The agent reported no token usage for the run, or none has arrived yet. It stands for a token figure and for a cost that depends on one. |
