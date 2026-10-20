@@ -92,7 +92,7 @@ Before the first answer the page body reads "Loading". When Sortie does not answ
 
 **Overview** answers: does anything need a person right now? The page opens with a headline sentence and a lede, then the blocks below.
 
-![Overview with the headline "1 item needs attention", an attention item for a parked issue with Acknowledge and Open issue buttons, the active issues in dispatch order under lifecycle chips and the Rule menu, and an Ended today list with its tally line](/img/dashboard/overview.webp)
+![Overview with the headline "Nothing needs attention.", the Agents running, Ended today, Last one ended, and Runs finished today figures, the Spend section with daily and monthly meters against their ceilings, an empty Active list with the Rule menu, and an Ended today list with its tally line](/img/dashboard/overview.webp)
 
 | Headline | Shown when |
 |---|---|
@@ -168,7 +168,7 @@ A legend under the lanes explains every mark in use. With more than 24 lanes the
 
 The peek is a drawer that shows one issue over **Overview** or **Pipeline** without leaving the list. It opens from a click on a row or lane, or from `Space` on the selected row, and it has its own address, so it can be shared. While it is open the list holds still, and the live indicator reads "Holding still while you read". `J` and `K` move the peek to the neighboring issue, and `Esc`, `Space`, the **Close** button, or the browser's Back button close it. **Open page** opens the [issue page](#issue-page).
 
-![The peek drawer open over Overview for an issue waiting on a retry, with its title, Sortie's sentence, its lane and stage meter, the Route, Agent, Sessions, and Tokens facts, What happens next, and the last runs under So far](/img/dashboard/issue-peek.webp)
+![The peek drawer open over Overview for an issue that reached done, with its title, Sortie's sentence, its lane and stage meter, the Last session and Open issue buttons, the Route, Agent, Sessions, and Spent facts, and the last runs under So far](/img/dashboard/issue-peek.webp)
 
 | Part | Contents |
 |---|---|
@@ -185,7 +185,7 @@ An issue Sortie no longer knows reads "Sortie no longer knows" followed by its k
 
 The issue page answers: what happened to this issue, what happens next, and what has it cost? It opens from the peek, from **History**, from the palette, and from the **Overview** tiles, and `Esc` returns to the screen it was opened from.
 
-![Issue page of a finished issue with its breadcrumb, title, and sentence, a Pipeline card with every station passed, folded stage chapters, a Pull request chapter of run cards, and the Budget and Route panels in the margin](/img/dashboard/issue-page.webp)
+![Issue page of a finished issue with its breadcrumb, title, and sentence, a Pipeline card with every station passed, folded stage chapters, a Pull request chapter with a run card, and the Budget and cost and Route panels in the margin](/img/dashboard/issue-page.webp)
 
 The page opens with the issue's tracker state and type, its title, Sortie's sentence about it, and, for a running issue whose agent has been quiet, a stall notice. Buttons follow: **Open live session** or **Last session**, **Open issue**, and the pull request button. Under them a **Pipeline** card draws the issue's [lane](#pipeline) with the station names, with the stage meter and, at reaction stations, the counts. From 1280 px wide the story sits beside a margin of panels. Below that the margin follows the story.
 
@@ -215,7 +215,7 @@ A failed read of run history shows "Run history could not be read." above the st
 
 The session view answers: what is this agent doing, or what did it do? It shows one agent session of one issue, live while the session runs and from the stored events once it ends. It opens from a run card, from the **Open live session** and **Last session** buttons, from `O`, and from the palette. `Esc` returns to the issue page.
 
-![Session view of a finished session with its facts line, an Events pane with turns and folded tool calls, a Tokens per turn chart, and the Usage, Session, and Sessions panels](/img/dashboard/agent-session.webp)
+![Session view of a finished session with its facts line, an Events pane with turns and folded tool calls, and the Usage, Cost per model, Session, and Sessions panels](/img/dashboard/agent-session.webp)
 
 The page head shows the issue key and title, the heading "Session N of" the key, and a line of facts: agent kind, model, route, the reaction that started the session when a pull request fix did, the SSH host when one is used, its time span and duration, and its status, such as "Running, turn 3 of 20" or "Succeeded, 4 turns". A running session whose agent has sent no event for longer than usual shows a stall notice, and a running session with no stall timeout shows a notice that stall detection is off. A session that ended with an error shows why, with the agent's last message when it sent one.
 
@@ -237,7 +237,7 @@ An address that names no session reads "No such session". The [HTTP API](/refere
 
 **History** answers: what finished, how did it end, and what did it use? It lists finished runs grouped by issue, the issue with the newest ending first, 20 issues at a time. **Show more issues** loads the next 20.
 
-![History grouped by issue, with the Issue key field and the Rule, Run status, and Hop to filters above a table of runs with their status, rule, agent, duration, turns, tokens, and finish time](/img/dashboard/history.webp)
+![History grouped by issue, with the Issue key field and the Rule, Run status, and Hop to filters above a table of runs with their status, rule, agent and model, duration, turns, tokens, estimated cost, and finish time](/img/dashboard/history.webp)
 
 Filters sit above the table, and each is part of the address.
 
@@ -267,7 +267,7 @@ With no run on record the screen reads "No run has finished yet." A filter that 
 
 **Analytics** answers: how do runs go over time, and where do they spend their effort? A **Range** control picks **Last 24 hours**, **Last 7 days** (the default), **Last 30 days**, **Last 90 days**, or **All time**, and hovering the control gives the start of the range. A range without a run reads "No run finished in this range." (or "No run has finished yet." for **All time**). Warnings about the report, such as a database written before Sortie recorded a figure, appear above the figures.
 
-![Analytics over 7 days with the success rate and summary figures, the Outcomes bar, a stage chain funnel table, and the By rule and By model breakdown tables](/img/dashboard/analytics.webp)
+![Analytics over the last 7 days with the success rate and summary figures, the Outcomes bar, the Spend chart with one bar per UTC day, a stage chain funnel table, and the By rule breakdown table](/img/dashboard/analytics.webp)
 
 The summary opens with the success rate, large, and "N of M runs succeeded" under it. Beside it the figures run in one row.
 
@@ -320,6 +320,8 @@ A run that used two models counts in both **By model** rows, so the rows' runs c
 ## Health
 
 **Health** answers: is Sortie itself working? **Checks** lists one row per check, each with a mark, a sentence about the last result, and the error text when the check failed.
+
+![Health with the Database, Dispatch preflight, WORKFLOW.md, Tracker poll, and GitHub checks, and the Poll loop and Process panels beside them](/img/dashboard/health.webp)
 
 | Check | Reads |
 |---|---|
@@ -420,6 +422,8 @@ The dashboard shows only what the workflow configures. Every row below changes w
 Costs are estimates, built from the rates in force (`token_rates` entries over the price table), and the dashboard says so with the words "estimated", "est.", and "Estimated cost". A finished run keeps the cost recorded when it finished, whatever the rates say now. Token figures leave out cache reads, which the dashboard shows separately where it has them. `agent.max_tokens` leaves them out too, so the budget meter reads **Tokens** and counts the same figure. The **Cost** meter counts them, because the estimated cost prices them. Durations use at most two units ("1h 17m"), tokens read as "830K" or "48.03M", costs read with two decimals below $100 and as whole dollars from $100, and a share strictly between 0 and 100 percent never rounds to either end.
 
 A figure Sortie does not have is never written as zero. A cost above zero and under one cent reads "under $0.01", so only a cost of zero reads "$0.00". Hovering a cost shows its exact amount on every screen but **Analytics**, which never repeats an amount in a hover: a lower-bound cost there is its amount cut down with a dotted underline, and its hover says it leaves out the runs Sortie could not price or measure.
+
+![History rows of two issues: one waiting on a retry with its runs priced in full, and one whose total reads "at least $2.70 estimated" because two of its runs show "not measured" for tokens and cost](/img/dashboard/cost-wording.webp)
 
 | Wording | Means |
 |---|---|
