@@ -1907,6 +1907,157 @@ A parameter that is not a range bound reads `parameter "<name>" is not a paramet
 
 ---
 
+## GET /api/v1/prices: Prices in force
+
+Returns the rates in force when the request is served, per agent kind and model, with the layer each rate comes from and the state of every price source. It is the data behind the [dashboard's Prices screen](/reference/dashboard/#prices). The route states rates and prices no run: a run keeps the cost recorded when it finished. See [`price_table`](/reference/workflow-config/#price_table) and [`token_rates`](/reference/workflow-config/#token_rates) for the layers.
+
+```sh
+curl http://localhost:7678/api/v1/prices
+```
+
+The route ignores query parameters and writes nothing.
+
+### Response
+
+The body is compact JSON. The example is trimmed to one model priced from two layers and one model no layer prices.
+
+```json
+{
+  "generated_at": "2026-02-24T20:15:30Z",
+  "table_in_force": {"layer": "fetched", "as_of": "2026-02-24T04:00:12Z", "age_days": 0},
+  "token_rates": {"kind_entries": 0, "model_entries": 1, "version": "sha256:3b1f0c8d5a7e2f94b6c1d8e0a3f5b7c9d2e4f6a8b0c1d3e5f7a9b1c3d5e7f9a1"},
+  "operator": null,
+  "fetched": {
+    "status": "loaded",
+    "in_force": true,
+    "off_by": null,
+    "file": null,
+    "address": "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json",
+    "version": "sha256:8d2a6c4e0b1f3a5c7e9d1b3f5a7c9e0b2d4f6a8c0e1b3d5f7a9c1e3b5d7f9a0c",
+    "as_of": "2026-02-24T04:00:12Z",
+    "models": 2315,
+    "next_try_at": "2026-02-25T04:00:12Z",
+    "failures": 0,
+    "failed_at": null,
+    "error": null
+  },
+  "embedded": {
+    "status": "loaded",
+    "in_force": true,
+    "off_by": null,
+    "file": null,
+    "address": null,
+    "version": "9f3c2e1a7b4d5c6e8f0a1b2c3d4e5f6a7b8c9d0e",
+    "as_of": "2026-02-20T11:42:07Z",
+    "models": 2290,
+    "next_try_at": null,
+    "failures": 0,
+    "failed_at": null,
+    "error": null
+  },
+  "models": [
+    {
+      "agent_kind": "claude-code",
+      "model": "claude-sonnet-4-5",
+      "table_key": "claude-sonnet-4-5",
+      "layer": "model_entry",
+      "entry_key": "claude-sonnet-4-5",
+      "input": {"per_mtok": 2.7, "layer": "model_entry", "from_input": false},
+      "output": {"per_mtok": 15, "layer": "fetched", "from_input": false},
+      "cache_read": {"per_mtok": 0.3, "layer": "fetched", "from_input": false},
+      "cache_write": {"per_mtok": 3.75, "layer": "fetched", "from_input": false},
+      "cost_status": "estimated",
+      "unrated_classes": [],
+      "last_used_at": "2026-02-24T19:58:41Z",
+      "runs": 12
+    },
+    {
+      "agent_kind": "codex",
+      "model": "acme-1",
+      "table_key": null,
+      "layer": null,
+      "entry_key": null,
+      "input": {"per_mtok": null, "layer": null, "from_input": false},
+      "output": {"per_mtok": null, "layer": null, "from_input": false},
+      "cache_read": {"per_mtok": null, "layer": null, "from_input": false},
+      "cache_write": {"per_mtok": null, "layer": null, "from_input": false},
+      "cost_status": "unpriced",
+      "unrated_classes": ["input", "output", "cache_read", "cache_write"],
+      "last_used_at": null,
+      "runs": 0
+    }
+  ]
+}
+```
+
+### Field notes
+
+Times are RFC 3339 in UTC. A time that is unknown, a string that is empty, and the model count of a source that holds no table are `null`.
+
+**Top-level members:**
+
+| Field | Type | Description |
+|---|---|---|
+| `generated_at` | string | The instant of the request. |
+| `table_in_force` | object or `null` | The highest-precedence price table in force: `layer` (`operator_table`, `fetched`, or `embedded`), `as_of` (the date of its prices), and `age_days` (whole days from `as_of` to `generated_at`, never below `0`). `null` while no price table is in force. A model takes its rates from the first table that lists it, so a lower table can price a name this one lacks. |
+| `token_rates` | object | `kind_entries` and `model_entries`, the number of [`token_rates`](/reference/workflow-config/#token_rates) entries in force by kind and by model, and `version`, the digest of those entries, `null` when there are none. |
+| `operator` | object or `null` | The state of your own table, in the source shape below. `null` unless `price_table.replace_file` or `price_table.replace_url` is set. |
+| `fetched` | object | The state of the shared table downloaded from `price_table.fetch_url`. |
+| `embedded` | object | The state of the table built into the binary. |
+| `models` | array of object | One row per agent kind and model, below. `[]` when there are none. |
+
+**A price source** (`operator`, `fetched`, and `embedded`):
+
+| Field | Type | Description |
+|---|---|---|
+| `status` | string | `off`, `not_loaded`, `loaded`, or `failing`. `off` is the shared download turned off or `price_table.embedded` set to `false`, decided from the settings before any download state is read, so an `off` source is never `failing`. Otherwise `failing` while the source has failed download tries, or while the latest workflow load failed on `price_table.replace_file`; else `loaded` once it holds a table; else `not_loaded`. |
+| `in_force` | boolean | The table is one of the tables that price runs. A `price_table.replace_file` table replaces the downloaded and built-in tables. A `price_table.replace_url` table replaces them once a download of it has passed validation, and they price until then. |
+| `off_by` | string or `null` | On `fetched` while `off`: `SORTIE_PRICE_TABLE_FETCH` when the environment variable turned the download off, else `price_table.fetch`. `null` otherwise. |
+| `file` | string or `null` | On `operator` for `price_table.replace_file`: the setting as written, after `$VAR` resolution and before `~` expansion and path joining. It is never a path Sortie resolved. |
+| `address` | string or `null` | The download address as scheme, host, and path only, so a credential or query in the setting never leaves Sortie. `null` when the source has no address or the setting does not parse; a download whose address does not parse is `failing` with the error `invalid address`. |
+| `version` | string or `null` | The version of the table the source holds: the pinned upstream revision of the built-in table, a content digest of any other table. `null` when it holds none. |
+| `as_of` | string or `null` | The date of the table's prices. For the built-in table, the commit date of its upstream revision. For a downloaded table, the time of the download; a kept copy returns after a restart with its original download time. For a `price_table.replace_file` table, when this process first loaded the file's current content; a reload that reads unchanged content keeps it. |
+| `models` | integer or `null` | The number of models the table lists. |
+| `next_try_at` | string or `null` | When the next download try is due. `null` while a try is due or running, and for a source that is not downloaded. |
+| `failures` | integer | The consecutive failed download tries since the last accepted one; `0` otherwise. |
+| `failed_at` | string or `null` | When the latest failed try or failed load ended. `null` unless the source is `failing`. |
+| `error` | string or `null` | The error of the latest failed try or failed load. `null` unless the source is `failing`. |
+
+While `fetched` is `off` it carries no table facts, because a kept copy never prices while the download is off. `embedded` carries the binary's revision, its date, and its model count whether it is on or off. Download state is kept in memory: a restart keeps the copy of a table that passed validation, with its download time and version, and starts `failures` again at `0`. A failure of `price_table.replace_file` shows only while the configuration in effect names that setting; a workflow load that fails for another reason shows on the Health and Workflow screens and in [`GET /api/v1/state`](#get-apiv1state-system-state), not here.
+
+**A model row.** A pair is listed when run history records a run that spent tokens on the model under the agent kind, or when the workflow in effect configures the model for the agent kind: in the top-level `agent` settings, the dispatch default, or the settings of a dispatch rule. Rows with a recorded run come first, latest use first; rows that only the workflow names follow, with `last_used_at` `null` and `runs` `0`. Ties break by `agent_kind`, then `model`, in byte order.
+
+| Field | Type | Description |
+|---|---|---|
+| `agent_kind` | string | The agent kind. The same model name under two kinds is two rows, because a `token_rates` entry keyed by the kind prices that kind's models first. |
+| `model` | string | The model name, empty for a run that reported none. |
+| `table_key` | string or `null` | The key the model name maps to in the first price table that lists it. `null` when none does. |
+| `layer` | string or `null` | The layer that prices the model: `kind_entry`, `model_entry`, `operator_table`, `fetched`, or `embedded`. `null` when none does. A model entry that takes some rates from a table is `model_entry`, and each class names its own layer. The layer is for display: a run keeps the price source recorded with it, which does not tell your `token_rates` from your own table. |
+| `entry_key` | string or `null` | The `token_rates` key of the kind entry or model entry that applies. `null` otherwise. |
+| `input`, `output`, `cache_read`, `cache_write` | object | `per_mtok`, the rate in USD per million tokens; `layer`, the layer that supplies it; and `from_input`. `per_mtok` and `layer` are `null` when no layer rates the class, so an unset rate never reads as zero, and `per_mtok` is `0` when a layer sets a rate of zero. A table rate is served to 10 significant digits. `from_input` is `true` for the cache rate of a kind entry that leaves it unset and so prices it at its input rate. |
+| `cost_status` | string | What a run of the model records under these rates: `estimated` when every token class is priced, `partial` when a class has no rate beside priced ones, `unpriced` when no class is priced. |
+| `unrated_classes` | array of string | The classes with no rate, from `input`, `output`, `cache_read`, and `cache_write`. `[]` when none. |
+| `last_used_at` | string or `null` | The completion time of the latest recorded run. `null` for a model that only the workflow names. |
+| `runs` | integer | The recorded runs that spent tokens on the model under the agent kind. |
+
+### Reload and exposure
+
+The route reads the rates the workflow loader holds when the request is served and caches nothing, so a successful workflow load, a `token_rates` edit, a table that has just landed, and a failed download try show on the next request, without a restart.
+
+The route serves an address as scheme, host, and path only and `file` as written, and it masks every `error` as the Health screen masks the error of the workflow check: the workflow file's path is cut to its file name and a held secret is replaced. The body holds no credential and no path Sortie resolved. It does hold the model names your runs and workflow use, the rates in force, and the digest of your `token_rates` entries. Anyone who can reach the port can read them.
+
+### Status codes
+
+| Code | Error code | Meaning |
+|---|---|---|
+| `200 OK` | | Rates and sources returned, including a body whose `models` is `[]`. |
+| `405 Method Not Allowed` | `method_not_allowed` | Any method other than `GET`. |
+| `503 Service Unavailable` | `history_unavailable` | Run history could not be read. |
+
+A client that disconnects during the read gets no response.
+
+---
+
 ## GET /api/v1/{identifier}: Issue detail
 
 Returns issue-specific runtime and debug details, and the issue's run history. The `{identifier}` path parameter is the issue identifier (e.g., `MT-649`), not the internal issue ID. An issue that is no longer active is answered from run history.
@@ -1919,7 +2070,7 @@ curl http://localhost:7678/api/v1/MT-649
 
 The path identifier is matched against live entries first. When none carries it, Sortie reads the newest run recorded under that identifier and takes the issue ID from it. If a live entry carries that issue ID, the response is that entry's live detail, with `issue_identifier` set to the identifier the entry carries now. This finds an issue the tracker renamed. `history` always covers the issue by its ID, so runs recorded under an earlier identifier stay in it.
 
-The fixed paths `/api/v1/state`, `/api/v1/runs`, `/api/v1/stats`, `/api/v1/events`, and `/api/v1/refresh` take precedence over this route, so an issue whose identifier is one of `state`, `runs`, `stats`, `events`, or `refresh` cannot be read here.
+The fixed paths `/api/v1/state`, `/api/v1/runs`, `/api/v1/stats`, `/api/v1/prices`, `/api/v1/events`, and `/api/v1/refresh` take precedence over this route, so an issue whose identifier is one of `state`, `runs`, `stats`, `prices`, `events`, or `refresh` cannot be read here.
 
 Every `200` response carries `history`. The running and finished examples show it in full; the other examples omit it to keep the members that differ by status in view.
 
@@ -3268,7 +3419,7 @@ All JSON API errors use a consistent structure:
 | `check_now_unavailable` | 503 | `POST /api/v1/reactions/{identifier}/{kind}/check` was not taken; nothing changed. |
 | `invalid_parameter` | 400 | `GET /api/v1/runs`, `GET /api/v1/runs/issues`, `GET /api/v1/stats`, or `GET /api/v1/events` rejected a query parameter, or a misordered pair of bounds. The message names the parameter and the rule. |
 | `snapshot_unavailable` | 503 | The orchestrator could not produce a state snapshot. |
-| `history_unavailable` | 503 | Run history or the issue outcomes could not be read, or the database behind `GET /api/v1/stats` could not be opened or read. |
+| `history_unavailable` | 503 | Run history or the issue outcomes could not be read, the database behind `GET /api/v1/stats` could not be opened or read, or `GET /api/v1/prices` could not read the models run history records. |
 | `attention_item_not_found` | 404 | `POST /api/v1/attention/{id}/acknowledge` found no current attention item with the `id`. |
 | `run_events_not_retained` | 404 | `GET /api/v1/runs/{dispatch_id}/events` has no events for the dispatch ID. |
 | `acknowledgement_not_saved` | 500 | `POST /api/v1/attention/{id}/acknowledge` could not save the acknowledgement; nothing changed. |
@@ -3312,6 +3463,7 @@ A state-changing request that is refused as [cross-origin](#cross-origin-request
 | GET | `/api/v1/runs/issues` | Run history grouped by issue, newest first, filtered and paged | `application/json` |
 | GET | `/api/v1/runs/{dispatch_id}/events` | The agent events Sortie kept for one run | `application/json` |
 | GET | `/api/v1/stats` | Run statistics over a completion-time range | `application/json` |
+| GET | `/api/v1/prices` | Rates in force per agent kind and model, and the state of every price source | `application/json` |
 | GET | `/api/v1/{identifier}` | Per-issue detail and run history | `application/json` |
 | GET | `/api/v1/events` | Stream of change signals, heartbeats, and the agent events of the runs named with `run` | `text/event-stream` |
 | POST | `/api/v1/refresh` | Trigger immediate poll cycle | `application/json` |

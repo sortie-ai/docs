@@ -149,7 +149,7 @@ A session stops at the first usage figure after the spend, so a run can pass the
 
 A run whose model no rate prices, a token class with no rate, or usage that was not fully reported leaves the figure incomplete. The figure is then a lower bound: the ceiling counts only what Sortie could price. While that lower bound is below the ceiling, Sortie logs `money budget cannot be fully evaluated, allowing dispatch` and dispatches anyway. Once the priced part alone reaches the ceiling, the hold applies, and the comment and the dashboard say "at least" before the amount.
 
-The remedy is to price the model, with a [`token_rates`](/reference/workflow-config/#token_rates) entry or a price table that lists it. Runs recorded before you did so stay unpriced. To find which model and which token class lack a rate, open the session view of a finished run: its **Cost per model** panel lists each model and, under **No rate for**, the classes without a rate.
+The remedy is to price the model, with a [`token_rates`](/reference/workflow-config/#token_rates) entry or a price table that lists it. Runs recorded before you did so stay unpriced. To find a model that lacks a rate before a run is recorded, look for a row of [Prices](/reference/dashboard/#prices) whose rates read "not set". To find which model and which token class lacked a rate in a finished run, open its session view: its **Cost per model** panel lists each model and, under **No rate for**, the classes without a rate.
 
 ### Check the configuration
 
@@ -357,6 +357,8 @@ token_rates:
 
 Leave a rate out and [`sortie validate`](/reference/cli/#validate) warns with `token_rates.model_incomplete`. The runs that spend that token class are then recorded as partial, so their cost is a lower bound.
 
+To check the entry before a run depends on it, open [Prices](/reference/dashboard/#prices) in the dashboard once the edit has loaded and find the model's row. **Priced by** names the entry, and a rate that reads "not set" is a class that no layer prices.
+
 **Override one rate of a listed model.** Set only the rate you want to change. Sortie takes the rest from the table:
 
 ```yaml
@@ -365,7 +367,7 @@ token_rates:
     input_per_mtok: 0.00
 ```
 
-**Use your own price table.** If you negotiate prices or need figures that do not change with a release, point `price_table.replace_file` at a file in the [LiteLLM price list format](/reference/workflow-config/#price_table). It replaces the built-in and downloaded tables, so a model your file does not list stays unpriced unless a `token_rates` entry prices it. To keep the file on a server instead, set `price_table.replace_url`; use one of the two, not both. A relative path is read from the directory of WORKFLOW.md. If the file cannot be loaded, Sortie refuses to start, or keeps the previous configuration on a reload; it never falls back to the built-in table.
+**Use your own price table.** If you negotiate prices or need figures that do not change with a release, point `price_table.replace_file` at a file in the [LiteLLM price list format](/reference/workflow-config/#price_table). It replaces the built-in and downloaded tables, so a model your file does not list stays unpriced unless a `token_rates` entry prices it. A relative path is read from the directory of WORKFLOW.md. If the file cannot be loaded, Sortie refuses to start, or keeps the previous configuration on a reload; it never falls back to the built-in table. To keep the table on a server instead, set `price_table.replace_url`; use one of the two, not both. A table from `replace_url` replaces the built-in and downloaded tables only once its first download has passed validation, and they price runs until then. **Prices** shows whether your table is in force.
 
 ```yaml
 price_table:

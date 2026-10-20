@@ -205,7 +205,7 @@ Comments are not fetched during candidate polling. They are `nil` on those issue
 
 Fetching one issue by ID issues several requests, because state, labels, and blocker relationships live on different surfaces. Naming a pull request number directly is an error rather than a silent miss.
 
-Fetching the states of many issues is sequential rather than batched: there is no bulk state endpoint, so the cost grows linearly with the number of issues in flight. An issue that has been deleted or moved is omitted from the result rather than failing the batch.
+Fetching the states of many issues sends one request per issue, at most 8 at a time, rather than one batched request: there is no bulk state endpoint, so the number of requests grows linearly with the number of issues in flight. An issue that has been deleted or moved is omitted from the result rather than failing the batch.
 
 ### Terminal-state reconciliation
 

@@ -182,6 +182,7 @@ Sets the listening port for the embedded HTTP server. The server starts by defau
 - `/api/v1/runs/issues`: run history grouped by issue
 - `/api/v1/runs/<dispatch_id>/events`: agent events of one run
 - `/api/v1/stats`: run statistics
+- `/api/v1/prices`: rates in force and the state of every price source
 - `/api/v1/events`: change signals and agent events
 - `/api/v1/<identifier>`: per-issue detail and run history
 - `/api/v1/refresh`: trigger an immediate poll cycle

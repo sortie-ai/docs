@@ -31,6 +31,7 @@ Every screen has its own address, so a link to an issue or to a filtered view ca
 | Analytics | `/ui/analytics` | `range`, and the sort of each breakdown table |
 | Health | `/ui/health` | |
 | Workflow | `/ui/workflow` | |
+| Prices | `/ui/prices` | The sort of the **Models** table (`sort`) |
 
 An address under `/ui/` that names no screen shows "This page does not exist." with an **Open Overview** button.
 
@@ -48,7 +49,7 @@ The server refuses a dashboard action that a browser sends from a page on anothe
 
 ### Side rail
 
-The rail lists the screens in groups separated by a divider: **Overview**, **Pipeline**, **History**, and **Analytics**, then **Health** and **Workflow**. A **Filter** field above the list narrows it by name, and Enter opens the first match. The rail also shows the Sortie version, the [status card](#status-card), and these controls: **Commands** opens the [command palette](#command-palette), **Shortcuts** opens the shortcut sheet, and **Theme** opens the [theme menu](#themes).
+The rail lists the screens in groups separated by a divider: **Overview**, **Pipeline**, **History**, and **Analytics**, then **Health**, **Workflow**, and **Prices**. A **Filter** field above the list narrows it by name, and Enter opens the first match. The rail also shows the Sortie version, the [status card](#status-card), and these controls: **Commands** opens the [command palette](#command-palette), **Shortcuts** opens the shortcut sheet, and **Theme** opens the [theme menu](#themes).
 
 **Overview** carries a count badge while items need attention. The badge is amber, and red while any open item is critical.
 
@@ -349,6 +350,45 @@ A failing row reads, for example, "3 ticks in a row failed since 14:02; last suc
 
 **Usage reporting** reads "reports tokens", "reports none", or "not declared" for each kind. See [`token_rates`](/reference/workflow-config/#token_rates) and the [usage reporting table](/reference/workflow-config/#usage-reporting-by-agent-kind).
 
+## Prices
+
+**Prices** answers: which rate prices each model, and where does it come from? It shows the rates in force, not a cost: the screen prices no run, and a finished run keeps the cost recorded when it finished. The panels state the price sources, and the **Models** table states the rates of each model. The screen reads [`GET /api/v1/prices`](/reference/http-api/#get-apiv1prices-prices-in-force).
+
+| Panel | Contents |
+|---|---|
+| **Prices in force** | **Source**, the highest-precedence price table in force (**Custom prices**, **Downloaded prices**, or **Built-in prices**, and "None" while no table is in force), **Prices as of**, the date of that table's prices, and its **Age** in whole days. The screen applies no age limit and shows no warning. |
+| **Token rates** | **Entries**, as "N kind entries" and "N model entries" for the [`token_rates`](/reference/workflow-config/#token_rates) entries in force, or "Not set", and their **Version**. |
+| **Custom prices** | The table named by [`price_table.replace_file`](/reference/workflow-config/#price_table) or `price_table.replace_url`. Shown only while one of them is set. |
+| **Downloaded prices** | The shared table Sortie downloads from `price_table.fetch_url`. |
+| **Built-in prices** | The table built into the binary. |
+
+A table panel gives its **Status**, whether the table is **In force** ("Yes" or "No"), its **Version**, and its **Models**. A downloaded table, which is **Downloaded prices** and **Custom prices** for an address, gives **Last download** and **Next download**. **Custom prices** for a file gives **Loaded**, the time this process first read the file's current content. **Built-in prices** gives **Version date**, the date of its upstream revision, and no timing rows.
+
+| Status | Means |
+|---|---|
+| **Loaded** | The source holds a table. The built-in table reads **On**. |
+| **Not loaded yet** | The download has delivered no table and has not failed. The tables beneath it price runs. |
+| **Failing** | The latest download try failed, or the latest load of WORKFLOW.md failed on `price_table.replace_file`. The panel adds **Failures in a row** while it is above zero, **Last failure**, and the **Error**. A table kept from an earlier download stays in force. |
+| **Off by** `price_table.fetch` or `SORTIE_PRICE_TABLE_FETCH` | The download is turned off, by the setting or by the [environment variable](/reference/environment/#price-table-variables). A source that is off never reads as failing. |
+| **Off** | `price_table.embedded` is `false`. |
+
+A **Version** shows its first 12 characters, after `sha256:` for a content digest, and the hover shows the whole value. **Custom prices** and **Downloaded prices** show digests, and **Built-in prices** shows the upstream revision.
+
+**Models** lists one row per agent kind and model: every pair run history records, and every model the workflow configures, in the top-level `agent` settings, the dispatch default, or a dispatch rule. A model that only the workflow names has no last use and no runs. Rows keep the order the server serves, the latest use first, until a column is sorted.
+
+| Column | Shows |
+|---|---|
+| **Model** | The model name, or "Model not reported" for a run that named none. |
+| **Agent** | The agent kind. The same model under two kinds is two rows. |
+| **Priced by** | The layer that supplies the rates: **Kind entry**, **Model entry**, **Custom prices**, **Downloaded prices**, or **Built-in prices**. A model entry that takes some rates from a table reads "Model entry and" the table, as in "Model entry and Downloaded prices". Empty while no layer prices the model. |
+| **Input per 1M**, **Output per 1M**, **Cache read per 1M**, **Cache write per 1M** | The rate in USD per million tokens, with at least two decimals. "not set" while no layer rates the class, which is never the same as `$0.00`, a rate that a layer sets to zero. A [kind entry](/reference/workflow-config/#kind-entries) that leaves a cache rate unset reads "input rate (not set)". When the classes of a row come from more than one layer, the hover of a rate names its layer. |
+| **Last used** | When the latest recorded run of the model finished. |
+| **Runs** | The recorded runs that used the model. |
+
+Every column sorts, as the **Analytics** breakdowns do, and the choice is kept in the address. The **Search models** field above the table narrows the rows, as it is typed, to the models whose name contains the text, ignoring case; `Esc` or the clear button empties it, and while no row matches the table reads "No model matches this search." The table scrolls sideways on a screen narrower than its columns.
+
+Before the first answer the screen reads "Loading". Without run history it reads "Run history is not available.", and a failed read reads "Prices could not be read.".
+
 ## Attention items
 
 An attention item is one thing that needs a person. Sortie derives the items from its own state, so an item exists exactly while its cause does. Each item has a reason, an explanation of why it exists, and a sentence on what clears it.
@@ -385,7 +425,7 @@ Other commands act on Sortie as a whole: **Refresh now** and **Pause live update
 
 ## Live updates
 
-The dashboard holds a connection to Sortie's [change stream](/reference/http-api/#get-apiv1events-change-signals-and-agent-events). When Sortie reports a change, the dashboard rereads what the open screen shows. No timer reloads the page. **History** rereads at most once every 5 seconds and **Analytics** at most once every 30 seconds, however often changes arrive. A session view also receives the events of the session it shows over the same connection.
+The dashboard holds a connection to Sortie's [change stream](/reference/http-api/#get-apiv1events-change-signals-and-agent-events). When Sortie reports a change, the dashboard rereads what the open screen shows. No timer reloads the page. **History** rereads at most once every 5 seconds and **Analytics** at most once every 30 seconds, however often changes arrive. **Prices** is the exception: it reads its route when it opens and when the browser window regains focus, and a change signal never rereads it, so a reload of WORKFLOW.md or a finished download shows after the screen is reopened or the window is focused again. A session view also receives the events of the session it shows over the same connection.
 
 **Refresh now** (`R`, or the palette) asks Sortie to poll the tracker now, and the message reads "Tracker poll and reconciliation queued." or says that a poll was already queued. **Pause** (`P`, the palette, or the live indicator) holds the screens still, and resuming applies what changed in the meantime. While paused, the title and icon of the tab stay as they were and a session view stops adding events.
 
@@ -412,7 +452,7 @@ The dashboard shows only what the workflow configures. Every row below changes w
 | Dispatch rules | The **Rule** menu on **Overview** and **Pipeline**, the rule on each row and run, the **Rule** filter and column in **History**, and **By rule** in **Analytics**, which stays hidden while every run used the default. |
 | [Stage chains](/concepts/stage-chains/) | The rule menu grouped by chain, the stage and its place on rows ("implement, 2 of 3"), the stage meter on lanes, the "stages done" legend entry, the stage summary and stage chapters on the issue page, the **Hop to** filter in **History**, one funnel table per chain in **Analytics**, and the chains in **Workflow**. |
 | Pull request [reactions](/reference/reactions/) | One station per reaction on **Pipeline** and the issue page, the **Waiting on PR** chip, the pull request chapters and the **Pull request** panel with **Check now**, escalations as attention items, and the **Reactions** panel in **Workflow**. Without reactions the lane ends at the handoff state. |
-| A rate source: the built-in price table, a downloaded or [`price_table.replace_file`](/reference/workflow-config/#price_table) table, or [`token_rates`](/reference/workflow-config/#token_rates) | The **Est. cost** column in **History** and **Analytics**, the **Estimated cost** figure, the cost in run cards, the peek, the **Budget and cost** panel, and the **Ended today** tally. The built-in table is on by default, so these appear unless `price_table.embedded` is `false` and no `price_table.replace_file`, accepted download, or `token_rates` entry is in force. Then none of them appears, and the **Est. cost** row of a session view whose tokens were measured reads "unpriced". |
+| A rate source: the built-in price table, a downloaded or [`price_table.replace_file`](/reference/workflow-config/#price_table) table, or [`token_rates`](/reference/workflow-config/#token_rates) | The **Est. cost** column in **History** and **Analytics**, the **Estimated cost** figure, the cost in run cards, the peek, the **Budget and cost** panel, and the **Ended today** tally. The built-in table is on by default, so these appear unless `price_table.embedded` is `false` and no `price_table.replace_file`, accepted download, or `token_rates` entry is in force. Then none of them appears, and the **Est. cost** row of a session view whose tokens were measured reads "unpriced". **Prices** shows which of these sources is in force. |
 | An agent kind that [reports no token usage](/reference/workflow-config/#usage-reporting-by-agent-kind) | "not measured" in place of its tokens and cost on every screen, "reports none" under **Usage reporting** in **Workflow**, and a **Tokens** line of "not measured" in the session view. |
 | `agent.max_daily_cost_usd` or `agent.max_monthly_cost_usd` | The **Spend** section of **Overview** and the spend ceiling attention items. |
 | `agent.max_sessions`, `agent.max_tokens`, or `agent.max_cost_usd` | The budget meters on the issue page, the budget attention items, and the **Session budget**, **Token budget**, and **Money budget** lines in **Workflow**. The **Cost** meter also needs a rate source. See [how to control agent costs](/guides/control-costs/). |
@@ -450,7 +490,7 @@ A figure Sortie does not have is never written as zero. A cost above zero and un
 | `P` | Pause or resume live updates |
 | `Shift` `U` | Mark everything read |
 | `T` | Next theme |
-| `G`, then `O`, `P`, `H`, `A`, `E`, or `W` | Go to **Overview**, **Pipeline**, **History**, **Analytics**, **Health**, or **Workflow** |
+| `G`, then `O`, `P`, `H`, `A`, `E`, `W`, or `R` | Go to **Overview**, **Pipeline**, **History**, **Analytics**, **Health**, **Workflow**, or **Prices** |
 | `?` | Keyboard shortcuts |
 | `Ctrl` `K` (`Cmd` `K` on macOS) | Command palette |
 | `Esc` | Close, go back |
