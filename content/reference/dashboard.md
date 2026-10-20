@@ -265,7 +265,7 @@ With no run on record the screen reads "No run has finished yet." A filter that 
 
 ## Analytics
 
-**Analytics** answers: how do runs go over time, and where do they spend their effort? A **Range** control picks **24 hours**, **7 days** (the default), or **Since first run**, and a label states the start of the range. A range without a run reads "No run finished in this range." (or "No run has finished yet." for **Since first run**). Warnings about the report, such as a database written before Sortie recorded a figure, appear above the figures.
+**Analytics** answers: how do runs go over time, and where do they spend their effort? A **Range** control picks **Last 24 hours**, **Last 7 days** (the default), **Last 30 days**, **Last 90 days**, or **All time**, and hovering the control gives the start of the range. A range without a run reads "No run finished in this range." (or "No run has finished yet." for **All time**). Warnings about the report, such as a database written before Sortie recorded a figure, appear above the figures.
 
 ![Analytics over 7 days with the success rate and summary figures, the Outcomes bar, a stage chain funnel table, and the By rule and By model breakdown tables](/img/dashboard/analytics.webp)
 
@@ -273,15 +273,18 @@ The summary opens with the success rate, large, and "N of M runs succeeded" unde
 
 | Figure | Shows |
 |---|---|
-| **Runs** | Finished runs, with failed, stopped, and cancelled counts. |
+| **Runs** | Finished runs. |
 | **Issues** | Issues with a run in the range. |
-| **Duration, succeeded runs** | The median, and the 95th percentile ("p50, p95"). Shown once a run succeeded. |
-| **Turns per succeeded run** | The mean. Shown once a run succeeded. |
-| **Tokens** | Tokens without cache reads, with "N runs not measured" or "every run measured". |
+| **Duration** | The median duration of succeeded runs. Shown once a run succeeded. |
+| **Turns** | The mean turns per succeeded run. Shown once a run succeeded. |
+| **Tokens** | Tokens without cache reads. Hovering the label says "every run measured", or that the figure leaves out runs whose tokens were not measured. |
 | **Cache reads** | Cache read tokens, when there are any. |
-| **Estimated cost** | The estimated cost. It reads "at least" before the amount while runs are left out, and hovering it lists them. Shown when a rate source is available. |
+| **Estimated cost** | The estimated cost. While it leaves out runs that are unpriced, have a partial cost, or reported no usage, it shows the amount cut down, never rounded up, with a dotted underline, and hovering it says it is at least that much. A cost with no amount reads "unpriced" or "not measured", and hovering it says why. Shown when a rate source is available. |
+| **Cost per run** | The estimated cost divided by the succeeded runs that reported usage, worded like **Estimated cost**. Shown once a run succeeded, when a rate source is available. |
 
-**Outcomes** is one bar that shows how the runs ended, with a legend and a count for each outcome that has runs: **Succeeded**, **Stopped for a person or budget**, **Cancelled**, and **Failed**. A tooltip gives a segment's count and share.
+**Outcomes** is one bar that shows how the runs ended, with a legend and a count for each outcome that has runs: **Succeeded**, **Stopped for a person or budget**, **Cancelled**, and **Failed**. The bar's segments carry no tooltip.
+
+When a rate source is available, a **Spend** chart follows the bar for every range but **Last 24 hours**. It draws the estimated cost of the runs per UTC day for the 7, 30, and 90 day ranges and per UTC month for **All time**, one bar per period, oldest first. The first period is the one that holds the start of the range (for **All time**, the first run), so it can be a partial period. The top of the scale is the smallest 1, 2, or 5 times a power of ten that holds the largest period. A bar is solid while the period's cost is complete. A period that leaves out runs that are unpriced, have a partial cost, or reported no usage draws a diagonal hatch, and a period whose runs have no cost at all but include such runs draws a thin hatched bar, so it never reads as a period without spend. A period without runs, and a period whose runs spent nothing, draws no bar. Hovering a period names it, gives the time the range starts from on a first period the range cuts short, and says in one sentence what the bar means. Every date and time on the chart is in UTC, whatever your time zone. The periods are those the daily and monthly spend ceilings count, so a bar compares directly with `agent.max_daily_cost_usd` and `agent.max_monthly_cost_usd`.
 
 Each stage chain gets a table headed "Chain from" its entry rule, with a row per stage.
 
@@ -294,7 +297,7 @@ Each stage chain gets a table headed "Chain from" its entry rule, with a row per
 | **Advanced** | Passes that hopped to the next stage. On the last stage, passes that moved to the handoff state. |
 | **Ceiling** | Hops refused by `dispatch.max_consecutive_hops`. |
 | **Hop failed** | Hops that could not add the next stage's label. |
-| **No hop** | Passes that ended without a hop being due. The tooltip gives the reasons. |
+| **No hop** | Passes that ended without a hop being due. The tooltip names the reasons. |
 | **In stage** | Passes whose run is going or retrying now. |
 | **Median** | The median time spent in the stage. |
 
@@ -303,13 +306,16 @@ The breakdowns follow, each a table sortable by any column header, 20 rows at a 
 | Table | Groups runs by | Shown |
 |---|---|---|
 | **By rule** | Dispatch rule | The workflow has rules and the range holds a group besides the default. |
-| **By model** | The model the agent reported, or the configured one when it reported none | It has a group. |
+| **By model** | Every model a run spent tokens on, with that model's tokens and cost. A run that recorded no per-model spend falls under the model the agent reported, or the configured one when it reported none | It has a group. |
 | **By agent** | Agent kind | It has a group. |
 | **By run status** | Run status | It has a group. |
 | **By retry trigger** | What caused a retry | It has a group. |
 | **Why runs started** | What started a run: a poll, a retry, a stage hop, or a pull request reaction | It has a group. |
 
-Each table has the columns **Runs** (with a bar), **Success** (with a bar, and **Share** in **By run status**), **Duration** (a mark from the median to the 95th percentile and the same range in text), **Mean turns**, **Tokens**, and **Est. cost** when a rate source is available.
+Each table has the columns **Runs** (with a bar), **Success** (with a bar, and **Share** in **By run status**), **Duration** (a mark from the median to the 95th percentile and the same range in text), **Mean turns**, **Tokens**, and, when a rate source is available, **Est. cost** and **Per succeeded run**.
+
+A run that used two models counts in both **By model** rows, so the rows' runs can add up to more than the runs of the range. **Per succeeded run** is the cost divided by the group's succeeded runs that reported usage, and is empty for a group with no succeeded run. A hover on a cost or a token figure of a breakdown says what the figure leaves out.
+
 
 ## Health
 
@@ -413,7 +419,7 @@ The dashboard shows only what the workflow configures. Every row below changes w
 
 Costs are estimates, built from the rates in force (`token_rates` entries over the price table), and the dashboard says so with the words "estimated", "est.", and "Estimated cost". A finished run keeps the cost recorded when it finished, whatever the rates say now. Token figures leave out cache reads, which the dashboard shows separately where it has them. `agent.max_tokens` leaves them out too, so the budget meter reads **Tokens** and counts the same figure. The **Cost** meter counts them, because the estimated cost prices them. Durations use at most two units ("1h 17m"), tokens read as "830K" or "48.03M", costs read with two decimals below $100 and as whole dollars from $100, and a share strictly between 0 and 100 percent never rounds to either end.
 
-A figure Sortie does not have is never written as zero. A cost above zero and under one cent reads "under $0.01", so only a cost of zero reads "$0.00". Hovering any cost shows its exact amount, and the hover of a lower-bound cost says what it leaves out.
+A figure Sortie does not have is never written as zero. A cost above zero and under one cent reads "under $0.01", so only a cost of zero reads "$0.00". Hovering a cost shows its exact amount on every screen but **Analytics**, which never repeats an amount in a hover: a lower-bound cost there is its amount cut down with a dotted underline, and its hover says it leaves out the runs Sortie could not price or measure.
 
 | Wording | Means |
 |---|---|
@@ -422,9 +428,9 @@ A figure Sortie does not have is never written as zero. A cost above zero and un
 | "not recorded" | Sortie's run history does not hold the figure, or has no value for it, as for **Mean turns** of a group with no turn count. The tally reads "tokens not recorded". |
 | "not reported" | The agent named no model, as in **Reported model**. In the budget panel, "No token budget: tokens not reported." when no token budget is set, and "Tokens not reported." when one is. |
 | "N runs not measured" and "N runs unpriced" | A total that leaves those runs out. The tally reads "(N runs not measured)" and "(N runs unpriced)". |
-| "N runs with a partial cost" | In the hover of a report cost: the total counts those runs at a lower bound, because a token class they spent had no rate or a turn's token usage was not fully reported. |
+| "N runs with a partial cost" | In the hover of the cost in the **Ended today** tally: the total counts those runs at a lower bound, because a token class they spent had no rate or a turn's token usage was not fully reported. |
 | "every run measured" | A token total with no run left out. |
-| "at least" | A token or cost that is a lower bound because part of the spend was not measured or not priced, or because a token class had no rate. It applies to a held token or money budget, a spend ceiling, and any cost figure: "used at least 4.2M tokens of its budget", "at least $12.40 of $25.00", "at least $4.20". The amount is cut, never rounded up, so the text never exceeds the spend it bounds: below $100 it keeps two decimals, from $100 it drops the cents, and under one cent it keeps one significant digit, as in "at least $0.004". |
+| "at least" | A token or cost that is a lower bound because part of the spend was not measured or not priced, or because a token class had no rate. It applies to a held token or money budget, a spend ceiling, and any cost figure: "used at least 4.2M tokens of its budget", "at least $12.40 of $25.00", "at least $4.20". The amount is cut, never rounded up, so the text never exceeds the spend it bounds: below $100 it keeps two decimals, from $100 it drops the cents, and under one cent it keeps one significant digit, as in "at least $0.004". **Analytics** writes the same cut amount without the words, and marks a lower bound with a dotted underline. |
 | "under $0.01" | A cost above zero that is smaller than one cent. |
 | "unknown" | A time, duration, or cost the dashboard cannot state. |
 

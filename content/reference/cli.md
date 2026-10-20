@@ -562,7 +562,7 @@ For details on each check, see [GitHub adapter validate-time checks](/reference/
 
 ### `stats`
 
-Reports how past runs went and what they cost. Sortie appends one row to `run_history` each time an agent session finishes; `stats` reads that history back over a time range and aggregates it into run counts, the number of issues those runs belong to, success rate, duration percentiles, turns, token sums, and the estimated cost recorded with each run, broken down by outcome, by coding agent, by dispatch rule, by prompt template, by configured model, by stage chain, by retry trigger, and by run origin, plus a funnel for each stage chain. The database is opened read-only, so the command is safe to run while the orchestrator is working, and it makes no network call. A running Sortie serves the same report over HTTP at [`GET /api/v1/stats`](/reference/http-api/#get-apiv1stats-run-statistics).
+Reports how past runs went and what they cost. Sortie appends one row to `run_history` each time an agent session finishes; `stats` reads that history back over a time range and aggregates it into run counts, the number of issues those runs belong to, success rate, duration percentiles, turns, token sums, and the estimated cost recorded with each run, that cost per UTC day or month in JSON, broken down by outcome, by coding agent, by dispatch rule, by prompt template, by model, by stage chain, by retry trigger, and by run origin, plus a funnel for each stage chain. The database is opened read-only, so the command is safe to run while the orchestrator is working, and it makes no network call. A running Sortie serves the same report over HTTP at [`GET /api/v1/stats`](/reference/http-api/#get-apiv1stats-run-statistics).
 
 ```
 sortie stats [--format text|json] [--since value] [--until value] [workflow-path]
@@ -635,7 +635,7 @@ Which figures a report can carry depends on the database it reads, not on the ve
 | Tokens | `input_tokens`, `output_tokens`, `total_tokens`, `cache_read_tokens` | Token sums and every derived cost figure. `cache_write_tokens`, when present, adds the cache-write sum without changing the tier. |
 | Token measurement | `tokens_measured` | Which runs the coding agent could measure, and so which ones the token and cost figures cover |
 
-A sixth group sits outside the tier: `configured_model`, `configured_effort`, and `reported_model`. Only the configured-model breakdown depends on it, so a database without it is still `full`. See [configured model breakdown](#configured-model-breakdown). A seventh, `chain_id`, `stage_target`, and `stage_result`, sits outside the tier too and supplies only the stage chain breakdown. See [stage chain breakdown](#stage-chain-breakdown). The `trigger` and `reaction_kind` columns sit outside the tier as well and supply the retry trigger breakdown. See [retry trigger breakdown](#retry-trigger-breakdown). The run origin breakdown needs them and `first_after_hop`, which sits outside the tier too. See [run origin breakdown](#run-origin-breakdown). The stage funnels need every column named above and `agent_blocked`, which sits outside the tier as well. See [stage funnels](#stage-funnels).
+A sixth group sits outside the tier: `configured_model`, `configured_effort`, and `reported_model`. Only the model breakdown depends on it, so a database without it is still `full`. See [model breakdown](#model-breakdown). A seventh, `chain_id`, `stage_target`, and `stage_result`, sits outside the tier too and supplies only the stage chain breakdown. See [stage chain breakdown](#stage-chain-breakdown). The `trigger` and `reaction_kind` columns sit outside the tier as well and supply the retry trigger breakdown. See [retry trigger breakdown](#retry-trigger-breakdown). The run origin breakdown needs them and `first_after_hop`, which sits outside the tier too. See [run origin breakdown](#run-origin-breakdown). The stage funnels need every column named above and `agent_blocked`, which sits outside the tier as well. See [stage funnels](#stage-funnels).
 
 **`base`**: at least one group is missing. The report falls back to run counts, the outcome breakdown, the coding-agent breakdown, and durations. Turns, tokens, cost, the dispatch-rule breakdown, the prompt-template breakdown, the configured-model breakdown, the stage chain breakdown, the retry trigger breakdown, the run origin breakdown, the stage funnels, and the self-review section are all left out.
 
@@ -657,7 +657,7 @@ On a `full` database written before Sortie recorded the cost of each run, the re
 warning: this database was written before sortie recorded the cost of each run, so the report leaves out cost. Run sortie once with this workflow to add it.
 ```
 
-The start that adds the cost columns also prices the runs recorded before them, once, under the rates in force at that start. When the database also predates the column of a breakdown, such as the [configured model](#configured-model-breakdown), the report carries that breakdown's warning instead, ending with `The report also leaves out cost until then.`
+The start that adds the cost columns also prices the runs recorded before them, once, under the rates in force at that start. When the database also predates the column of a breakdown, such as the [model](#model-breakdown), the report carries that breakdown's warning instead, ending with `The report also leaves out cost until then.`
 
 When `run_history` is absent altogether, or missing any of `status`, `agent_adapter`, `started_at`, or `completed_at`, the file is not a Sortie database and the command exits `1`:
 
@@ -665,18 +665,20 @@ When `run_history` is absent altogether, or missing any of `status`, `agent_adap
 sortie stats: run_history table not found or missing base columns
 ```
 
-#### Configured model breakdown
+#### Model breakdown
 
-The `by configured model` table (`by_model` in JSON) groups runs by the `model` their resolved settings carried when they started, the value a [dispatch rule](/reference/workflow-config/#dispatch) can set per issue. It is not the model the runtime reported running; the two can differ, and [how the two differ](/reference/http-api/#configured-and-reported-model) is explained with the running session fields. `stats` groups by the configured value only.
+The `by model` table (`by_model` in JSON) groups runs by the model they spent tokens on.
 
-- A run that configured no model, so the runtime used its own default, is grouped under `<none>`. So is every run recorded before Sortie stored the configured model, and every `ci_failed` run, which records no model.
-- Each run's cost is the one recorded when it finished, as in every other breakdown. Sortie prices a run per model, so two models of one agent kind are priced at their own rates, unless a [`token_rates` kind entry](/reference/workflow-config/#kind-entries) prices that kind alike. A run is grouped under its one configured model whatever models it spent tokens on.
+- A run that spent tokens on more than one model counts once in the group of every model it spent tokens on. The group carries that model's tokens and recorded cost, and the run's outcome, turns, and duration, so a group's success rate, mean turns, duration, and cost per succeeded run cover the runs that used the model. The `runs` of the groups can add up to more than `summary.runs`, and their `share` values to more than `1`. No run-level token or cost total reaches a group, and a group takes each model's recorded cost as it is, without reconciling it with the run's cost.
+- A run that recorded no spend by model counts once, under the model the runtime reported running, else the `model` its resolved settings carried (the value a [dispatch rule](/reference/workflow-config/#dispatch) can set per issue), else `<none>`. This covers a run whose agent reported its spend only as a total, a run recorded before Sortie stored spend by model, and every `ci_failed` run. On a database that records no cost, every run counts this way. [How the reported and the configured model differ](/reference/http-api/#configured-and-reported-model) is explained with the running session fields.
+- Each model's cost is the one recorded when the run finished, as in every other breakdown. Sortie prices a run per model, so two models of one agent kind are priced at their own rates, unless a [`token_rates` kind entry](/reference/workflow-config/#kind-entries) prices that kind alike.
+- `tokens_unmeasured_runs`, `cost_unpriced_runs`, and `cost_partial_runs` count a model's share of a run rather than the whole run. A share counts as partial when its recorded cost status is `partial`, or when it is `estimated` and the run recorded turns no token figure covered, because the spend those turns leave out belongs to no model. Such a run counts as partial in every group that carries a recorded cost for it.
 - The table follows the prompt-template table in text output.
 
-On a `full` database written before Sortie recorded the configured model, the report carries no breakdown: `by_model` is `[]`, never `null`, the text report omits the table, and `warnings` carries this message. The exit code is `0`.
+On a `full` database written before Sortie recorded the model of each run, the report carries no breakdown: `by_model` is `[]`, never `null`, the text report omits the table, and `warnings` carries this message. The exit code is `0`.
 
 ```
-warning: this database was written before sortie recorded the model each run was configured with, so the report leaves out the breakdown by configured model. Run sortie once with this workflow to add it.
+warning: this database was written before sortie recorded the model of each run, so the report leaves out the breakdown by model. Run sortie once with this workflow to add it.
 ```
 
 Running the orchestrator once applies the migration. Runs recorded before it stay under `<none>`.
@@ -710,7 +712,7 @@ by stage chain
   M2TQ6VXH4RKZ7BNWD3JCLP5YSA  owner/repo#61  specify               failed    1     1          100.0%        3m 50s  3m 50s  3m 50s  2.0    43,000        $0.21
 ```
 
-The table follows the configured-model table and is omitted when no chain qualifies. When more than 20 chains qualify, a footnote names the total, and `--format json` carries every entry:
+The table follows the model table and is omitted when no chain qualifies. When more than 20 chains qualify, a footnote names the total, and `--format json` carries every entry:
 
 ```
 note: the breakdown by stage chain shows the 20 stage chains with the most runs; --format json lists all 37.
@@ -722,7 +724,7 @@ On a `full` database written before Sortie recorded stage chains, `by_chain` is 
 warning: this database was written before sortie recorded stage chains, so the report leaves out the breakdown by stage chain. Run sortie once with this workflow to add it.
 ```
 
-When the database also predates the configured-model columns, only the configured-model warning appears, and running the orchestrator once adds both breakdowns. On a `base` database stage chains are named in the degraded-schema warning instead, and `by_chain` is `[]` as well.
+When the database also predates the configured-model columns, only the model warning appears, and running the orchestrator once adds both breakdowns. On a `base` database stage chains are named in the degraded-schema warning instead, and `by_chain` is `[]` as well.
 
 #### Stage funnels
 
@@ -839,7 +841,7 @@ On a `full` database written before Sortie recorded what started each run, `by_t
 warning: this database was written before sortie recorded what started each run, so the report leaves out the breakdowns by retry trigger and by run origin. Run sortie once with this workflow to add them.
 ```
 
-The report carries at most one such breakdown warning. When the database predates several of the breakdown columns, the configured-model warning takes precedence over the stage chain one, that over this one, this one over the [run origin](#run-origin-breakdown) one, and that one over the [stage funnel](#stage-funnels) one; running the orchestrator once adds every breakdown. On a `base` database what started each run is named in the degraded-schema warning instead, and `by_trigger` is `[]` as well.
+The report carries at most one such breakdown warning. When the database predates several of the breakdown columns, the model warning takes precedence over the stage chain one, that over this one, this one over the [run origin](#run-origin-breakdown) one, and that one over the [stage funnel](#stage-funnels) one; running the orchestrator once adds every breakdown. On a `base` database what started each run is named in the degraded-schema warning instead, and `by_trigger` is `[]` as well.
 
 #### Run origin breakdown
 
@@ -870,9 +872,33 @@ warning: this database was written before sortie recorded the first run after ea
 
 This warning comes second to last in the precedence of breakdown warnings, ahead of the [stage funnel](#stage-funnels) one. A database that also predates the trigger columns carries the [retry trigger](#retry-trigger-breakdown) warning instead, which names both breakdowns. On a `base` database the first run after each stage hop is named in the degraded-schema warning, and `by_origin` is `[]` as well.
 
+#### Spend by period
+
+The `spend` member of the JSON report sums the recorded cost of the runs in the range per UTC calendar period. The dashboard draws it as the spend chart in [Analytics](/reference/dashboard/#analytics). The text report has no such table. `spend` is `null` on the `base` tier and on a database that records no cost.
+
+| Field | Type | Description |
+|---|---|---|
+| `period` | string | `day` when the range has a `since` that lies no more than 2160 hours before the end of the range, which is `until` or else `generated_at`. `month` otherwise, so a range of 90 days or less gets days and an open `since` gets months. |
+| `buckets` | array of object | One element per period, ascending by `start`. Never `null`; `[]` when no run in the range has a parseable completion time. |
+
+The buckets list every period from the one that holds `since` (the one that holds the earliest run when `since` is open) through the later of the one that holds the end of the range and the one that holds the latest run. A period without runs appears with `runs` `0` and `cost_usd` `null`. A run counts in the bucket whose period holds its completion time, so the buckets partition the runs they count. A run whose completion time is not an RFC 3339 timestamp counts in the summary and the breakdowns and in no bucket. The first bucket of a range whose `since` lies inside a period holds only the runs at or after `since`.
+
+Each element of `buckets`:
+
+| Field | Type | Description |
+|---|---|---|
+| `start` | string | The first instant of the period, RFC 3339 in UTC. |
+| `runs` | integer | Runs that completed in the period. |
+| `cost_usd` | number or null | The sum of the recorded costs of the period's priced runs, rounded to nine decimals. `null` when none is priced. It is the whole spend only while `cost_unpriced_runs`, `cost_partial_runs`, and `tokens_unmeasured_runs` are all `0`. |
+| `tokens_unmeasured_runs` | integer | The period's runs counted as in `summary.tokens_unmeasured_runs`. |
+| `cost_unpriced_runs` | integer | The period's runs counted as in `summary.cost_unpriced_runs`. |
+| `cost_partial_runs` | integer | The period's runs counted as in `summary.cost_partial_runs`. |
+
+The days and months are the periods that `agent.max_daily_cost_usd` and `agent.max_monthly_cost_usd` count, so a bucket compares directly with those ceilings.
+
 #### Output formats
 
-Both formats carry the same figures. Breakdown rows are sorted by descending run count, with ties broken by ascending name. A run that recorded no dispatch rule, prompt template, or configured model appears under the sentinel name `<none>`, which also covers an empty agent adapter. Rounding is fixed so repeated runs over the same data produce identical output: rates and shares to four decimals, cost and mean turns to two, mean duration to one.
+Both formats carry the same figures. Breakdown rows are sorted by descending run count, with ties broken by ascending name. A run that recorded no dispatch rule, prompt template, or model appears under the sentinel name `<none>`, which also covers an empty agent adapter. Rounding is fixed so repeated runs over the same data produce identical output: rates and shares to four decimals, mean turns to two, mean duration to one, and costs to cents in text and to nine decimals in JSON.
 
 The summary's duration and mean-turn figures cover **succeeded runs only**, so they describe the work that landed rather than the volume attempted. Token sums and cost figures cover **measured runs only**: a run whose coding agent reported no token usage records that fact and is left out of those figures instead of counting as a run that spent nothing.
 
@@ -915,7 +941,7 @@ by prompt template
   <none>             5     3          60.0%         6m 0s   9m 40s  6m 4s   4.8    426,100       $3.95
   prompts/bugfix.md  4     4          100.0%        2m 30s  2m 49s  2m 35s  2.5    172,800       $2.54
 
-by configured model
+by model
   MODEL              RUNS  SUCCEEDED  SUCCESS RATE  P50     P95     MEAN    TURNS  TOTAL TOKENS  COST
   claude-sonnet-4-5  4     4          100.0%        2m 30s  2m 49s  2m 35s  2.5    172,800       $2.54
   claude-opus-4-5    2     1          50.0%         7m 12s  9m 40s  8m 26s  5.0    215,600       $3.18
@@ -926,7 +952,7 @@ self review
   runs reviewed 6   iterate 1   pass 5   hit iteration cap 1   mean iterations 1.50
 ```
 
-The outcome table shows `SHARE`, a group's runs over total runs. Every other breakdown shows `SUCCEEDED` and `SUCCESS RATE`, a group's succeeded runs over its own. On the `base` tier the `TURNS`, `TOTAL TOKENS`, and `COST` columns are absent entirely, and the dispatch-rule, prompt-template, configured-model, stage-chain, retry-trigger, run-origin, and self-review sections do not appear.
+The outcome table shows `SHARE`, a group's runs over total runs. Every other breakdown shows `SUCCEEDED` and `SUCCESS RATE`, a group's succeeded runs over its own. On the `base` tier the `TURNS`, `TOTAL TOKENS`, and `COST` columns are absent entirely, and the dispatch-rule, prompt-template, model, stage-chain, retry-trigger, run-origin, and self-review sections do not appear.
 
 The `covering:` line is prose rather than a sentinel. It reads `every run on record` when neither bound was given, `<since> onward` with only `--since`, `the start of the record until <until>` with only `--until`, and `<since> until <until>` with both.
 
@@ -971,11 +997,12 @@ Envelope:
 | `schema_tier` | string | `"full"` or `"base"`. See [schema tiers](#schema-tiers). |
 | `warnings` | array of string | Advisory messages: a degraded schema, a missing breakdown, or a missing recorded cost. `token_rates` advisories are not listed; `sortie validate` reports them. Empty when there is nothing to report, never `null`. The `warning: ` prefix belongs to text rendering and is not part of these strings. |
 | `summary` | object | Report-wide figures. Always present. |
+| `spend` | object or null | The recorded cost per UTC day or month. `null` on the `base` tier and on a database that records no cost. See [spend by period](#spend-by-period). |
 | `by_status` | array of object | Breakdown by outcome. |
 | `by_adapter` | array of object | Breakdown by coding agent. |
 | `by_rule` | array of object | Breakdown by dispatch rule. Empty array on the `base` tier. |
 | `by_template` | array of object | Breakdown by prompt template. Empty array on the `base` tier. |
-| `by_model` | array of object | Breakdown by configured model. Empty array on the `base` tier and on a `full` database that predates the configured-model columns. See [configured model breakdown](#configured-model-breakdown). |
+| `by_model` | array of object | Breakdown by model. Empty array on the `base` tier and on a `full` database that predates the configured-model columns. See [model breakdown](#model-breakdown). |
 | `by_chain` | array of object | Breakdown by stage chain, listing only chains where a hop was due or made. Empty array on the `base` tier and on a `full` database that predates the configured-model or stage-chain columns. See [stage chain breakdown](#stage-chain-breakdown). |
 | `chain_funnels` | array of object | One funnel per stage chain definition of the workflow. Empty array when the workflow defines no stage chain, on the `base` tier, and on a `full` database that predates the configured-model, stage-chain, trigger, `first_after_hop`, or `agent_blocked` columns. See [stage funnels](#stage-funnels). |
 | `by_trigger` | array of object | Breakdown by retry trigger. Empty array on the `base` tier and on a `full` database that predates the configured-model, stage-chain, or trigger columns. See [retry trigger breakdown](#retry-trigger-breakdown). |
@@ -994,7 +1021,7 @@ Envelope:
 | `mean_turns_succeeded` | number or null | Mean turns completed over succeeded runs. `null` on the `base` tier and when no run succeeded, never `0` in either case. |
 | `tokens` | object or null | Token sums over the measured runs in the range. `null` on the `base` tier and when no run in the range was measured. |
 | `cost_usd` | number or null | Estimated cost over every priced run in the range, not rounded to cents, so a total under one cent never reads as zero. A run recorded `partial` counts at its lower bound, so the figure is the whole spend only while `cost_unpriced_runs`, `cost_partial_runs`, and `tokens_unmeasured_runs` are all `0`. `null` on the `base` tier, on a database that records no cost, and when no run that spent tokens was priced, never `0` in those cases. |
-| `cost_per_succeeded_run_usd` | number or null | `cost_usd` divided by the succeeded runs that were measured. `null` whenever `cost_usd` is `null`, and when no measured run succeeded. |
+| `cost_per_succeeded_run_usd` | number or null | `cost_usd` divided by the succeeded runs that were measured, not rounded to cents. `null` whenever `cost_usd` is `null`, and when no measured run succeeded. |
 | `zero_duration_runs` | integer | Runs that took no measurable time. A run that a CI result closed out carries the same start and finish time. |
 | `duration_excluded_runs` | integer | Runs left out of every duration figure because their stored timestamps could not be parsed or ran backwards. |
 | `cost_unpriced_runs` | integer | Measured runs that spent tokens and were recorded without a cost, left out of the cost figures: Sortie had no price for the models they used when they finished, they reported their spend only as a total, or they were recorded before Sortie stored costs and no start has priced them yet. It counts these runs whatever the workflow sets now. `0` on a database that records no cost. A `ci_failed` run records a CI verdict and no coding agent, so it is never counted here. |
@@ -1005,7 +1032,7 @@ Each element of `by_status`, `by_adapter`, `by_rule`, `by_template`, `by_model`,
 
 | Field | Type | Description |
 |---|---|---|
-| `name` | string | The group: an outcome, an agent adapter kind, a dispatch rule name, a template identifier, a configured model, a chain identifier, a retry trigger, or a run origin. A run that recorded none carries the sentinel `<none>`, except in `by_chain`, which leaves such a run out. In `by_trigger`, `<none>` is an empty recorded trigger and `<unknown>` a trigger never recorded. In `by_origin`, `<none>` is a recorded CI result and `<unknown>` a run whose trigger was never recorded. Runs keep the agent kind they were recorded under, so a removed kind stays a group of its own next to the kind that replaced it. |
+| `name` | string | The group: an outcome, an agent adapter kind, a dispatch rule name, a template identifier, a model, a chain identifier, a retry trigger, or a run origin. A run that recorded none carries the sentinel `<none>`, except in `by_chain`, which leaves such a run out. In `by_trigger`, `<none>` is an empty recorded trigger and `<unknown>` a trigger never recorded. In `by_origin`, `<none>` is a recorded CI result and `<unknown>` a run whose trigger was never recorded. Runs keep the agent kind they were recorded under, so a removed kind stays a group of its own next to the kind that replaced it. |
 | `runs` | integer | Runs in this group. |
 | `succeeded` | integer | Succeeded runs in this group. In `by_status` this is structural rather than informative: the `succeeded` row necessarily reports it equal to `runs`. |
 | `success_rate` | number | `succeeded` over this group's `runs`. |
@@ -1014,7 +1041,7 @@ Each element of `by_status`, `by_adapter`, `by_rule`, `by_template`, `by_model`,
 | `mean_turns` | number or null | Mean turns completed over this group's runs. `null` on the `base` tier. |
 | `tokens` | object or null | Token sums over this group's measured runs. `null` on the `base` tier and when the group holds no measured run. |
 | `cost_usd` | number or null | Estimated cost over this group's priced runs, not rounded to cents and counting a `partial` run at its lower bound. `null` on the `base` tier and when the group holds no priced run. |
-| `cost_per_succeeded_run_usd` | number or null | `cost_usd` divided by this group's succeeded runs that were measured. `null` whenever `cost_usd` is `null`, and when the group has no measured succeeded run. |
+| `cost_per_succeeded_run_usd` | number or null | `cost_usd` divided by this group's succeeded runs that were measured, not rounded to cents. `null` whenever `cost_usd` is `null`, and when the group has no measured succeeded run. |
 | `tokens_unmeasured_runs` | integer | This group's runs left out of the token and cost figures because the coding agent behind them reported no token usage. `0` on the `base` tier. |
 | `cost_unpriced_runs` | integer | This group's runs counted as in `summary.cost_unpriced_runs`. `0` on the `base` tier and on a database that records no cost. A `ci_failed` run is never counted. |
 | `cost_partial_runs` | integer | This group's runs counted as in `summary.cost_partial_runs`. `0` on the `base` tier and on a database that records no cost. A `ci_failed` run is never counted. |

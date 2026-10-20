@@ -1487,7 +1487,7 @@ The columns can also be read from the database directly:
 sqlite3 .sortie.db "SELECT identifier, configured_model, configured_effort, reported_model FROM run_history ORDER BY started_at DESC LIMIT 5"
 ```
 
-An unset value is an empty string, not `NULL`. All three columns are empty on runs recorded before Sortie stored them and on `ci_failed` rows. [`sortie stats`](/reference/cli/#configured-model-breakdown) aggregates the configured model; it does not read `reported_model` or `configured_effort`.
+An unset value is an empty string, not `NULL`. All three columns are empty on runs recorded before Sortie stored them and on `ci_failed` rows. [`sortie stats`](/reference/cli/#model-breakdown) groups runs by the model they spent tokens on and, for a run with no spend by model, by the reported model, else the configured one; it does not read `configured_effort`.
 
 ### Issue outcome
 
@@ -1752,7 +1752,7 @@ If the events of a finished run cannot be written, its run history record is sto
 
 ## GET /api/v1/stats: Run statistics
 
-Returns the report that [`sortie stats --format json`](/reference/cli/#stats) prints: run and issue counts, success rate, duration percentiles, token sums, and estimated cost over the runs completed in a range, with breakdowns by outcome, coding agent, dispatch rule, prompt template, configured model, stage chain, retry trigger, and run origin, and a funnel for each stage chain. The [stage funnels](/reference/cli/#stage-funnels) hold the passes running, queued for a retry, or held by a budget at the time of the request. The route and the command share one aggregation, so for one database and absolute bounds the two bodies differ only in `generated_at`, apart from the dispatch-rule difference [described below](#pricing-and-reload).
+Returns the report that [`sortie stats --format json`](/reference/cli/#stats) prints: run and issue counts, success rate, duration percentiles, token sums, and estimated cost over the runs completed in a range, with that cost per UTC day or month and breakdowns by outcome, coding agent, dispatch rule, prompt template, model, stage chain, retry trigger, and run origin, and a funnel for each stage chain. The [stage funnels](/reference/cli/#stage-funnels) hold the passes running, queued for a retry, or held by a budget at the time of the request. The route and the command share one aggregation, so for one database and absolute bounds the two bodies differ only in `generated_at`, apart from the dispatch-rule difference [described below](#pricing-and-reload).
 
 ```sh
 curl 'http://localhost:7678/api/v1/stats?since=24h'
@@ -1781,7 +1781,7 @@ Sortie checks every parameter before it reads anything, so a malformed request n
 
 ### Response
 
-The body is compact JSON with the shape of the command's `--format json` output. [Output formats](/reference/cli/#output-formats) in the CLI reference defines every field, including `summary.issues`, `by_trigger`, and `by_origin`. The example is trimmed to the `by_status` and `by_trigger` breakdowns; the other breakdowns have the same shape.
+The body is compact JSON with the shape of the command's `--format json` output. [Output formats](/reference/cli/#output-formats) in the CLI reference defines every field, including `summary.issues`, `spend`, `by_model`, `by_trigger`, and `by_origin`. The example is trimmed to `spend` and the `by_status` and `by_trigger` breakdowns; the other breakdowns have the same shape.
 
 ```json
 {
@@ -1801,12 +1801,19 @@ The body is compact JSON with the shape of the command's `--format json` output.
     "mean_turns_succeeded": 4,
     "tokens": {"input": 3900000, "output": 760000, "total": 4660000, "cache_read": 50000, "cache_write": 10000},
     "cost_usd": 19.52,
-    "cost_per_succeeded_run_usd": 6.51,
+    "cost_per_succeeded_run_usd": 6.506666667,
     "zero_duration_runs": 1,
     "duration_excluded_runs": 1,
     "cost_unpriced_runs": 1,
-    "cost_partial_runs": 0,
+    "cost_partial_runs": 1,
     "tokens_unmeasured_runs": 1
+  },
+  "spend": {
+    "period": "day",
+    "buckets": [
+      {"start": "2026-02-23T00:00:00Z", "runs": 2, "cost_usd": 7.27, "tokens_unmeasured_runs": 1, "cost_unpriced_runs": 0, "cost_partial_runs": 0},
+      {"start": "2026-02-24T00:00:00Z", "runs": 4, "cost_usd": 12.25, "tokens_unmeasured_runs": 0, "cost_unpriced_runs": 1, "cost_partial_runs": 1}
+    ]
   },
   "by_status": [
     {
@@ -1819,7 +1826,7 @@ The body is compact JSON with the shape of the command's `--format json` output.
       "mean_turns": 4,
       "tokens": {"input": 3500000, "output": 700000, "total": 4200000, "cache_read": 50000, "cache_write": 10000},
       "cost_usd": 17.87,
-      "cost_per_succeeded_run_usd": 5.96,
+      "cost_per_succeeded_run_usd": 5.956666667,
       "tokens_unmeasured_runs": 0
     }
   ],
