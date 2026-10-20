@@ -993,11 +993,12 @@ Envelope:
 | `duration_seconds` | object | Duration figures over succeeded runs only. |
 | `mean_turns_succeeded` | number or null | Mean turns completed over succeeded runs. `null` on the `base` tier and when no run succeeded, never `0` in either case. |
 | `tokens` | object or null | Token sums over the measured runs in the range. `null` on the `base` tier and when no run in the range was measured. |
-| `cost_usd` | number or null | Estimated cost over every priced run in the range. `null` on the `base` tier, on a database that records no cost, and when no run that spent tokens was priced, never `0` in those cases. |
+| `cost_usd` | number or null | Estimated cost over every priced run in the range, not rounded to cents, so a total under one cent never reads as zero. A run recorded `partial` counts at its lower bound, so the figure is the whole spend only while `cost_unpriced_runs`, `cost_partial_runs`, and `tokens_unmeasured_runs` are all `0`. `null` on the `base` tier, on a database that records no cost, and when no run that spent tokens was priced, never `0` in those cases. |
 | `cost_per_succeeded_run_usd` | number or null | `cost_usd` divided by the succeeded runs that were measured. `null` whenever `cost_usd` is `null`, and when no measured run succeeded. |
 | `zero_duration_runs` | integer | Runs that took no measurable time. A run that a CI result closed out carries the same start and finish time. |
 | `duration_excluded_runs` | integer | Runs left out of every duration figure because their stored timestamps could not be parsed or ran backwards. |
 | `cost_unpriced_runs` | integer | Measured runs that spent tokens and were recorded without a cost, left out of the cost figures: Sortie had no price for the models they used when they finished, they reported their spend only as a total, or they were recorded before Sortie stored costs and no start has priced them yet. It counts these runs whatever the workflow sets now. `0` on a database that records no cost. A `ci_failed` run records a CI verdict and no coding agent, so it is never counted here. |
+| `cost_partial_runs` | integer | Measured runs recorded `partial`, whose recorded cost is a lower bound that `cost_usd` includes: a token class the run spent had no rate, or the run has unaccounted turns. A run counts in at most one of `cost_unpriced_runs` and `cost_partial_runs`. `0` on the `base` tier and on a database that records no cost. A `ci_failed` run is never counted. |
 | `tokens_unmeasured_runs` | integer | Runs left out of the token and cost figures because the coding agent behind them reported no token usage. `0` on the `base` tier, where the distinction was never recorded. |
 
 Each element of `by_status`, `by_adapter`, `by_rule`, `by_template`, `by_model`, `by_chain`, `by_trigger`, and `by_origin`:
@@ -1012,10 +1013,11 @@ Each element of `by_status`, `by_adapter`, `by_rule`, `by_template`, `by_model`,
 | `duration_seconds` | object | Duration figures over all of this group's runs, not only the succeeded ones. |
 | `mean_turns` | number or null | Mean turns completed over this group's runs. `null` on the `base` tier. |
 | `tokens` | object or null | Token sums over this group's measured runs. `null` on the `base` tier and when the group holds no measured run. |
-| `cost_usd` | number or null | Estimated cost over this group's priced runs. `null` on the `base` tier and when the group holds no priced run. |
+| `cost_usd` | number or null | Estimated cost over this group's priced runs, not rounded to cents and counting a `partial` run at its lower bound. `null` on the `base` tier and when the group holds no priced run. |
 | `cost_per_succeeded_run_usd` | number or null | `cost_usd` divided by this group's succeeded runs that were measured. `null` whenever `cost_usd` is `null`, and when the group has no measured succeeded run. |
 | `tokens_unmeasured_runs` | integer | This group's runs left out of the token and cost figures because the coding agent behind them reported no token usage. `0` on the `base` tier. |
 | `cost_unpriced_runs` | integer | This group's runs counted as in `summary.cost_unpriced_runs`. `0` on the `base` tier and on a database that records no cost. A `ci_failed` run is never counted. |
+| `cost_partial_runs` | integer | This group's runs counted as in `summary.cost_partial_runs`. `0` on the `base` tier and on a database that records no cost. A `ci_failed` run is never counted. |
 
 Each element of `by_chain` adds three fields after these:
 
@@ -1089,6 +1091,7 @@ A worked example, expanded for readability and trimmed to one row per breakdown.
     "zero_duration_runs": 0,
     "duration_excluded_runs": 0,
     "cost_unpriced_runs": 0,
+    "cost_partial_runs": 0,
     "tokens_unmeasured_runs": 0
   },
   "by_status": [
@@ -1104,7 +1107,8 @@ A worked example, expanded for readability and trimmed to one row per breakdown.
       "cost_usd": 4.59,
       "cost_per_succeeded_run_usd": 0.66,
       "tokens_unmeasured_runs": 0,
-      "cost_unpriced_runs": 0
+      "cost_unpriced_runs": 0,
+      "cost_partial_runs": 0
     }
   ],
   "by_adapter": [
@@ -1120,7 +1124,8 @@ A worked example, expanded for readability and trimmed to one row per breakdown.
       "cost_usd": 5.72,
       "cost_per_succeeded_run_usd": 1.14,
       "tokens_unmeasured_runs": 0,
-      "cost_unpriced_runs": 0
+      "cost_unpriced_runs": 0,
+      "cost_partial_runs": 0
     }
   ],
   "by_rule": [
@@ -1136,7 +1141,8 @@ A worked example, expanded for readability and trimmed to one row per breakdown.
       "cost_usd": 2.54,
       "cost_per_succeeded_run_usd": 0.64,
       "tokens_unmeasured_runs": 0,
-      "cost_unpriced_runs": 0
+      "cost_unpriced_runs": 0,
+      "cost_partial_runs": 0
     }
   ],
   "by_template": [
@@ -1152,7 +1158,8 @@ A worked example, expanded for readability and trimmed to one row per breakdown.
       "cost_usd": 2.54,
       "cost_per_succeeded_run_usd": 0.64,
       "tokens_unmeasured_runs": 0,
-      "cost_unpriced_runs": 0
+      "cost_unpriced_runs": 0,
+      "cost_partial_runs": 0
     }
   ],
   "by_model": [
@@ -1168,7 +1175,8 @@ A worked example, expanded for readability and trimmed to one row per breakdown.
       "cost_usd": 2.54,
       "cost_per_succeeded_run_usd": 0.64,
       "tokens_unmeasured_runs": 0,
-      "cost_unpriced_runs": 0
+      "cost_unpriced_runs": 0,
+      "cost_partial_runs": 0
     }
   ],
   "by_chain": [],

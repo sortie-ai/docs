@@ -1364,6 +1364,22 @@ Sortie checks every parameter before it reads anything. A parameter outside this
       "unaccounted_turns": 0,
       "estimated_cost_usd": 0.1923,
       "cost_status": "estimated",
+      "model_usage": [
+        {
+          "model": "claude-sonnet-4-20250514",
+          "tokens": {
+            "input_tokens": 52000,
+            "output_tokens": 9100,
+            "total_tokens": 61100,
+            "cache_read_tokens": 30000,
+            "cache_write_tokens": 4000
+          },
+          "uncached_tokens": 31100,
+          "estimated_cost_usd": 0.1923,
+          "cost_status": "estimated",
+          "unrated_classes": []
+        }
+      ],
       "chain_id": "3c8v5n2w7r1t4y6u9i0o8p2asd",
       "stage_previous": "specify",
       "stage_previous_outcome": "succeeded",
@@ -1428,6 +1444,7 @@ Runs are ordered by descending `run_id`, which is the order Sortie recorded them
 | `unaccounted_turns` | integer | Turns of the run that reached the model without a token figure proven to cover the whole turn: the agent ended the turn before reporting its final usage, the report could not be read, or the figure rests on an estimated starting point after a resume. A turn that ended normally is left out when a later turn of the same run and session reports the session's running total, which includes it, unless a turn between them was stopped or failed after producing output, or rests on an estimated starting point. When non-zero, the figures in `tokens` are lower bounds. |
 | `estimated_cost_usd` | number or `null` | The estimated USD cost recorded when the run finished, from `tokens` and the rates in force then for the run's models ([`token_rates`](/reference/workflow-config/#token_rates) entries over the [price table](/reference/workflow-config/#price_table)), unrounded. Never priced again, so a later edit of the rates does not change it. Non-`null` exactly when `cost_status` is `"estimated"` or `"partial"`. |
 | `cost_status` | string | The status recorded with the cost. `"unmeasured"` when `tokens_measured` is `false`. `"estimated"` when the run has no unaccounted turns and either spent no tokens or every token class it spent was priced. `"partial"` when the estimate is a lower bound: the run has unaccounted turns and was priced or spent no tokens, or a token class it spent had no rate. `"unpriced"` when the run spent tokens and no rate priced any of them when it finished, or the run reported its spend only as a total. |
+| `model_usage` | array | The run's spend split by model, one element per model the run spent tokens on, ordered by `model`. Always present, never `null`. `[]` when the run recorded no per-model spend: an unmeasured run, a run that spent nothing, and a run that reported only a total with no split by token class. See [`model_usage` elements](#model_usage-elements). |
 | `chain_id` | string | The stage chain the run belongs to. Omitted when empty. |
 | `stage_previous`, `stage_previous_outcome` | string | The rule whose hop led to the run, and the outcome of the run that made it. Omitted when empty. |
 | `stage_target`, `stage_result` | string | The rule the run's own hop decision targeted, and its result: `"advanced"`, `"partial"`, `"failed"`, or `"ceiling"`. Omitted when the run reached no decision. |
@@ -1440,6 +1457,19 @@ Runs are ordered by descending `run_id`, which is the order Sortie recorded them
 | `ssh_host` | string or `null` | The SSH worker the run executed on. `""` for a local run. |
 | `dispatch_id` | string or `null` | The run's dispatch ID, the `dispatch_id` its running row carried. Pass it to [`GET /api/v1/runs/{dispatch_id}/events`](#get-apiv1runsdispatch_idevents-run-events) to read the run's agent events. `""` on a recorded CI result, and `null` on a run recorded before Sortie stored dispatch IDs. A run with either has no agent events. |
 | `issue_outcome` | object or `null` | How the run's issue ended. The same object on every run of the issue. `null` when Sortie has not seen the issue end. See [Issue outcome](#issue-outcome). |
+
+#### `model_usage` elements
+
+Each element is one model's part of the run's spend. It carries no price source and no price table version.
+
+| Field | Type | Description |
+|---|---|---|
+| `model` | string | The model the tokens were spent on, as the runtime named it. `""` when it named none. Not masked. |
+| `tokens` | object | The five token members of a running row's `tokens`, for this model. No member is `null`, and `total_tokens` is `input_tokens` plus `output_tokens`. |
+| `uncached_tokens` | integer | `tokens.total_tokens` less `tokens.cache_read_tokens`, floored at zero. |
+| `estimated_cost_usd` | number or `null` | The USD cost recorded for this model's part, unrounded and never priced again. Non-`null` exactly when `cost_status` is `"estimated"` or `"partial"`. |
+| `cost_status` | string | `"estimated"`, `"partial"` when a token class the model spent has no rate, or `"unpriced"`. A part recorded without a price reads `"unpriced"` with a `null` cost. |
+| `unrated_classes` | array or `null` | The token classes whose missing rate left the part `"partial"` or `"unpriced"`, from `input`, `output`, `cache_read`, and `cache_write`, in that order. `[]` when the part names none. `null` when the part records no classes, because it has no recorded price or was priced before the classes were kept; `null` never means `[]`. |
 
 A `status` of `"ci_failed"` marks a recorded CI result rather than an agent session: it has no `agent_kind`, and each origin member and `dispatch_id` is `""`.
 
@@ -1775,6 +1805,7 @@ The body is compact JSON with the shape of the command's `--format json` output.
     "zero_duration_runs": 1,
     "duration_excluded_runs": 1,
     "cost_unpriced_runs": 1,
+    "cost_partial_runs": 0,
     "tokens_unmeasured_runs": 1
   },
   "by_status": [

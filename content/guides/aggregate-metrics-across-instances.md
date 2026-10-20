@@ -84,7 +84,7 @@ curl -sS 'http://localhost:7678/api/v1/stats?since=24h' \
       https://metrics.internal.example/sortie
 ```
 
-The server listens on `127.0.0.1` unless you set `--host`, so a collector on another machine needs an address it can reach. The body carries `workflow_path` and `db_path` and applies no masking, so expose the port only to collectors you trust. The route and the command both read the cost recorded with each run, so they report the same cost for the same range.
+The server listens on `127.0.0.1` unless you set `--host`, so a collector on another machine needs an address it can reach. The body carries `workflow_path` and `db_path` and applies no masking, so expose the port only to collectors you trust. The route and the command both read the cost recorded with each run, so they report the same cost for the same range. Cost figures are not rounded to cents.
 
 A few fields in the envelope matter to whatever receives it:
 
@@ -92,11 +92,11 @@ A few fields in the envelope matter to whatever receives it:
 |---|---|
 | `schema_tier` | `"full"` or `"base"`. On `"base"`, token and cost figures are `null` because the database is missing at least one of the column groups the full report needs, not because the runs cost nothing. Check this before reading a null as a zero. |
 | `summary.tokens_unmeasured_runs` | How many runs in range reported no token usage at all, so the token and cost figures exclude them rather than counting them as zero. A `"full"` report can still carry a null `tokens` when every run in range is unmeasured, which is why the tier alone does not tell a missing figure from an unmeasured one. Each breakdown row carries its own count under the same name. |
-| `warnings` | Non-empty when the report is degraded, for example by a partially migrated database. Tells a clean aggregate from a degraded one. A run that spent tokens and was recorded without a cost, because no rate priced its models when it finished, is counted in `summary.cost_unpriced_runs`, and in the `cost_unpriced_runs` of each breakdown row that holds it. |
+| `warnings` | Non-empty when the report is degraded, for example by a partially migrated database. Tells a clean aggregate from a degraded one. A run that spent tokens and was recorded without a cost, because no rate priced its models when it finished, is counted in `summary.cost_unpriced_runs`, and in the `cost_unpriced_runs` of each breakdown row that holds it. A run whose recorded cost is a lower bound, either because a token class it spent had no rate or because the usage of one of its turns was not fully reported, is included in `cost_usd` at that bound and counted in `summary.cost_partial_runs` and in the `cost_partial_runs` of each breakdown row. `cost_usd` is the whole spend only while both counts and `tokens_unmeasured_runs` are `0`. |
 | `workflow_path` | The workflow file this instance loaded when it produced the report. A local filesystem path, useful for identifying the source inside your own network. |
 | `db_path` | The SQLite database the figures came from. The same local-path caveat as `workflow_path` applies once a document leaves the host it was generated on. |
 
-Those five are what a receiver acts on. For the rest of the envelope, field by field, plus the flags, the range-bound grammar, and what puts a report on the `base` tier, see the [`sortie stats` CLI reference](/reference/cli/#stats).
+These are the fields a receiver acts on. For the rest of the envelope, field by field, plus the flags, the range-bound grammar, and what puts a report on the `base` tier, see the [`sortie stats` CLI reference](/reference/cli/#stats).
 
 This is the only figures document Sortie produces. Whatever emits it (this pipe today, or a built-in export feature later) carries exactly these figures and nothing divergent: the same population, the same rounding, the same meaning for a null. That is a recorded project constraint, not just today's implementation detail, so anything you build against this envelope keeps working if Sortie ever ships an exporter of its own.
 

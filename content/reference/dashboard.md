@@ -130,7 +130,7 @@ A chip shows only while it has issues, and the whole row of chips shows only whi
 
 Each row shows the issue title, a second line with the key, the rule (or the stage and its place in the chain, such as "implement, 2 of 3"), and the agent kind, then Sortie's sentence about the issue, and a time. The time counts down to the due time for a retry and counts up from the start of the current state for every other row. A running issue whose agent has sent no event for longer than usual carries a stall marker. A held issue whose item was acknowledged reads "Acknowledged at" with the time. A click opens the peek.
 
-**Ended today** lists the issues that ended today and that Sortie no longer holds, newest ending first, each with its outcome, such as "Reached done", "Handed off to Review", or "Merged #1331", and the time. Beside the heading a tally line lists, for example, 2 issues ended, 23 runs finished, 7 succeeded, 16 failed, and 48.03M tokens with "(6 runs not measured)", plus stopped and cancelled counts when there are any and an estimated cost when a rate source is available. A **History** link follows. The tally reads "No run finished today." when none did, and it is absent before the first run and while run history is unavailable ("Run history is not available.").
+**Ended today** lists the issues that ended today and that Sortie no longer holds, newest ending first, each with its outcome, such as "Reached done", "Handed off to Review", or "Merged #1331", and the time. Beside the heading a tally line lists, for example, 2 issues ended, 23 runs finished, 7 succeeded, 16 failed, and 48.03M tokens with "(6 runs not measured)", plus stopped and cancelled counts when there are any and an estimated cost when a rate source is available. The cost reads "at least" before the amount while it leaves out spend, and hovering it shows the exact amount. A **History** link follows. The tally reads "No run finished today." when none did, and it is absent before the first run and while run history is unavailable ("Run history is not available.").
 
 ## Pipeline
 
@@ -205,7 +205,7 @@ The margin holds these panels, each only when it applies.
 | **Retry N** | While the issue waits for a retry: when it is **Due**, what it was **Started by**, the **Error**, and **Retry now**. |
 | **What happens next** | The conditions and what Sortie does under each. |
 | **Pull request #N** | The repository, branch, and head commit, then one line per watched reaction with its state, the time of its next check, how many fixes it has used of its limit, and **Check now**. A reaction's state reads "fixing", "checks failing", "checks passing", "comments arriving", "comments to answer", "conflict", "waiting", or "escalated". |
-| **Budget** or **Budget and cost** | Meters for **Sessions** and **Tokens** against the issue's limits, "No token budget" when none is set, and, when a rate source is available, the **Estimated cost** with its share for pull request fixes and for stage runs or the rule. While `agent.max_cost_usd` is set and a rate source is available, a **Cost** meter against that limit stands in for the **Estimated cost** figure and reads "$12.40 of $25.00", with "at least" before the amount while the cost is a lower bound. |
+| **Budget** or **Budget and cost** | Meters for **Sessions** and **Tokens** against the issue's limits, "No token budget" when none is set, and, when a rate source is available, the **Estimated cost** with its share for pull request fixes and for stage runs or the rule. A share reads "unpriced" when its runs were measured but no rate priced them, and "at least" the priced amount when other runs in it were priced; it reads "not measured" only when no run in it was measured. While `agent.max_cost_usd` is set and a rate source is available, a **Cost** meter against that limit stands in for the **Estimated cost** figure and reads "$12.40 of $25.00", with "at least" before the amount while the cost is a lower bound. |
 | **Route** or **Agent** | **Entry rule**, **Stage** (with its place in the chain), **Agent** (the agent kind), and **Model**, which reads "agent default" when no model is named. |
 | **Issue** | **Status**, **Type**, and **Labels**. |
 
@@ -227,6 +227,7 @@ A live session follows its newest event until the reader scrolls up. Then a **Ju
 |---|---|
 | **Tokens per turn** | A bar for each completed turn whose tokens are known, and for a live session whose agent reports usage as it happens, a bar for the turn in progress. A turn that ended without usage is listed in **Events** but has no bar. The panel appears once two completed turns have bars. |
 | **Usage** | **Input**, **Output**, **Cache read**, **Cache write**, **Tokens** ("so far" while live), and **Est. cost**. A session whose agent reported no usage shows **Tokens** "not measured" alone. |
+| **Cost per model** | One block for each model a finished session spent tokens on: the model name ("Model not reported" when the agent named none), its **Tokens** without cache reads, and its **Est. cost**. A model with a token class that had no rate adds **No rate for**, which lists the classes: "input", "output", "cache read", or "cache write". Absent on a live session and on a finished one that recorded no spend by model. |
 | **Session** | **Configured** model ("agent default" when none), **Reported model**, **Host** for SSH, **Workspace** while live, **Session ID**, **Workflow**, and **Stall timeout** while live. |
 | **Sessions** | Every session of the issue, newest first, each linking to its view, when the issue has more than one. **Show older** loads earlier ones. |
 
@@ -278,7 +279,7 @@ The summary opens with the success rate, large, and "N of M runs succeeded" unde
 | **Turns per succeeded run** | The mean. Shown once a run succeeded. |
 | **Tokens** | Tokens without cache reads, with "N runs not measured" or "every run measured". |
 | **Cache reads** | Cache read tokens, when there are any. |
-| **Estimated cost** | The estimated cost with the runs it leaves out. Shown when a rate source is available. |
+| **Estimated cost** | The estimated cost. It reads "at least" before the amount while runs are left out, and hovering it lists them. Shown when a rate source is available. |
 
 **Outcomes** is one bar that shows how the runs ended, with a legend and a count for each outcome that has runs: **Succeeded**, **Stopped for a person or budget**, **Cancelled**, and **Failed**. A tooltip gives a segment's count and share.
 
@@ -412,7 +413,7 @@ The dashboard shows only what the workflow configures. Every row below changes w
 
 Costs are estimates, built from the rates in force (`token_rates` entries over the price table), and the dashboard says so with the words "estimated", "est.", and "Estimated cost". A finished run keeps the cost recorded when it finished, whatever the rates say now. Token figures leave out cache reads, which the dashboard shows separately where it has them. `agent.max_tokens` leaves them out too, so the budget meter reads **Tokens** and counts the same figure. The **Cost** meter counts them, because the estimated cost prices them. Durations use at most two units ("1h 17m"), tokens read as "830K" or "48.03M", costs read with two decimals below $100 and as whole dollars from $100, and a share strictly between 0 and 100 percent never rounds to either end.
 
-A figure Sortie does not have is never written as zero.
+A figure Sortie does not have is never written as zero. A cost above zero and under one cent reads "under $0.01", so only a cost of zero reads "$0.00". Hovering any cost shows its exact amount, and the hover of a lower-bound cost says what it leaves out.
 
 | Wording | Means |
 |---|---|
@@ -421,8 +422,10 @@ A figure Sortie does not have is never written as zero.
 | "not recorded" | Sortie's run history does not hold the figure, or has no value for it, as for **Mean turns** of a group with no turn count. The tally reads "tokens not recorded". |
 | "not reported" | The agent named no model, as in **Reported model**. In the budget panel, "No token budget: tokens not reported." when no token budget is set, and "Tokens not reported." when one is. |
 | "N runs not measured" and "N runs unpriced" | A total that leaves those runs out. The tally reads "(N runs not measured)" and "(N runs unpriced)". |
+| "N runs with a partial cost" | In the hover of a report cost: the total counts those runs at a lower bound, because a token class they spent had no rate or a turn's token usage was not fully reported. |
 | "every run measured" | A token total with no run left out. |
-| "at least" | A held token or money budget, or a spend ceiling, whose figure is a lower bound because part of the issue's spend was not measured or not priced, as in "used at least 4.2M tokens of its budget" or "at least $12.40 of $25.00". |
+| "at least" | A token or cost that is a lower bound because part of the spend was not measured or not priced, or because a token class had no rate. It applies to a held token or money budget, a spend ceiling, and any cost figure: "used at least 4.2M tokens of its budget", "at least $12.40 of $25.00", "at least $4.20". The amount is cut, never rounded up, so the text never exceeds the spend it bounds: below $100 it keeps two decimals, from $100 it drops the cents, and under one cent it keeps one significant digit, as in "at least $0.004". |
+| "under $0.01" | A cost above zero that is smaller than one cent. |
 | "unknown" | A time, duration, or cost the dashboard cannot state. |
 
 ## Keyboard shortcuts and command palette
