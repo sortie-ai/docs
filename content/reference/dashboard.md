@@ -354,6 +354,8 @@ A failing row reads, for example, "3 ticks in a row failed since 14:02; last suc
 
 **Prices** answers: which rate prices each model, and where does it come from? It shows the rates in force, not a cost: the screen prices no run, and a finished run keeps the cost recorded when it finished. The panels state the price sources, and the **Models** table states the rates of each model. The screen reads [`GET /api/v1/prices`](/reference/http-api/#get-apiv1prices-prices-in-force).
 
+![Prices with the Prices in force, Token rates, Downloaded prices, and Built-in prices panels, and a Models table giving each model's agent, the source that prices it, its input, output, cache read, and cache write rates per million tokens, when it was last used, and its runs](/img/dashboard/prices.webp)
+
 | Panel | Contents |
 |---|---|
 | **Prices in force** | **Source**, the highest-precedence price table in force (**Custom prices**, **Downloaded prices**, or **Built-in prices**, and "None" while no table is in force), **Prices as of**, the date of that table's prices, and its **Age** in whole days. The screen applies no age limit and shows no warning. |
