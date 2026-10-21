@@ -188,7 +188,7 @@ Press **Ctrl+C** to stop Sortie.
 
 ### Verify the results
 
-Open the dashboard at `http://localhost:7678`. On [Overview](/reference/dashboard/#overview), **Ended today** names both issues with the outcome "Handed off to review". **History** in the side rail lists one finished mock run under each.
+Open the dashboard at `http://localhost:7678`. On [Overview](/reference/dashboard/#overview), **Ended today** names both issues with the ending "Review". **History** in the side rail lists one finished mock run under each.
 
 Now open the project in GitLab and look at the two issues. Each one carries the `review` label instead of `backlog`, and both are still open, because `review` is not a terminal state. Had the transition targeted `done` or `wontfix`, Sortie would have closed the issue in the same request that swapped the label. Notice a `review` label you never created in the project's label list: GitLab created it when Sortie first named it in a write.
 

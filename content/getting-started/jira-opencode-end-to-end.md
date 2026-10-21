@@ -307,7 +307,7 @@ If the status did not change and you see a handoff warning in the logs, the Jira
 
 ### Check the dashboard
 
-Open `http://127.0.0.1:7678/` in a browser. Sortie serves the dashboard there by default, with no configuration required. The address opens [Overview](/reference/dashboard/#overview), and its **Ended today** block lists `PROJ-55` as "Handed off to In Review". Select the row and choose **Open page** to read the run on the issue page, with its status, turns, and duration.
+Open `http://127.0.0.1:7678/` in a browser. Sortie serves the dashboard there by default, with no configuration required. The address opens [Overview](/reference/dashboard/#overview), and its **Ended today** block lists `PROJ-55` with the ending "In Review". Select the row and choose **Open page** to read the run on the issue page, with its status, turns, and duration.
 
 {{% /steps %}}
 

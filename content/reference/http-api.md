@@ -996,6 +996,7 @@ Pending reactions live in memory, except for a standing escalation, which Sortie
 | `failing`, `pending`, `passing` | `ci` | The check runs by outcome. |
 | `actionable_comments` | `review`, `bot-review` | The comments the check found actionable: not outdated and, for `review`, not authored by an account in `reactions.bot_review.bot_usernames`. A comment a run was already given counts until the forge reports it outdated. |
 | `new_comments` | `review`, `bot-review` | Those of `actionable_comments` the reaction acts on next: no run was given them, the reaction has not already reported them, and the running turn does not carry them. |
+| `handled` | `bot-review` | `true` while the newest [triage](/reference/reactions/#triage-command) answer Sortie recorded for the comment set the check found is `handled`, so Sortie starts no session for it. Omitted otherwise, never `false`. A comment set that differs from the answered one carries no `handled`. The answer survives a restart and returns with the first completed check. |
 | `mergeable` | `merge-conflict` | `false` when the provider reports merge conflicts, `true` when it reports none, `null` while the provider has not computed mergeability. A branch-protection block is not a conflict. |
 
 `wait` values, set by the pass that last returned the reaction to the pending set:

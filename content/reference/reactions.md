@@ -312,6 +312,8 @@ The command writes one JSON object to the path in `SORTIE_REACTION_RESULT`. The 
 
 A `handled` answer marks the subject dispatched in the same durable row the reaction's own deduplication uses, so the reaction takes no further action on it until the fingerprint moves. Within the episode, a pass that recomputes an already-answered fingerprint replays the stored answer instead of running the command again, and a replayed `escalate` posts no second escalation.
 
+Sortie also records every answer it applies, once per run, against the reaction kind and the subject the command answered. Sortie never replays a recorded answer; it only reads the record back to show what the newest answer for a subject was. A `bot_review` subject whose newest answer is `handled` reads as handled on the [issue page](/reference/dashboard/#issue-page), on [Pipeline](/reference/dashboard/#pipeline), and in the issue's status sentence, also after a restart, until the bot review's comments change. The `handled` member of the pending reaction's [`last_check`](/reference/http-api/#field-notes) serves the same fact.
+
 ### Fallback to `dispatch-agent`
 
 Exit status 0 together with a result file naming one of the three dispositions is the only path to an answer other than `dispatch-agent`. Every other outcome writes one warning record naming the reason and falls back to `dispatch-agent`:
@@ -333,7 +335,7 @@ Runs in flight are capped at `agent.max_concurrent_agents`, and never below `1`,
 
 A run is killed, with its whole process group, when `timeout_ms` elapses, when a pass computes a different fingerprint for the subject, when the episode the run belongs to ends, and when the process shuts down. In each of those cases a fresh run follows for the next subject Sortie sees, so the same command can be invoked more than once for work it has already done.
 
-Nothing about a triage run is written to the database: a run in flight at restart is lost, and the subject is triaged again from scratch.
+A run in flight at restart is lost, and the subject is triaged again from scratch. The answers Sortie applied before the restart stay recorded, but a recorded answer is never replayed: a subject whose deduplication mark never landed is triaged again.
 
 `review_comments` and `bot_review` test their continuation-turn cap before the command runs, so a subject arriving on a spent budget never invokes it: the reaction escalates when the subject carries a new comment (see [retry budgets](#retry-budgets)) and otherwise keeps polling. A set that holds no comment an earlier run was given never invokes it either, whatever the budget. `ci_failure` and `merge_conflicts` test their retry budget after, so the command runs first and the budget escalation follows only on a `dispatch-agent` answer.
 

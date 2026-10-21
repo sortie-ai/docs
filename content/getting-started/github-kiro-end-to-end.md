@@ -333,7 +333,7 @@ If the label did not change, check the Sortie logs for the transition error. The
 
 ### Check the dashboard
 
-The dashboard is served only while Sortie runs, so start it again with `sortie ./WORKFLOW.md` and open `http://127.0.0.1:7678/` in a browser, on Sortie's default port. The address opens [Overview](/reference/dashboard/#overview), where **Ended today** lists the issue you handed off as "Handed off to review". Its run on [History](/reference/dashboard/#history) shows the turn count, duration, and status, and the **Tokens** column reads "not measured" instead of a number. That is expected for Kiro CLI, as the budgeting note above explains, and it is never written as zero ([how the dashboard words figures](/reference/dashboard/#how-figures-are-written)).
+The dashboard is served only while Sortie runs, so start it again with `sortie ./WORKFLOW.md` and open `http://127.0.0.1:7678/` in a browser, on Sortie's default port. The address opens [Overview](/reference/dashboard/#overview), where **Ended today** lists the issue you handed off with the ending "Review". Its run on [History](/reference/dashboard/#history) shows the turn count, duration, and status, and the **Tokens** column reads "not measured" instead of a number. That is expected for Kiro CLI, as the budgeting note above explains, and it is never written as zero ([how the dashboard words figures](/reference/dashboard/#how-figures-are-written)).
 
 ### Troubleshooting
 

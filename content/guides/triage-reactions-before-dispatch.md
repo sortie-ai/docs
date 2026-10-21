@@ -134,6 +134,8 @@ Grep for `reaction triage` to see all of it at once:
 sortie ./WORKFLOW.md 2>&1 | grep "reaction triage"
 ```
 
+For `bot_review`, a `handled` answer also shows without the log. The **Pull request** panel of the issue's [page](/reference/dashboard/#issue-page) reads "handled" for the reaction, and `last_check` of its row in `GET /api/v1/state` carries `"handled": true` ([field reference](/reference/http-api/#field-notes)). Both survive a restart, and both go away when the bot review's comments change.
+
 ## Answer `handled` only when you mean it
 
 `handled` tells Sortie the subject is dealt with. Nothing re-checks that claim. The reaction marks the fingerprint dispatched and keeps watching, so until the fingerprint moves, neither an agent turn nor an escalation will happen for that subject.
@@ -167,7 +169,7 @@ Two properties make this safe, and both are worth copying into any script that w
 
 A command that exits on its own is cleaned up the same way: Sortie terminates anything it leaves running in its process group, because the same command runs again for the next subject, and a process an earlier run backgrounded and forgot would still be there to collide with it. See [why hooks do not keep processes alive](/concepts/isolation/#why-hooks-do-not-keep-processes-alive); the triage command follows the same rule.
 
-**It can be run twice for the same work.** A killed run, a run whose subject moved, and any run that was in flight when the process restarted are each followed by a fresh run. Triage state is never written to the database, so a restart re-triages the subject from scratch. A rebase that finds nothing to rebase is a no-op, which is what makes repetition harmless here.
+**It can be run twice for the same work.** A killed run, a run whose subject moved, and any run that was in flight when the process restarted are each followed by a fresh run. Sortie records each answer it applies but never replays one, so a restart re-triages a subject whose deduplication mark never landed from scratch. A rebase that finds nothing to rebase is a no-op, which is what makes repetition harmless here.
 
 > [!WARNING]
 > A `ci_failure` script that pushes needs a stopping condition of its own. That kind's watch window is measured from the last recorded head, and pushing records a new one, so a script that answers `handled` on head after head it pushed itself resets the clock every time: no agent turn, no escalation, and no expiry. Count your own attempts, in a file in the workspace or in a commit trailer, and answer `dispatch-agent` or `escalate` once you have had enough.

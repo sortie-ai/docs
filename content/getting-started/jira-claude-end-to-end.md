@@ -325,7 +325,7 @@ If the status did not change and you see a handoff warning in the logs, the Jira
 
 Open `http://127.0.0.1:7678/` in a browser. Sortie serves the dashboard there by default, with no configuration required, and the address opens [Overview](/reference/dashboard/#overview). You will see:
 
-- **Ended today** lists `PROJ-55` with the outcome "Handed off to In Review" and the time of the handoff.
+- **Ended today** lists `PROJ-55` with the ending "In Review" and the time of the handoff.
 - **History**, in the side rail, lists the finished run under `PROJ-55` with its status, turns, duration, and tokens. See [History](/reference/dashboard/#history).
 
 The dashboard updates by itself while Sortie works, which helps during longer runs when you want to monitor multiple agents. For this tutorial with a single issue, the logs tell the same story.
