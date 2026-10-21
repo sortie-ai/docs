@@ -61,9 +61,10 @@ The status card sits above the rail's controls and links to **Overview**. A dot 
 |---|---|
 | **Degraded** | A health check fails. A line under the headline names the failing checks, such as "Tracker poll failing". |
 | **N items need attention** | No check fails and at least one attention item is unacknowledged. |
-| **All clear** | Neither of the above. |
+| **N acknowledged** | No check fails, every attention item is acknowledged, and at least one still stands. The dot is muted. |
+| **All clear** | None of the above. |
 
-A second line under the headline says how many agents run: "No agents running", "2 of 4 agents running", or, when only one agent may run at a time, "Agent running" or "Agent idle". Acknowledging an item removes it from the count but does not clear **Degraded**, which follows the failing check itself.
+A second line under the headline says how many agents run: "No agents running", "2 of 4 agents running", or, when only one agent may run at a time, "Agent running" or "Agent idle". Acknowledging an item removes it from the count of items that need attention, but the card reads **N acknowledged** rather than **All clear** while the item stands. It does not clear **Degraded**, which follows the failing check itself.
 
 ### Health banner
 
@@ -75,11 +76,11 @@ On screens 768 px wide and up, the top bar shows the date and time, or on an iss
 
 ### Browser tab
 
-The tab title and icon carry the same condition as the status card. The title reads the condition ("All clear", "Needs attention", or "Degraded") followed by "Sortie", with the attention count in parentheses in front of it while any item needs attention. The icon is the Sortie mark, with a yellow dot for **Needs attention** and a red dot for **Degraded**. While live updates are paused, the title and icon stay as they were.
+The tab title and icon carry the same condition as the status card. The title reads the condition ("All clear", "Waiting on a person" for **N acknowledged**, "Needs attention", or "Degraded"), a hyphen, and "Sortie", with the attention count in parentheses in front of it while any item needs attention. The icon is the Sortie mark, with a yellow dot for **Needs attention** and a red dot for **Degraded**. **All clear** and **N acknowledged** carry no dot. While live updates are paused, the title and icon stay as they were.
 
 ### Narrow screens
 
-Below 768 px the rail gives way to a bar at the top of the page with the Sortie name, the condition ("All clear", "Needs attention" with its count, or "Degraded"), and a **Menu** button that opens the command palette, which reaches every screen. The top bar, with its clock and live indicator, is hidden, and so is the station header of **Pipeline**. The peek takes the full width. Keyboard shortcuts stay available, including `P` to pause.
+Below 768 px the rail gives way to a bar at the top of the page with the Sortie name, the condition ("All clear", "N acknowledged", "Needs attention" with its count, or "Degraded"), and a **Menu** button that opens the command palette, which reaches every screen. The top bar, with its clock and live indicator, is hidden, and so is the station header of **Pipeline**. The peek takes the full width. Keyboard shortcuts stay available, including `P` to pause.
 
 ### Themes
 
@@ -97,16 +98,17 @@ Before the first answer the page body reads "Loading". When Sortie does not answ
 
 | Headline | Shown when |
 |---|---|
-| "Sortie is picking up its first issues." | No run is on record, an agent runs, and nothing needs attention. |
+| "Sortie is picking up its first issues." | No run is on record, an agent runs, and nothing needs attention or waits on a person. |
 | "Sortie is degraded, and N more items need attention." or ", and nothing else needs attention." | A health check fails or a critical item is open. |
 | "N items need attention." | At least one item is unacknowledged. |
+| "N acknowledged items wait on a person." ("1 acknowledged item waits on a person.") | Every item is acknowledged and at least one still stands. |
 | "Nothing needs attention." | None of the above. |
 
-The lede under the headline says what else Sortie is doing, for example "Everything else is handled: 2 agents are running and 1 pull request is waiting on CI.". It counts running agents, pull requests waiting on reactions, scheduled retries, issues between stages, and acknowledged items that wait in **Active**, and reads "No agents are running." when there is nothing to count.
+The lede under the headline says what else Sortie is doing, for example "Everything else is handled: 2 agents are running and 1 pull request is waiting on CI.". It counts running agents, pull requests waiting on reactions, scheduled retries, issues between stages, and acknowledged items that wait in **Active**, and reads "No agents are running." when there is nothing to count. Under "N acknowledged items wait on a person." the lede leaves the acknowledged items out, because the headline already counts them.
 
 **Needs attention** lists the unacknowledged [attention items](#attention-items), critical first and then oldest. Each item shows its reason in bold, the issue title and key, why the item exists, what clears it, how long it has existed, and its buttons. A click outside the buttons opens the [peek](#issue-peek) of the item's issue.
 
-While nothing needs attention, a calm line and a row of tiles take the place of the list, unless a health check fails or the first run is still to come. The calm line reads "Nothing is parked, held, escalated or stopped, and Sortie is healthy." Each tile links to the screen that explains its figure.
+While nothing needs attention, a calm line and a row of tiles take the place of the list, unless a health check fails or the first run is still to come. The calm line reads "Nothing is parked, held, escalated or stopped, and Sortie is healthy." It shows only when no acknowledged item stands either; under "N acknowledged items wait on a person." the tiles show without it. Each tile links to the screen that explains its figure.
 
 | Tile | Shows | Opens |
 |---|---|---|
@@ -199,7 +201,7 @@ The peek is a drawer that shows one issue over **Overview** or **Pipeline** with
 | **What happens next** | What Sortie will do under each condition, such as "When retry 7 comes due". |
 | **So far** | The last runs of the issue with their outcome, and a closing line with the issue's current sentence, timed at the moment the issue ended once it has ended. |
 
-An issue Sortie no longer knows reads "Sortie no longer knows" followed by its key. Showing an issue, in the peek or on its page, marks its attention items and its ending as [read](#unread-markers).
+An issue Sortie no longer knows reads "Sortie no longer knows" followed by its key. Showing an issue, in the peek or on its page, marks its ending as [read](#unread-markers).
 
 ## Issue page
 
@@ -430,7 +432,7 @@ An item that has a tracker or pull request address gets a button that opens it i
 
 ### Unread markers
 
-The issue title of each attention item and each **Ended today** row that has not been read is bold. An attention item without an issue title carries no marker. An item counts as read once its issue is shown in the peek or on its page, once it is acknowledged, and once its button opens the issue or pull request. **Mark everything read** (`Shift` and `U`, or the palette) marks every item and every ending loaded for today. Read state belongs to the browser, so another browser starts unread. Bold never changes the attention count.
+The title of each **Ended today** row that has not been read is bold. Attention items carry no marker. An ending counts as read once its issue is shown in the peek or on its page. **Mark everything read** (`Shift` and `U`, or the palette) marks every ending loaded for today. Read state belongs to the browser, so another browser starts unread.
 
 ## Actions
 
