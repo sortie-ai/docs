@@ -105,7 +105,7 @@ Without stall detection, a hung agent (waiting for user input that will never co
 
 **Tracker state refresh.** Sortie fetches current tracker states for all running issues, then evaluates three possible outcomes:
 
-- Issue is still active: keep the agent running.
+- Issue is still active: keep the agent running, and take the state and labels the tick read as the run's current ones. Labels a person adds mid-run show up on the dashboard and in the state API within one tick. Stage-hop label removal still works from the labels the run was dispatched with, so a label added during the run is never stripped.
 - Issue moved to a terminal state (like "Done" or "Won't Fix"): stop the agent, clean up the workspace.
 - Issue moved to a non-active, non-terminal state (like "On Hold"): stop the agent, but keep the workspace intact for potential future work, indefinitely unless a retention window is configured to bound it.
 

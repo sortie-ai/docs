@@ -270,7 +270,7 @@ time=2026-03-26T14:35:21.480+00:00 level=INFO msg="handoff suppressed for termin
 
 This is the line to look for when an issue you closed mid-run did not get overwritten, and the line to look for when you expected a handoff and did not get one.
 
-`state` is the state Sortie saw, and `state_source` tells you where it saw it: `reconcile` from a reconciliation pass, `worker` from the worker's own per-turn refresh, `snapshot` from the state recorded at dispatch, or `verified` from an extra read Sortie takes before acting, either immediately before the write or immediately before recording a withheld handoff.
+`state` is the state Sortie saw, and `state_source` tells you where it saw it: `reconcile` from a reconciliation pass, `worker` from the worker's own per-turn refresh, `snapshot` from the state last recorded for the run (the dispatch read, or a later one), or `verified` from an extra read Sortie takes before acting, either immediately before the write or immediately before recording a withheld handoff.
 
 The claim is released and no retry is scheduled. Each of these also increments `sortie_handoff_transitions_total` with `result="skipped"`.
 

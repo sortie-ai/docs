@@ -754,9 +754,9 @@ curl http://localhost:7678/api/v1/state
 | `status_text`, `status_text_full` | The row's [status sentences](#status-sentences). Always present. |
 | `issue_title` | The tracker's title of the issue, as read when the session was dispatched and unchanged for the whole run. Omitted when the tracker returned none. |
 | `issue_url` | The tracker's web link to the issue, as read at dispatch. Omitted when the tracker returned none. |
-| `issue_labels` | The issue's labels as read at dispatch, lowercase and in the tracker's order. Always present; `[]` when the issue has none. |
+| `issue_labels` | The issue's labels as Sortie last read them for the session, from the same read as `state`, lowercase and in the tracker's order. Always present; `[]` when the issue has none. |
 | `issue_type` | The tracker's issue type, as read at dispatch. Omitted when the tracker returned none. |
-| `state` | The tracker state of the issue as Sortie last read it for the session. |
+| `state` | The tracker state of the issue as Sortie last read it for the session. The dispatch read sets `state` and `issue_labels`. Two later reads replace them: the one Sortie takes right after it moves the issue to `tracker.in_progress_state`, and the one on every poll tick. A read that would stop the run is never recorded here, and an older read never replaces a newer one. A failed read leaves both unchanged. |
 | `ssh_host` | The [SSH host](/reference/workflow-config/#worker) the session runs on. Omitted for a session that runs on the machine running Sortie. |
 | `workflow_file` | Base filename of the `WORKFLOW.md` in force at dispatch. Omitted when unset. |
 | `agent_kind` | The agent kind the session runs, from the configuration in force at dispatch. Omitted when unset. |
@@ -1035,7 +1035,7 @@ The hop is stored in the database with its type, labels, and state, so a restart
 | `status_text`, `status_text_full` | The row's [status sentences](#status-sentences). Always present. |
 | `issue_title`, `issue_url` | The tracker's title and web link, as read by the run that made the hop. Each omitted when empty. Masked like the running row's. |
 | `issue_type`, `state` | The issue's type and tracker state, as the run that made the hop read them. Each omitted when empty or unread. Masked like the running row's. |
-| `issue_labels` | The issue's labels as the hop leaves them: the hopping run's read without the stage labels the hop removed, and with `target_label` added. Omitted while the hop holds no read of the labels. Masked like the running row's. |
+| `issue_labels` | The issue's labels as the hop leaves them: the labels read when the hopping run was dispatched, without the stage labels the hop removed, and with `target_label` added. A label added to the issue during the run is not in this list. Omitted while the hop holds no read of the labels. Masked like the running row's. |
 | `source_rule` | The rule whose run made the hop. |
 | `target_rule` | The rule the hop targeted. |
 | `target_label` | The stage label the hop added to the issue. |
