@@ -110,8 +110,8 @@ While nothing needs attention, a calm line and a row of tiles take the place of 
 
 | Tile | Shows | Opens |
 |---|---|---|
-| **Agents running** | How many agents run, "of" the concurrency limit, and the longest running time | **Pipeline** |
-| **Ended today** | How many issues ended today, split into merged, handed off, and done | **History** |
+| **Agents running** | How many agents run, how many more could start under [`agent.max_concurrent_agents`](/reference/workflow-config/#agent) ("2 agents idle"), and the longest running time. With no agent idle the line reads "All agents are running", or "The agent is running" when the limit is 1. | **Pipeline** |
+| **Ended today** | How many issues ended today, split into merged, handed off, and done. A workflow with two or more [`tracker.terminal_states`](/reference/workflow-config/#tracker) counts the issues that reached a terminal state as closed instead of done. | **History** |
 | **Last one ended** | When the newest ending happened, how long ago, and the issue title | The issue page |
 | **Runs finished today** | How many runs finished today, split into succeeded and failed | **Analytics** |
 
@@ -165,7 +165,7 @@ The stations are fixed by the configuration, never by an issue, and they read le
 | **Agent** | Always. All agent work sits here, whichever stage the issue is on. |
 | The handoff state, named as the tracker names it | `tracker.handoff_state` is set. |
 | One station per configured pull request reaction: **CI fix**, **Review**, **Bot review**, **Conflicts**, **Merge**, **Merge completion**, **Label commands** | The matching [reaction](/reference/reactions/) is configured. |
-| **End**, or the name of the terminal state | Any reaction is configured. |
+| **End**, or the name of the terminal state | Any reaction is configured. The station takes the name of the terminal state when `tracker.terminal_states` lists exactly one and every merge Sortie records moves the issue into it, which holds without `auto_merge` or with `merge_completion`. In a workflow with two or more terminal states, the station header reads **End**, and the lane of an ended issue names the station after the state the issue reached, with a capital first letter, or **Merged**. On the issue page and the peek the same lane follows the same rule. |
 
 A bracket labeled "PR loop" spans the reaction stations. The station header above the lanes writes the count of lanes standing at each station under its name, in the attention color while one of those lanes needs attention. Each lane shows the issue title, key, route, and agent, its [status word](#status-word-and-mark), and the track with the issue's mark at its station and the time above it. On an issue in a stage chain, a stage meter under the **Agent** station shows the stage and its place in the chain, such as "implement 2 of 3", while the issue stands at the agent. Elsewhere the meter shows how many stages are done.
 
