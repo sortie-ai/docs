@@ -430,6 +430,7 @@ These variables are injected only during `after_run` hook invocations.
 
 | Variable | Type | Description |
 |---|---|---|
+| `SORTIE_RUN_OUTCOME` | string | How the attempt ended. Values: `"succeeded"`, `"stopped"` (the attempt ended waiting for a person, was stopped at a budget ceiling, or ended with the agent declaring it is `blocked`), `"failed"`, `"cancelled"` (for example, Sortie shut down during the attempt). Set on all `after_run` invocations, with or without `--once`, and it overrides a same-named variable of the parent environment. The value is decided before the handoff evidence check, so an attempt whose handoff the [evidence policy](/reference/workflow-config/#tracker) then withholds still reads `"succeeded"`. |
 | `SORTIE_SELF_REVIEW_STATUS` | string | Self-review outcome for the current run. Values: `"disabled"` (self-review not configured), `"passed"` (review passed), `"cap_reached"` (iteration cap reached without passing), `"error"` (review loop encountered a fatal error). Set on all `after_run` invocations. |
 | `SORTIE_SELF_REVIEW_SUMMARY_PATH` | string | Absolute path to `.sortie/review_summary.md` in the workspace. Contains a human-readable Markdown summary of the review outcome. **Absent when self-review did not run or the summary file was not written.** |
 

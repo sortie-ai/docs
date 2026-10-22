@@ -1,7 +1,7 @@
 ---
 title: CLI Reference
 linkTitle: "CLI Usage"
-description: "Complete reference for the sortie CLI: subcommands, flags, short aliases, dry-run mode, run statistics, MCP server, exit codes, signals, and logging format."
+description: "Complete reference for the sortie CLI: subcommands, flags, short aliases, dry-run and run-once modes, run statistics, MCP server, exit codes, signals, and logging format."
 author: Sortie AI
 date: 2026-04-26
 weight: 10
@@ -13,6 +13,7 @@ url: /reference/cli/
 sortie [flags] [workflow-path]
 sortie <command> [flags]
 sortie --dry-run [--log-level level] [workflow-path]
+sortie --once [flags] [workflow-path]
 sortie --log-format json [flags] [workflow-path]
 sortie --env-file path [flags] [workflow-path]
 sortie validate [--format text|json] [workflow-path]
@@ -22,7 +23,7 @@ sortie -h | --help
 sortie -V | --version
 ```
 
-Without a subcommand, Sortie runs as a long-lived process. It loads the [workflow file](/reference/workflow-config/), opens the SQLite database, validates configuration, and enters the poll-dispatch-reconcile loop. The process blocks until terminated by a signal.
+Without a subcommand, Sortie runs as a long-lived process. It loads the [workflow file](/reference/workflow-config/), opens the SQLite database, validates configuration, and enters the poll-dispatch-reconcile loop. The process blocks until terminated by a signal. With [`--once`](#--once) it exits on its own when the work one poll finds is finished.
 
 The `validate` subcommand checks the workflow file without starting the orchestrator. The `stats` subcommand summarizes past runs from the local database and exits, reading that database read-only rather than starting the orchestrator. The `mcp-server` subcommand starts an MCP stdio server for agent tool execution. See [Subcommands](#subcommands).
 
@@ -50,6 +51,7 @@ sortie: too many arguments
 | `-V`, `--version` | boolean | `false` | Print the version banner, then exit. |
 | `-dumpversion` | boolean | `false` | Print the bare version string, then exit. |
 | `--dry-run` | boolean | `false` | Run one poll cycle without spawning agents or writing to the database, then exit. |
+| `--once` | boolean | `false` | Poll once, run the agents for the issues found, wait until that work is finished, then exit. Cannot be combined with `--dry-run`. |
 | `--env-file` | string | _(empty)_ | Path to a `.env` file containing `SORTIE_*` overrides. See [environment variables reference](/reference/environment/#env-file-support). |
 | `--log-format` | string | `text` | Log output format. Accepted values: `text`, `json`. |
 | `--log-level` | string | `info` | Log verbosity. Accepted values: `debug`, `info`, `warn`, `error`. |
@@ -111,6 +113,64 @@ level=INFO msg="dry-run: complete" candidates_fetched=5 would_dispatch=3 ineligi
 |---|---|
 | `0` | Dry-run completed. Candidates fetched and evaluated. |
 | `1` | Startup failure (same as normal run) or tracker fetch failure. |
+
+### `--once`
+
+Polls the tracker once, dispatches the issues that poll returns, waits until that work is finished, and exits with a status that reports the result. Use it to run Sortie as a step of a pipeline or a script instead of as a service. Unlike [`--dry-run`](#--dry-run), it runs agents, opens the database, and writes state, and the HTTP server starts as in a normal run.
+
+```sh
+sortie --once WORKFLOW.md
+```
+
+`--once` and `--dry-run` together print an error to stderr and exit with code `1` before the workflow file is read:
+
+```
+sortie: --once and --dry-run cannot be used together
+```
+
+What the run does:
+
+- The first poll tick is the only poll. Candidates dispatch under `agent.max_concurrent_agents` and the per-state limits. A candidate that finds no free slot waits for a running session to finish. An issue that a later fetch would return, and the first poll did not, is never dispatched.
+- A candidate that fails the eligibility checks is not dispatched later in the run. A candidate whose blocker read failed, or could not be made in that pass, is evaluated again on a later tick.
+- Retries and continuation sessions of those issues run and are awaited, bounded by `agent.max_sessions`, `agent.max_tokens`, and `agent.max_cost_usd`. When all three are `0`, an issue keeps starting sessions until it leaves the active states, and Sortie logs a warning at startup:
+
+  ```
+  level=WARN msg="--once keeps starting sessions for an issue until it leaves the active states because agent.max_sessions, agent.max_tokens, and agent.max_cost_usd are all 0; set one of them to cap the run"
+  ```
+
+- A candidate or retry that an [instance spend ceiling](/reference/workflow-config/#agent) (`agent.max_daily_cost_usd` or `agent.max_monthly_cost_usd`) holds ends that issue's part of the run as not succeeded. The run does not wait for the window to reset, and a held retry keeps its stored entry for a later process.
+- Pull request reactions and label commands do not run. A later long-running Sortie can still pick up the pull request's follow-up at startup when the run history and the workspace are kept; the exact conditions are in the [recovery at startup](/reference/state-machine/#recovery-at-startup) step that rebuilds the pending reaction set.
+- An issue in a [stage chain](/reference/workflow-config/#stage-chains) moves one stage forward per run: the run does not dispatch the next stage, and the exit status reports the stage it did dispatch.
+- The run is finished when the poll has run and no issue is running, waiting for a retry, or waiting for a slot. The process then shuts down the way it does on a signal, so tracker comments and notifications for the final runs are delivered before it exits.
+
+Each finished attempt of an issue has an outcome: `succeeded`, `stopped`, `failed`, or `cancelled`, the values `after_run` hooks read from [`SORTIE_RUN_OUTCOME`](/reference/environment/#after_run-hook-variables). An issue counts by its latest outcome, so an attempt that fails and then succeeds on a retry within the same run leaves the issue `succeeded`.
+
+#### Run summary
+
+The run ends with one `INFO` line:
+
+```
+level=INFO msg="once run finished" issues=3 not_succeeded=1 not_run=0 interrupted=false poll_failed=false exit_code=2
+```
+
+| Field | Description |
+|---|---|
+| `issues` | Issues with at least one finished attempt. |
+| `not_succeeded` | Issues whose latest outcome is not `succeeded`. |
+| `not_run` | Candidates of the poll that were never dispatched, such as an issue with an unfinished blocker. They do not affect the exit code. |
+| `interrupted` | `true` when a signal ended the run. |
+| `poll_failed` | `true` when the dispatch preflight or the candidate fetch failed. |
+| `exit_code` | The status the process returns. |
+
+#### Once exit codes
+
+| Code | Meaning |
+|---|---|
+| `0` | The run finished and every issue's latest outcome is `succeeded`, or no issue was ready. |
+| `1` | Startup failure (same as normal run), or the single poll failed. |
+| `2` | A signal interrupted the run, or at least one issue's latest outcome is not `succeeded`, including an issue a spend ceiling held. |
+
+A signal outranks a failed poll, which outranks a failed issue. A signal that arrives after the run has finished does not change the status. A second `SIGINT` or `SIGTERM` during the shutdown abandons the remaining drains, as described under [signals](#signals), and the status is still `2`.
 
 ### `--log-level`
 
@@ -230,6 +290,7 @@ Flags:
 
 Run options:
   --dry-run                 Run one poll cycle without spawning agents, then exit
+  --once                    Poll once, finish the issues found, then exit
   --env-file PATH           Path to .env file for config overrides
   --log-level LEVEL         Log verbosity: debug, info, warn, error (default: info)
   --log-format FORMAT       Log output format: text, json (default: text)
@@ -239,8 +300,16 @@ Run options:
 Examples:
   sortie WORKFLOW.md                     Run orchestrator with a workflow
   sortie --dry-run WORKFLOW.md           Validate config and poll once without writing state
+  sortie --once WORKFLOW.md              Finish the issues ready now, then exit
   sortie validate --format json w.md     Check workflow syntax, output as JSON
   sortie stats --since 24h               Summarize the last 24 hours of runs
+
+Exit status:
+  0   Shut down normally; with --once, each issue's last run succeeded or
+      nothing was ready
+  1   Startup failed; with --once, also when the single poll failed
+  2   With --once, an issue's last run did not succeed, a spend ceiling held
+      an issue, or a signal stopped the work
 
 Learn more:
   https://docs.sortie-ai.com
@@ -1321,9 +1390,11 @@ When no version or help flag is present, Sortie executes these steps in order:
 13. **Clean terminal workspaces.** Query tracker for states of existing workspace directories; remove those in terminal states. Only directories whose state comes back known and terminal are removed, and if the directory listing or the tracker read fails, Sortie logs a warning and cleans nothing on this pass. No age-based removal runs here: the [`workspace.retention_days`](/reference/workflow-config/#workspace) bound belongs to the periodic sweep, whose first pass falls 60 poll ticks after step 16.
 14. **Recover pending reactions.** Rebuild the pending reaction set from recent run history so a restart does not lose a watch that was in flight. A failure here is logged as a warning and startup continues. Then restore the escalations that stood when the process stopped onto the rebuilt entries, logging `reaction escalation restore completed` with the counts `applied`, `rebuilt`, and `ended`. A failure here is logged as `reaction escalation restore failed` at error level and startup continues.
 15. **Bind the HTTP listener.** Binds to the host and port resolved in step 7 when the server is enabled. A conflict on an implicitly defaulted port degrades to running without the server; a conflict on an explicitly requested port exits `1`.
-16. **Enter poll-dispatch-reconcile loop.** First poll tick fires immediately. Blocks until signal.
+16. **Enter poll-dispatch-reconcile loop.** First poll tick fires immediately. Blocks until signal, or under `--once` until the work of that first poll is finished.
 
 When `--dry-run` is set, execution diverges after step 8. Steps 9–16 are skipped entirely. Instead, Sortie fetches candidate issues from the tracker, evaluates dispatch eligibility, logs the results, and exits. No database file is created, no agent adapter is built, and no HTTP server starts.
+
+`--once` does not diverge before step 16. It is rejected together with `--dry-run` during flag parsing, in step 1.
 
 Any step that fails prints a diagnostic to stderr and exits with code `1`.
 
@@ -1333,10 +1404,11 @@ Any step that fails prints a diagnostic to stderr and exits with code `1`.
 
 | Code | Meaning |
 |---|---|
-| `0` | Clean shutdown (signal received), help output (`-h`, `--help`), version output (`-V`, `--version`, `-dumpversion`), successful `validate`, successful `--dry-run`, a `stats` report (including one whose range matched no runs), or clean `mcp-server` shutdown. |
-| `1` | Startup failure: unknown flag, too many arguments, missing or unreadable workflow file, invalid configuration, preflight validation failure, or database open/migration error. Also used by `validate` for any validation failure, by `--dry-run` when the tracker fetch fails, by `stats` for usage and load errors, and by `mcp-server` for startup or runtime errors. |
+| `0` | Clean shutdown (signal received), a `--once` run that finished with every issue's latest outcome `succeeded` or no issue ready, help output (`-h`, `--help`), version output (`-V`, `--version`, `-dumpversion`), successful `validate`, successful `--dry-run`, a `stats` report (including one whose range matched no runs), or clean `mcp-server` shutdown. |
+| `1` | Startup failure: unknown flag, too many arguments, missing or unreadable workflow file, invalid configuration, preflight validation failure, or database open/migration error. Also used by `validate` for any validation failure, by `--dry-run` when the tracker fetch fails, by `stats` for usage and load errors, and by `mcp-server` for startup or runtime errors. A `--once` run also returns `1` when its single poll fails. |
+| `2` | Only under `--once`: a signal interrupted the run, or at least one issue's latest outcome is not `succeeded`. See [`--once` exit codes](#once-exit-codes). |
 
-Sortie does not define exit codes above `1`. Agent subprocess failures, tracker errors, and runtime exceptions are handled internally through the retry and reconciliation mechanisms. They do not affect the process exit code.
+Outside `--once`, Sortie does not define exit codes above `1`. Agent subprocess failures, tracker errors, and runtime exceptions are handled internally through the retry and reconciliation mechanisms. In a run without `--once` they do not affect the process exit code.
 
 ---
 
@@ -1357,7 +1429,7 @@ Both signals trigger the same sequence:
 6. Cancel pending retry timers.
 7. Shut down the HTTP server with a 5-second timeout for in-flight responses.
 8. Close the SQLite database.
-9. Exit with code `0`.
+9. Exit with code `0`. A `--once` run exits with the status its [exit codes](#once-exit-codes) give, which is `2` when the signal interrupted the run.
 
 During drain, `/livez` and `/readyz` return `503`, and `POST /api/v1/refresh`, `POST /api/v1/retries/{identifier}/run`, and `POST /api/v1/reactions/{identifier}/{kind}/check` return `409 Conflict` with `queued: false` instead of `202 Accepted`.
 
@@ -1500,6 +1572,9 @@ sortie --dry-run /opt/sortie/WORKFLOW.md
 
 # Dry-run with debug output for full candidate detail
 sortie --dry-run --log-level debug
+
+# Run once: finish the issues that are ready now, then exit
+sortie --once /opt/sortie/WORKFLOW.md
 
 # Load config overrides from a .env file
 sortie --env-file /etc/sortie/prod.env

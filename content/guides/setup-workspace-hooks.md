@@ -112,6 +112,22 @@ The `|| true` after `make fmt` prevents a formatter failure from producing noisy
 
 `git diff --cached --quiet` checks whether there's anything to commit. If the agent made no changes (or the run failed before writing files), the hook exits cleanly without creating an empty commit.
 
+## Push only when the attempt succeeded
+
+The hook above commits after a failed attempt too, which keeps partial work. To publish only a finished attempt, read `SORTIE_RUN_OUTCOME`. It is `succeeded`, `stopped`, `failed`, or `cancelled`; the [`after_run` variables](/reference/environment/#after_run-hook-variables) define each value.
+
+```yaml
+hooks:
+  after_run: |
+    git add -A
+    git diff --cached --quiet || git commit -m "sortie(${SORTIE_ISSUE_IDENTIFIER}): automated changes"
+    if [ "$SORTIE_RUN_OUTCOME" = "succeeded" ]; then
+      git push --force-with-lease origin "sortie/${SORTIE_ISSUE_IDENTIFIER}"
+    fi
+```
+
+The commit stays in the workspace for the next attempt, and the push happens only after a `succeeded` attempt. A run started with [`--once`](/reference/cli/#--once) sets the variable the same way.
+
 ## Clean up on workspace removal
 
 `before_remove` fires whenever Sortie deletes a workspace directory, on either of the two grounds it removes one: the issue reached a terminal tracker state, or the workspace outlived the opt-in [`workspace.retention_days`](/reference/workflow-config/#workspace) window. Use it to clean up remote resources:

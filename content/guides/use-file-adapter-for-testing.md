@@ -112,6 +112,8 @@ Watch the logs. Sortie reads your JSON file, dispatches one mock agent session p
 
 Press **Ctrl+C** to stop after the cycle completes.
 
+To run the fixture to completion and exit, with a status a script can check, start Sortie with [`--once`](/reference/cli/#--once) instead. It dispatches the issues in the file once, waits for the agents to finish, and exits `0` when every issue's last run succeeded.
+
 ### Test edge cases
 
 The file adapter re-reads the JSON on every operation, so you can edit `issues.json` while Sortie is running. Add a new issue, change a state, introduce a nil field. The next poll picks it up.

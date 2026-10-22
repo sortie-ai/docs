@@ -520,6 +520,7 @@ For the practical walkthrough, see [how to set up workspace hooks: start a servi
 | `SORTIE_WORKSPACE`        | Absolute path to the workspace directory.     |
 | `SORTIE_ATTEMPT`          | Current attempt number (integer).             |
 | `SORTIE_SSH_HOST`         | Target SSH host for the current session. Present only when [SSH worker mode](#worker) is active. |
+| `SORTIE_RUN_OUTCOME` | How the attempt ended: `"succeeded"`, `"stopped"`, `"failed"`, `"cancelled"`. Set on `after_run`. See the [`after_run` variables](/reference/environment/#after_run-hook-variables). |
 | `SORTIE_SELF_REVIEW_STATUS` | Self-review outcome: `"disabled"`, `"passed"`, `"cap_reached"`, `"error"`. Set on `after_run`. |
 | `SORTIE_SELF_REVIEW_SUMMARY_PATH` | Absolute path to `.sortie/review_summary.md`. Absent when self-review did not run. |
 
