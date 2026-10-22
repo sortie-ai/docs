@@ -309,6 +309,7 @@ Each issue is a header row and its newest runs beneath it. The header shows the 
 | **Status** | The run's [outcome word](#run-outcome-words) with its mark. Hovering shows the sentence the agent wrote with a declared outcome. |
 | **Rule** | The dispatch rule, with the hop the run made, such as "Hop to make-pr: advanced". Shown when the workflow has rules. |
 | **Agent** | The agent kind and the model. The tooltip names the configured model when the agent reported another. |
+| **Skills** | The skills the run called, in call order, separated by commas, repeats included. A skill whose call failed carries the failed mark. A long list is cut short, and hovering shows all of it with "(failed)" after each failed call. Empty for a run that called no skill and for a run recorded before Sortie kept skill calls. |
 | **Duration** | From start to end. |
 | **Turns** | Turns completed. |
 | **Tokens** | Tokens without cache reads. The tooltip gives the cache reads. |
@@ -344,9 +345,9 @@ Each stage chain gets a table headed "Chain from" its entry rule, with a row per
 
 | Column | Counts |
 |---|---|
-| **#**, **Stage** | The stage's place and rule name, tagged **ENTRY** for an entry stage. |
+| **#**, **Stage** | The stage's place and rule name. |
 | **Runs** | Finished runs of the rule, retries and pull request fixes included. |
-| **Entered** | Passes through the stage, each counted once, with a bar. |
+| **Entered** | Passes through the stage, each counted once. |
 | **By label** | Passes that arrived by a stage label a person put on the issue. |
 | **Advanced** | Passes that hopped to the next stage. On the last stage, passes that moved to the handoff state. |
 | **Ceiling** | Hops refused by `dispatch.max_consecutive_hops`. |
@@ -365,10 +366,13 @@ The breakdowns follow, each a table sortable by any column header, 20 rows at a 
 | **By run status** | Run status | It has a group. |
 | **By retry trigger** | What caused a retry | It has a group. |
 | **Why runs started** | What started a run: a poll, a retry, a stage hop, or a pull request reaction | It has a group. |
+| **By skill** | Skill name | A run in the range called a skill, and the database records skill calls. It follows the other tables. |
 
-Each table has the columns **Runs** (with a bar), **Success** (with a bar, and **Share** in **By run status**), **Duration** (a mark from the median to the 95th percentile and the same range in text), **Mean turns**, **Tokens**, and, when a rate source is available, **Est. cost** and **Per succeeded run**.
+Every table but **By skill** has the columns **Runs**, **Success** (**Share** in **By run status**), **Duration** (the median to the 95th percentile), **Mean turns**, **Tokens**, and, when a rate source is available, **Est. cost** and **Per run**, whose question mark explains that it covers succeeded runs only.
 
-A run that used two models counts in both **By model** rows, so the rows' runs can add up to more than the runs of the range. **Per succeeded run** is the cost divided by the group's succeeded runs that reported usage, and is empty for a group with no succeeded run. A hover on a cost or a token figure of a breakdown says what the figure leaves out.
+A run that used two models counts in both **By model** rows, so the rows' runs can add up to more than the runs of the range. **Per run** is the cost divided by the group's succeeded runs that reported usage, and is empty for a group with no succeeded run. A hover on a cost or a token figure of a breakdown says what the figure leaves out.
+
+**By skill** has the columns **Skill**, **Runs**, **Calls**, and **Failed calls**. **Runs** counts the runs that called the skill, once each however often they called it, and the header's hover says so. **Calls** counts every call, and **Failed calls** the calls that ended in a tool error, muted while it is `0`. The table starts ordered by **Runs**, most first, then by skill name, and any column header sorts it. Runs recorded before Sortie kept skill calls have none on record, so while the range holds any, the three counts are lower bounds: each draws a dotted underline, and hovering it reads "At least this many. It leaves out runs Sortie recorded before it kept skill calls." The warning above the figures also names the missing skill calls for a database written before Sortie recorded them. The same counts are the `skill_calls` member of the [run statistics report](/reference/cli/#skill-calls).
 
 
 ## Health

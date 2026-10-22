@@ -737,29 +737,49 @@ Which figures a report can carry depends on the database it reads, not on the ve
 | Tokens | `input_tokens`, `output_tokens`, `total_tokens`, `cache_read_tokens` | Token sums and every derived cost figure. `cache_write_tokens`, when present, adds the cache-write sum without changing the tier. |
 | Token measurement | `tokens_measured` | Which runs the coding agent could measure, and so which ones the token and cost figures cover |
 
-A sixth group sits outside the tier: `configured_model`, `configured_effort`, and `reported_model`. Only the model breakdown depends on it, so a database without it is still `full`. See [model breakdown](#model-breakdown). A seventh, `chain_id`, `stage_target`, and `stage_result`, sits outside the tier too and supplies only the stage chain breakdown. See [stage chain breakdown](#stage-chain-breakdown). The `trigger` and `reaction_kind` columns sit outside the tier as well and supply the retry trigger breakdown. See [retry trigger breakdown](#retry-trigger-breakdown). The run origin breakdown needs them and `first_after_hop`, which sits outside the tier too. See [run origin breakdown](#run-origin-breakdown). The stage funnels need every column named above and `agent_blocked`, which sits outside the tier as well. See [stage funnels](#stage-funnels).
+Further column groups sit outside the tier, and each supplies only the part of the report named here, so a database without one is still `full`. `configured_model`, `configured_effort`, and `reported_model` supply the [model breakdown](#model-breakdown). `chain_id`, `stage_target`, and `stage_result` supply the [stage chain breakdown](#stage-chain-breakdown). `trigger` and `reaction_kind` supply the [retry trigger breakdown](#retry-trigger-breakdown). The [run origin breakdown](#run-origin-breakdown) needs those and `first_after_hop`. The [stage funnels](#stage-funnels) need every column named so far and `agent_blocked`. Cost needs every column named so far and the recorded cost columns. The [skill calls](#skill-calls) need every column named so far and `skills`.
 
-**`base`**: at least one group is missing. The report falls back to run counts, the outcome breakdown, the coding-agent breakdown, and durations. Turns, tokens, cost, the dispatch-rule breakdown, the prompt-template breakdown, the configured-model breakdown, the stage chain breakdown, the retry trigger breakdown, the run origin breakdown, the stage funnels, and the self-review section are all left out.
+**`base`**: at least one group is missing. The report falls back to run counts, the outcome breakdown, the coding-agent breakdown, and durations. Turns, tokens, cost, the dispatch-rule breakdown, the prompt-template breakdown, the configured-model breakdown, the stage chain breakdown, the retry trigger breakdown, the run origin breakdown, the stage funnels, the skill calls, and the self-review section are all left out.
 
 The tier is all-or-nothing by design. A database carrying four of the five groups still reports `base`, and the report then drops the groups it does carry along with the ones it never recorded. The warning names both lists so the two are not confused:
 
 ```
-warning: this database was written before sortie recorded dispatch-rule routing, tokens and cost, which runs the coding agent could measure, the model each run was configured with, stage chains, what started each run, the first run after each stage hop, which runs stopped to wait for a person. The report falls back to run counts and durations, so it also leaves out turns, self-review results, which this database does carry. Run sortie once with this workflow to get the full report.
+warning: this database was written before sortie recorded dispatch-rule routing, tokens and cost, which runs the coding agent could measure, the model each run was configured with, stage chains, what started each run, the first run after each stage hop, which runs stopped to wait for a person, the skill calls of each run. The report falls back to run counts and durations, so it also leaves out turns, self-review results, which this database does carry. Run sortie once with this workflow to get the full report.
 ```
 
-A degraded report is still a report: the warning goes to stderr in text mode and into `warnings` in JSON, and the exit code is `0`. In JSON, `by_rule`, `by_template`, `by_model`, `by_chain`, `chain_funnels`, `by_trigger`, and `by_origin` are empty arrays, `self_review` is `null`, and every figure the tier cannot supply is `null` rather than `0`. A null means the database never recorded that figure, not that the figure measured zero.
+A degraded report is still a report: the warning goes to stderr in text mode and into `warnings` in JSON, and the exit code is `0`. In JSON, `by_rule`, `by_template`, `by_model`, `by_chain`, `chain_funnels`, `by_trigger`, and `by_origin` are empty arrays, `skill_calls` and `self_review` are `null`, and every figure the tier cannot supply is `null` rather than `0`. A null means the database never recorded that figure, not that the figure measured zero.
 
 The remedy is to run the orchestrator once with this workflow. Startup applies the pending migrations, and runs recorded from then on carry the full set. `stats` cannot do this itself; its read-only connection cannot apply a migration.
 
 A full-tier database that predates `cache_write_tokens` remains full. The command reports `cache_write` as `0` for those runs, whose input tokens were priced at `input_per_mtok`, matching how they were recorded before the cache-write counter existed.
 
-On a `full` database written before Sortie recorded the cost of each run, the report leaves out cost: every cost figure is `null` (`-` in text), `cost_unpriced_runs` is `0`, and `warnings` carries this message. The exit code is `0`.
+On a `full` database that lacks a column recorded after the tier, the report carries one warning. It names every column the database lacks and every part of the report left out, and the exit code is `0`:
 
 ```
-warning: this database was written before sortie recorded the cost of each run, so the report leaves out cost. Run sortie once with this workflow to add it.
+warning: this database was written before sortie recorded <columns>, so the report leaves out <parts>. Run sortie once with this workflow to add <it or them>.
 ```
 
-The start that adds the cost columns also prices the runs recorded before them, once, under the rates in force at that start. When the database also predates the column of a breakdown, such as the [model](#model-breakdown), the report carries that breakdown's warning instead, ending with `The report also leaves out cost until then.`
+Both lists run oldest first, in the form "A", "A and B", or "A, B, and C".
+
+| Recorded | Part left out |
+|---|---|
+| The model of each run | The breakdown by model |
+| Stage chains | The breakdown by stage chain |
+| What started each run | The breakdown by retry trigger |
+| The first run after each stage hop | The breakdown by run origin |
+| Which runs stopped to wait for a person | The funnel of each stage chain, named only when the workflow defines a stage chain |
+| The cost of each run | Cost |
+| The skill calls of each run | The breakdown by skill |
+
+The parts are cumulative. A missing column takes its own part and every part below it in the table, whether or not the database carries the later column, so the warning can name a part whose column the database has. A database that lacks only the skill calls reads:
+
+```
+warning: this database was written before sortie recorded the skill calls of each run, so the report leaves out the breakdown by skill. Run sortie once with this workflow to add it.
+```
+
+The warning matches the JSON. A part named in it is `[]` for the breakdowns, `null` for `skill_calls`, and `null` (`-` in text) for every cost figure, with `cost_unpriced_runs` at `0`. The text report omits the tables of the breakdowns.
+
+The start that adds the cost columns also prices the runs recorded before them, once, under the rates in force at that start.
 
 When `run_history` is absent altogether, or missing any of `status`, `agent_adapter`, `started_at`, or `completed_at`, the file is not a Sortie database and the command exits `1`:
 
@@ -777,15 +797,7 @@ The `by model` table (`by_model` in JSON) groups runs by the model they spent to
 - `tokens_unmeasured_runs`, `cost_unpriced_runs`, and `cost_partial_runs` count a model's share of a run rather than the whole run. A share counts as partial when its recorded cost status is `partial`, or when it is `estimated` and the run recorded turns no token figure covered, because the spend those turns leave out belongs to no model. Such a run counts as partial in every group that carries a recorded cost for it.
 - The table follows the prompt-template table in text output.
 
-On a `full` database written before Sortie recorded the model of each run, the report carries no breakdown: `by_model` is `[]`, never `null`, the text report omits the table, and `warnings` carries this message. The exit code is `0`.
-
-```
-warning: this database was written before sortie recorded the model of each run, so the report leaves out the breakdown by model. Run sortie once with this workflow to add it.
-```
-
-Running the orchestrator once applies the migration. Runs recorded before it stay under `<none>`.
-
-On a `base` database the group is named in the degraded-schema warning shown under [schema tiers](#schema-tiers) instead, and `by_model` is `[]` as well.
+On a `full` database written before Sortie recorded the model of each run, `by_model` is `[]`, never `null`, and the text report omits the table. The [schema tiers](#schema-tiers) warning names it. Running the orchestrator once applies the migration. Runs recorded before it stay under `<none>`. On a `base` database `by_model` is `[]` as well.
 
 #### Stage chain breakdown
 
@@ -820,13 +832,7 @@ The table follows the model table and is omitted when no chain qualifies. When m
 note: the breakdown by stage chain shows the 20 stage chains with the most runs; --format json lists all 37.
 ```
 
-On a `full` database written before Sortie recorded stage chains, `by_chain` is `[]`, the text report omits the table, and `warnings` carries this message. The exit code is `0`.
-
-```
-warning: this database was written before sortie recorded stage chains, so the report leaves out the breakdown by stage chain. Run sortie once with this workflow to add it.
-```
-
-When the database also predates the configured-model columns, only the model warning appears, and running the orchestrator once adds both breakdowns. On a `base` database stage chains are named in the degraded-schema warning instead, and `by_chain` is `[]` as well.
+On a `full` database written before Sortie recorded stage chains, `by_chain` is `[]` and the text report omits the table. The [schema tiers](#schema-tiers) warning names it. On a `base` database `by_chain` is `[]` as well.
 
 #### Stage funnels
 
@@ -905,13 +911,7 @@ The latest finished run of a pass on the stage decides its outcome. The first ro
 
 A pass that is running, queued for a retry, or held by a budget is read from the database, where Sortie keeps a record of each running session and budget hold, and from the retry queue. It counts only when the range is open at its end or ends after `generated_at`. For an earlier end, each pass is decided by its runs in the range alone. Sortie empties these records when it starts and restores nothing from them.
 
-`chain_funnels` is `[]` when the workflow defines no stage chain, whatever the database holds. A `full` database written before Sortie recorded which runs stopped to wait for a person also reports `[]`, and while the workflow defines a chain, `warnings` carries this message. The exit code is `0`.
-
-```
-warning: this database was written before sortie recorded which runs stopped to wait for a person, so the report leaves out the funnel of each stage chain. Run sortie once with this workflow to add it.
-```
-
-When the database predates any other breakdown column, that breakdown's warning appears instead, as the [retry trigger breakdown](#retry-trigger-breakdown) describes, and running the orchestrator once adds every breakdown. On a `base` database the degraded-schema warning names the missing column group, and `chain_funnels` is `[]` as well.
+`chain_funnels` is `[]` when the workflow defines no stage chain, whatever the database holds. A `full` database written before Sortie recorded which runs stopped to wait for a person also reports `[]`, and while the workflow defines a chain, the [schema tiers](#schema-tiers) warning names the funnel. On a `base` database `chain_funnels` is `[]` as well.
 
 Adding the column does not backfill it. A run recorded before the upgrade in which the agent reported itself blocked was stored as a plain success, so its pass counts in `handed_off` on the last stage and in `no_hop` with the reason `operator_stopped` on any other stage, unless a session, a retry, or a budget holds the pass now. A run recorded with the status `needs_person` is classified as such at any age.
 
@@ -937,13 +937,7 @@ by retry trigger
   ci_fix     1     1          100.0%        30m 0s  30m 0s  30m 0s   5.0    2,400,000     $12.00
 ```
 
-On a `full` database written before Sortie recorded what started each run, `by_trigger` and `by_origin` are `[]`, the text report omits both tables, and `warnings` carries this message. The exit code is `0`.
-
-```
-warning: this database was written before sortie recorded what started each run, so the report leaves out the breakdowns by retry trigger and by run origin. Run sortie once with this workflow to add them.
-```
-
-The report carries at most one such breakdown warning. When the database predates several of the breakdown columns, the model warning takes precedence over the stage chain one, that over this one, this one over the [run origin](#run-origin-breakdown) one, and that one over the [stage funnel](#stage-funnels) one; running the orchestrator once adds every breakdown. On a `base` database what started each run is named in the degraded-schema warning instead, and `by_trigger` is `[]` as well.
+On a `full` database written before Sortie recorded what started each run, `by_trigger` and `by_origin` are `[]` and the text report omits both tables. The [schema tiers](#schema-tiers) warning names them. On a `base` database `by_trigger` is `[]` as well.
 
 #### Run origin breakdown
 
@@ -966,13 +960,29 @@ The text table, titled `by run origin` with an `ORIGIN` column, follows the retr
 
 The migration that adds `first_after_hop` marks the earliest recorded run of each stage hop already in the history, so runs recorded before it still reach `stage_hop`. A later run in that stage stays unmarked.
 
-On a `full` database that records what started each run but predates `first_after_hop`, `by_origin` is `[]`, the text report omits the table while keeping the retry trigger table, and `warnings` carries this message. The exit code is `0`.
+On a `full` database that records what started each run but predates `first_after_hop`, `by_origin` is `[]` and the text report omits the table while keeping the retry trigger table. The [schema tiers](#schema-tiers) warning names it. On a `base` database `by_origin` is `[]` as well.
 
-```
-warning: this database was written before sortie recorded the first run after each stage hop, so the report leaves out the breakdown by run origin. Run sortie once with this workflow to add it.
-```
+#### Skill calls
 
-This warning comes second to last in the precedence of breakdown warnings, ahead of the [stage funnel](#stage-funnels) one. A database that also predates the trigger columns carries the [retry trigger](#retry-trigger-breakdown) warning instead, which names both breakdowns. On a `base` database the first run after each stage hop is named in the degraded-schema warning, and `by_origin` is `[]` as well.
+The `skill_calls` member of the JSON report counts the skill calls of the runs in the range. The text report has no such table. The dashboard draws it as the By skill table in [Analytics](/reference/dashboard/#analytics).
+
+`skill_calls` is `null` on the `base` tier and on a `full` database that lacks a column named in the [schema tiers](#schema-tiers) table, which is when the warning names the breakdown by skill. Otherwise it is an object:
+
+| Field | Type | Description |
+|---|---|---|
+| `unrecorded_runs` | integer | Runs in the range whose row records no skill list, which are the runs recorded before Sortie kept skill calls. A run that called no skill is not counted here. |
+| `by_skill` | array of object | One entry per distinct skill name, sorted by `runs` descending, then by `skill` in byte order. Never `null`; `[]` when no run in the range called a skill. |
+
+Each element of `by_skill`:
+
+| Field | Type | Description |
+|---|---|---|
+| `skill` | string | The skill name as the agent called it. |
+| `runs` | integer | Runs that called the skill at least once. A run counts once however often it called the skill. |
+| `calls` | integer | Every call of the skill, repeats included. |
+| `failed_calls` | integer | Calls that ended in a tool error. |
+
+Every run in the range counts, whatever its status, including a `ci_failed` run, which records no skill call. While `unrecorded_runs` is above `0`, each count is a lower bound: a run recorded before skill calls were kept may have called the skill. Adding the column does not backfill it.
 
 #### Spend by period
 
@@ -1097,7 +1107,7 @@ Envelope:
 | `since` | string or null | The `--since` bound, RFC3339 UTC. `null` when the flag was omitted, meaning the range is open at the start. |
 | `until` | string or null | The `--until` bound, RFC3339 UTC. `null` when the flag was omitted, meaning the range is open at the end. |
 | `schema_tier` | string | `"full"` or `"base"`. See [schema tiers](#schema-tiers). |
-| `warnings` | array of string | Advisory messages: a degraded schema, a missing breakdown, or a missing recorded cost. `token_rates` advisories are not listed; `sortie validate` reports them. Empty when there is nothing to report, never `null`. The `warning: ` prefix belongs to text rendering and is not part of these strings. |
+| `warnings` | array of string | Advisory messages: a degraded schema, or one warning that names every breakdown and figure a `full` database leaves out. At most one entry. `token_rates` advisories are not listed; `sortie validate` reports them. Empty when there is nothing to report, never `null`. The `warning: ` prefix belongs to text rendering and is not part of these strings. |
 | `summary` | object | Report-wide figures. Always present. |
 | `spend` | object or null | The recorded cost per UTC day or month. `null` on the `base` tier and on a database that records no cost. See [spend by period](#spend-by-period). |
 | `by_status` | array of object | Breakdown by outcome. |
@@ -1109,6 +1119,7 @@ Envelope:
 | `chain_funnels` | array of object | One funnel per stage chain definition of the workflow. Empty array when the workflow defines no stage chain, on the `base` tier, and on a `full` database that predates the configured-model, stage-chain, trigger, `first_after_hop`, or `agent_blocked` columns. See [stage funnels](#stage-funnels). |
 | `by_trigger` | array of object | Breakdown by retry trigger. Empty array on the `base` tier and on a `full` database that predates the configured-model, stage-chain, or trigger columns. See [retry trigger breakdown](#retry-trigger-breakdown). |
 | `by_origin` | array of object | Breakdown by run origin. Empty array on the `base` tier and on a `full` database that predates the configured-model, stage-chain, trigger, or `first_after_hop` columns. See [run origin breakdown](#run-origin-breakdown). |
+| `skill_calls` | object or null | The skill calls of the runs in the range. `null` on the `base` tier and on a `full` database that predates the skill calls or a column recorded before them. See [skill calls](#skill-calls). |
 | `self_review` | object or null | Self-review aggregation. `null` on the `base` tier, meaning the results were not read, not that no review ran. |
 
 `summary`:
@@ -1319,6 +1330,13 @@ A worked example, expanded for readability and trimmed to one row per breakdown.
   "chain_funnels": [],
   "by_trigger": [],
   "by_origin": [],
+  "skill_calls": {
+    "unrecorded_runs": 1,
+    "by_skill": [
+      {"skill": "ce-work", "runs": 5, "calls": 7, "failed_calls": 1},
+      {"skill": "ce-plan", "runs": 3, "calls": 3, "failed_calls": 0}
+    ]
+  },
   "self_review": {
     "runs_with_metadata": 6,
     "by_final_verdict": [{"verdict": "iterate", "runs": 1}, {"verdict": "pass", "runs": 5}],
