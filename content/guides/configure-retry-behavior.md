@@ -49,7 +49,7 @@ It differs in one way that matters here: this ceiling does not wait for a sessio
 
 The two ceilings are independent and whichever fills first wins; when one evaluation finds both exhausted, the logged reason names the token budget (`token_budget`). If the token query fails, the pre-dispatch check fails open and dispatch proceeds. For choosing a budget and the cost math, see [how to control agent costs](/guides/control-costs/).
 
-An instance-wide spend ceiling, `agent.max_daily_cost_usd` or `agent.max_monthly_cost_usd`, does not count against any issue. While the day's or month's spend is at its ceiling, a retry that comes due is neither dispatched nor dropped: it keeps its attempt number and error, Sortie checks it again every poll interval, and no backoff step or session is spent on the wait. See [cap what the whole instance spends](/guides/control-costs/#cap-what-the-whole-instance-spends).
+An instance-wide spend ceiling, `agent.max_daily_cost_usd`, `agent.max_weekly_cost_usd`, or `agent.max_monthly_cost_usd`, does not count against any issue. While the spend of the day, week, or month is at its ceiling, a retry that comes due is neither dispatched nor dropped: it keeps its attempt number and error, Sortie checks it again every poll interval, and no backoff step or session is spent on the wait. The day starts at 00:00 UTC, the week on Monday at 00:00 UTC, and the month on its 1st at 00:00 UTC; the retry stays held until every window at its ceiling has reset or been raised. See [cap what the whole instance spends](/guides/control-costs/#cap-what-the-whole-instance-spends).
 
 ```yaml
 agent:

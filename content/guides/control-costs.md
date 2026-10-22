@@ -1,7 +1,7 @@
 ---
 title: "How to Control Agent Costs"
 linkTitle: "Control Agent Costs"
-description: "Configure per-turn budgets, session limits, per-issue token and dollar budgets, a daily or monthly spend limit for the whole instance, turn caps, concurrency, and model selection to keep agent API spending predictable."
+description: "Configure per-turn budgets, session limits, per-issue token and dollar budgets, a daily, weekly, or monthly spend limit for the whole instance, turn caps, concurrency, and model selection to keep agent API spending predictable."
 author: Sortie AI
 date: 2026-04-26
 weight: 110
@@ -164,27 +164,32 @@ Agents can read the money figures themselves: while the ceiling is set, the `cos
 
 ## Cap what the whole instance spends
 
-`agent.max_daily_cost_usd` and `agent.max_monthly_cost_usd` are instance-wide ceilings in US dollars on the estimated cost of everything Sortie runs, across all issues. Use them when you budget a day or a month rather than an issue: per-issue ceilings leave the total open to however many issues arrive. Both default to `0`, which means no ceiling, and you can set either one or both.
+`agent.max_daily_cost_usd`, `agent.max_weekly_cost_usd`, and `agent.max_monthly_cost_usd` are instance-wide ceilings in US dollars on the estimated cost of everything Sortie runs, across all issues. Use them when you budget a day, a week, or a month rather than an issue: per-issue ceilings leave the total open to however many issues arrive. Each defaults to `0`, which means no ceiling, and you can set any one of them or any combination.
 
 ```yaml
 agent:
   max_daily_cost_usd: 100
+  max_weekly_cost_usd: 400
   max_monthly_cost_usd: 1500
 ```
 
-Each window is a UTC calendar day or month. It starts at 00:00 UTC and resets at the next 00:00 UTC, whatever your time zone. The dashboard's own "today" figures follow your browser's time zone instead, so they can cover a different stretch of hours than the daily window. A window's spend is the estimated cost of the runs that ended in it plus the live estimate of the sessions running now. A run counts toward the window it ended in, so a run that crosses midnight counts toward the new day. Prices come from the same sources as for [`max_cost_usd`](#cap-an-issues-spend-in-dollars), and the figure is an estimate, not your provider's bill.
+Pick the weekly ceiling when you budget by the week, or when the daily ceiling is too tight for a quiet day to offset a busy one and the monthly ceiling is too loose to catch a runaway early. `SORTIE_AGENT_MAX_WEEKLY_COST_USD` overrides it.
+
+Each window is a UTC calendar day, a UTC week, or a UTC calendar month. The day and the month start at 00:00 UTC on their first day. The week starts on Monday at 00:00 UTC and resets at the next Monday 00:00 UTC. Each window resets at 00:00 UTC, whatever your time zone. The dashboard's own "today" figures follow your browser's time zone instead, so they can cover a different stretch of hours than the daily window. A window's spend is the estimated cost of the runs that ended in it plus the live estimate of the sessions running now. A run counts toward the window it ended in, so a run that crosses midnight counts toward the new day, and a run that crosses Monday 00:00 UTC counts toward the new week. Prices come from the same sources as for [`max_cost_usd`](#cap-an-issues-spend-in-dollars), and the figure is an estimate, not your provider's bill.
 
 ### What you see when a ceiling is reached
 
 Once a window's spend reaches its ceiling, Sortie starts no new agent session for any issue. Issues stay in their tracker states, and scheduled retries stay scheduled; they wait.
 
-- **Candidates.** The poll tick dispatches nothing. `sortie_candidate_holds_total` counts each candidate held, with reason `daily_spend_ceiling` or `monthly_spend_ceiling`. When both windows hold, the reason names the monthly one.
+- **Candidates.** The poll tick dispatches nothing. `sortie_candidate_holds_total` counts each candidate held, with reason `daily_spend_ceiling`, `weekly_spend_ceiling`, or `monthly_spend_ceiling`. When more than one window holds, the reason names the window that resets latest, and the longer window when two reset at the same instant.
 - **Retries.** A retry that comes due is neither dispatched nor dropped. It keeps its attempt number and its error, and Sortie checks it again after one poll interval. The wait costs no backoff step and none of the issue's sessions. Continuations and pull request follow-ups wait the same way.
 - **Running sessions.** They finish. The ceiling does not stop a session in progress, so a window's total can pass its ceiling by what the running sessions spend. Leave headroom below the amount you cannot afford to exceed, and lower `agent.max_concurrent_agents` if too many sessions can be running when the hold begins.
 
-Sortie shows the hold in these places: a critical "Daily spend ceiling reached" or "Monthly spend ceiling reached" item under **Needs attention**, the **Spend** section of the dashboard's [Overview](/reference/dashboard/#overview), the `spend_ceiling` member of [`GET /api/v1/state`](/reference/http-api/#get-apiv1state-system-state), and the log records under [Instance spend ceiling](/guides/monitor-with-logs/#instance-spend-ceiling).
+Sortie shows the hold in these places: a critical "Daily spend ceiling reached", "Weekly spend ceiling reached", or "Monthly spend ceiling reached" item under **Needs attention**, the **Spend** section of the dashboard's [Overview](/reference/dashboard/#overview), the `spend_ceiling` member of [`GET /api/v1/state`](/reference/http-api/#get-apiv1state-system-state), and the log records under [Instance spend ceiling](/guides/monitor-with-logs/#instance-spend-ceiling).
 
-The hold ends on the first poll tick or retry check after the window resets, after you raise the ceiling above the window's spend, or after you remove it. An edit to WORKFLOW.md applies on the same terms. The held retries then dispatch with the attempt numbers they kept.
+A window's hold ends on the first poll tick or retry check after the window resets, after you raise its ceiling above its spend, or after you remove it. An edit to WORKFLOW.md applies on the same terms. Dispatch stays held until every reached window has cleared. The held retries then dispatch with the attempt numbers they kept.
+
+With the ceilings above, suppose Tuesday's spend reaches $100. The daily window holds and clears at 00:00 UTC on Wednesday. Suppose instead that the week's spend reaches $400 on Thursday while the day's spend is still $100. Both the daily and the weekly window hold, and the reason is `weekly_spend_ceiling`, because the week resets later. The daily window clears at 00:00 UTC on Friday, but dispatch stays held until the weekly window clears at 00:00 UTC on Monday, unless you raise `agent.max_weekly_cost_usd` above the week's spend first.
 
 ### When the spend cannot be fully priced
 
@@ -194,10 +199,10 @@ The remedy is to price the model, with a [`token_rates`](/reference/workflow-con
 
 ### Check the configuration
 
-[`sortie validate`](/reference/cli/#validate) warns when an instance ceiling cannot work, and the running service logs the same warnings. Neither blocks dispatch, and `validate` still exits `0`. Each warning names the ceiling it concerns, so `agent.max_daily_cost_usd` and `agent.max_monthly_cost_usd` warn separately:
+[`sortie validate`](/reference/cli/#validate) warns when an instance ceiling cannot work, and the running service logs the same warnings. Neither blocks dispatch, and `validate` still exits `0`. Each warning names the ceiling it concerns, so `agent.max_daily_cost_usd`, `agent.max_weekly_cost_usd`, and `agent.max_monthly_cost_usd` warn separately:
 
-- `agent.max_daily_cost_usd.no_usage_reporting`: an agent kind the workflow dispatches reports no token usage, so the ceiling counts none of that kind's spend. The monthly ceiling has the matching `agent.max_monthly_cost_usd.no_usage_reporting`.
-- `agent.max_daily_cost_usd.no_rate_source`: no price source is configured, so no run can be priced. The monthly ceiling has the matching `agent.max_monthly_cost_usd.no_rate_source`.
+- `agent.max_daily_cost_usd.no_usage_reporting`: an agent kind the workflow dispatches reports no token usage, so the ceiling counts none of that kind's spend. The weekly and monthly ceilings have the matching `agent.max_weekly_cost_usd.no_usage_reporting` and `agent.max_monthly_cost_usd.no_usage_reporting`.
+- `agent.max_daily_cost_usd.no_rate_source`: no price source is configured, so no run can be priced. The weekly and monthly ceilings have the matching `agent.max_weekly_cost_usd.no_rate_source` and `agent.max_monthly_cost_usd.no_rate_source`.
 
 See the [`agent` section reference](/reference/workflow-config/#agent) for validation, the environment overrides, and reload behavior.
 

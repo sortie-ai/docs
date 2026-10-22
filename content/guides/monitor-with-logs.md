@@ -434,13 +434,19 @@ Three more records mirror the token ceiling's failure cases and leave the work g
 
 ### Instance spend ceiling
 
-When [`agent.max_daily_cost_usd`](/reference/workflow-config/#agent) or `agent.max_monthly_cost_usd` is set, Sortie evaluates each window on every poll tick and every retry check. None of these records carries issue fields, because a window belongs to no issue. When a window first reaches its ceiling, Sortie logs:
+When [`agent.max_daily_cost_usd`](/reference/workflow-config/#agent), `agent.max_weekly_cost_usd` or `agent.max_monthly_cost_usd` is set, Sortie evaluates each window on every poll tick and every retry check. None of these records carries issue fields, because a window belongs to no issue. When a window first reaches its ceiling, Sortie logs:
 
 ```
 time=2026-03-26T17:02:44.000+00:00 level=WARN msg="spend ceiling reached, holding dispatch" window=daily used_usd=100.4 used_usd_complete=true budget_usd=100 ceiling_setting=agent.max_daily_cost_usd resets_at=2026-03-27T00:00:00.000Z
 ```
 
-`window` is `daily` or `monthly`, and `resets_at` is the next 00:00 UTC. `used_usd_complete` is `false` when the figure is a lower bound. The record appears once per hold, not once per tick. While the hold lasts, a retry that comes due logs a debug record naming the reason and when Sortie checks it again:
+`window` is `daily`, `weekly` or `monthly`, and `resets_at` is when that window next resets: the next 00:00 UTC for `daily`, the next Monday 00:00 UTC for `weekly`, and the first of the next month at 00:00 UTC for `monthly`. `used_usd_complete` is `false` when the figure is a lower bound. A weekly hold reached on a Thursday looks like this:
+
+```
+time=2026-03-26T09:15:31.000+00:00 level=WARN msg="spend ceiling reached, holding dispatch" window=weekly used_usd=500.8 used_usd_complete=true budget_usd=500 ceiling_setting=agent.max_weekly_cost_usd resets_at=2026-03-30T00:00:00.000Z
+```
+
+The record appears once per hold, not once per tick. While the hold lasts, a retry that comes due logs a debug record naming the reason and when Sortie checks it again:
 
 ```
 time=2026-03-26T17:03:44.000+00:00 level=DEBUG msg="retry held by spend ceiling, rechecking" issue_id=abc123 issue_identifier=MT-649 reason=daily_spend_ceiling attempt=2 delay_ms=30000
@@ -452,7 +458,7 @@ time=2026-03-26T17:03:44.000+00:00 level=DEBUG msg="retry held by spend ceiling,
 time=2026-03-27T00:00:11.000+00:00 level=INFO msg="spend ceiling hold ended" window=daily budget_usd=100 used_usd=0 ceiling_setting=agent.max_daily_cost_usd dispatch_held=false
 ```
 
-`dispatch_held` is `true` when the other window still holds. After you remove the ceiling, `budget_usd` reads `0` and `used_usd` is absent.
+`dispatch_held` is `true` when any other window still holds, because dispatch resumes only once every window that reached its ceiling has cleared. After you remove the ceiling, `budget_usd` reads `0` and `used_usd` is absent.
 
 A window below its ceiling whose figure is only a lower bound dispatches, and Sortie says so once for the window:
 
@@ -462,7 +468,7 @@ time=2026-03-26T14:35:22.000+00:00 level=WARN msg="spend ceiling cannot be fully
 
 `unmeasured_sessions` counts the runs and running sessions that report no token usage, `unaccounted_turns` the turns whose usage was not accounted, `partial_sessions` the runs priced in part, and `unpriced_sessions` the runs with no price. When the read of run history fails, Sortie keeps the last result, or treats the window as not holding when it has none, and logs `spend ceiling check failed, keeping the last result` with `window` and `error`.
 
-A held candidate logs no per-issue record; `sortie_candidate_holds_total` counts it under reason `daily_spend_ceiling` or `monthly_spend_ceiling`. See [Cap what the whole instance spends](/guides/control-costs/#cap-what-the-whole-instance-spends) for what the hold stops and when it ends.
+A held candidate logs no per-issue record; `sortie_candidate_holds_total` counts it under reason `daily_spend_ceiling`, `weekly_spend_ceiling` or `monthly_spend_ceiling`. When several windows hold at once, the count carries the reason of the one that resets latest, the longer window on a tie. See [Cap what the whole instance spends](/guides/control-costs/#cap-what-the-whole-instance-spends) for what the hold stops and when it ends.
 
 ### Dispatch preflight failures
 

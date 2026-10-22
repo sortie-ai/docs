@@ -624,6 +624,13 @@ curl http://localhost:7678/api/v1/state
       "holds_dispatch": false,
       "resets_at": "2026-03-27T00:00:00Z"
     },
+    "weekly": {
+      "budget_usd": 400,
+      "used_usd": 212.5,
+      "used_usd_complete": true,
+      "holds_dispatch": false,
+      "resets_at": "2026-03-30T00:00:00Z"
+    },
     "monthly": null
   },
   "config": {
@@ -1129,14 +1136,14 @@ A `reaction_escalated` item for a row rebuilt after a restart carries `open_issu
 
 | Member | Kind | Value |
 |---|---|---|
-| `reason` | `parked`, `budget_held`, `spend_ceiling_reached` | The row's `reason`: `agent_blocked` or `handoff_absence`; `session_budget`, `token_budget`, or `money_budget`. For `spend_ceiling_reached`, `daily_spend_ceiling` or `monthly_spend_ceiling`. |
+| `reason` | `parked`, `budget_held`, `spend_ceiling_reached` | The row's `reason`: `agent_blocked` or `handoff_absence`; `session_budget`, `token_budget`, or `money_budget`. For `spend_ceiling_reached`, `daily_spend_ceiling`, `weekly_spend_ceiling`, or `monthly_spend_ceiling`. |
 | `label` | `parked` | The row's `label`. |
 | `used_sessions`, `budget_sessions` | `budget_held` with `session_budget` | The row's values. |
 | `used_tokens`, `used_tokens_complete`, `budget_tokens` | `budget_held` with `token_budget` | The row's `used_tokens` (omitted when the row's is `null`) and `budget_tokens`. `used_tokens_complete` is `false` exactly when `used_tokens` is a lower bound. |
 | `used_usd`, `used_usd_complete`, `budget_usd` | `budget_held` with `money_budget`, `spend_ceiling_reached` | For `money_budget`, the row's `used_usd` (omitted when the row's is `null`), `used_usd_complete`, and `budget_usd`. For `spend_ceiling_reached`, the window's values from `spend_ceiling`, always present. `used_usd_complete` is `false` exactly when `used_usd` is a lower bound. |
 | `resets_at` | `spend_ceiling_reached` | The window's `resets_at`. |
 | `reaction_kind`, `pull_request`, `escalation_trigger` | `reaction_escalated` | The row's `kind`, `pull_request`, and `escalation_trigger`, in the shapes the row serves. |
-| `config_key` | `reaction_escalated`, `spend_ceiling_reached` | For `reaction_escalated`, the row's `config_key`. For `spend_ceiling_reached`, `agent.max_daily_cost_usd` or `agent.max_monthly_cost_usd`, the setting that raises the ceiling. |
+| `config_key` | `reaction_escalated`, `spend_ceiling_reached` | For `reaction_escalated`, the row's `config_key`. For `spend_ceiling_reached`, `agent.max_daily_cost_usd`, `agent.max_weekly_cost_usd`, or `agent.max_monthly_cost_usd`, the setting that raises the ceiling. |
 | `used_attempts`, `max_attempts` | `reaction_escalated` | The row's values, each omitted when `null`. |
 | `last_check` | `reaction_escalated` | The row's `last_check`, omitted when `null`. |
 | `file` | `workflow_reload_failed` | `health.workflow.file`. |
@@ -1150,7 +1157,7 @@ A `reaction_escalated` item for a row rebuilt after a restart carries `open_issu
 | `budget_held` | `Money budget reached` for `money_budget`; `Token budget reached` for `token_budget`; `Session budget reached` for `session_budget`. |
 | `reaction_escalated` | `CI escalated on #<number>`, `Review comments escalated on #<number>`, `Bot review escalated on #<number>`, `Merge conflict escalated on #<number>`, `Auto-merge escalated on #<number>`, or `Merge completion escalated on #<number>`, by reaction kind. |
 | `workflow_reload_failed` | `<file> failed to load`. |
-| `spend_ceiling_reached` | `Daily spend ceiling reached` or `Monthly spend ceiling reached`, by window. |
+| `spend_ceiling_reached` | `Daily spend ceiling reached`, `Weekly spend ceiling reached`, or `Monthly spend ceiling reached`, by window. |
 | `preflight_failed` | `Dispatch preflight failed`. |
 
 What clears each cause is the source's own rule, and `clears_text` words it. A park lifts when a person removes its label after Sortie has seen it there, or moves the issue to another tracker state. A hold leaves the set when a poll tick finds the issue no longer at a ceiling or among the candidates, for example after the ceiling is raised or removed. A reaction escalation ends on the facts under [standing escalations](/reference/reactions/#standing-escalations). A reload failure ends with the next load that succeeds, and a preflight failure with the next preflight that passes.
@@ -1168,7 +1175,7 @@ Items are ordered by `severity` (`critical` before `warning`), then by `since` (
 | `reaction_escalated` | The issue ID; the row's `kind`; `escalated_at` in RFC 3339 with nanoseconds, trailing zeros dropped. |
 | `workflow_reload_failed` | `failing_since` in RFC 3339 with nanoseconds, trailing zeros dropped. |
 | `preflight_failed` | `failing_since` in RFC 3339 with nanoseconds, trailing zeros dropped. |
-| `spend_ceiling_reached` | The window, `daily` or `monthly`; the window's start in RFC 3339 UTC; the ceiling as a decimal number. |
+| `spend_ceiling_reached` | The window, `daily`, `weekly`, or `monthly`; the window's start in RFC 3339 UTC; the ceiling as a decimal number. |
 
 A park keeps its `id` and `since` across a restart, because Sortie stores the park at whole-second precision. A hold, a spend ceiling hold included, keeps its `id` across a restart, but its `since` becomes the first poll tick after the restart, because Sortie keeps the moment a hold began in memory only. A reaction escalation keeps its `id` and `since` across a restart, because the restored escalation carries its stored time. A reload or preflight failure cannot span a restart, because startup exits when the first load or the startup preflight fails.
 
@@ -1248,17 +1255,17 @@ It is `null` where Sortie cannot date the pass: a retry or hop stored without a 
 
 **`cost_unpriced_running`:** Count of running, measured sessions that `active_estimated_cost_usd` leaves out because no rate prices them. Present, zero included, whenever a rate source is available: a price table is in force, which is the default, or `token_rates` holds an entry. Omitted when no price table is in force and `token_rates` holds no entry (see [`price_table`](/reference/workflow-config/#price_table)); every measured `running[]` entry then reads `"unpriced"` while this key is absent. When present, it equals the number of `running[]` entries whose `cost_status` is `"unpriced"`. The dashboard shows cost exactly when this key is present.
 
-**`spend_ceiling`:** The instance's spend against `agent.max_daily_cost_usd` and `agent.max_monthly_cost_usd`, as of the latest poll tick or retry check. Omitted while neither setting is above `0`. Otherwise an object with a `daily` and a `monthly` member, each `null` while its own setting is `0` and an object with these members while it is set:
+**`spend_ceiling`:** The instance's spend against `agent.max_daily_cost_usd`, `agent.max_weekly_cost_usd`, and `agent.max_monthly_cost_usd`, as of the latest poll tick or retry check. Omitted while none of the three settings is above `0`. Otherwise an object with a `daily`, a `weekly`, and a `monthly` member, all three always present, each `null` while its own setting is `0` and an object with these members while it is set:
 
 | Member | Value |
 |---|---|
 | `budget_usd` | The ceiling, in US dollars. |
 | `used_usd` | The window's estimated cost in US dollars: the cost recorded with every run that ended in the window plus the live estimate of the sessions running now. |
 | `used_usd_complete` | `false` exactly when `used_usd` is a lower bound, because a run was not fully priced or its usage was not fully reported. |
-| `holds_dispatch` | `true` while the window's spend has reached `budget_usd`, so Sortie starts no new agent session. |
-| `resets_at` | The end of the window: the next 00:00 UTC, in RFC 3339 UTC. |
+| `holds_dispatch` | `true` while the window's spend has reached `budget_usd`, so Sortie starts no new agent session. Dispatch stays held until every window with `holds_dispatch` `true` clears. |
+| `resets_at` | The end of the window, in RFC 3339 UTC: the next 00:00 UTC for `daily`, the next Monday 00:00 UTC for `weekly`, and 00:00 UTC on the 1st of the next month for `monthly`. |
 
-The windows are the current UTC calendar day and month, not the browser's local day. See [how to control agent costs](/guides/control-costs/#cap-what-the-whole-instance-spends).
+The windows are the current UTC calendar day, the current UTC week, which starts on Monday at 00:00 UTC, and the current UTC calendar month, not the browser's local day. See [how to control agent costs](/guides/control-costs/#cap-what-the-whole-instance-spends).
 
 **`rate_limits`:** Reserved for future use. Currently an empty object.
 
