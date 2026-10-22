@@ -361,6 +361,22 @@ OpenCode's CLI envelope already carries terminal tool state. The adapter does no
 
 `callID` is parsed but not used for cross-event correlation.
 
+### Tool kind and argument
+
+Each `tool_result` event also carries the kind of work the tool did and its one main argument, read from `part.state.input`, for five tools:
+
+| OpenCode tool | Kind | Input member read as the argument |
+|---|---|---|
+| `shell` | `shell` | `command` |
+| `read` | `read` | `path` |
+| `write` | `edit` | `path` |
+| `edit` | `edit` | `path` |
+| `skill` | `skill` | `id` |
+
+For a `skill` call the argument is the skill's name. Any other tool name carries the name alone, with no kind and no argument. A call whose input is not an object, or whose named member is absent or not a string, carries the kind and no argument. The adapter reads no other input member, so the argument never carries the call's other inputs.
+
+The served members are in the [HTTP API reference](/reference/http-api/), and how they show is in the [session view](/reference/dashboard/#session-view).
+
 ### Tool error detail
 
 When `part.state.status` is `error`, the adapter copies `part.state.error` into the normalized event message and truncates it to 500 runes. It does not strip XML wrappers, ANSI sequences, or stderr text.

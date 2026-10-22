@@ -1086,6 +1086,9 @@ Envelope:
 | `runs` | integer | Runs that finished in the range. |
 | `issues` | integer | Distinct issues, by tracker issue ID, that those runs belong to. `0` when `runs` is `0`. A recorded CI result counts its issue like any other run. Present on every tier. |
 | `succeeded` | integer | Runs whose status is exactly `succeeded`. |
+| `failed` | integer | Runs that ended in any status no other outcome count names, an unrecognized status included. |
+| `stopped` | integer | Runs whose status is `needs_person` or `budget_stopped`. |
+| `cancelled` | integer | Runs whose status is `cancelled`. |
 | `success_rate` | number | `succeeded` over `runs`, between 0 and 1. `0` when `runs` is `0`. |
 | `duration_seconds` | object | Duration figures over succeeded runs only. |
 | `mean_turns_succeeded` | number or null | Mean turns completed over succeeded runs. `null` on the `base` tier and when no run succeeded, never `0` in either case. |
@@ -1146,6 +1149,7 @@ Durations are seconds here. Text mode renders the same values as `2m 49s`.
 | `total` | integer | Sum of the recorded totals, taken as stored rather than recomputed from `input` and `output`. |
 | `cache_read` | integer | Sum of recorded cache-read tokens over the measured runs. |
 | `cache_write` | integer | Sum of recorded cache-write tokens over the measured runs. |
+| `uncached` | integer | `total` less `cache_read`, derived by the report rather than stored, so `uncached` plus `cache_read` equals `total`. Cache-write tokens stay in it. |
 
 `self_review`:
 
@@ -1179,10 +1183,13 @@ A worked example, expanded for readability and trimmed to one row per breakdown.
     "runs": 9,
     "issues": 8,
     "succeeded": 7,
+    "failed": 2,
+    "stopped": 0,
+    "cancelled": 0,
     "success_rate": 0.7778,
     "duration_seconds": {"p50": 169, "p95": 432, "mean": 214.6, "samples": 7},
     "mean_turns_succeeded": 3.29,
-    "tokens": {"input": 502900, "output": 96000, "total": 598900, "cache_read": 126380, "cache_write": 18200},
+    "tokens": {"input": 502900, "output": 96000, "total": 598900, "cache_read": 126380, "cache_write": 18200, "uncached": 472520},
     "cost_usd": 6.49,
     "cost_per_succeeded_run_usd": 0.93,
     "zero_duration_runs": 0,
@@ -1200,7 +1207,7 @@ A worked example, expanded for readability and trimmed to one row per breakdown.
       "share": 0.7778,
       "duration_seconds": {"p50": 169, "p95": 432, "mean": 214.6, "samples": 7},
       "mean_turns": 3.29,
-      "tokens": {"input": 341900, "output": 67000, "total": 408900, "cache_read": 90380, "cache_write": 12100},
+      "tokens": {"input": 341900, "output": 67000, "total": 408900, "cache_read": 90380, "cache_write": 12100, "uncached": 318520},
       "cost_usd": 4.59,
       "cost_per_succeeded_run_usd": 0.66,
       "tokens_unmeasured_runs": 0,
@@ -1217,7 +1224,7 @@ A worked example, expanded for readability and trimmed to one row per breakdown.
       "share": 0.6667,
       "duration_seconds": {"p50": 161, "p95": 580, "mean": 272, "samples": 6},
       "mean_turns": 3.33,
-      "tokens": {"input": 324500, "output": 63900, "total": 388400, "cache_read": 126380, "cache_write": 18200},
+      "tokens": {"input": 324500, "output": 63900, "total": 388400, "cache_read": 126380, "cache_write": 18200, "uncached": 262020},
       "cost_usd": 5.72,
       "cost_per_succeeded_run_usd": 1.14,
       "tokens_unmeasured_runs": 0,
@@ -1234,7 +1241,7 @@ A worked example, expanded for readability and trimmed to one row per breakdown.
       "share": 0.4444,
       "duration_seconds": {"p50": 150, "p95": 169, "mean": 155, "samples": 4},
       "mean_turns": 2.5,
-      "tokens": {"input": 145100, "output": 27700, "total": 172800, "cache_read": 56360, "cache_write": 8100},
+      "tokens": {"input": 145100, "output": 27700, "total": 172800, "cache_read": 56360, "cache_write": 8100, "uncached": 116440},
       "cost_usd": 2.54,
       "cost_per_succeeded_run_usd": 0.64,
       "tokens_unmeasured_runs": 0,
@@ -1251,7 +1258,7 @@ A worked example, expanded for readability and trimmed to one row per breakdown.
       "share": 0.4444,
       "duration_seconds": {"p50": 150, "p95": 169, "mean": 155, "samples": 4},
       "mean_turns": 2.5,
-      "tokens": {"input": 145100, "output": 27700, "total": 172800, "cache_read": 56360, "cache_write": 8100},
+      "tokens": {"input": 145100, "output": 27700, "total": 172800, "cache_read": 56360, "cache_write": 8100, "uncached": 116440},
       "cost_usd": 2.54,
       "cost_per_succeeded_run_usd": 0.64,
       "tokens_unmeasured_runs": 0,
@@ -1268,7 +1275,7 @@ A worked example, expanded for readability and trimmed to one row per breakdown.
       "share": 0.4444,
       "duration_seconds": {"p50": 150, "p95": 169, "mean": 155, "samples": 4},
       "mean_turns": 2.5,
-      "tokens": {"input": 145100, "output": 27700, "total": 172800, "cache_read": 56360, "cache_write": 8100},
+      "tokens": {"input": 145100, "output": 27700, "total": 172800, "cache_read": 56360, "cache_write": 8100, "uncached": 116440},
       "cost_usd": 2.54,
       "cost_per_succeeded_run_usd": 0.64,
       "tokens_unmeasured_runs": 0,

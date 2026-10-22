@@ -325,7 +325,7 @@ The adapter implements the SCM contract's six read operations. Every route uses 
 
 | Operation | Gitea route(s) |
 |---|---|
-| Review decision | `GET /repos/{owner}/{repo}/pulls/{index}/reviews`, `GET .../pulls/{index}` |
+| Review decision | `GET /repos/{owner}/{repo}/pulls/{index}/reviews`, `GET .../pulls/{index}`, `GET .../branches/{branch}` |
 | Mergeability | `GET .../pulls/{index}` |
 | CI status | `GET .../pulls/{index}`, `GET .../commits/{sha}/status` |
 | Pending reviews | `GET .../pulls/{index}/reviews`, `GET .../pulls/{index}/reviews/{id}/comments` |
@@ -340,7 +340,17 @@ The review-decision read folds the review list, since Gitea has no aggregate fie
 
 The ordering is load-bearing, so a `submitted_at` that is not a valid RFC 3339 value fails the read rather than sorting the review to the epoch, where a superseded approval could outrank the changes-requested review that supersedes it. Only reviews that can change the verdict are parsed, so a dismissed or non-decision review cannot fail the read.
 
-Any standing `REQUEST_CHANGES` yields the changes-requested decision; otherwise any `APPROVED` yields approved; otherwise a non-empty `requested_reviewers` list on the PR yields review-required; otherwise not-required.
+The read also learns how many approvals the pull request still needs. It reads the pull request's base branch from `GET .../pulls/{index}` and then that branch from `GET .../branches/{branch}`, whose `required_approvals` field carries the approval count of the branch protection. A branch without a protection answers 404, which the adapter reads as zero required approvals; any other failure on that read, including an authorization failure, fails the review-decision read. Only a review the protection counts (Gitea marks it `official`) counts toward the required number; an approval from a reviewer the protection does not count still yields approved when no rule is unmet, but never satisfies the rule. The rule is unmet when fewer reviewers than required have an official approval as their latest review.
+
+The decision is the first of these that holds:
+
+1. A standing `REQUEST_CHANGES` yields changes-requested.
+2. An unmet approval rule yields review-required.
+3. Any `APPROVED` yields approved.
+4. A non-empty `requested_reviewers` list on the PR yields review-requested.
+5. Otherwise the decision is not-required.
+
+A requested reviewer on a branch with no unmet rule is review-requested, not review-required. [Waiting on a required approval](/reference/reactions/#waiting-on-a-required-approval) describes what Sortie does with each decision.
 
 Review comments are single-line: the comment object carries `position` but no end-line field. A comment whose anchor a later push removed reports `position: 0`; its line falls back to `original_position` and the comment is marked outdated. A retained review's own body is returned as a PR-level comment alongside its inline comments.
 

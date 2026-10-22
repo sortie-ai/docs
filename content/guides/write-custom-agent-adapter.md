@@ -48,7 +48,7 @@ The orchestrator reacts to a normalized event vocabulary, not to your CLI's nati
 | `turn_cancelled` | `EventTurnCancelled` | The turn was cancelled (context cancellation or stall). |
 | `token_usage` | `EventTokenUsage` | Normalized input, output, total, cache-read, and cache-write counters, plus the same counters per model when the runtime splits its usage by model. Drives token-based budgets and the per-model token series. |
 | `notification` | `EventNotification` | An informational message, surfaced for observability. A frame that carries no text for a person, such as a native event type name, a method name, or a lifecycle marker, is reported with an empty `Message`, never with the frame's name or a placeholder. The orchestrator counts it as activity for stall detection and does not keep it in the run's events. |
-| `tool_result` | `EventToolResult` | A tool call completed. Carries `ToolName` and `ToolDurationMS`. |
+| `tool_result` | `EventToolResult` | A tool call completed. Carries `ToolName`, `ToolDurationMS`, and `ToolError`, plus `ToolKind` and `ToolArgument` for a shell, read, edit, or skill call. See [Report tool calls](#report-tool-calls). |
 | `malformed` | `EventMalformed` | An unparseable line from the agent. |
 
 The data flows like this. `StartSession` receives `StartSessionParams` (the workspace path, an `AgentConfig`, the kind's resolved `Settings` block, an optional `ResumeSessionID` with the optional `ResumeUsage` and `ResumeUsageByModel` that go with it, SSH fields, and an MCP config path) and returns a `Session` whose `Internal any` field carries your adapter state opaquely.
@@ -66,6 +66,8 @@ Set `UsageMeasured` only once the runtime has reported a usage figure for the se
 ### Choose your execution model
 
 Fork-per-turn is the default: one subprocess per turn, launched fresh, scanned while it runs, and reaped on its own exit. Claude Code, Copilot CLI, and OpenCode all work this way. The shared skeleton in `internal/agent/agentcore` implements the lifecycle for you, and the rest of this guide uses it.
+
+Every one-process-per-turn kind runs on `agentcore.NewForkPerTurnSession`. Your adapter keeps only the argv, the line parsing, the usage source, and the environment content. When the runtime needs something the skeleton lacks, add it to `agentcore.ForkPerTurnHooks` in the same pull request instead of writing around it. A contract test fails a package that runs its own streaming subprocess loop.
 
 The exception is the persistent-subprocess model. Codex keeps one long-lived `codex app-server` process and talks to it over a JSON-RPC handshake across turns, instead of forking. Choose it only when the CLI requires a persistent server with a protocol handshake. This guide does not cover that model; read `internal/agent/codex/` and the [Codex adapter reference](/reference/adapter-codex/) if your agent needs it.
 
@@ -179,9 +181,11 @@ A Warn log Sortie emits once per run, naming your kind (see [monitor with logs](
 
 A kind declaring `UsageArrivalTurnEnd` reports through `agentcore.TurnEndUsage` instead of emitting the event or calling `agentcore.FinalizeTurn` yourself. Construct it with `agentcore.NewTurnEndUsage()` exactly once, directly in `StartSession`'s own method body outside every function literal, and store the pointer on your session state; return its `Snapshot()` from `GetUsage`.
 
-In `OnFinalize`, build an `*agentcore.RecoveredUsage{Run, ByModel, Model}` (`ByModel` is nil when your source names no model per count) when this turn settled a figure, or leave it `nil` when it settled nothing, and call `state.usage.Finalize(emit, logger, ev, sessionID, apiDurationMS, recovered, *spend)` in place of `agentcore.FinalizeTurn`: it emits the one `token_usage` event when `recovered` is non-nil, latches the run's measured verdict, and then calls `FinalizeTurn` itself for the turn's terminal event.
+When the figure is due on every ending of a turn, read it in the `SettleUsage` hook instead and settle it with `state.usage.Settle`. The skeleton calls `SettleUsage` once per started turn, after the subprocess is reaped, and `Finalize` then gets `nil` for `recovered`.
 
-`TestUsageDeclarationContractInvariant` in `agentcore` enforces this shape: it fails a `turn_end` package that calls `agentcore.FinalizeTurn` directly, references `domain.EventTokenUsage` directly, or constructs `agentcore.NewTurnEndUsage()` anywhere but that one place. Copilot CLI and OpenCode are the worked examples: both recover their figure from a read that only completes after the subprocess exits, and hand it to `Finalize` as `recovered`.
+When the figure arrives in the stream instead, in `OnFinalize`, build an `*agentcore.RecoveredUsage{Run, ByModel, Model}` (`ByModel` is nil when your source names no model per count) when this turn settled a figure, or leave it `nil` when it settled nothing, and call `state.usage.Finalize(emit, logger, ev, sessionID, apiDurationMS, recovered, *spend)` in place of `agentcore.FinalizeTurn`: it emits the one `token_usage` event when `recovered` is non-nil, latches the run's measured verdict, and then calls `FinalizeTurn` itself for the turn's terminal event.
+
+`TestUsageDeclarationContractInvariant` in `agentcore` enforces this shape: it fails a `turn_end` package that calls `agentcore.FinalizeTurn` directly, references `domain.EventTokenUsage` directly, or constructs `agentcore.NewTurnEndUsage()` anywhere but that one place. Copilot CLI and OpenCode are the worked examples of the `SettleUsage` path: both recover their figure from a read that only completes after the subprocess exits, settle it there, and pass `nil` to `Finalize`.
 
 The two fields move together: `UsageArrivalNone` pairs with `UsageAttributionNone` and with nothing else. Choose `UsageAttributionPerModel` when a usage-bearing event names the model that produced the figure, and `UsageAttributionSessionTotal` when none of them does. Leaving either field at its zero value declares nothing, which the dashboard renders as `not declared`; declare both explicitly.
 
@@ -297,7 +301,7 @@ func (a *ACMEAdapter) StartSession(ctx context.Context, params domain.StartSessi
 
 	state := &sessionState{target: target, passthrough: pt, agentConfig: params.AgentConfig, sessionID: params.ResumeSessionID}
 	hooks := agentcore.ForkPerTurnHooks{ /* BuildArgs, ParseLine, GetUsage, GetSessionID, OnFinalize */ }
-	state.forkSession = agentcore.NewForkPerTurnSession(&state.target, hooks, state.logger())
+	state.forkSession = agentcore.NewForkPerTurnSession(&state.target, hooks, state.baseLogger, state.agentConfig.StopGraceMS)
 
 	return domain.Session{ID: state.sessionID, Internal: state}, nil
 }
@@ -328,6 +332,8 @@ A guard you write yourself is only a shortcut for a runtime that would otherwise
 ### Construct the command
 
 The `BuildArgs` hook returns the per-turn argument slice that the skeleton appends to `LaunchTarget.Args`. Keep the real logic in a `buildArgs` helper and wire the hook to it, so you can test it directly. Pass the prompt after a `--` separator as a single positional argument, never interpolated into a shell string.
+
+A runtime that reads the prompt from standard input, because a prompt beginning with `@` is taken as a file name or one longer than the argument-size limit does not fit in argv, sets `PromptOnStdin` instead and leaves the prompt out of `BuildArgs`. A runtime that needs variables set, or must not inherit some of the parent's, supplies the environment through `TurnEnv`, which returns the process environment and the variables sent on an SSH launch.
 
 ```go {filename="command.go"}
 func buildArgs(state *sessionState, turn int, prompt string, pt passthroughConfig) []string {
@@ -384,9 +390,18 @@ ParseLine: func(line []byte, emit func(domain.AgentEvent), pid string, spend *ag
 				emit(domain.AgentEvent{Type: domain.EventTokenUsage, Usage: snapshot, UsageByModel: state.acc.ByModel(), Model: state.lastModel})
 			}
 		}
+	case "tool_use":
+		state.inFlight.Begin(event.ToolUseID, toolCallOf(event.ToolName, event.ToolInput))
 	case "tool_result":
-		if name, durationMS, ok := state.inFlight.End(event.ToolUseID); ok {
-			emit(domain.AgentEvent{Type: domain.EventToolResult, ToolName: name, ToolDurationMS: durationMS})
+		if call, durationMS, ok := state.inFlight.End(event.ToolUseID); ok {
+			emit(domain.AgentEvent{
+				Type:           domain.EventToolResult,
+				ToolName:       call.Name,
+				ToolKind:       call.Kind,
+				ToolArgument:   call.Argument,
+				ToolDurationMS: durationMS,
+				ToolError:      event.IsError,
+			})
 		}
 	case "result":
 		state.spent = agentcore.AddUsage(state.spent, authoritativeUsage(event))
@@ -401,11 +416,40 @@ ParseLine: func(line []byte, emit func(domain.AgentEvent), pid string, spend *ag
 
 `state.acc` is an `agentcore.RunUsage`, constructed once with `agentcore.NewRunUsage()` in `StartSession` and never reset between turns; `GetUsage` returns its `Snapshot()`. `SetTurnProvisional` replaces the turn's in-flight contribution and returns the raised run-cumulative snapshot to emit; gate the emission on a message id's first sighting, since a streaming CLI can repeat one id across several deltas of the same API request.
 
-`SetRunCumulative` replaces the run's settled total with the figure you pass and drops the turn's provisional contribution, superseding whatever the provisional figures already reported. This sketch assumes each terminal event reports only that process's own spend, so the adapter keeps a running sum (`state.spent`) across turns and settles it. A runtime whose terminal event reports a session-wide figure needs the baseline described under [wire session continuity](#wire-session-continuity) instead. Register tool starts with `ToolTracker.Begin(id, name)` and close them with `End(id)` to get the duration.
+`SetRunCumulative` replaces the run's settled total with the figure you pass and drops the turn's provisional contribution, superseding whatever the provisional figures already reported. This sketch assumes each terminal event reports only that process's own spend, so the adapter keeps a running sum (`state.spent`) across turns and settles it. A runtime whose terminal event reports a session-wide figure needs the baseline described under [wire session continuity](#wire-session-continuity) instead. Register tool starts with `ToolTracker.Begin(id, call)` and close them with `End(id)`, which returns the call and its duration. See [Report tool calls](#report-tool-calls) for how to build the call.
 
 Reset the per-turn state, message ids and tool tracker included, at the top of each `RunTurn`; `RunUsage` is the one field that survives across turns. Return the terminal event reference so the next step can read its status.
 
-Populate every counter the runtime exposes. `InputTokens` includes prompt-cache reads and writes, while `CacheReadTokens` and `CacheWriteTokens` preserve those disjoint subsets for pricing. Set a missing cache counter to zero, and compute `TotalTokens` as input plus output. Use `agentcore.MaxUsage`, `AddUsage`, and `SubtractUsage` instead of local arithmetic so a newly added counter is not dropped by one adapter's fold.
+Set `FirstEventTimeout` for a runtime that can hang before it writes its first line, valued with `agentcore.ReadTimeout` or `agentcore.FirstResponseTimeout` from the agent config. A turn that gets no accepted line within it ends as `response_timeout`. When `ParseLine` sees a stream that is not this turn's, such as a session id that does not match, return `agentcore.EndTurn(kind, message)`: the skeleton ends the turn with that kind and message and passes it no further lines.
+
+Populate every counter the runtime exposes. `InputTokens` includes prompt-cache reads and writes, while `CacheReadTokens` and `CacheWriteTokens` preserve those disjoint subsets for pricing. Set a missing cache counter to zero, and compute `TotalTokens` as input plus output. Use `agentcore.MaxUsage`, `AddUsage`, and `SubtractUsage` instead of local arithmetic so a newly added counter is not dropped by one adapter's fold. A contract test fails an adapter that sums token fields by hand.
+
+#### Report tool calls
+
+A `tool_result` event names the tool and, for four kinds of tool, shows what it worked on. Set these fields from what the runtime sent and nothing else.
+
+1. Map the tool. Declare a table from the runtime's tool names to an `agentcore.ToolMapping`, which pairs a `domain.ToolKind` with the member of the tool's JSON input that holds its main argument. The kinds are `ToolKindShell` (the command), `ToolKindRead` and `ToolKindEdit` (the path), and `ToolKindSkill` (the skill name). A tool that fits none of them stays out of the table.
+
+```go
+var toolMappings = map[string]agentcore.ToolMapping{
+	"run_shell":  {Kind: domain.ToolKindShell, Key: "command"},
+	"read_file":  {Kind: domain.ToolKindRead, Key: "path"},
+	"write_file": {Kind: domain.ToolKindEdit, Key: "path"},
+	"use_skill":  {Kind: domain.ToolKindSkill, Key: "skill"},
+}
+```
+
+2. Build the call when the tool starts. `agentcore.MapToolCall(toolMappings, name, input)` returns an `agentcore.ToolCall` with the name, the kind, and the argument. A name absent from the table gives a call with the name only, and an input without the expected string member gives the kind with no argument. Name a tool the runtime serves from an MCP server or another namespace with `agentcore.QualifiedToolName(server, tool)`, which gives `{server}.{tool}`, and leave its kind and argument empty.
+
+```go
+func toolCallOf(name string, input json.RawMessage) agentcore.ToolCall {
+	return agentcore.MapToolCall(toolMappings, name, input)
+}
+```
+
+3. Store the call in the tracker with `Begin`, and copy `Name`, `Kind`, and `Argument` from the call `End` returns into the `tool_result` event, as the sketch above does.
+
+Do not put a command line, a title, or a protocol item type in `ToolName`, and do not report an argument for any other tool: file contents and tool output stay out of the event. Do not clean the text either. Sortie unwraps a `bash -lc` or `sh -c` shell wrapper, removes the workspace path from a path, replaces control characters, masks registered secrets, and cuts long text once, for every adapter, before it stores, streams, or serves the event. Pass the argument as the runtime sent it, and join several paths of one call with `, `. A kind outside the four is discarded together with its argument.
 
 #### Unstructured output
 
@@ -730,6 +774,8 @@ These steps need repository access an outside contributor does not have. Make th
 **Deciding the turn disposition yourself.** Report evidence through `TurnEvidence` and let `FinalizeTurn` decide. Emitting a terminal event or building a `domain.AgentError` for your own outcome fails the conformance test in `agentcore` and re-forks a rule every other adapter shares.
 
 **Emitting your own `token_usage` event, or calling `agentcore.FinalizeTurn` directly, from a package declaring `UsageArrivalTurnEnd`.** Route through `agentcore.TurnEndUsage.Finalize` instead, covered under [Register the adapter](#register-the-adapter); `TestUsageDeclarationContractInvariant` catches this, a separate check from the `TestDispositionContractInvariant` that catches a hand-rolled turn outcome.
+
+**Copying another adapter's turn loop or helpers instead of adding a skeleton hook.** A private copy drifts from the skeleton's timeout, stop, and usage handling. Add the missing capability to `agentcore.ForkPerTurnHooks` so every kind gets it.
 
 **Inventing a structured stream or fabricating token usage where the CLI provides neither.** If there is no token data, `GetUsage` returns the zero `TokenUsage` and you emit no `token_usage` event. Do not synthesize numbers.
 

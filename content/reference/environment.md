@@ -232,6 +232,7 @@ Rules:
 - No variable interpolation within values. `$HOME` in a `.env` value is the literal string `$HOME`.
 - Real environment variables always take precedence over `.env` values.
 - The `.env` file is re-read on every WORKFLOW.md reload (file change detection). Real env vars require a process restart to change.
+- `tracker.kind`, `tracker.endpoint`, `tracker.api_key`, `tracker.project`, `tracker.query_filter` and `tracker.api_version` are read once, when the tracker adapter is built at startup. A changed value for one of them, also one set through `.env`, takes effect at the next restart. The [dynamic reload table](/reference/workflow-config/#dynamic-reload-1) lists when every other field takes effect.
 
 ### CSV encoding for list fields
 

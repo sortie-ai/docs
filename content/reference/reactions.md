@@ -66,7 +66,7 @@ The budget field differs by kind: `ci_failure` and `auto_merge` use `max_retries
 
 A budget of `0` escalates `ci_failure` and `merge_conflicts` on the first actionable signal with no fix attempt. `auto_merge` is the exception: its escalation check requires `max_retries` greater than zero, so a budget of `0` turns count-based escalation off entirely instead of making it immediate.
 
-Polling is bounded, for every kind, by `watch_window_ms`, a shared and configurable field: once it elapses, the orchestrator drops the entry and logs a warning instead of escalating, so the reaction goes silent with no tracker-visible signal. The window never drops an entry that holds a [standing escalation](#standing-escalations). `review_comments`, `bot_review`, `merge_conflicts`, and `auto_merge` default to thirty minutes. For `auto_merge` the window is measured from the entry's creation. For the other three it is measured from the last time the entry waited for the issue's retry slot, or from the entry's creation when it never has.
+Polling is bounded, for every kind, by `watch_window_ms`, a shared and configurable field: once it elapses, the orchestrator drops the entry and logs a warning instead of escalating, so the reaction goes silent with no tracker-visible signal. The window never drops an entry that holds a [standing escalation](#standing-escalations), and never drops a `review_comments` entry whose pull request is [waiting on a required approval](#waiting-on-a-required-approval). `review_comments`, `bot_review`, `merge_conflicts`, and `auto_merge` default to thirty minutes. For `auto_merge` the window is measured from the entry's creation. For the other three it is measured from the last time the entry waited for the issue's retry slot, or from the entry's creation when it never has.
 
 `ci_failure` defaults instead to twenty-four hours, measured from the last recorded head change rather than from entry creation. Every kind's value must be non-negative and must not exceed `9223372036854` (about 292 years); `0` removes the bound entirely, and where the bound does apply, the entry drops with the same silent warning and no escalation. A pending reaction's `watch_ends_at` in the [HTTP API](/reference/http-api/#field-notes) reports when its window ends.
 
@@ -77,7 +77,7 @@ An authentication-class or payload-class merge error still escalates `auto_merge
 - `review_comments`: any new comment ID counts, including a review summary.
 - `bot_review`: only a comment on the code counts, meaning one tied to a file. Items a bot posts only in its review summary, with no file attached, never escalate on their own and stay visible on the pull request.
 
-A poll that finds only comments a run was already given, or finds the review resolved, does not escalate. The entry keeps polling at `poll_interval_ms` and logs a debug line, until a new comment arrives, `watch_window_ms` drops the entry, or the issue reaches a terminal state. A spent counter survives the watch window dropping the entry, so an entry created later for the same issue starts with the budget still spent.
+A poll that finds only comments a run was already given, or finds the review resolved, does not escalate. The entry keeps polling at `poll_interval_ms` and logs a debug line, until a new comment arrives, `watch_window_ms` drops the entry (a pull request [waiting on a required approval](#waiting-on-a-required-approval) is held past it), or the issue reaches a terminal state. A spent counter survives the watch window dropping the entry, so an entry created later for the same issue starts with the budget still spent.
 
 While turns remain, nothing changes: a summary-only bot re-review still dispatches a continuation turn, and a [triage command](#triage-command) that answers `handled` is the way to keep a re-review known to be clean from spending one.
 
@@ -433,7 +433,7 @@ Bot-authored comments are excluded when the forge marks their author as a bot ac
 | `poll_interval_ms`       | integer | `120000` | Minimum interval between review API polls per issue. Minimum: `30000`.                     |
 | `debounce_ms`            | integer | `60000`  | Wait after the newest detected comment before dispatching. Must be non-negative.           |
 | `max_continuation_turns` | integer | `3`      | Hard cap on review-triggered continuations per PR. Must be positive.                       |
-| `watch_window_ms`        | integer | `1800000` | Milliseconds a pending entry is kept (thirty minutes by default), measured from the last time the entry waited for the issue's retry slot, or from its creation when it never has. Must be non-negative and must not exceed `9223372036854` (about 292 years). `0` removes the bound. A standing escalation is never aged out. |
+| `watch_window_ms`        | integer | `1800000` | Milliseconds a pending entry is kept (thirty minutes by default), measured from the last time the entry waited for the issue's retry slot, or from its creation when it never has. Must be non-negative and must not exceed `9223372036854` (about 292 years). `0` removes the bound. A standing escalation is never aged out, and neither is an entry [waiting on a required approval](#waiting-on-a-required-approval). |
 
 **Activation:** active when `provider` names a registered SCM adapter. Pull requests are watched for review comments only while this block is present; another reaction kind alone does not start review polling. The agent or an `after_run` hook must write `pr_number` (positive integer), `owner`, and `repo` to `.sortie/scm.json` in the workspace. When any field is missing or zero, review polling is skipped for that workspace with no error.
 
@@ -454,6 +454,36 @@ reactions:
     debounce_ms: 60000
     max_continuation_turns: 3
 ```
+
+#### Waiting on a required approval
+
+A `review_comments` entry is waiting on approval when a check finds no comment to answer and the forge reports that an approval the branch rules require is still missing. This is the state of a pull request that passed its checks and waits only for a person to approve it, as in a workflow that leaves the merge to people.
+
+Each provider reports the missing approval from its own data:
+
+| Provider | Reports a missing required approval when |
+| -------- | ---------------------------------------- |
+| `github` | GitHub's review decision for the pull request is `REVIEW_REQUIRED`. |
+| `gitlab` | The merge request's approvals payload reports approvals left above zero. GitLab Community Edition omits that field, so a `gitlab` pull request there never waits on approval. |
+| `gitea` | The base branch protection requires more approvals than the pull request holds. Only official approvals count, each reviewer counts by their latest review, and a dismissed review does not count. A base branch whose protection cannot be read (HTTP 404) requires none. |
+
+A reviewer who is requested or assigned but not required by a rule does not put the entry in this state, and neither does a standing request for changes: its comments are answered under the usual rules.
+
+While the entry waits on approval:
+
+- `watch_window_ms` does not drop it. The window still applies to a check that has not recorded the wait: an entry whose window elapsed before a check found the approval missing is dropped as usual.
+- Every check reads the pull request, its review comments, and the review decision at `poll_interval_ms`, for as long as the approval takes. A longer `poll_interval_ms` lowers the forge API cost.
+- A check that cannot read the review decision keeps the previous reading.
+
+The wait ends at the first check that finds any of these:
+
+- The pull request merged, closed, or no longer exists. The entry is dropped and an info line is logged.
+- The forge no longer reports the approval missing. The entry follows `watch_window_ms` again, and is dropped at that check when the window has already elapsed.
+- A comment to answer. The entry handles it as it does any comment, except that a window that has already elapsed drops the entry instead, with the usual warning and no dispatch.
+
+The tracker issue reaching a terminal state also ends the entry, as it does for every kind.
+
+An operator sees the wait on the dashboard as the "waiting on approval" reading of the Review station (see [status word and mark](/reference/dashboard/#status-word-and-mark)), and in the [HTTP API](/reference/http-api/#field-notes) as `last_check.awaiting_approval` on the `review` row of `pending_reactions`, with `watch_ends_at` `null` and a `status_text` of `Waiting on approval of #<number>`.
 
 ### `reactions.bot_review`
 
@@ -677,7 +707,7 @@ A failure in either leaves the observation recorded as undelivered, and the esca
 
 Once delivery is marked, a later pass keeps watching without repeating the signal. The observation row is also cleared whenever the issue is missing from the tracker's state response, is already terminal, or has left the handoff state, and when the pull request is gone from the forge.
 
-**No expiry:** the pending entry carries no time-to-live. `review_comments`, `bot_review`, `merge_conflicts`, and `auto_merge` each bound their entry with `watch_window_ms`, defaulting to thirty minutes, and `ci_failure` bounds its own with the same field, defaulting instead to twenty-four hours, because each waits on a signal that either arrives shortly after the agent finishes or does not arrive at all.
+**No expiry:** the pending entry carries no time-to-live. `review_comments`, `bot_review`, `merge_conflicts`, and `auto_merge` each bound their entry with `watch_window_ms`, defaulting to thirty minutes, and `ci_failure` bounds its own with the same field, defaulting instead to twenty-four hours, because each waits on a signal that either arrives shortly after the agent finishes or does not arrive at all. The one exception is a `review_comments` entry [waiting on a required approval](#waiting-on-a-required-approval), which the window does not drop.
 
 A merge waits on human review for an unbounded time, so this kind takes the same posture as the label commands and carries no expiry.
 

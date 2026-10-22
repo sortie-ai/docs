@@ -241,9 +241,25 @@ The adapter observes tool execution by correlating `tool.execution_start` and `t
 
 ### Correlation
 
-1. A `tool.execution_start` event records the tool name and a start time, keyed by `toolCallId`.
+1. A `tool.execution_start` event records the call, as described under [Tool kind and argument](#tool-kind-and-argument), and a start time, keyed by `toolCallId`.
 2. A `tool.execution_complete` event looks up the matching `toolCallId`.
-3. On a match, the adapter emits a `tool_result` event carrying the tool name, how long the call took since that start time, and whether it errored, inverted from the `success` field. With no match (the completion arrived without a recorded start), the event still fires, carrying the tool name from the completion event and a duration of `0`.
+3. On a match, the adapter emits a `tool_result` event carrying the recorded tool name, kind and argument, how long the call took since that start time, and whether it errored, inverted from the `success` field. With no match (the completion arrived without a recorded start), the event still fires, with no tool name, kind or argument and a duration of `0`.
+
+### Tool kind and argument
+
+The adapter gives each call a kind and one main argument, both read from the `tool.execution_start` event. Which members the event serves, and how they show in the session view, are on the [HTTP API](/reference/http-api/) and [dashboard](/reference/dashboard/#session-view) pages.
+
+| Copilot CLI tool | Kind | Argument comes from the input member |
+|---|---|---|
+| `bash` | `shell` | `command` |
+| `view` | `read` | `path` |
+| `create` | `edit` | `path` |
+| `edit` | `edit` | `path` |
+| `skill` | `skill` | `skill` |
+
+A tool outside this table has its name and no kind or argument. A call in the table whose input is not a JSON object, or has no string member of the listed name, has its kind and no argument. The argument is that one member only; no other input of the call is read or carried.
+
+An MCP call is named `{server}.{tool}`, from the `mcpServerName` and `mcpToolName` members of the start event, and has no kind or argument. The name applies only when both members are present; otherwise the call is treated as any other tool, by its `toolName`.
 
 ### Tool error detail
 

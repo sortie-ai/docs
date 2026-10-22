@@ -256,12 +256,21 @@ The adapter routes no tool call of its own. Sortie's tools reach the session as 
 
 ### Item-level correlation
 
-1. An `item/started` notification with `type` in `commandExecution`, `fileChange`, `mcpToolCall`, or `dynamicToolCall` records the tool name and a start time, keyed by `item.id`.
-2. An `item/completed` notification looks up the matching `item.id`. When found, the adapter emits a `tool_result` event carrying the tool name and how long the call took.
+1. An `item/started` notification with `type` in `commandExecution`, `fileChange`, `mcpToolCall`, or `dynamicToolCall` records the call and a start time, keyed by `item.id`. Other item types start no call.
+2. An `item/completed` notification looks up the matching `item.id`. When found, the adapter emits a `tool_result` event carrying the call and how long it took.
+
+| Item `type` | Name | Kind | Argument |
+|---|---|---|---|
+| `commandExecution` | none | `shell` | The item's `command`. |
+| `fileChange` | none | `edit` | The `path` of each entry in the item's `changes`, joined with `, ` in order. Empty when `changes` is not a list. |
+| `mcpToolCall` | The item's `tool`, prefixed with its `server` and a dot when a server is named. | none | none |
+| `dynamicToolCall` | The item's `tool`, prefixed with its `namespace` and a dot when a namespace is named. | none | none |
+
+The protocol item type is never used as a name. [The HTTP API](/reference/http-api/) serves these members and [the session view](/reference/dashboard/#session-view) shows them.
 
 ### Tool error detail
 
-Item-level tool errors are not extracted from event payloads. A `tool_result` event from this adapter carries the tool name and duration and never sets the error flag.
+The adapter extracts no error text from item payloads. A `tool_result` event sets the error flag when the item's `status` is `failed` or `declined`.
 
 ---
 

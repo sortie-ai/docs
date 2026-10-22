@@ -506,11 +506,12 @@ The adapter never reports [`unstable`](/reference/reactions/#normalized-mergeabi
 The review-decision read finds no aggregate review-decision field. It folds the decision from two reads, the per-reviewer states and the merge request's approvals payload, evaluated in this order:
 
 1. Any reviewer's state is `requested_changes` → `CHANGES_REQUESTED`, decided before the approvals read.
-2. The approvals payload reports `approved: true` → `APPROVED`.
-3. The merge request has at least one reviewer → `REVIEW_REQUIRED`.
-4. No reviewers and no approval → `NOT_REQUIRED`.
+2. The approvals payload reports `approvals_left` above zero → `REVIEW_REQUIRED`, with or without a reviewer.
+3. The approvals payload reports `approved: true` → `APPROVED`.
+4. The merge request has at least one reviewer → `REVIEW_REQUESTED`.
+5. No reviewers and no approval → `NOT_REQUIRED`.
 
-The changes-requested rule is checked first and applies unconditionally, so a later approval from a second reviewer can never clear an outstanding change request. The last rule is the one to read closely: the fold treats a merge request with no reviewer assigned as unreviewed rather than pending, and `NOT_REQUIRED` lets auto-merge proceed on it. Assigning a reviewer is what moves such a merge request to `REVIEW_REQUIRED`. Whether the instance can also require approval by rule is a GitLab subscription question; the adapter reads no approval-rule route and never consults one.
+The changes-requested rule is checked first and applies unconditionally, so a later approval from a second reviewer can never clear an outstanding change request. An unmet approval rule is checked before approval, so a merge request that still owes an approval reports `REVIEW_REQUIRED` even when the payload also reports `approved: true`. Only Enterprise Edition reports `approvals_left` above zero, because Community Edition has no approval rules; there the adapter never yields `REVIEW_REQUIRED`, and an assigned reviewer, reached only when rules 1 to 3 did not apply, yields `REVIEW_REQUESTED`. The adapter reads no approval-rule route; it relies on the approvals payload alone. The last rule is the one to read closely: the fold treats a merge request with no reviewer assigned and no unmet rule as unreviewed rather than pending, and `NOT_REQUIRED` lets auto-merge proceed on it. Assigning a reviewer is what moves such a merge request to `REVIEW_REQUESTED`. What Sortie does with each decision is described under [waiting on a required approval](/reference/reactions/#waiting-on-a-required-approval).
 
 ### Bot classification
 

@@ -437,7 +437,7 @@ Directory modification time is not used, and was rejected deliberately: lifecycl
 
 A workspace with neither timestamp is retained, never removed. Absence of a record is not evidence of age, and that case covers a run that never completed, a directory produced by an operator or a hook, and a directory Sortie did not create.
 
-Two exclusions are absolute. A workspace whose issue holds an entry in the running map or the retry map is never removed, whatever its age and however large the directory. A workspace pinned by an unexpired pending reaction is excluded until that entry expires, a bound set by that reaction kind's `watch_window_ms` (30 minutes by default, up to 24 hours by default for `ci_failure`), or until its standing escalation ends, which no window ages out; see the [reactions reference](/reference/reactions/#retry-budgets) for which reaction kinds pin a workspace and which do not. Everything else on disk is a candidate.
+Two exclusions are absolute. A workspace whose issue holds an entry in the running map or the retry map is never removed, whatever its age and however large the directory. A workspace pinned by an unexpired pending reaction is excluded until that entry expires, a bound set by that reaction kind's `watch_window_ms` (30 minutes by default, up to 24 hours by default for `ci_failure`), or until its standing escalation ends, which no window ages out. A `review_comments` entry whose pull request is [waiting on a required approval](/reference/reactions/#waiting-on-a-required-approval) is held past the window too; see the [reactions reference](/reference/reactions/#retry-budgets) for which reaction kinds pin a workspace and which do not. Everything else on disk is a candidate.
 
 The bound removes directories and does nothing else. It performs no tracker write, no source-control write, and no change to reaction state, so a workspace removed by age leaves every reaction latch exactly as it found it. Removal runs through the same path as terminal cleanup, so workspace key sanitization, containment under `root`, and the [`before_remove` hook](/guides/setup-workspace-hooks/) all apply unchanged.
 
@@ -1072,7 +1072,7 @@ Polls `CHANGES_REQUESTED` review comments on Sortie-created PRs and dispatches c
 | `poll_interval_ms`       | integer | `120000`       | Minimum interval between review API polls per issue. Minimum: `30000`.                               |
 | `debounce_ms`            | integer | `60000`        | Wait time after last detected comment before dispatch. Non-negative.                                 |
 | `max_continuation_turns` | integer | `3`            | Hard cap on review-triggered continuations per PR before escalation. Positive integer.               |
-| `watch_window_ms`        | integer | `1800000`      | Milliseconds a pending entry is kept, measured from the last time the entry waited for the issue's retry slot, or from its creation when it never has. Non-negative, not above `9223372036854` (about 292 years); `0` removes the bound. A standing escalation is never aged out.  |
+| `watch_window_ms`        | integer | `1800000`      | Milliseconds a pending entry is kept, measured from the last time the entry waited for the issue's retry slot, or from its creation when it never has. Non-negative, not above `9223372036854` (about 292 years); `0` removes the bound. A standing escalation is never aged out, and neither is an entry [waiting on a required approval](/reference/reactions/#waiting-on-a-required-approval). |
 
 `provider` is required when `reactions.review_comments` is present; omitting it does not produce an error, but review polling is inactive without a provider.
 
@@ -2150,7 +2150,9 @@ Sortie watches `WORKFLOW.md` for filesystem changes and re-applies configuration
 | `agent.max_daily_cost_usd`, `agent.max_monthly_cost_usd` | Next poll tick, and the next check of a held retry. |
 | `agent.token_warning_percent`          | Next poll tick for a run already running and not yet warned; runs dispatched after the reload use it from the start. A running session's `cost_budget` reading, `warning_tokens` and `budget_tokens` alike, reflects whatever WORKFLOW.md said when its tool server last started: on a kind that launches a fresh process each turn, that is the next turn; on a kind with a persistent process for the whole session, not until the next dispatch. |
 | `agent.max_consecutive_absences`       | Next worker exit, retry evaluation, or poll-tick park sweep. |
-| `tracker.*`                            | Future dispatches and reconciliation.  |
+| `tracker.kind`, `tracker.endpoint`, `tracker.api_key`, `tracker.project`, `tracker.query_filter`, `tracker.api_version` | Requires restart. The tracker adapter is built once at startup with these values, so a reload neither rebuilds it nor changes what it queries. The reload is not refused; the running adapter stays in use, also for a value set through `.env`. |
+| `tracker.active_states`, `tracker.terminal_states`, `tracker.handoff_state`, `tracker.no_change_state` | Future dispatches and reconciliation. The adapter and the orchestrator read these from the active configuration, so a reloaded value applies without a restart. |
+| `tracker.in_progress_state`, `tracker.handoff_evidence` | Future worker attempts. |
 | `tracker.comments.on_dispatch`         | Future dispatches.                     |
 | `tracker.comments.on_completion`, `tracker.comments.on_failure` | Future worker exits. Both toggles are evaluated against the active configuration when a worker exits, so a reload can change whether an in-flight session posts its completion or failure comment. |
 | `hooks.*`                              | Future hook executions.                |

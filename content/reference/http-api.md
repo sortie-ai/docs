@@ -106,7 +106,7 @@ The route accepts `GET` and `HEAD`. Sortie's HTTP server has no authentication, 
 
 ## GET /api/v1/state: System state
 
-Returns a full runtime snapshot: running sessions, retry queue, budget-exhausted and parked issues, pending pull request reactions, issues between stages, one entry per active issue in a stable order, the list of what needs a person, aggregate totals, rate limits, the workflow configuration in effect, the health of Sortie's own checks, the Sortie version, and the time the process started.
+Returns a full runtime snapshot: running sessions, retry queue, budget-exhausted and parked issues, pending pull request reactions, issues between stages, one entry per active issue in a stable order, the list of what needs a person, aggregate totals, rate limits, the workflow configuration in effect, which names the tracker kind and project, the health of Sortie's own checks, the Sortie version, and the time the process started.
 
 ```sh
 curl http://localhost:7678/api/v1/state
@@ -167,6 +167,7 @@ curl http://localhost:7678/api/v1/state
       "requests_by_model": {
         "<model-id-reported-by-the-agent>": 12
       },
+      "skills": [{"skill": "ce-plan"}, {"skill": "ce-work", "tool_error": true}],
       "tool_time_percent": 34.7,
       "api_time_percent": 51.2,
       "tokens_measured": true,
@@ -412,7 +413,8 @@ curl http://localhost:7678/api/v1/state
       "configured_model": "claude-sonnet-4-5",
       "dispatched_at": "2026-03-26T13:31:07Z",
       "status_text": "Held: session budget reached",
-      "status_text_full": "Held at the session budget of 3. Sessions used: 3."
+      "status_text_full": "Held at the session budget of 3. Sessions used: 3.",
+      "pr_loop": {"ci_failure": {"result": "unrecorded", "continuations": 0}, "review_comments": {"result": "unrecorded", "continuations": 0}, "bot_review": {"result": "unrecorded", "continuations": 0}, "merge_conflicts": {"result": "unrecorded", "continuations": 0}, "auto_merge": {"result": "unrecorded", "continuations": 0}}
     },
     {
       "issue_id": "abc123",
@@ -426,7 +428,8 @@ curl http://localhost:7678/api/v1/state
       "configured_model": "claude-sonnet-4-5",
       "dispatched_at": "2026-03-26T13:41:08Z",
       "status_text": "Turn 7",
-      "status_text_full": "Running, turn 7."
+      "status_text_full": "Running, turn 7.",
+      "pr_loop": {"ci_failure": {"result": "unrecorded", "continuations": 0}, "review_comments": {"result": "unrecorded", "continuations": 0}, "bot_review": {"result": "unrecorded", "continuations": 0}, "merge_conflicts": {"result": "unrecorded", "continuations": 0}, "auto_merge": {"result": "unrecorded", "continuations": 0}}
     },
     {
       "issue_id": "jkl012",
@@ -440,7 +443,8 @@ curl http://localhost:7678/api/v1/state
       "configured_model": "claude-sonnet-4-5",
       "dispatched_at": "2026-03-26T13:41:20Z",
       "status_text": "Parked: the agent needs a person",
-      "status_text_full": "Parked: the agent stopped because it cannot go on without a person. Parking label: `needs-human`."
+      "status_text_full": "Parked: the agent stopped because it cannot go on without a person. Parking label: `needs-human`.",
+      "pr_loop": {"ci_failure": {"result": "unrecorded", "continuations": 0}, "review_comments": {"result": "unrecorded", "continuations": 0}, "bot_review": {"result": "unrecorded", "continuations": 0}, "merge_conflicts": {"result": "unrecorded", "continuations": 0}, "auto_merge": {"result": "unrecorded", "continuations": 0}}
     },
     {
       "issue_id": "mno345",
@@ -460,7 +464,8 @@ curl http://localhost:7678/api/v1/state
       "reaction_kind": "ci",
       "dispatched_at": "2026-03-26T13:58:03Z",
       "status_text": "CI escalated on #931",
-      "status_text_full": "Sortie escalated failing CI on PR #931; it keeps watching the pull request. CI fixes used: 2 of 2."
+      "status_text_full": "Sortie escalated failing CI on PR #931; it keeps watching the pull request. CI fixes used: 2 of 2.",
+      "pr_loop": {"ci_failure": {"result": "escalated", "continuations": 2}, "review_comments": {"result": "acted", "continuations": 1}, "bot_review": {"result": "quiet", "continuations": 0}, "merge_conflicts": {"result": "quiet", "continuations": 0}, "auto_merge": {"result": "unrecorded", "continuations": 0}}
     },
     {
       "issue_id": "def456",
@@ -479,7 +484,8 @@ curl http://localhost:7678/api/v1/state
       "configured_model": "claude-sonnet-4-5",
       "dispatched_at": "2026-03-26T14:02:41Z",
       "status_text": "Retry 3 in 5m: no agent slot was free",
-      "status_text_full": "The retry came due and was not dispatched: no agent slot was free. Retry 3 in 5m."
+      "status_text_full": "The retry came due and was not dispatched: no agent slot was free. Retry 3 in 5m.",
+      "pr_loop": {"ci_failure": {"result": "unrecorded", "continuations": 0}, "review_comments": {"result": "unrecorded", "continuations": 0}, "bot_review": {"result": "unrecorded", "continuations": 0}, "merge_conflicts": {"result": "unrecorded", "continuations": 0}, "auto_merge": {"result": "unrecorded", "continuations": 0}}
     },
     {
       "issue_id": "stu901",
@@ -498,7 +504,8 @@ curl http://localhost:7678/api/v1/state
       "configured_model": "claude-sonnet-4-5",
       "dispatched_at": "2026-03-26T14:03:41Z",
       "status_text": "Between stages: specify to implement",
-      "status_text_full": "Moved from stage specify to stage implement, and Sortie added `stage-implement`; implement starts when a poll tick reads that label on the issue."
+      "status_text_full": "Moved from stage specify to stage implement, and Sortie added `stage-implement`; implement starts when a poll tick reads that label on the issue.",
+      "pr_loop": {"ci_failure": {"result": "unrecorded", "continuations": 0}, "review_comments": {"result": "unrecorded", "continuations": 0}, "bot_review": {"result": "unrecorded", "continuations": 0}, "merge_conflicts": {"result": "unrecorded", "continuations": 0}, "auto_merge": {"result": "unrecorded", "continuations": 0}}
     }
   ],
   "attention": [
@@ -622,6 +629,7 @@ curl http://localhost:7678/api/v1/state
   "config": {
     "tracker": {
       "kind": "jira",
+      "project": "PROJ",
       "active_states": ["To Do", "In Progress"],
       "in_progress_state": "In Progress",
       "handoff_state": "In Review",
@@ -788,6 +796,7 @@ curl http://localhost:7678/api/v1/state
 | `configured_effort` | The `effort` this attempt's resolved settings carry. Omitted when none is configured. |
 | `api_request_count` | Count of LLM API requests, one per `token_usage` event received during this session. Integer or `null`, and `null` exactly when `api_requests_measured` is `false`. |
 | `requests_by_model` | Breakdown of API requests per model. Omitted when `api_requests_measured` is `false`, when `usage_attribution` is anything other than `"per_model"`, or when the breakdown is empty. |
+| `skills` | The session's skill calls so far, in completion order, as the elements of `skills` on a [run](#get-apiv1runs-run-history) are. Omitted until the run has completed a skill call, and for an agent that reports none. |
 | `tool_time_percent` | Percentage of elapsed wall-clock time spent in tool execution. `null` when not yet computed. |
 | `api_time_percent` | Percentage of elapsed wall-clock time spent waiting on API calls. `null` when not yet computed. |
 | `usage_arrival` | When this session's token figures arrive, frozen at dispatch from the agent kind, its configuration, and whether the session runs over SSH. `"incremental"` (one figure per LLM API request, while the turn is still running), `"turn_end"` (at most one figure per turn, after the turn's work is over), `"none"` (no figure is ever produced), or `""` when the kind declares nothing. |
@@ -867,6 +876,7 @@ The dashboard shows both values. Completed runs keep all three; see [model and e
 | `issue_type` | The tracker's issue type. Omitted when empty or unread. Masked like the running row's. |
 | `issue_labels` | The issue's labels, lowercase and in the tracker's order. `[]` when the issue was read and carries none. Omitted while the retry holds no read of its labels, so an unread issue never reads as one without labels. Masked like the running row's. |
 | `state` | The tracker state of the issue. Omitted when empty or unread. Masked like the running row's. |
+| `due_at` | When the retry comes due, in UTC. Always present. A [request to run the retry now](#post-apiv1retriesidentifierrun-run-a-scheduled-retry-now) replaces a later value with the time Sortie takes the request. |
 | `dispatched_at` | When Sortie dispatched the first run of the pass the retry continues, in UTC. Always present; `null` when the pass cannot be dated. See [dispatch time and stage position](#dispatch-time-and-stage-position). |
 | `trigger` | The `sortie_retries_total` label of the schedule that created the retry: `error`, `continuation`, `timer`, `stall`, or `ci_fix`. See the [metrics reference](/reference/prometheus-metrics/#counters). Omitted for a review, bot review, merge conflict, or label command continuation, which `reaction_kind` names instead, and for a retry restored from a row stored by an earlier release until it next comes due. |
 | `reaction_kind` | The reaction behind the retry: `ci`, `review`, `bot-review`, `merge`, `merge-conflict`, `label-review`, `label-fix`, or `merge-completion`. Omitted when the retry carries none. An `error` or `stall` retry of a run that a reaction dispatched carries that run's kind, and a `timer` row keeps the kind of the retry it replaced. |
@@ -968,7 +978,7 @@ Pending reactions live in memory, except for a standing escalation, which Sortie
 | `max_attempts` | Integer or `null`. The budget the kind's pass applies, as of the latest poll tick. `null` when the pass applies none: for `label-review` and `label-fix`, and for `merge` when `max_retries` is `0`. |
 | `escalated_at` | String or `null`. When the standing escalation of the reaction began, in UTC. Always present; `null` while none stands. Every kind that escalates stays pending while its escalation stands, and serves the time the escalation began, which a recheck does not move. The escalation survives a restart. What ends it depends on the kind; see [standing escalations](/reference/reactions/#standing-escalations). When `config.reactions[config_key].escalation` is `"label"`, the label an escalation applies is that block's `escalation_label`. |
 | `escalation_trigger` | String or absent. Present exactly while `escalated_at` is non-null. Why the escalation began: `budget_exhausted` (the kind used up its tries), `triage` (the kind's triage command asked for a person), `refused` (the forge or the tracker answered a write with an authentication or payload error; on `merge` and `merge-completion`), or `missing_merge_commit` (the forge reports the pull request merged but gives no merge commit after the grace period; on `merge-completion`). |
-| `watch_ends_at` | String or `null`. When the reaction stops watching the pull request unless its watch restarts first, in UTC: the kind's `watch_window_ms`, as the process applies it, added to the instant the kind measures the window from. Always present. `ci` measures from when it last recorded a new head commit, or from `created_at` while it has recorded none, so a new head moves the value. `review`, `bot-review`, and `merge-conflict` measure from their latest wait for the retry slot, which restarts the watch, or from `created_at` when they have not waited. `merge` measures from `created_at`. `null` for `merge-completion`, `label-review`, and `label-fix`, which have no watch window, when `watch_window_ms` is `0`, and while an escalation stands, because no window ages out a standing escalation. |
+| `watch_ends_at` | String or `null`. When the reaction stops watching the pull request unless its watch restarts first, in UTC: the kind's `watch_window_ms`, as the process applies it, added to the instant the kind measures the window from. Always present. `ci` measures from when it last recorded a new head commit, or from `created_at` while it has recorded none, so a new head moves the value. `review`, `bot-review`, and `merge-conflict` measure from their latest wait for the retry slot, which restarts the watch, or from `created_at` when they have not waited. `merge` measures from `created_at`. `null` for `merge-completion`, `label-review`, and `label-fix`, which have no watch window, when `watch_window_ms` is `0`, while an escalation stands, because no window ages out a standing escalation, and for a `review` reaction whose latest check has `awaiting_approval`, because Sortie holds that watch past its window. |
 | `last_check` | Object or `null`. What the latest completed check observed; keys below. Always present. `null` before the first check completes, and always `null` for `merge`, `merge-completion`, `label-review`, and `label-fix`. A new result replaces the previous one. For `ci` it is cleared when the head changes. |
 | `rule_name` | Name of the [dispatch rule](/reference/workflow-config/#dispatch) of the run the reaction follows. Omitted when no rule routed that run. |
 | `agent_kind` | The agent kind of the run the reaction follows. Omitted when empty. |
@@ -981,7 +991,7 @@ Pending reactions live in memory, except for a standing escalation, which Sortie
 |---|---|
 | `number` | The pull request number. |
 | `repository` | `owner/repo`, as the pull request record the run left in its workspace holds them. Masked. |
-| `url` | The pull request's web page as the provider reported it on the latest read. Omitted until a read reports one. Masked. |
+| `url` | The pull request's web page as the provider reported it on the latest read. Omitted until a read reports one. A `review` reaction that is awaiting approval reads the pull request on every due check, so the link follows the pull request for as long as the hold lasts. Masked. |
 | `branch` | The head branch that record holds. Omitted for `label-review` and `merge-completion`, which keep none. Masked. |
 | `head_sha` | The head commit that record holds. Omitted when none was recorded, and for `label-review`, `label-fix`, and `merge-completion`. Masked. A later push does not change it; `last_check.head_sha` reports the head a check read. |
 
@@ -996,8 +1006,26 @@ Pending reactions live in memory, except for a standing escalation, which Sortie
 | `failing`, `pending`, `passing` | `ci` | The check runs by outcome. |
 | `actionable_comments` | `review`, `bot-review` | The comments the check found actionable: not outdated and, for `review`, not authored by an account in `reactions.bot_review.bot_usernames`. A comment a run was already given counts until the forge reports it outdated. |
 | `new_comments` | `review`, `bot-review` | Those of `actionable_comments` the reaction acts on next: no run was given them, the reaction has not already reported them, and the running turn does not carry them. |
-| `handled` | `bot-review` | `true` while the newest [triage](/reference/reactions/#triage-command) answer Sortie recorded for the comment set the check found is `handled`, so Sortie starts no session for it. Omitted otherwise, never `false`. A comment set that differs from the answered one carries no `handled`. The answer survives a restart and returns with the first completed check. |
+| `handled` | `bot-review` | `true` while the newest [triage](/reference/reactions/#triage-command) answer Sortie recorded for the comment set the check found is `handled`, so Sortie starts no session for it. Omitted otherwise, never `false`. A comment set that differs from the answered one carries no `handled`. The answer survives a restart and returns with the first completed check. The row's `status_text` reads `Bot review of #<number> handled`. |
+| `awaiting_approval` | `review` | `true` when the check found no comment to answer and the forge reports that a required approval is still missing. Omitted otherwise, never `false`, and never present on `bot-review`. A request for changes does not set it. A check that cannot read the review decision keeps the previous value, and each completed check replaces it. While it is `true`, Sortie holds the watch past `reactions.review_comments.watch_window_ms` and `watch_ends_at` is `null`. The row's `status_text` reads `Waiting on approval of #<number>`. |
 | `mergeable` | `merge-conflict` | `false` when the provider reports merge conflicts, `true` when it reports none, `null` while the provider has not computed mergeability. A branch-protection block is not a conflict. |
+
+A `review` row that waits on a required approval, showing only the fields that differ from the `review` row above:
+
+```json
+{
+  "wait": "poll_interval",
+  "watch_ends_at": null,
+  "last_check": {
+    "observed_at": "2026-03-26T14:29:58Z",
+    "actionable_comments": 0,
+    "new_comments": 0,
+    "awaiting_approval": true
+  },
+  "status_text": "Waiting on approval of #931",
+  "status_text_full": "Waiting on approval of PR #931; next check in 55s. Review fix runs used: 1 of 3."
+}
+```
 
 `wait` values, set by the pass that last returned the reaction to the pending set:
 
@@ -1047,7 +1075,7 @@ The hop is stored in the database with its type, labels, and state, so a restart
 
 **`active[]` entries:** Every issue that `running`, `retrying`, `budget_exhausted`, `parked`, `pending_reactions`, or `between_stages` holds, once per issue. A client that shows one line per issue reads this list and merges, chooses, and orders nothing itself. The list is always present, `[]` when no issue is active. The six lists above and `counts` are unchanged, and `counts` has no `active` member: the length of `active` is the number of active issues.
 
-An entry takes its values from the one row that decides the issue's `status`, as that row serves them, so a masked string stays masked. `status` is the name of that list and follows the precedence of [`GET /api/v1/{identifier}`](#get-apiv1identifier-issue-detail): `running`, else `retrying`, else `budget_exhausted`, else `parked`, else `pending_reactions`, else `between_stages`. An entry never reads `history`. For an issue in `pending_reactions` the deciding row is the first row whose `escalated_at` is not `null`, and the first row when none is. A client that needs the rest of the issue's data finds the deciding row by `issue_id` in the list `status` names, and in `pending_reactions` also by `kind` equal to `reaction_kind`.
+An entry takes its values from the one row that decides the issue's `status`, as that row serves them, so a masked string stays masked. `status` is the name of that list and follows the precedence of [`GET /api/v1/{identifier}`](#get-apiv1identifier-issue-detail): `running`, else `retrying`, else `budget_exhausted`, else `parked`, else `pending_reactions`, else `between_stages`. An entry never reads `history`. For an issue in `pending_reactions` the deciding row is the first row whose `escalated_at` is not `null`; otherwise the `review` row whose `last_check.awaiting_approval` is `true`, when every other row reports nothing outstanding; otherwise the first row. A `ci` row reports nothing outstanding when its `last_check.status` is `passing`. A `bot-review` row does when its `last_check` holds no actionable comment or has `handled`. A `merge-conflict` row does when its `last_check.mergeable` is `true`. A `merge`, `merge-completion`, `label-review`, or `label-fix` row always does. A client that needs the rest of the issue's data finds the deciding row by `issue_id` in the list `status` names, and in `pending_reactions` also by `kind` equal to `reaction_kind`.
 
 | Field | Description |
 |---|---|
@@ -1059,6 +1087,7 @@ An entry takes its values from the one row that decides the issue's `status`, as
 | `dispatched_at` | Always present. `null` when the deciding row serves `null`. See [dispatch time and stage position](#dispatch-time-and-stage-position). |
 | `reaction_kind` | The `kind` of the deciding row. Present exactly when `status` is `"pending_reactions"`, and omitted on every other entry. |
 | `status_text`, `status_text_full` | The deciding row's [status sentences](#status-sentences), equal to the pair `GET /api/v1/{identifier}` serves for the issue. Always present. |
+| `pr_loop` | Object or `null`. What each configured pull request reaction recorded in the entry's pass; see [pull request reaction history](#pull-request-reaction-history). Always present, and `null` when Sortie could not read reaction activity. |
 
 The entries are ordered by the issue's place, then `issue_identifier`, then `issue_id`, each compared byte by byte. An issue's place is the earliest `dispatched_at` its rows carry when the issue enters the lists. An issue none of whose rows is dated is placed before every dated issue. The place does not change when the issue moves from one list to another, when a new pass begins while the issue is listed, or when a `dispatched_at` of `null` becomes a time. An issue that no list held and that then returns takes a new place. The order can therefore differ from the order of the entries' `dispatched_at` values.
 
@@ -1147,6 +1176,25 @@ A recurrence changes a part, so an acknowledgement, which Sortie keeps under `id
 
 Sortie stores an acknowledgement, so it survives a restart for as long as the item exists. A poll tick that has read the candidate issues from the tracker deletes the acknowledgement of every item that no longer exists. A tick whose candidate read fails deletes none.
 
+#### Pull request reaction history
+
+`pr_loop` says what each configured pull request reaction recorded in one pass of an issue, so a client can show a reaction that is no longer pending, or never was. The pass is the issue's work under one `chain_id`. `pr_loop` is on each `active` entry, on `GET /api/v1/{identifier}`, and on each run of `GET /api/v1/runs`.
+
+- On an `active` entry, and on the per-issue response of an issue that is live, it is the pass of the row that `status` names. For `pending_reactions` that is the first row whose `escalated_at` is not `null`, else the first row.
+- On the per-issue response of an issue that only run history knows, it is the pass of the issue's newest run.
+- On a run of `GET /api/v1/runs`, it is the pass the run's own `chain_id` names.
+
+The value is an object with one member for each key of `config.reactions`, named as in `WORKFLOW.md`, and `{}` when `config.reactions` is empty. The `label_commands` member covers the review and fix label commands together. Each member holds two keys:
+
+| Field | Type | Description |
+|---|---|---|
+| `result` | string | `escalated` when a kind of the reaction began an escalation in the pass, one that has since ended included. Otherwise `acted` when Sortie applied a triage verdict, merged the pull request, moved the issue after the merge, or scheduled a run for the reaction in the pass. Otherwise `quiet` when Sortie watched the pull request for the reaction and had nothing to act on. Otherwise `unrecorded`. |
+| `continuations` | integer | The runs Sortie scheduled for the reaction in the pass, `0` when none. A run that a budget hold kept from starting still counts. |
+
+`unrecorded` means Sortie has no record, which differs from `quiet`, where Sortie watched and found nothing to act on. Every member reads `unrecorded` for a pass with no `chain_id` or no `dispatched_at`, and for a pass that began before Sortie recorded reaction activity.
+
+`pr_loop` is `null` when the server holds no run history or no workflow shape. The runs inside the groups of `GET /api/v1/runs/issues` and inside `history.runs` always serve `null`. When the read of reaction activity fails, `GET /api/v1/state` answers `200` with a `null` `pr_loop` on every entry, and `GET /api/v1/{identifier}` and `GET /api/v1/runs` answer `503` with `history_unavailable`.
+
 #### Status sentences
 
 Every row of `running`, `retrying`, `budget_exhausted`, `parked`, `pending_reactions`, and `between_stages` carries a pair of sentences that say in plain English what the issue is doing, what it waits on, or how it ended. Every entry of [`active`](#field-notes) carries the pair of its deciding row. The `poll` check of [`health`](#field-notes) carries one further sentence, `summary_text`, that follows the rules below. The per-issue response of [`GET /api/v1/{identifier}`](#get-apiv1identifier-issue-detail) carries the same pair on its rows and once for the issue, and every [`issue_outcome`](#issue-outcome) carries a pair too.
@@ -1218,11 +1266,12 @@ The windows are the current UTC calendar day and month, not the browser's local 
 
 A member reports the `WORKFLOW.md` key of the same name. The derived members are `selected_by`, `agent_kind`, `usage_arrival`, `chains`, `hop_ceiling`, and `complete`. A setting that imposes no ceiling reads `null`, never `0`. An optional string is omitted when unset, and a list is `[]` when empty.
 
-Most members follow the last successful load of `WORKFLOW.md`; a reload that fails validation leaves the previous values in place. Two groups report what the running process applies instead. Sortie captures every reaction except `ci_failure` at startup, so until the next restart `config` omits a reaction a reload added and keeps listing one a reload removed; see [reactions](/reference/reactions/). `token_rates` serves the rates in force, which a reload replaces from the next poll tick, keeping the previous rates of an entry the reload gives an invalid value; see the [`token_rates` reload behavior](/reference/workflow-config/#token_rates).
+Most members follow the last successful load of `WORKFLOW.md`; a reload that fails validation leaves the previous values in place. Some members report what the running process applies instead. Sortie captures every reaction except `ci_failure` at startup, so until the next restart `config` omits a reaction a reload added and keeps listing one a reload removed; see [reactions](/reference/reactions/). The tracker adapter reads `tracker.kind` and `tracker.project` once at startup, so `config` keeps their startup values until the next restart. `token_rates` serves the rates in force, which a reload replaces from the next poll tick, keeping the previous rates of an entry the reload gives an invalid value; see the [`token_rates` reload behavior](/reference/workflow-config/#token_rates).
 
 | Field | Description |
 |---|---|
-| `tracker.kind` | The tracker adapter kind. |
+| `tracker.kind` | The tracker adapter kind the process started with. |
+| `tracker.project` | The `tracker.project` the tracker adapter was built with, after environment resolution and unmasked: a Jira project key, a GitHub or Gitea `owner/repo`, a GitLab namespace path or numeric project ID, or a Linear team key. Omitted when unset. |
 | `tracker.active_states`, `tracker.terminal_states` | The [`tracker`](/reference/workflow-config/#tracker) lists as written. |
 | `tracker.in_progress_state`, `tracker.handoff_state`, `tracker.no_change_state` | The state Sortie writes at dispatch, after a successful run, and after a successful run whose agent declared that nothing needed changing. Each omitted when unset. |
 | `polling.interval_ms` | The poll interval in milliseconds. |
@@ -1343,6 +1392,8 @@ Sortie checks every parameter before it reads anything. A parameter outside this
       "attempt": 2,
       "status": "succeeded",
       "error": null,
+      "declared_outcome": null,
+      "agent_text": null,
       "rule_name": "implement",
       "agent_kind": "claude-code",
       "configured_model": "claude-sonnet-4-20250514",
@@ -1386,6 +1437,7 @@ Sortie checks every parameter before it reads anything. A parameter outside this
       "stage_previous_outcome": "succeeded",
       "stage_target": "review",
       "stage_result": "advanced",
+      "stage_chain": ["specify", "implement"],
       "self_review": {
         "final_verdict": "pass",
         "total_iterations": 2,
@@ -1398,6 +1450,8 @@ Sortie checks every parameter before it reads anything. A parameter outside this
       "session_id": "session-abc-002",
       "ssh_host": "",
       "dispatch_id": "K2VD7QXN4MZB5TLH6RYC3PWJ2F",
+      "skills": [{"skill": "ce-plan"}, {"skill": "ce-work", "tool_error": true}],
+      "pr_loop": {"ci_failure": {"result": "acted", "continuations": 1}, "review_comments": {"result": "unrecorded", "continuations": 0}, "bot_review": {"result": "unrecorded", "continuations": 0}, "merge_conflicts": {"result": "unrecorded", "continuations": 0}, "auto_merge": {"result": "unrecorded", "continuations": 0}},
       "issue_outcome": {
         "kind": "merged",
         "observed_at": "2026-03-26T15:02:09Z",
@@ -1431,6 +1485,8 @@ Runs are ordered by descending `run_id`, which is the order Sortie recorded them
 | `attempt` | integer | One-based attempt number. |
 | `status` | string | Terminal outcome of the run: `"succeeded"`, `"failed"`, `"cancelled"`, `"ci_failed"`, `"needs_person"`, or `"budget_stopped"`. `"budget_stopped"` is a session the per-issue token or money ceiling cancelled while it was still running; `error` then carries the figures behind the stop: the tokens used and the ceiling, or `money ceiling reached: used $X of $Y`. |
 | `error` | string or `null` | The run's error message. `null` when the run recorded none. Masked. A withheld handoff, an agent error, and a worker stage error read as a plain sentence, such as `Sortie stopped the session before the agent finished turn 1.`, with any message the agent supplied kept after a colon; every other error is served as stored. |
+| `declared_outcome` | string or `null` | The status the agent ended the run on: `"blocked"`, `"needs-human-review"`, or `"no-change-needed"`. It states what the agent declared, and `status` stays the disposition Sortie recorded, so a `needs-human-review` run whose handoff Sortie withheld reads `"failed"` with its declaration. `null` when the run ended on no recognized status, and for a run recorded before Sortie stored it. Never `""`. |
+| `agent_text` | string or `null` | The agent's statement that came with the status in `declared_outcome`, after the cleanup described under [stop statement](/reference/agent-extensions/#stop-statement). `null` when the agent wrote none and whenever `declared_outcome` is `null`. Never `""`. Masked when Sortie serves it, so a value registered as a secret after the run is replaced too. |
 | `rule_name` | string | The [dispatch rule](/reference/workflow-config/#dispatch) that routed the run. Omitted when none did. |
 | `agent_kind` | string | The agent adapter kind that ran the session. Omitted when empty. |
 | `configured_model`, `configured_effort` | string | What the run was asked to run, as in [configured and reported model](#configured-and-reported-model). Omitted when unset. |
@@ -1449,6 +1505,7 @@ Runs are ordered by descending `run_id`, which is the order Sortie recorded them
 | `chain_id` | string | The stage chain the run belongs to. Omitted when empty. |
 | `stage_previous`, `stage_previous_outcome` | string | The rule whose hop led to the run, and the outcome of the run that made it. Omitted when empty. |
 | `stage_target`, `stage_result` | string | The rule the run's own hop decision targeted, and its result: `"advanced"`, `"partial"`, `"failed"`, or `"ceiling"`. Omitted when the run reached no decision. |
+| `stage_chain` | array of string or `null` | The stage chain the run's rule stands on, as the rule names of the chain in `next` order: the chain `stage_position.chain` serves for the run's `rule_name` and `stage_previous`. It follows the configuration in effect, so a reload that edits the chains changes it for runs recorded before the reload. Always present. `null` when the run has no `rule_name`, when its rule is on no chain, and when the server holds no workflow shape. Not masked. |
 | `self_review` | object or `null` | `null` when the run recorded no self-review or the record cannot be read. Otherwise `final_verdict` (`"none"` when the record holds no verdict; masked), `total_iterations`, and `cap_reached`. The per-iteration audit trail is not served. |
 | `origin_recorded` | boolean | `false` for a run recorded before Sortie stored its origin. The five origin members below are then `null`. |
 | `trigger` | string or `null` | What started the retry whose fire dispatched the run: `"error"`, `"continuation"`, `"stall"`, or `"ci_fix"`. A CI fix retry reads `"ci_fix"`, and a retry of a run a reaction dispatched keeps that run's `reaction_kind` with its own trigger. `""` for a dispatch from the poll tick, for a retry that a review, bot review, merge conflict, or label command reaction started, and for a recorded CI result. `null` when the retry was queued before Sortie stored what started it. |
@@ -1457,7 +1514,20 @@ Runs are ordered by descending `run_id`, which is the order Sortie recorded them
 | `session_id` | string or `null` | The agent session the run used. `""` when it started none. Not masked. |
 | `ssh_host` | string or `null` | The SSH worker the run executed on. `""` for a local run. |
 | `dispatch_id` | string or `null` | The run's dispatch ID, the `dispatch_id` its running row carried. Pass it to [`GET /api/v1/runs/{dispatch_id}/events`](#get-apiv1runsdispatch_idevents-run-events) to read the run's agent events. `""` on a recorded CI result, and `null` on a run recorded before Sortie stored dispatch IDs. A run with either has no agent events. |
+| `pr_loop` | object or `null` | What each configured pull request reaction recorded in the pass the run's `chain_id` names; see [pull request reaction history](#pull-request-reaction-history). Always present, and `null` on a run inside an issue group or `history.runs`. |
+| `skills` | array of object | Every skill call of the run, in completion order, repeats included and with no limit. Each element holds `skill`, the skill name, and `tool_error` as `true` when the call failed. Omitted when the run made no skill call, when its agent reports none, and for a run recorded before Sortie kept the list. The list stays complete when the run's oldest events are no longer kept. |
 | `issue_outcome` | object or `null` | How the run's issue ended. The same object on every run of the issue. `null` when Sortie has not seen the issue end. See [Issue outcome](#issue-outcome). |
+
+A run whose agent ended it with a status carries both members, shown here as the fields that differ. Such a run keeps the disposition Sortie recorded in `status`:
+
+```json
+{
+  "status": "succeeded",
+  "error": null,
+  "declared_outcome": "blocked",
+  "agent_text": "The ticket asks for both soft and hard delete of invoices.\nWhich one should the API expose?"
+}
+```
 
 #### `model_usage` elements
 
@@ -1581,8 +1651,71 @@ Sortie checks every parameter before it reads anything. A parameter outside this
           "run_id": 42,
           "issue_id": "abc123",
           "issue_identifier": "MT-649",
+          "issue_title": "Fix the flaky login test",
+          "issue_url": "https://tracker.example.com/browse/MT-649",
+          "attempt": 2,
           "status": "succeeded",
-          "completed_at": "2026-03-26T14:31:47Z"
+          "error": null,
+          "declared_outcome": null,
+          "agent_text": null,
+          "rule_name": "implement",
+          "agent_kind": "claude-code",
+          "configured_model": "claude-sonnet-4-5",
+          "started_at": "2026-03-26T14:10:12Z",
+          "completed_at": "2026-03-26T14:31:47Z",
+          "dispatched_at": "2026-03-26T13:48:20Z",
+          "turns_completed": 8,
+          "tokens": {
+            "input_tokens": 52000,
+            "output_tokens": 9100,
+            "total_tokens": 61100,
+            "cache_read_tokens": 30000,
+            "cache_write_tokens": 4000
+          },
+          "uncached_tokens": 31100,
+          "tokens_measured": true,
+          "unaccounted_turns": 0,
+          "estimated_cost_usd": 0.1923,
+          "cost_status": "estimated",
+          "model_usage": [
+            {
+              "model": "claude-sonnet-4-5",
+              "tokens": {
+                "input_tokens": 52000,
+                "output_tokens": 9100,
+                "total_tokens": 61100,
+                "cache_read_tokens": 30000,
+                "cache_write_tokens": 4000
+              },
+              "uncached_tokens": 31100,
+              "estimated_cost_usd": 0.1923,
+              "cost_status": "estimated",
+              "unrated_classes": []
+            }
+          ],
+          "self_review": null,
+          "origin_recorded": true,
+          "trigger": "",
+          "reaction_kind": "",
+          "reaction_config_key": "",
+          "session_id": "session-abc-002",
+          "ssh_host": "",
+          "dispatch_id": "K2VD7QXN4MZB5TLH6RYC3PWJ2F",
+          "stage_chain": ["specify", "implement"],
+          "pr_loop": null,
+          "issue_outcome": {
+            "kind": "merged",
+            "observed_at": "2026-03-26T15:02:09Z",
+            "merge_path": "auto_merge",
+            "pull_request": {"number": 311, "repository": "acme/shop"},
+            "status_text": "Merged #311",
+            "status_text_full": "Ended merged: auto-merge merged PR #311."
+          },
+          "chain_id": "3c8v5n2w7r1t4y6u9i0o8p2asd",
+          "stage_previous": "specify",
+          "stage_previous_outcome": "succeeded",
+          "stage_target": "review",
+          "stage_result": "advanced"
         }
       ],
       "next_cursor": null,
@@ -1607,7 +1740,7 @@ Sortie checks every parameter before it reads anything. A parameter outside this
 }
 ```
 
-The example trims each run to four of its fields. `groups` is `[]` when no issue matches.
+`groups` is `[]` when no issue matches.
 
 ### Field notes
 
@@ -1672,9 +1805,12 @@ curl http://localhost:7678/api/v1/runs/RLQFSIOFERWGDW2HZY45W55VXK/events
       "event": "tool_result",
       "message": "",
       "tool_name": "Bash",
+      "tool_kind": "shell",
+      "tool_argument": "go test ./...",
       "duration_ms": 2400,
       "tool_error": false,
-      "text": "Ran Bash in 2.4s."
+      "text": "Ran go test ./... in 2.4s.",
+      "tool_line": "go test ./..."
     },
     {
       "seq": 42,
@@ -1712,9 +1848,12 @@ The example leaves out events 2 to 40.
 | `at` | Every event | When the event arrived, in UTC. |
 | `event` | Every event | The event type, one of the types every agent adapter maps its output to, such as `session_started`, `tool_result`, or `turn_completed`. |
 | `message` | Every event | The event's message, `""` when it carries none. A message longer than 999 characters is cut to its first 999 followed by `…`. Masked when Sortie keeps it and again when it serves it, so a value registered as a secret after the event was kept also reads `[redacted]`. |
-| `text` | Every event | One sentence that says what happened, worded by Sortie when it serves the event and never stored. The `text` of a `notification` or an `other_message` is the message itself. A `startup_failed` event reads `The session failed to start: <error>.` |
+| `text` | Every event | One sentence that says what happened, worded by Sortie when it serves the event and never stored. The `text` of a `notification` or an `other_message` is the message itself. The `text` of a `tool_result` is `Ran` followed by its `tool_line`, then `in` and the duration when the event has one, and `; it returned an error` when the call failed. A `startup_failed` event reads `The session failed to start: <error>.` |
 | `session_id` | `session_started` | The agent session the run started. `""` when the event carries none. |
-| `tool_name` | `tool_result` | The tool the agent ran. Omitted when the adapter reported none. |
+| `tool_name` | `tool_result` | The name the agent runtime gives the tool, or `{server}.{tool}` for an MCP or dynamic tool, such as `github.get_issue`. Omitted when the runtime names none. It is never a command. Masked. |
+| `tool_kind` | `tool_result` | `shell`, `read`, `edit`, or `skill`. Omitted for any other tool and for an event kept before Sortie recorded it. |
+| `tool_argument` | `tool_result` | The call's one main argument: a shell call's command without its `bash -lc`, `sh -c`, or `zsh -c` wrapper, a read or edit call's path relative to the workspace (several paths joined by `, `), a skill call's skill name. Control characters become spaces, a value registered as a secret reads `[redacted]` also when it was registered after Sortie kept the event, and a value longer than 999 characters is cut to its first 999 followed by `…`. No other argument of a call is served. Omitted when the call has none, when `tool_kind` is omitted, and for an event kept before Sortie recorded it. |
+| `tool_line` | `tool_result` | The call as one line of text: a shell call's command; otherwise the tool's name followed by its main argument, such as `Read internal/foo.go`; otherwise the name alone. When the runtime names no tool, `Command`, `Read`, `Edit`, `Skill`, or `Tool` stands in for the name, by `tool_kind`. Built from the masked `tool_name` and `tool_argument`. Omitted on every other event. |
 | `duration_ms` | `tool_result` | How long the tool call took, in milliseconds. Omitted when the adapter reported none. |
 | `tool_error` | `tool_result` | Whether the tool call returned an error. |
 | `usage` | `turn_completed`, `turn_failed`, `turn_cancelled`, `turn_ended_with_error`, `turn_input_required` | The run's token totals after the event, with the members of a running row's `tokens`. `null` while the run has measured no usage, so unmeasured spend never reads as zero. |
@@ -1782,7 +1921,7 @@ Sortie checks every parameter before it reads anything, so a malformed request n
 
 ### Response
 
-The body is compact JSON with the shape of the command's `--format json` output. [Output formats](/reference/cli/#output-formats) in the CLI reference defines every field, including `summary.issues`, `spend`, `by_model`, `by_trigger`, and `by_origin`. The example is trimmed to `spend` and the `by_status` and `by_trigger` breakdowns; the other breakdowns have the same shape.
+The body is compact JSON with the shape of the command's `--format json` output. [Output formats](/reference/cli/#output-formats) in the CLI reference defines every field, including `summary.issues`, `spend`, `by_model`, `by_trigger`, and `by_origin`. The example is for a workflow that defines no stage chain, so `by_chain` and `chain_funnels` are `[]`, and it lists one group in each breakdown that is not split by outcome or trigger. `summary` also holds `failed`, `stopped`, and `cancelled`, the runs by outcome, which add up to `runs` with `succeeded`. Every `tokens` object carries `uncached`, `total` less `cache_read`, so `uncached` plus `cache_read` equals `total`.
 
 ```json
 {
@@ -1797,10 +1936,13 @@ The body is compact JSON with the shape of the command's `--format json` output.
     "runs": 6,
     "issues": 5,
     "succeeded": 3,
+    "failed": 2,
+    "stopped": 0,
+    "cancelled": 1,
     "success_rate": 0.5,
     "duration_seconds": {"p50": 1200, "p95": 1800, "mean": 1200, "samples": 3},
     "mean_turns_succeeded": 4,
-    "tokens": {"input": 3900000, "output": 760000, "total": 4660000, "cache_read": 50000, "cache_write": 10000},
+    "tokens": {"input": 3900000, "output": 760000, "total": 4660000, "cache_read": 50000, "cache_write": 10000, "uncached": 4610000},
     "cost_usd": 19.52,
     "cost_per_succeeded_run_usd": 6.506666667,
     "zero_duration_runs": 1,
@@ -1825,12 +1967,114 @@ The body is compact JSON with the shape of the command's `--format json` output.
       "share": 0.5,
       "duration_seconds": {"p50": 1200, "p95": 1800, "mean": 1200, "samples": 3},
       "mean_turns": 4,
-      "tokens": {"input": 3500000, "output": 700000, "total": 4200000, "cache_read": 50000, "cache_write": 10000},
+      "tokens": {"input": 3500000, "output": 700000, "total": 4200000, "cache_read": 50000, "cache_write": 10000, "uncached": 4150000},
       "cost_usd": 17.87,
       "cost_per_succeeded_run_usd": 5.956666667,
-      "tokens_unmeasured_runs": 0
+      "tokens_unmeasured_runs": 0,
+      "cost_unpriced_runs": 0,
+      "cost_partial_runs": 0
+    },
+    {
+      "name": "failed",
+      "runs": 2,
+      "succeeded": 0,
+      "success_rate": 0,
+      "share": 0.3333,
+      "duration_seconds": {"p50": 600, "p95": 900, "mean": 750, "samples": 2},
+      "mean_turns": 3,
+      "tokens": {"input": 300000, "output": 50000, "total": 350000, "cache_read": 0, "cache_write": 0, "uncached": 350000},
+      "cost_usd": 1.65,
+      "cost_per_succeeded_run_usd": null,
+      "tokens_unmeasured_runs": 0,
+      "cost_unpriced_runs": 0,
+      "cost_partial_runs": 0
+    },
+    {
+      "name": "cancelled",
+      "runs": 1,
+      "succeeded": 0,
+      "success_rate": 0,
+      "share": 0.1667,
+      "duration_seconds": {"p50": 0, "p95": 0, "mean": 0, "samples": 1},
+      "mean_turns": 0,
+      "tokens": {"input": 100000, "output": 10000, "total": 110000, "cache_read": 0, "cache_write": 0, "uncached": 110000},
+      "cost_usd": null,
+      "cost_per_succeeded_run_usd": null,
+      "tokens_unmeasured_runs": 0,
+      "cost_unpriced_runs": 1,
+      "cost_partial_runs": 0
     }
   ],
+  "by_adapter": [
+    {
+      "name": "claude-code",
+      "runs": 6,
+      "succeeded": 3,
+      "success_rate": 0.5,
+      "share": 1,
+      "duration_seconds": {"p50": 1200, "p95": 1800, "mean": 1200, "samples": 3},
+      "mean_turns": 3.5,
+      "tokens": {"input": 3900000, "output": 760000, "total": 4660000, "cache_read": 50000, "cache_write": 10000, "uncached": 4610000},
+      "cost_usd": 19.52,
+      "cost_per_succeeded_run_usd": 6.506666667,
+      "tokens_unmeasured_runs": 1,
+      "cost_unpriced_runs": 1,
+      "cost_partial_runs": 1
+    }
+  ],
+  "by_rule": [
+    {
+      "name": "implement",
+      "runs": 6,
+      "succeeded": 3,
+      "success_rate": 0.5,
+      "share": 1,
+      "duration_seconds": {"p50": 1200, "p95": 1800, "mean": 1200, "samples": 3},
+      "mean_turns": 3.5,
+      "tokens": {"input": 3900000, "output": 760000, "total": 4660000, "cache_read": 50000, "cache_write": 10000, "uncached": 4610000},
+      "cost_usd": 19.52,
+      "cost_per_succeeded_run_usd": 6.506666667,
+      "tokens_unmeasured_runs": 1,
+      "cost_unpriced_runs": 1,
+      "cost_partial_runs": 1
+    }
+  ],
+  "by_template": [
+    {
+      "name": "default",
+      "runs": 6,
+      "succeeded": 3,
+      "success_rate": 0.5,
+      "share": 1,
+      "duration_seconds": {"p50": 1200, "p95": 1800, "mean": 1200, "samples": 3},
+      "mean_turns": 3.5,
+      "tokens": {"input": 3900000, "output": 760000, "total": 4660000, "cache_read": 50000, "cache_write": 10000, "uncached": 4610000},
+      "cost_usd": 19.52,
+      "cost_per_succeeded_run_usd": 6.506666667,
+      "tokens_unmeasured_runs": 1,
+      "cost_unpriced_runs": 1,
+      "cost_partial_runs": 1
+    }
+  ],
+  "by_model": [
+    {
+      "name": "claude-sonnet-4-5",
+      "runs": 6,
+      "succeeded": 3,
+      "success_rate": 0.5,
+      "share": 1,
+      "duration_seconds": {"p50": 1200, "p95": 1800, "mean": 1200, "samples": 3},
+      "mean_turns": 3.5,
+      "tokens": {"input": 3900000, "output": 760000, "total": 4660000, "cache_read": 50000, "cache_write": 10000, "uncached": 4610000},
+      "cost_usd": 19.52,
+      "cost_per_succeeded_run_usd": 6.506666667,
+      "tokens_unmeasured_runs": 1,
+      "cost_unpriced_runs": 1,
+      "cost_partial_runs": 1
+    }
+  ],
+  "by_chain": [],
+  "chain_funnels": [],
   "by_trigger": [
     {
       "name": "<unknown>",
@@ -1840,10 +2084,12 @@ The body is compact JSON with the shape of the command's `--format json` output.
       "share": 0.6667,
       "duration_seconds": {"p50": 600, "p95": 1200, "mean": 700, "samples": 3},
       "mean_turns": 2.5,
-      "tokens": {"input": 1800000, "output": 350000, "total": 2150000, "cache_read": 50000, "cache_write": 10000},
+      "tokens": {"input": 1800000, "output": 350000, "total": 2150000, "cache_read": 50000, "cache_write": 10000, "uncached": 2100000},
       "cost_usd": 7.52,
       "cost_per_succeeded_run_usd": 3.76,
-      "tokens_unmeasured_runs": 1
+      "tokens_unmeasured_runs": 1,
+      "cost_unpriced_runs": 0,
+      "cost_partial_runs": 1
     },
     {
       "name": "<none>",
@@ -1853,10 +2099,12 @@ The body is compact JSON with the shape of the command's `--format json` output.
       "share": 0.1667,
       "duration_seconds": {"p50": 0, "p95": 0, "mean": 0, "samples": 1},
       "mean_turns": 0,
-      "tokens": {"input": 100000, "output": 10000, "total": 110000, "cache_read": 0, "cache_write": 0},
+      "tokens": {"input": 100000, "output": 10000, "total": 110000, "cache_read": 0, "cache_write": 0, "uncached": 110000},
       "cost_usd": null,
       "cost_per_succeeded_run_usd": null,
-      "tokens_unmeasured_runs": 0
+      "tokens_unmeasured_runs": 0,
+      "cost_unpriced_runs": 1,
+      "cost_partial_runs": 0
     },
     {
       "name": "ci_fix",
@@ -1866,12 +2114,38 @@ The body is compact JSON with the shape of the command's `--format json` output.
       "share": 0.1667,
       "duration_seconds": {"p50": 1800, "p95": 1800, "mean": 1800, "samples": 1},
       "mean_turns": 5,
-      "tokens": {"input": 2000000, "output": 400000, "total": 2400000, "cache_read": 0, "cache_write": 0},
+      "tokens": {"input": 2000000, "output": 400000, "total": 2400000, "cache_read": 0, "cache_write": 0, "uncached": 2400000},
       "cost_usd": 12,
       "cost_per_succeeded_run_usd": 12,
-      "tokens_unmeasured_runs": 0
+      "tokens_unmeasured_runs": 0,
+      "cost_unpriced_runs": 0,
+      "cost_partial_runs": 0
     }
-  ]
+  ],
+  "by_origin": [
+    {
+      "name": "poll_tick",
+      "runs": 6,
+      "succeeded": 3,
+      "success_rate": 0.5,
+      "share": 1,
+      "duration_seconds": {"p50": 1200, "p95": 1800, "mean": 1200, "samples": 3},
+      "mean_turns": 3.5,
+      "tokens": {"input": 3900000, "output": 760000, "total": 4660000, "cache_read": 50000, "cache_write": 10000, "uncached": 4610000},
+      "cost_usd": 19.52,
+      "cost_per_succeeded_run_usd": 6.506666667,
+      "tokens_unmeasured_runs": 1,
+      "cost_unpriced_runs": 1,
+      "cost_partial_runs": 1
+    }
+  ],
+  "self_review": {
+    "runs_with_metadata": 0,
+    "by_final_verdict": [],
+    "cap_reached_runs": 0,
+    "mean_iterations": null,
+    "unparsed_runs": 0
+  }
 }
 ```
 
@@ -2142,6 +2416,7 @@ Every `200` response carries `history`. The running and finished examples show i
     "requests_by_model": {
       "<model-id-reported-by-the-agent>": 12
     },
+    "skills": [{"skill": "ce-plan"}, {"skill": "ce-work", "tool_error": true}],
     "tool_time_percent": 34.7,
     "api_time_percent": 51.2,
     "tokens_measured": true,
@@ -2183,9 +2458,12 @@ Every `200` response carries `history`. The running and finished examples show i
       "event": "tool_result",
       "message": "",
       "tool_name": "Bash",
+      "tool_kind": "shell",
+      "tool_argument": "go test ./...",
       "duration_ms": 2400,
       "tool_error": false,
-      "text": "Ran Bash in 2.4s."
+      "text": "Ran go test ./... in 2.4s.",
+      "tool_line": "go test ./..."
     },
     {
       "seq": 42,
@@ -2204,6 +2482,7 @@ Every `200` response carries `history`. The running and finished examples show i
   ],
   "last_error": null,
   "tracked": {},
+  "pr_loop": {"ci_failure": {"result": "unrecorded", "continuations": 0}, "review_comments": {"result": "unrecorded", "continuations": 0}, "bot_review": {"result": "unrecorded", "continuations": 0}, "merge_conflicts": {"result": "unrecorded", "continuations": 0}, "auto_merge": {"result": "unrecorded", "continuations": 0}},
   "history": {
     "runs": [
       {
@@ -2215,6 +2494,8 @@ Every `200` response carries `history`. The running and finished examples show i
         "attempt": 2,
         "status": "succeeded",
         "error": null,
+        "declared_outcome": null,
+        "agent_text": null,
         "rule_name": "bugfix",
         "agent_kind": "claude-code",
         "configured_model": "claude-sonnet-4-5",
@@ -2241,7 +2522,26 @@ Every `200` response carries `history`. The running and finished examples show i
         "reaction_config_key": "",
         "session_id": "session-abc-001",
         "ssh_host": "",
-        "dispatch_id": "MZ3TQ7KXV2PL4NWB6YHC5RJ2DA"
+        "dispatch_id": "MZ3TQ7KXV2PL4NWB6YHC5RJ2DA",
+        "model_usage": [
+          {
+            "model": "claude-sonnet-4-5",
+            "tokens": {
+              "input_tokens": 36000,
+              "output_tokens": 9000,
+              "total_tokens": 45000,
+              "cache_read_tokens": 20000,
+              "cache_write_tokens": 2000
+            },
+            "uncached_tokens": 25000,
+            "estimated_cost_usd": 0.174,
+            "cost_status": "estimated",
+            "unrated_classes": []
+          }
+        ],
+        "stage_chain": null,
+        "pr_loop": null,
+        "issue_outcome": null
       },
       {
         "run_id": 38,
@@ -2252,6 +2552,8 @@ Every `200` response carries `history`. The running and finished examples show i
         "attempt": 1,
         "status": "failed",
         "error": "agent turn timed out",
+        "declared_outcome": null,
+        "agent_text": null,
         "rule_name": "bugfix",
         "agent_kind": "claude-code",
         "configured_model": "claude-sonnet-4-5",
@@ -2278,7 +2580,26 @@ Every `200` response carries `history`. The running and finished examples show i
         "reaction_config_key": "",
         "session_id": "session-abc-000",
         "ssh_host": "",
-        "dispatch_id": "B4XKQ2NW7TZH5LMC3VRY6PJD2E"
+        "dispatch_id": "B4XKQ2NW7TZH5LMC3VRY6PJD2E",
+        "model_usage": [
+          {
+            "model": "claude-sonnet-4-5",
+            "tokens": {
+              "input_tokens": 48000,
+              "output_tokens": 12000,
+              "total_tokens": 60000,
+              "cache_read_tokens": 30000,
+              "cache_write_tokens": 3000
+            },
+            "uncached_tokens": 30000,
+            "estimated_cost_usd": 0.261,
+            "cost_status": "estimated",
+            "unrated_classes": []
+          }
+        ],
+        "stage_chain": null,
+        "pr_loop": null,
+        "issue_outcome": null
       }
     ],
     "next_cursor": null,
@@ -2297,7 +2618,9 @@ Every `200` response carries `history`. The running and finished examples show i
       "estimated_cost_usd": 0.435,
       "cost_status": "estimated"
     },
-    "hops": []
+    "hops": [],
+    "last_stage": null,
+    "issue_outcome": null
   }
 }
 ```
@@ -2366,7 +2689,150 @@ When an issue is in the retry queue rather than actively running, `status` is `"
   "between_stages": null,
   "recent_events": [],
   "last_error": "no available orchestrator slots",
-  "tracked": {}
+  "tracked": {},
+  "pr_loop": {"ci_failure": {"result": "unrecorded", "continuations": 0}, "review_comments": {"result": "unrecorded", "continuations": 0}, "bot_review": {"result": "unrecorded", "continuations": 0}, "merge_conflicts": {"result": "unrecorded", "continuations": 0}, "auto_merge": {"result": "unrecorded", "continuations": 0}},
+  "history": {
+    "runs": [
+      {
+        "run_id": 62,
+        "issue_id": "def456",
+        "issue_identifier": "MT-650",
+        "issue_title": "Retry the export job",
+        "issue_url": "https://tracker.example.com/browse/MT-650",
+        "attempt": 2,
+        "status": "failed",
+        "error": "agent turn timed out",
+        "declared_outcome": null,
+        "agent_text": null,
+        "rule_name": "implement",
+        "agent_kind": "claude-code",
+        "configured_model": "claude-sonnet-4-5",
+        "started_at": "2026-03-26T12:05:00Z",
+        "completed_at": "2026-03-26T12:38:20Z",
+        "dispatched_at": "2026-03-26T12:05:00Z",
+        "turns_completed": 8,
+        "tokens": {
+          "input_tokens": 36000,
+          "output_tokens": 9000,
+          "total_tokens": 45000,
+          "cache_read_tokens": 20000,
+          "cache_write_tokens": 2000
+        },
+        "uncached_tokens": 25000,
+        "tokens_measured": true,
+        "unaccounted_turns": 0,
+        "estimated_cost_usd": 0.174,
+        "cost_status": "estimated",
+        "model_usage": [
+          {
+            "model": "claude-sonnet-4-5",
+            "tokens": {
+              "input_tokens": 36000,
+              "output_tokens": 9000,
+              "total_tokens": 45000,
+              "cache_read_tokens": 20000,
+              "cache_write_tokens": 2000
+            },
+            "uncached_tokens": 25000,
+            "estimated_cost_usd": 0.174,
+            "cost_status": "estimated",
+            "unrated_classes": []
+          }
+        ],
+        "self_review": null,
+        "origin_recorded": true,
+        "trigger": "",
+        "reaction_kind": "",
+        "reaction_config_key": "",
+        "session_id": "session-def456-002",
+        "ssh_host": "",
+        "dispatch_id": "QH4N7TXD2KBW5MZC3RVY6JPL2A",
+        "stage_chain": ["specify", "implement"],
+        "pr_loop": null,
+        "issue_outcome": null
+      },
+      {
+        "run_id": 61,
+        "issue_id": "def456",
+        "issue_identifier": "MT-650",
+        "issue_title": "Retry the export job",
+        "issue_url": "https://tracker.example.com/browse/MT-650",
+        "attempt": 1,
+        "status": "failed",
+        "error": "agent turn timed out",
+        "declared_outcome": null,
+        "agent_text": null,
+        "rule_name": "implement",
+        "agent_kind": "claude-code",
+        "configured_model": "claude-sonnet-4-5",
+        "started_at": "2026-03-26T11:05:00Z",
+        "completed_at": "2026-03-26T11:38:20Z",
+        "dispatched_at": "2026-03-26T11:05:00Z",
+        "turns_completed": 8,
+        "tokens": {
+          "input_tokens": 36000,
+          "output_tokens": 9000,
+          "total_tokens": 45000,
+          "cache_read_tokens": 20000,
+          "cache_write_tokens": 2000
+        },
+        "uncached_tokens": 25000,
+        "tokens_measured": true,
+        "unaccounted_turns": 0,
+        "estimated_cost_usd": 0.174,
+        "cost_status": "estimated",
+        "model_usage": [
+          {
+            "model": "claude-sonnet-4-5",
+            "tokens": {
+              "input_tokens": 36000,
+              "output_tokens": 9000,
+              "total_tokens": 45000,
+              "cache_read_tokens": 20000,
+              "cache_write_tokens": 2000
+            },
+            "uncached_tokens": 25000,
+            "estimated_cost_usd": 0.174,
+            "cost_status": "estimated",
+            "unrated_classes": []
+          }
+        ],
+        "self_review": null,
+        "origin_recorded": true,
+        "trigger": "",
+        "reaction_kind": "",
+        "reaction_config_key": "",
+        "session_id": "session-def456-001",
+        "ssh_host": "",
+        "dispatch_id": "TR6W3LKD7XNQ4HBC2YMZ5VJP7E",
+        "stage_chain": ["specify", "implement"],
+        "pr_loop": null,
+        "issue_outcome": null
+      }
+    ],
+    "next_cursor": null,
+    "totals": {
+      "run_count": 2,
+      "unmeasured_runs": 0,
+      "tokens": {
+        "input_tokens": 72000,
+        "output_tokens": 18000,
+        "total_tokens": 90000,
+        "cache_read_tokens": 40000,
+        "cache_write_tokens": 4000
+      },
+      "uncached_tokens": 50000,
+      "tokens_complete": true,
+      "estimated_cost_usd": 0.348,
+      "cost_status": "estimated"
+    },
+    "hops": [],
+    "last_stage": {
+      "chain": ["specify", "implement"],
+      "rule": "implement"
+    },
+    "issue_outcome": null
+  }
 }
 ```
 
@@ -2428,7 +2894,92 @@ When an issue has neither a running session nor a pending retry, but is held out
   "between_stages": null,
   "recent_events": [],
   "last_error": null,
-  "tracked": {}
+  "tracked": {},
+  "pr_loop": {"ci_failure": {"result": "unrecorded", "continuations": 0}, "review_comments": {"result": "unrecorded", "continuations": 0}, "bot_review": {"result": "unrecorded", "continuations": 0}, "merge_conflicts": {"result": "unrecorded", "continuations": 0}, "auto_merge": {"result": "unrecorded", "continuations": 0}},
+  "history": {
+    "runs": [
+      {
+        "run_id": 61,
+        "issue_id": "ghi789",
+        "issue_identifier": "MT-651",
+        "issue_title": "Migrate the billing tables",
+        "issue_url": "https://tracker.example.com/browse/MT-651",
+        "attempt": 1,
+        "status": "failed",
+        "error": "agent turn timed out",
+        "declared_outcome": null,
+        "agent_text": null,
+        "rule_name": "implement",
+        "agent_kind": "claude-code",
+        "configured_model": "claude-sonnet-4-5",
+        "started_at": "2026-03-26T11:05:00Z",
+        "completed_at": "2026-03-26T11:38:20Z",
+        "dispatched_at": "2026-03-26T11:05:00Z",
+        "turns_completed": 8,
+        "tokens": {
+          "input_tokens": 36000,
+          "output_tokens": 9000,
+          "total_tokens": 45000,
+          "cache_read_tokens": 20000,
+          "cache_write_tokens": 2000
+        },
+        "uncached_tokens": 25000,
+        "tokens_measured": true,
+        "unaccounted_turns": 0,
+        "estimated_cost_usd": 0.174,
+        "cost_status": "estimated",
+        "model_usage": [
+          {
+            "model": "claude-sonnet-4-5",
+            "tokens": {
+              "input_tokens": 36000,
+              "output_tokens": 9000,
+              "total_tokens": 45000,
+              "cache_read_tokens": 20000,
+              "cache_write_tokens": 2000
+            },
+            "uncached_tokens": 25000,
+            "estimated_cost_usd": 0.174,
+            "cost_status": "estimated",
+            "unrated_classes": []
+          }
+        ],
+        "self_review": null,
+        "origin_recorded": true,
+        "trigger": "",
+        "reaction_kind": "",
+        "reaction_config_key": "",
+        "session_id": "session-ghi789-001",
+        "ssh_host": "",
+        "dispatch_id": "W2KX5RNQ7DTH3LMC6YBZ4VPJ2F",
+        "stage_chain": ["specify", "implement"],
+        "pr_loop": null,
+        "issue_outcome": null
+      }
+    ],
+    "next_cursor": null,
+    "totals": {
+      "run_count": 1,
+      "unmeasured_runs": 0,
+      "tokens": {
+        "input_tokens": 36000,
+        "output_tokens": 9000,
+        "total_tokens": 45000,
+        "cache_read_tokens": 20000,
+        "cache_write_tokens": 2000
+      },
+      "uncached_tokens": 25000,
+      "tokens_complete": true,
+      "estimated_cost_usd": 0.174,
+      "cost_status": "estimated"
+    },
+    "hops": [],
+    "last_stage": {
+      "chain": ["specify", "implement"],
+      "rule": "implement"
+    },
+    "issue_outcome": null
+  }
 }
 ```
 
@@ -2484,7 +3035,89 @@ When an issue has no running session, no pending retry, and no budget hold, but 
   "between_stages": null,
   "recent_events": [],
   "last_error": null,
-  "tracked": {}
+  "tracked": {},
+  "pr_loop": {"ci_failure": {"result": "unrecorded", "continuations": 0}, "review_comments": {"result": "unrecorded", "continuations": 0}, "bot_review": {"result": "unrecorded", "continuations": 0}, "merge_conflicts": {"result": "unrecorded", "continuations": 0}, "auto_merge": {"result": "unrecorded", "continuations": 0}},
+  "history": {
+    "runs": [
+      {
+        "run_id": 61,
+        "issue_id": "jkl012",
+        "issue_identifier": "MT-652",
+        "issue_title": "Rotate the signing keys",
+        "issue_url": "https://tracker.example.com/browse/MT-652",
+        "attempt": 1,
+        "status": "failed",
+        "error": "agent turn timed out",
+        "declared_outcome": null,
+        "agent_text": null,
+        "rule_name": "bugfix",
+        "agent_kind": "claude-code",
+        "configured_model": "claude-sonnet-4-5",
+        "started_at": "2026-03-26T11:05:00Z",
+        "completed_at": "2026-03-26T11:38:20Z",
+        "dispatched_at": "2026-03-26T11:05:00Z",
+        "turns_completed": 8,
+        "tokens": {
+          "input_tokens": 36000,
+          "output_tokens": 9000,
+          "total_tokens": 45000,
+          "cache_read_tokens": 20000,
+          "cache_write_tokens": 2000
+        },
+        "uncached_tokens": 25000,
+        "tokens_measured": true,
+        "unaccounted_turns": 0,
+        "estimated_cost_usd": 0.174,
+        "cost_status": "estimated",
+        "model_usage": [
+          {
+            "model": "claude-sonnet-4-5",
+            "tokens": {
+              "input_tokens": 36000,
+              "output_tokens": 9000,
+              "total_tokens": 45000,
+              "cache_read_tokens": 20000,
+              "cache_write_tokens": 2000
+            },
+            "uncached_tokens": 25000,
+            "estimated_cost_usd": 0.174,
+            "cost_status": "estimated",
+            "unrated_classes": []
+          }
+        ],
+        "self_review": null,
+        "origin_recorded": true,
+        "trigger": "",
+        "reaction_kind": "",
+        "reaction_config_key": "",
+        "session_id": "session-jkl012-001",
+        "ssh_host": "",
+        "dispatch_id": "N7DQ3XKT5WLH2MBC4YRZ6VJP3G",
+        "stage_chain": null,
+        "pr_loop": null,
+        "issue_outcome": null
+      }
+    ],
+    "next_cursor": null,
+    "totals": {
+      "run_count": 1,
+      "unmeasured_runs": 0,
+      "tokens": {
+        "input_tokens": 36000,
+        "output_tokens": 9000,
+        "total_tokens": 45000,
+        "cache_read_tokens": 20000,
+        "cache_write_tokens": 2000
+      },
+      "uncached_tokens": 25000,
+      "tokens_complete": true,
+      "estimated_cost_usd": 0.174,
+      "cost_status": "estimated"
+    },
+    "hops": [],
+    "last_stage": null,
+    "issue_outcome": null
+  }
 }
 ```
 
@@ -2560,7 +3193,89 @@ When an issue has no running session, no pending retry, no budget hold, and is n
   "between_stages": null,
   "recent_events": [],
   "last_error": null,
-  "tracked": {}
+  "tracked": {},
+  "pr_loop": {"ci_failure": {"result": "unrecorded", "continuations": 0}, "review_comments": {"result": "unrecorded", "continuations": 0}, "bot_review": {"result": "unrecorded", "continuations": 0}, "merge_conflicts": {"result": "quiet", "continuations": 0}, "auto_merge": {"result": "unrecorded", "continuations": 0}},
+  "history": {
+    "runs": [
+      {
+        "run_id": 61,
+        "issue_id": "pqr678",
+        "issue_identifier": "MT-654",
+        "issue_title": "Cache the price list",
+        "issue_url": "https://tracker.example.com/browse/MT-654",
+        "attempt": 1,
+        "status": "succeeded",
+        "error": null,
+        "declared_outcome": null,
+        "agent_text": null,
+        "rule_name": "bugfix",
+        "agent_kind": "claude-code",
+        "configured_model": "claude-sonnet-4-5",
+        "started_at": "2026-03-26T11:05:00Z",
+        "completed_at": "2026-03-26T11:38:20Z",
+        "dispatched_at": "2026-03-26T11:05:00Z",
+        "turns_completed": 8,
+        "tokens": {
+          "input_tokens": 36000,
+          "output_tokens": 9000,
+          "total_tokens": 45000,
+          "cache_read_tokens": 20000,
+          "cache_write_tokens": 2000
+        },
+        "uncached_tokens": 25000,
+        "tokens_measured": true,
+        "unaccounted_turns": 0,
+        "estimated_cost_usd": 0.174,
+        "cost_status": "estimated",
+        "model_usage": [
+          {
+            "model": "claude-sonnet-4-5",
+            "tokens": {
+              "input_tokens": 36000,
+              "output_tokens": 9000,
+              "total_tokens": 45000,
+              "cache_read_tokens": 20000,
+              "cache_write_tokens": 2000
+            },
+            "uncached_tokens": 25000,
+            "estimated_cost_usd": 0.174,
+            "cost_status": "estimated",
+            "unrated_classes": []
+          }
+        ],
+        "self_review": null,
+        "origin_recorded": true,
+        "trigger": "",
+        "reaction_kind": "",
+        "reaction_config_key": "",
+        "session_id": "session-pqr678-001",
+        "ssh_host": "",
+        "dispatch_id": "Z5LH2TWX7NQD4KMB3CRY6VJP2H",
+        "stage_chain": null,
+        "pr_loop": null,
+        "issue_outcome": null
+      }
+    ],
+    "next_cursor": null,
+    "totals": {
+      "run_count": 1,
+      "unmeasured_runs": 0,
+      "tokens": {
+        "input_tokens": 36000,
+        "output_tokens": 9000,
+        "total_tokens": 45000,
+        "cache_read_tokens": 20000,
+        "cache_write_tokens": 2000
+      },
+      "uncached_tokens": 25000,
+      "tokens_complete": true,
+      "estimated_cost_usd": 0.174,
+      "cost_status": "estimated"
+    },
+    "hops": [],
+    "last_stage": null,
+    "issue_outcome": null
+  }
 }
 ```
 
@@ -2622,7 +3337,92 @@ When an issue has no running session, no pending retry, no budget hold, is not p
   },
   "recent_events": [],
   "last_error": null,
-  "tracked": {}
+  "tracked": {},
+  "pr_loop": {"ci_failure": {"result": "unrecorded", "continuations": 0}, "review_comments": {"result": "unrecorded", "continuations": 0}, "bot_review": {"result": "unrecorded", "continuations": 0}, "merge_conflicts": {"result": "unrecorded", "continuations": 0}, "auto_merge": {"result": "unrecorded", "continuations": 0}},
+  "history": {
+    "runs": [
+      {
+        "run_id": 61,
+        "issue_id": "stu901",
+        "issue_identifier": "MT-655",
+        "issue_title": "Plan the export schema",
+        "issue_url": "https://tracker.example.com/browse/MT-655",
+        "attempt": 1,
+        "status": "succeeded",
+        "error": null,
+        "declared_outcome": null,
+        "agent_text": null,
+        "rule_name": "implement",
+        "agent_kind": "claude-code",
+        "configured_model": "claude-sonnet-4-5",
+        "started_at": "2026-03-26T11:05:00Z",
+        "completed_at": "2026-03-26T11:38:20Z",
+        "dispatched_at": "2026-03-26T11:05:00Z",
+        "turns_completed": 8,
+        "tokens": {
+          "input_tokens": 36000,
+          "output_tokens": 9000,
+          "total_tokens": 45000,
+          "cache_read_tokens": 20000,
+          "cache_write_tokens": 2000
+        },
+        "uncached_tokens": 25000,
+        "tokens_measured": true,
+        "unaccounted_turns": 0,
+        "estimated_cost_usd": 0.174,
+        "cost_status": "estimated",
+        "model_usage": [
+          {
+            "model": "claude-sonnet-4-5",
+            "tokens": {
+              "input_tokens": 36000,
+              "output_tokens": 9000,
+              "total_tokens": 45000,
+              "cache_read_tokens": 20000,
+              "cache_write_tokens": 2000
+            },
+            "uncached_tokens": 25000,
+            "estimated_cost_usd": 0.174,
+            "cost_status": "estimated",
+            "unrated_classes": []
+          }
+        ],
+        "self_review": null,
+        "origin_recorded": true,
+        "trigger": "",
+        "reaction_kind": "",
+        "reaction_config_key": "",
+        "session_id": "session-stu901-001",
+        "ssh_host": "",
+        "dispatch_id": "P3XN6QWT2KDH7LMB5CZY4RVJ7K",
+        "stage_chain": ["specify", "implement"],
+        "pr_loop": null,
+        "issue_outcome": null
+      }
+    ],
+    "next_cursor": null,
+    "totals": {
+      "run_count": 1,
+      "unmeasured_runs": 0,
+      "tokens": {
+        "input_tokens": 36000,
+        "output_tokens": 9000,
+        "total_tokens": 45000,
+        "cache_read_tokens": 20000,
+        "cache_write_tokens": 2000
+      },
+      "uncached_tokens": 25000,
+      "tokens_complete": true,
+      "estimated_cost_usd": 0.174,
+      "cost_status": "estimated"
+    },
+    "hops": [],
+    "last_stage": {
+      "chain": ["specify", "implement"],
+      "rule": "implement"
+    },
+    "issue_outcome": null
+  }
 }
 ```
 
@@ -2656,6 +3456,7 @@ When no live entry holds the issue but run history does, `status` is `"history"`
   "recent_events": [],
   "last_error": null,
   "tracked": {},
+  "pr_loop": {"ci_failure": {"result": "unrecorded", "continuations": 0}, "review_comments": {"result": "unrecorded", "continuations": 0}, "bot_review": {"result": "unrecorded", "continuations": 0}, "merge_conflicts": {"result": "unrecorded", "continuations": 0}, "auto_merge": {"result": "acted", "continuations": 1}},
   "history": {
     "runs": [
       {
@@ -2667,6 +3468,8 @@ When no live entry holds the issue but run history does, `status` is `"history"`
         "attempt": 1,
         "status": "succeeded",
         "error": null,
+        "declared_outcome": null,
+        "agent_text": null,
         "rule_name": "implement",
         "agent_kind": "claude-code",
         "started_at": "2026-03-26T12:02:10Z",
@@ -2696,6 +3499,24 @@ When no live entry holds the issue but run history does, `status` is `"history"`
         "session_id": "session-def-001",
         "ssh_host": "",
         "dispatch_id": null,
+        "model_usage": [
+          {
+            "model": "claude-sonnet-4-5",
+            "tokens": {
+              "input_tokens": 52000,
+              "output_tokens": 9100,
+              "total_tokens": 61100,
+              "cache_read_tokens": 30000,
+              "cache_write_tokens": 4000
+            },
+            "uncached_tokens": 31100,
+            "estimated_cost_usd": 0.1923,
+            "cost_status": "estimated",
+            "unrated_classes": []
+          }
+        ],
+        "stage_chain": ["specify", "implement"],
+        "pr_loop": null,
         "issue_outcome": {
           "kind": "handed_off",
           "observed_at": "2026-03-26T12:42:01Z",
@@ -2731,6 +3552,7 @@ When no live entry holds the issue but run history does, `status` is `"history"`
         "completed_at": "2026-03-26T12:41:55Z"
       }
     ],
+    "last_stage": {"chain": ["specify", "implement"], "rule": "implement"},
     "issue_outcome": {
       "kind": "handed_off",
       "observed_at": "2026-03-26T12:42:01Z",
@@ -2747,7 +3569,7 @@ When no live entry holds the issue but run history does, `status` is `"history"`
 | Field | Description |
 |---|---|
 | `status` | One of `"running"`, `"retrying"`, `"budget_exhausted"`, `"parked"`, `"pending_reactions"`, `"between_stages"`, or `"history"`. Derived from which set the issue appears in; `running` takes precedence over `retrying`, which takes precedence over `budget_exhausted`, which takes precedence over `parked`, which takes precedence over `pending_reactions`, which takes precedence over `between_stages`, which takes precedence over `history`, the status of an issue only run history knows. |
-| `status_text`, `status_text_full` | The issue's [status sentences](#status-sentences). Always present. They are the pair of the entry that decides `status`. For `"pending_reactions"` they are the pair of the first row in `pending_reactions` whose `escalated_at` is not `null`, and of the first row when none is. For `"history"` they word how the issue ended from `history.issue_outcome` and the newest run's `stage_target` and `stage_result`: a handoff after a hop that was not made (`"failed"` or `"ceiling"`) names the stage it did not reach, and an issue without an outcome reads `Not active; no ending recorded`. |
+| `status_text`, `status_text_full` | The issue's [status sentences](#status-sentences). Always present. They are the pair of the entry that decides `status`. For `"pending_reactions"` they are the pair of the deciding row described under [`active` entries](#field-notes). For `"history"` they word how the issue ended from `history.issue_outcome` and the newest run's `stage_target` and `stage_result`: a handoff after a hop that was not made (`"failed"` or `"ceiling"`) names the stage it did not reach, and an issue without an outcome reads `Not active; no ending recorded`. |
 | `next_outcomes` | What Sortie does next for the issue, as condition and sentence pairs. Always present; `[]` when no pair applies. See [Next outcomes](#next-outcomes). |
 | `issue` | The tracker's view of the issue, taken from whichever entry decides `status`. Present on every `200` response. Its members use the names of the [`.issue` template variable](/reference/workflow-config/#issue): `title`, `url`, `issue_type`, `labels`, and `state`. Each is omitted when that entry holds none, so the object is `{}` when it holds none of them. `labels` is `[]` when the entry was read and the issue carries none, and omitted when the entry holds no read of the labels. Masked like the running row's `issue_title`. For `running`, `retrying`, and `budget_exhausted` the members come from the entry's `issue_title`, `issue_url`, `issue_type`, `issue_labels`, and `state`. For `parked` they come from the parked entry's `issue_title`, `issue_url`, `issue_type`, and `issue_labels`, with `state` from its `parked_state`. For `pending_reactions` they come from the same members of the issue's first row, and for `between_stages` from those of the issue's row. |
 | `workspace` | Contains `path` when the issue has an active workspace. `null` for retrying, budget-exhausted, parked, pending-reaction, and between-stages issues, or when the workspace path is unknown. |
@@ -2761,7 +3583,8 @@ When no live entry holds the issue but run history does, `status` is `"history"`
 | `between_stages` | Full between-stages entry (same shape as entries in the `between_stages` array on `/api/v1/state`), or `null`. Always present. Populated whenever the issue is between stages, whatever `status` reads. |
 | `recent_events` | The newest 50 agent events of one run, oldest first, in the event shape of [`GET /api/v1/runs/{dispatch_id}/events`](#get-apiv1runsdispatch_idevents-run-events). The run is the one `running.dispatch_id` names while the issue runs, and otherwise the issue's newest recorded run with a non-empty `dispatch_id`, so a recorded CI result is passed over. Always present; `[]` when the issue has no such run or Sortie kept no events for it. |
 | `last_error` | The `error` of the issue's retry entry, or `null` when it has none, worded as the retry's `error` is. After a reschedule this is the reschedule reason. |
-| `tracked` | Reserved for future use. Currently an empty object. |
+| `pr_loop` | What each configured pull request reaction recorded in the pass of the entry that decides `status`; see [pull request reaction history](#pull-request-reaction-history). Always present. |
+| `tracked` | Reserved for future use. Currently an empty object. It is not the tracker project, which `config.tracker.project` of [`GET /api/v1/state`](#get-apiv1state-system-state) serves. |
 | `history` | `null` when the issue has no recorded run, otherwise an object. See [History member](#history-member). |
 
 ### Next outcomes
@@ -2798,6 +3621,7 @@ Every `200` response carries `history`. It is `null` when the issue has no recor
 | `next_cursor` | `null` when `runs` holds every run. Otherwise a cursor that continues the list on `GET /api/v1/runs?issue_id=<issue_id>&cursor=<next_cursor>`. |
 | `totals` | The issue's spend over all of its runs, not only those in `runs`. |
 | `hops` | The stage hop decisions of the runs in `runs`, in the same order. Runs that reached no decision add no entry. |
+| `last_stage` | `null`, or an object with `chain`, the rule names of the stage chain in `next` order, and `rule`, the rule of the deciding run. The deciding run is the newest run in `runs` that no pull request reaction started and whose `rule_name` is set, so a reaction run and a recorded CI result never decide. `chain` is the chain `stage_position.chain` serves for that rule and the run's `stage_previous`, so it equals the deciding run's `stage_chain`. Always present. `null` when no run in `runs` decides, when the deciding rule is on no chain, and when the server holds no workflow shape. |
 | `issue_outcome` | How the issue ended, or `null` when Sortie has not seen it end. The object each run in `runs` carries; see [Issue outcome](#issue-outcome). |
 
 **`totals` members:**
@@ -2870,6 +3694,8 @@ If Sortie is shutting down, the refresh is rejected:
 ```
 
 ### Field notes
+
+`operations` lists what the request queued: `["poll", "reconcile"]` on `202`, whether or not it coalesced, and `[]` on `409`.
 
 `outcome_text` is always present, on `202` and `409` alike. It is one sentence that states what the response confirms, and it states no effect still to come:
 
@@ -3181,7 +4007,7 @@ data: {}
 
 id: 1792000000000000000;RLQFSIOFERWGDW2HZY45W55VXK:41
 event: agent_event
-data: {"dispatch_id":"RLQFSIOFERWGDW2HZY45W55VXK","seq":41,"at":"2026-03-26T14:29:31Z","event":"tool_result","message":"","tool_name":"Bash","duration_ms":2400,"tool_error":false,"text":"Ran Bash in 2.4s."}
+data: {"dispatch_id":"RLQFSIOFERWGDW2HZY45W55VXK","seq":41,"at":"2026-03-26T14:29:31Z","event":"tool_result","message":"","tool_name":"Bash","tool_kind":"shell","tool_argument":"go test ./...","duration_ms":2400,"tool_error":false,"text":"Ran go test ./... in 2.4s.","tool_line":"go test ./..."}
 
 id: 1792000000000000000;RLQFSIOFERWGDW2HZY45W55VXK:42
 event: agent_event

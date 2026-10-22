@@ -49,9 +49,11 @@ The server refuses a dashboard action that a browser sends from a page on anothe
 
 ### Side rail
 
-The rail lists the screens in groups separated by a divider: **Overview**, **Pipeline**, **History**, and **Analytics**, then **Health**, **Workflow**, and **Prices**. A **Filter** field above the list narrows it by name, and Enter opens the first match. The rail also shows the Sortie version, the [status card](#status-card), and these controls: **Commands** opens the [command palette](#command-palette), **Shortcuts** opens the shortcut sheet, and **Theme** opens the [theme menu](#themes).
+The rail lists the screens in groups separated by a divider: **Overview**, **Pipeline**, **History**, and **Analytics**, then **Health**, **Workflow**, and **Prices**. A **Filter** field above the list narrows it by name, and Enter opens the first match. The rail also shows the Sortie version, the project the workflow tracks, the [status card](#status-card), and these controls: **Commands** opens the [command palette](#command-palette), **Shortcuts** opens the shortcut sheet, and **Theme** opens the [theme menu](#themes).
 
 **Overview** carries a count badge while items need attention. The badge is amber, and red while any open item is critical.
+
+The project sits on its own line under the Sortie name. It is the value of [`tracker.project`](/reference/workflow-config/#tracker), such as `sortie-ai/sortie` for a GitHub tracker or a Jira project key, cut to the width of the rail with the whole value on hover. The line is absent while the workflow sets no project. The same project shows in the [browser tab](#browser-tab), in the [narrow bar](#narrow-screens), and in the **Tracker** panel of [**Workflow**](#workflow), so the tabs of different Sortie instances can be told apart.
 
 ### Status card
 
@@ -76,11 +78,11 @@ On screens 768 px wide and up, the top bar shows the date and time, or on an iss
 
 ### Browser tab
 
-The tab title and icon carry the same condition as the status card. The title reads the condition ("All clear", "Waiting on a person" for **N acknowledged**, "Needs attention", or "Degraded"), a hyphen, and "Sortie", with the attention count in parentheses in front of it while any item needs attention. The icon is the Sortie mark, with a yellow dot for **Needs attention** and a red dot for **Degraded**. **All clear** and **N acknowledged** carry no dot. While live updates are paused, the title and icon stay as they were.
+The tab title and icon carry the same condition as the status card. The title reads the condition ("All clear", "Waiting on a person" for **N acknowledged**, "Needs attention", or "Degraded"), a hyphen, the tracked project and another hyphen while the workflow sets one, and "Sortie", with the attention count in parentheses in front of it while any item needs attention. A tab can read "(2) Needs attention - sortie-ai/sortie - Sortie". Before the first answer the title is "Sortie". The icon is the Sortie mark, with a yellow dot for **Needs attention** and a red dot for **Degraded**. **All clear** and **N acknowledged** carry no dot. While live updates are paused, the title and icon stay as they were.
 
 ### Narrow screens
 
-Below 768 px the rail gives way to a bar at the top of the page with the Sortie name, the condition ("All clear", "N acknowledged", "Needs attention" with its count, or "Degraded"), and a **Menu** button that opens the command palette, which reaches every screen. The top bar, with its clock and live indicator, is hidden, and so is the station header of **Pipeline**. The peek takes the full width. Keyboard shortcuts stay available, including `P` to pause.
+Below 768 px the rail gives way to a bar at the top of the page with the Sortie name, the tracked project under it while the workflow sets one, the condition ("All clear", "N acknowledged", "Needs attention" with its count, or "Degraded"), and a **Menu** button that opens the command palette, which reaches every screen. The top bar, with its clock and live indicator, is hidden, and so is the station header of **Pipeline**. The peek takes the full width. Keyboard shortcuts stay available, including `P` to pause.
 
 ### Themes
 
@@ -143,13 +145,30 @@ Each row shows the issue's [mark and status word](#status-word-and-mark), the is
 |---|---|---|
 | **Running** | Filled circle | Has an agent session running. |
 | **Waiting** | Dashed circle | Waits on a pull request reaction, or sits between stages. |
+| **Approval** | Dashed circle | Has a pull request that waits only on a required approval. The hover on the mark reads "Waiting on approval". |
 | **Retry** | Empty circle with a heavy outline | Has a retry scheduled. |
 | **Attention** | Circle with an exclamation point | Has an attention item that nobody acknowledged. |
 | **Held** | Dashed circle in a muted color | Has attention items, and all are acknowledged. |
 | The merged or terminal ending: "Merged", or the tracker state with a capital first letter, such as "Done" | Circle with a dot inside | Ended without a handoff to a person. |
 | The handoff ending: the state Sortie moved the issue to, with a capital first letter, such as "Review" | Dashed circle | Ended with a handoff to a person. |
 
-An unacknowledged attention item outranks an acknowledged one, and both outrank the state the issue is in. An ended issue whose ending Sortie did not record reads "Ended" with no mark.
+**Approval** replaces **Waiting** only for a pull request whose review reaction found no comment to answer and whose forge reports that a required approval is still missing. A standing escalation outranks it, and an issue whose pull request has comments to answer reads **Waiting**. An unacknowledged attention item outranks an acknowledged one, and both outrank the state the issue is in. An ended issue whose ending Sortie did not record reads "Ended" with no mark.
+
+### Run outcome words
+
+A finished run carries its own word wherever it is listed: the run cards and chapter lines of the [issue page](#issue-page), the **So far** list of the [peek](#issue-peek), the head, the end line, and the **Sessions** panel of the [session view](#session-view), the status column of [**History**](#history), and the sessions in the [command palette](#command-palette). The word is the run's recorded status: **Succeeded** (check mark), **Failed** and **CI failed** (cross), **Stopped for a person** and **Stopped at a budget** (paused circle in the attention color), or **Cancelled** (no mark).
+
+A run recorded as succeeded reads differently when its agent ended the session by declaring an outcome in the [`.sortie/status` file](/reference/agent-extensions/#sortiestatus-file-protocol).
+
+| Word | Mark | The agent declared |
+|---|---|---|
+| **Stopped to ask** | Paused circle in the attention color | `blocked`: it cannot go on without a person. |
+| **Ready for human review** | Right arrow | `needs-human-review`: its work waits for a person to look at it. |
+| **No change needed** | Check mark | `no-change-needed`: the requested outcome already held, so there was nothing to change. |
+
+A run with no declared outcome reads **Succeeded**, and so does a run recorded before Sortie kept declared outcomes. Any recorded status other than succeeded keeps its own word, so a `needs-human-review` run whose handoff Sortie withheld reads **Failed**. The **Run status** filter of **History** and the figures of **Analytics** follow the recorded status, so a run that reads **Stopped to ask** still counts as succeeded there.
+
+The sentence the agent wrote after the status word shows beside the outcome, in curly quotes that mark it as the agent's own: in the run card on the issue page, in a note under the facts line of the session view, and as the hover on the status cell in **History**. The other places show the outcome word alone. A run that declared nothing, or wrote no sentence, shows no quotation. The [HTTP API](/reference/http-api/#get-apiv1runs-run-history) serves the same outcome and sentence with each run.
 
 ## Pipeline
 
@@ -171,13 +190,14 @@ The stations are fixed by the configuration, never by an issue, and they read le
 
 A bracket labeled "PR loop" spans the reaction stations. The station header above the lanes writes the count of lanes standing at each station under its name, in the attention color while one of those lanes needs attention. Each lane shows the issue title, key, route, and agent, its [status word](#status-word-and-mark), and the track with the issue's mark at its station and the time above it. On an issue in a stage chain, a stage meter under the **Agent** station shows the stage and its place in the chain, such as "implement 2 of 3", while the issue stands at the agent. Elsewhere the meter shows how many stages are done.
 
-The heavy line of the track runs on through every reaction station the issue worked in its current pass, not only to the station it stands at. A bot review whose `triage` command answered `handled` holds no station: its issue stands at the handoff station (or at **Agent** when the workflow has no handoff state) until the bot review's comments change.
+The heavy line of the track runs on through every reaction station the issue worked in its current pass, not only to the station it stands at. A bot review whose `triage` command answered `handled` holds no station: its issue stands at the handoff station (or at **Agent** when the workflow has no handoff state) until the bot review's comments change, also after a restart, and the station header counts it there. The issue reads **Waiting** wherever the status word shows, and Sortie's sentence reads "The triage command handled the bot review of PR #N, so Sortie starts no session for it", followed by the time of the next check. The **Bot review** station counts a handled triage as Sortie having acted. A pull request that waits only on a required approval stands at the **Review** station, marked with a dashed circle and read as **Approval**; a workflow without the `review_comments` reaction never shows this state.
 
 A reaction station that the issue is not standing at reads from what the reaction did during the issue's current pass. Hovering the station names the reading and, where the reaction counts its work, the count.
 
 | Mark on the station | Hover | Meaning |
 |---|---|---|
 | Dashed circle | "waiting" | A reaction is pending there now. |
+| Dashed circle | "waiting on approval" | The **Review** reaction is pending, found no comment to answer, and the pull request still needs a required approval. |
 | Circle filled with the attention color | "needs attention" | A reaction is pending there with an escalation standing. |
 | Filled circle | "Sortie acted" | The reaction started work. On lanes and the issue page the station adds a count, such as "2 fixes" (or "runs" for label commands), for the reactions that count their work. |
 | Filled circle | "nothing to act on" | Sortie watched the reaction and found nothing to act on. |
@@ -199,7 +219,7 @@ The peek is a drawer that shows one issue over **Overview** or **Pipeline** with
 | Buttons | **Acknowledge** for each open attention item, **Open live session** or **Last session**, **Open issue** (the tracker page), and the pull request button, such as **PR #1331**. |
 | Facts | **Route** (the rule or stage and its place in the chain), **Agent** (kind and model), **This session** while one runs (turn, tokens, and estimated cost), **Sessions**, **Tokens** or **Spent**, and **Pull request** with its branch. **Spent** reads the cost against the money limit, such as "$12.40 of $25.00 estimated", while `agent.max_cost_usd` is set. |
 | **What happens next** | What Sortie will do under each condition, such as "When retry 7 comes due". |
-| **So far** | The last runs of the issue with their outcome, and a closing line with the issue's current sentence, timed at the moment the issue ended once it has ended. |
+| **So far** | The last runs of the issue with their [outcome words](#run-outcome-words), and a closing line with the issue's current sentence, timed at the moment the issue ended once it has ended. |
 
 An issue Sortie no longer knows reads "Sortie no longer knows" followed by its key. Showing an issue, in the peek or on its page, marks its ending as [read](#unread-markers).
 
@@ -215,8 +235,8 @@ The story is the issue's history, newest at the bottom, grouped into chapters.
 
 - Each stage of a chain is a chapter named after its rule, and a stage that ran again reads "again". Work on the pull request, such as CI fixes and review fixes, forms chapters named "Pull request" with its number. Work outside a stage chain forms chapters named "Work".
 - An issue in a stage chain opens with a summary of the stages done, the current stage with its place, such as "implement (2 of 3)", and the stages ahead. Its **All stages** button lists every stage with its time span. A stage that did not hop to the next reads "hop to" the target "not made" with the reason.
-- Every chapter but the current one is folded to one line with its run count, time span, and outcome.
-- Each run is a card with its number, its status, what started it ("CI fix", "Retry after an error", "Continuation", and so on), its time span and duration, its error when it failed, its turns, its tokens, its estimated cost when a rate source is available, and a **Session timeline** link to the [session view](#session-view).
+- Every chapter but the current one is folded to one line with its run count, time span, and outcome. Unless the last run made or missed a hop, the outcome is its [outcome word](#run-outcome-words) in lower case, such as "stopped to ask".
+- Each run is a card with its number, its [outcome word](#run-outcome-words), what started it ("CI fix", "Retry after an error", "Continuation", and so on), its time span and duration, its error when it failed, the sentence its agent wrote with a declared outcome, its turns, its tokens, its estimated cost when a rate source is available, and a **Session timeline** link to the [session view](#session-view).
 - The current chapter closes on Sortie's sentence about the issue, timed at the moment the issue ended once it has, and at the current time while it is active. When older runs are not loaded, a line says how many are not listed, and **Show older runs** loads them.
 
 The margin holds these panels, each only when it applies.
@@ -226,10 +246,10 @@ The margin holds these panels, each only when it applies.
 | Attention cards | Each item of the issue: reason, why, what clears it, **Open issue** or **Open pull request**, and **Acknowledge**, or "Acknowledged" with the time. |
 | **Retry N** | While the issue waits for a retry: when it is **Due**, what it was **Started by**, the **Error**, and **Retry now**. |
 | **What happens next** | The conditions and what Sortie does under each. |
-| **Pull request #N** | The repository, branch, and head commit, then one line per watched reaction with its state, the time of its next check, how many fixes it has used of its limit, and **Check now**. A reaction's state reads "fixing", "checks failing", "checks passing", "comments arriving", "handled", "comments to answer", "conflict", "waiting", or "escalated". "Comments to answer" means the last check found comments the reaction has yet to act on; "handled" means the `triage` command of a bot review answered `handled` for its current comments, so Sortie starts no session for them. |
+| **Pull request #N** | The repository, branch, and head commit, then one line per watched reaction with its state, the time of its next check, how many fixes it has used of its limit, and **Check now**. A reaction's state reads "fixing", "checks failing", "checks passing", "comments arriving", "handled", "comments to answer", "waiting on approval", "conflict", "waiting", or "escalated". "Comments to answer" means the last check found comments the reaction has yet to act on; "handled" means the `triage` command of a bot review answered `handled` for its current comments, so Sortie starts no session for them; "waiting on approval" means the **Review** reaction found no comment to answer and the pull request still needs a required approval. A reaction with comments to answer never reads "waiting on approval", and "handled" outranks "comments to answer". |
 | **Budget** or **Budget and cost** | Meters for **Sessions** and **Tokens** against the issue's limits, "No token budget" when none is set, and, when a rate source is available, the **Estimated cost** with its share for pull request fixes and for stage runs or the rule. A share reads "unpriced" when its runs were measured but no rate priced them, and "at least" the priced amount when other runs in it were priced; it reads "not measured" only when no run in it was measured. While `agent.max_cost_usd` is set and a rate source is available, a **Cost** meter against that limit stands in for the **Estimated cost** figure and reads "$12.40 of $25.00", with "at least" before the amount while the cost is a lower bound. |
 | **Route** or **Agent** | **Entry rule**, **Stage** (with its place in the chain), **Agent** (the agent kind), and **Model**, which reads "agent default" when no model is named. |
-| **Issue** | **Status**, **Type**, and **Labels**. |
+| **Issue** | **Status**, **Type**, and **Labels**. For a running issue, **Status** and **Labels** follow the tracker: they change right after Sortie moves the issue to `tracker.in_progress_state` and again on every poll tick, so a label added during the run shows within one tick. The state badge in the head of the issue page and of the peek follows the same reading. |
 
 A failed read of run history shows "Run history could not be read." above the story. An issue Sortie no longer knows reads "Sortie no longer knows" followed by its key.
 
@@ -239,9 +259,20 @@ The session view answers: what is this agent doing, or what did it do? It shows 
 
 ![Session view of a finished session with its facts line, an Events pane with turns and folded tool calls, and the Usage, Cost per model, Session, and Sessions panels](/img/dashboard/agent-session.webp)
 
-The page head shows the issue key and title, the heading "Session N of" the key, and a line of facts: agent kind, model, route, the reaction that started the session when a pull request fix did, the SSH host when one is used, its time span and duration, and its status, such as "Running, turn 3 of 20" or "Succeeded, 4 turns". A running session whose agent has sent no event for longer than usual shows a stall notice, and a running session with no stall timeout shows a notice that stall detection is off. A session that ended with an error shows why, with the agent's last message when it sent one.
+The page head shows the issue key and title, the heading "Session N of" the key, and a line of facts: agent kind, model, route, the reaction that started the session when a pull request fix did, the SSH host when one is used, its time span and duration, and its status, such as "Running, turn 3 of 20", "Succeeded, 4 turns", or "Stopped to ask, 4 turns" (see [run outcome words](#run-outcome-words)). A running session whose agent has sent no event for longer than usual shows a stall notice, and a running session with no stall timeout shows a notice that stall detection is off. A session that ended with an error shows why, with the agent's last message when it sent one. A session whose agent declared an outcome and wrote a sentence with it shows that sentence in curly quotes in a note under the facts line, after the error when there is one, and the last message is left out when it is the same text.
 
-**Events** is a scrolling pane with one line per event. Consecutive tool calls fold into one line such as "4 tool calls: Bash, 2 Read, Grep" with a count of failed calls, and the line expands to list them. A turn that ended reads "Turn N completed" with its tokens and duration. Events the dashboard no longer holds read as a count of events not retained, and a run with none reads "No events retained". The pane keeps the newest 1,000 events of the run. A finished session ends with its status, and the foot line counts its events.
+**Events** is a scrolling pane with one line per event. Every tool call is one line: an icon for its kind (a terminal for a shell command, a file for a read, a file with a pencil for an edit, an open book for a skill, a wrench for any other tool), the call itself, and its duration when the agent reports one. The call reads as follows, with secrets masked.
+
+| Call | The line shows |
+|---|---|
+| Shell command | The command alone. |
+| File read or edit | The tool and the file, with the path relative to the workspace. |
+| Skill | The tool and the name of the skill. |
+| Any other tool | The tool's name. An MCP tool reads as its server and tool, such as "github.get_issue". |
+
+A line too long for the pane is cut at the pane's width, and hovering it shows the whole text. A failed call draws its line inside the failed mark.
+
+Two or more consecutive tool calls fold into one line that counts them by kind, in the order the kinds first appear: "3 commands, 2 file reads", with "file edit" for an edit and "tool call" for every other tool, such as "4 tool calls". After the counts the line shows the total duration of the calls that report one and, when any call failed, "N failed" in the failed mark. A click expands the line into the calls it holds. A single call between other events is a line of its own, and a skill call is never folded: it stands alone and ends the fold before it, so the skills of a run read in order among the events. A turn that ended reads "Turn N completed" with its tokens and duration. Events the dashboard no longer holds read as a count of events not retained, and a run with none reads "No events retained". The pane keeps the newest 1,000 events of the run. A finished session ends with its outcome word and mark, and the foot line counts its events.
 
 A live session follows its newest event until the reader scrolls up. Then a **Jump to latest** button appears, with a count of new events, and the foot line reads "Live" with the time of the last event, and "following new events" while the pane follows. Pausing live updates holds the pane still and the foot line reads "Paused".
 
@@ -250,8 +281,9 @@ A live session follows its newest event until the reader scrolls up. Then a **Ju
 | **Tokens per turn** | A bar for each completed turn whose tokens are known, and for a live session whose agent reports usage as it happens, a bar for the turn in progress. A turn that ended without usage is listed in **Events** but has no bar. The panel appears once two completed turns have bars. |
 | **Usage** | **Input**, **Output**, **Cache read**, **Cache write**, **Tokens** ("so far" while live), and **Est. cost**. A session whose agent reported no usage shows **Tokens** "not measured" alone. |
 | **Cost per model** | One block for each model a finished session spent tokens on: the model name ("Model not reported" when the agent named none), its **Tokens** without cache reads, and its **Est. cost**. A model with a token class that had no rate adds **No rate for**, which lists the classes: "input", "output", "cache read", or "cache write". Absent on a live session and on a finished one that recorded no spend by model. |
+| **Skills** | Every skill call of the run in the order the calls finished, each under its position, with a repeated skill listed each time. The name is cut at the panel's width and shows in full on hover, and a failed call sits in the failed mark. The panel shows while the session runs and after it ends, and it lists the whole run even when the oldest events are no longer held. It is absent while the run has called no skill, for an agent kind that reports none (the Claude Code, Copilot CLI, and OpenCode kinds report them), and for a run recorded before Sortie kept the list. |
 | **Session** | **Configured** model ("agent default" when none), **Reported model**, **Host** for SSH, **Workspace** while live, **Session ID**, **Workflow**, and **Stall timeout** while live. |
-| **Sessions** | Every session of the issue, newest first, each linking to its view, when the issue has more than one. **Show older** loads earlier ones. |
+| **Sessions** | Every session of the issue, newest first, each linking to its view with its outcome word, when the issue has more than one. **Show older** loads earlier ones. |
 
 An address that names no session reads "No such session". The [HTTP API](/reference/http-api/#get-apiv1runsdispatch_idevents-run-events) describes which events Sortie keeps and for how long.
 
@@ -274,7 +306,7 @@ Each issue is a header row and its newest runs beneath it. The header shows the 
 
 | Column | Shows |
 |---|---|
-| **Status** | The run's status. |
+| **Status** | The run's [outcome word](#run-outcome-words) with its mark. Hovering shows the sentence the agent wrote with a declared outcome. |
 | **Rule** | The dispatch rule, with the hop the run made, such as "Hop to make-pr: advanced". Shown when the workflow has rules. |
 | **Agent** | The agent kind and the model. The tooltip names the configured model when the agent reported another. |
 | **Duration** | From start to end. |
@@ -365,7 +397,7 @@ A failing row reads, for example, "3 ticks in a row failed since 14:02; last suc
 |---|---|
 | **Dispatch** | Rules that belong to no chain, as a table of **Rule**, **Selected by**, and **Agent**. Each [stage chain](/concepts/stage-chains/) as a numbered list of stages with the agent each runs and how it is selected, ending on the handoff state or on the chain it joins. A line gives the limit on automatic hops in a row. Without rules the panel reads "No dispatch rules: every issue runs on" the agent kind. |
 | **Reactions** | One row per configured [reaction](/reference/reactions/): **Kind**, **Limit** (fixes, fix runs, merge strategy, or target state), and **Escalation**. Without reactions it reads "No reactions: Sortie's part ends at" the handoff state. |
-| **Tracker** | **Kind**, the **Active**, **In progress**, **Handoff**, **No change**, and **Terminal** states, and the **Poll** interval. |
+| **Tracker** | **Kind**, **Project** while the workflow sets one, the **Active**, **In progress**, **Handoff**, **No change**, and **Terminal** states, and the **Poll** interval. **Kind** and **Project** name the tracker Sortie started with, so after an edit of WORKFLOW.md changes either one they keep the old value until Sortie restarts. |
 | **Agent** | **Kind**, **Max turns**, **Stall timeout**, **Retry backoff**, **Concurrency** with any per-state limits, **Token budget**, **Money budget**, **Session budget**, **Usage reporting** for each agent kind in use, and **SSH workers** with their per-host limit. |
 | **Token rates** | The rate of each `token_rates` entry, an agent kind or a model name, for **Input**, **Output**, **Cache read**, and **Cache write**, per million tokens. A kind entry without both **Input** and **Output** reads "Not priced without `input_per_mtok` and `output_per_mtok`." Without `token_rates` the panel reads "Not set: costs come from the price table." while a rate source is available, and "Not set: no cost is shown." when none is. |
 
@@ -563,6 +595,6 @@ The go-to sequence is `G` followed by the letter within 1.2 seconds. `Esc` close
 | **Theme: System**, **Theme: Light**, **Theme: Dark** | `T` |
 | **Keyboard shortcuts** | `?` |
 
-Typing narrows the commands and adds the groups below. **Issues** lists active issues whose key or title contains the text (the first 8), then finished issues from run history that match by key or title (up to 5 more), each with its [status word](#status-word-and-mark) under the name. **Sessions** lists the live sessions of matching running issues, named "key live session", and the finished sessions of the issues found, named "key session N" with the route, status, and start time (up to 8 in all). Choosing an issue opens its page, and choosing a session opens its view. A search with no match reads "Nothing matches" and the text, and a failed history lookup reads "Run history could not be read."
+Typing narrows the commands and adds the groups below. **Issues** lists active issues whose key or title contains the text (the first 8), then finished issues from run history that match by key or title (up to 5 more), each with its [status word](#status-word-and-mark) under the name. **Sessions** lists the live sessions of matching running issues, named "key live session", and the finished sessions of the issues found, named "key session N" with the route, [outcome word](#run-outcome-words), and start time (up to 8 in all). Choosing an issue opens its page, and choosing a session opens its view. A search with no match reads "Nothing matches" and the text, and a failed history lookup reads "Run history could not be read."
 
 ![Command palette listing the go-to commands for each screen, Refresh now, Pause live updates, Mark everything read, the theme commands, and Keyboard shortcuts, each with its key](/img/dashboard/command-palette.webp)

@@ -283,9 +283,28 @@ The adapter observes tool execution by correlating `tool_use` and `tool_result` 
 
 ### Correlation
 
-1. An `assistant` message containing a `tool_use` block records the tool name and a start time, keyed by the block's `id`.
+1. An `assistant` message containing a `tool_use` block records the tool's name, kind and main argument, and a start time, keyed by the block's `id`.
 2. A `user` message containing a `tool_result` block looks up the matching `tool_use_id`.
-3. On a match, the adapter emits a `tool_result` event carrying the tool name, how long the call took since that start time, and whether it errored (from the `is_error` field on the content block).
+3. On a match, the adapter emits a `tool_result` event carrying the tool's name, kind and main argument, how long the call took since that start time, and whether it errored (from the `is_error` field on the content block).
+
+### Tool kind and argument
+
+Six Claude Code tools report a kind and one main argument, read from a single member of the call's `input`:
+
+| Tool | Kind | Argument |
+| --- | --- | --- |
+| `Bash` | `shell` | `command` |
+| `Read` | `read` | `file_path` |
+| `Write` | `edit` | `file_path` |
+| `Edit` | `edit` | `file_path` |
+| `NotebookEdit` | `edit` | `notebook_path` |
+| `Skill` | `skill` | `skill` |
+
+The adapter reads no other member of the input, so the event never carries a call's other inputs, such as the content written by `Write` or the `args` of a `Skill` call. A call has no argument when its input is not an object or the member is absent or not a string.
+
+Every other built-in tool reports its name only, with no kind and no argument. An MCP tool, which Claude Code names `mcp__{server}__{tool}`, is reported as `{server}.{tool}`, such as `github.get_issue`, and also has no kind and no argument.
+
+The [HTTP API reference](/reference/http-api/) lists the members that serve these values, and the [session view](/reference/dashboard/#session-view) shows how they appear.
 
 ### Tool error formatting
 
