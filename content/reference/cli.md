@@ -52,6 +52,7 @@ sortie: too many arguments
 | `-dumpversion` | boolean | `false` | Print the bare version string, then exit. |
 | `--dry-run` | boolean | `false` | Run one poll cycle without spawning agents or writing to the database, then exit. |
 | `--once` | boolean | `false` | Poll once, run the agents for the issues found, wait until that work is finished, then exit. Cannot be combined with `--dry-run`. |
+| `--once-result` | string | _(empty)_ | With `--once`, write the latest outcome of each issue to this path as JSON. Requires `--once`. See [`--once-result`](#--once-result). |
 | `--env-file` | string | _(empty)_ | Path to a `.env` file containing `SORTIE_*` overrides. See [environment variables reference](/reference/environment/#env-file-support). |
 | `--log-format` | string | `text` | Log output format. Accepted values: `text`, `json`. |
 | `--log-level` | string | `info` | Log verbosity. Accepted values: `debug`, `info`, `warn`, `error`. |
@@ -172,6 +173,36 @@ level=INFO msg="once run finished" issues=3 not_succeeded=1 not_run=0 interrupte
 
 A signal outranks a failed poll, which outranks a failed issue. A signal that arrives after the run has finished does not change the status. A second `SIGINT` or `SIGTERM` during the shutdown abandons the remaining drains, as described under [signals](#signals), and the status is still `2`.
 
+### `--once-result`
+
+Writes the latest outcome of each issue to a JSON file when a [`--once`](#--once) run ends.
+
+```sh
+sortie --once --once-result result.json WORKFLOW.md
+```
+
+Without `--once`, the flag prints an error to stderr and exits with code `1` before the workflow file is read:
+
+```
+sortie: --once-result requires --once
+```
+
+The file is written after the [run summary](#run-summary) line, with whatever exit code the run returns: `0`, `1` when the single poll failed, and `2`, including a run a signal interrupted. Nothing is written when startup fails. The write replaces an existing file and creates it with permissions `0600`. It does not create missing directories.
+
+```json
+{"issues":[{"identifier":"PROJ-1","outcome":"succeeded"},{"identifier":"PROJ-2","outcome":"failed"}]}
+```
+
+| Field | Description |
+|---|---|
+| `issues` | One element per issue with at least one finished attempt, sorted by `identifier`. An empty array when no issue finished an attempt. |
+| `identifier` | The issue identifier, or the tracker's issue ID when the issue has no identifier. |
+| `outcome` | The issue's latest outcome: `succeeded`, `stopped`, `failed`, or `cancelled`. An attempt that fails and then succeeds on a retry within the same run is reported as `succeeded`. |
+
+The file lists the same issues as the `issues` count in the run summary. Candidates that were never dispatched do not appear.
+
+A failed write, such as a missing directory, logs `failed to write once result file` at `ERROR` level and leaves the exit code unchanged.
+
 ### `--log-level`
 
 Sets the minimum log severity emitted to stderr. Accepted values (case-insensitive): `debug`, `info`, `warn`, `error`.
@@ -291,6 +322,7 @@ Flags:
 Run options:
   --dry-run                 Run one poll cycle without spawning agents, then exit
   --once                    Poll once, finish the issues found, then exit
+  --once-result PATH        With --once, write each issue's latest outcome to PATH as JSON
   --env-file PATH           Path to .env file for config overrides
   --log-level LEVEL         Log verbosity: debug, info, warn, error (default: info)
   --log-format FORMAT       Log output format: text, json (default: text)
@@ -1401,7 +1433,7 @@ When no version or help flag is present, Sortie executes these steps in order:
 
 When `--dry-run` is set, execution diverges after step 8. Steps 9–16 are skipped entirely. Instead, Sortie fetches candidate issues from the tracker, evaluates dispatch eligibility, logs the results, and exits. No database file is created, no agent adapter is built, and no HTTP server starts.
 
-`--once` does not diverge before step 16. It is rejected together with `--dry-run` during flag parsing, in step 1.
+`--once` does not diverge before step 16. It is rejected together with `--dry-run` during flag parsing, in step 1. `--once-result` without `--once` is rejected there too. A valid `--once-result` writes its file after step 16 returns.
 
 Any step that fails prints a diagnostic to stderr and exits with code `1`.
 
@@ -1412,7 +1444,7 @@ Any step that fails prints a diagnostic to stderr and exits with code `1`.
 | Code | Meaning |
 |---|---|
 | `0` | Clean shutdown (signal received), a `--once` run that finished with every issue's latest outcome `succeeded` or no issue ready, help output (`-h`, `--help`), version output (`-V`, `--version`, `-dumpversion`), successful `validate`, successful `--dry-run`, a `stats` report (including one whose range matched no runs), or clean `mcp-server` shutdown. |
-| `1` | Startup failure: unknown flag, too many arguments, missing or unreadable workflow file, invalid configuration, preflight validation failure, or database open/migration error. Also used by `validate` for any validation failure, by `--dry-run` when the tracker fetch fails, by `stats` for usage and load errors, and by `mcp-server` for startup or runtime errors. A `--once` run also returns `1` when its single poll fails. |
+| `1` | Startup failure: unknown flag, `--once-result` without `--once`, too many arguments, missing or unreadable workflow file, invalid configuration, preflight validation failure, or database open/migration error. Also used by `validate` for any validation failure, by `--dry-run` when the tracker fetch fails, by `stats` for usage and load errors, and by `mcp-server` for startup or runtime errors. A `--once` run also returns `1` when its single poll fails. |
 | `2` | Only under `--once`: a signal interrupted the run, or at least one issue's latest outcome is not `succeeded`. See [`--once` exit codes](#once-exit-codes). |
 
 Outside `--once`, Sortie does not define exit codes above `1`. Agent subprocess failures, tracker errors, and runtime exceptions are handled internally through the retry and reconciliation mechanisms. In a run without `--once` they do not affect the process exit code.
@@ -1582,6 +1614,9 @@ sortie --dry-run --log-level debug
 
 # Run once: finish the issues that are ready now, then exit
 sortie --once /opt/sortie/WORKFLOW.md
+
+# Run once and record each issue's outcome for a script to read
+sortie --once --once-result /tmp/result.json /opt/sortie/WORKFLOW.md
 
 # Load config overrides from a .env file
 sortie --env-file /etc/sortie/prod.env

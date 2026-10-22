@@ -112,7 +112,7 @@ Watch the logs. Sortie reads your JSON file, dispatches one mock agent session p
 
 Press **Ctrl+C** to stop after the cycle completes.
 
-To run the fixture to completion and exit, with a status a script can check, start Sortie with [`--once`](/reference/cli/#--once) instead. It dispatches the issues in the file once, waits for the agents to finish, and exits `0` when every issue's last run succeeded.
+To run the fixture to completion and exit, with a status a script can check, start Sortie with [`--once`](/reference/cli/#--once) instead. It dispatches the issues in the file once, waits for the agents to finish, and exits `0` when every issue's last run succeeded. Add `--once-result result.json` to also get the outcome of each issue in a file; the [reference](/reference/cli/#--once-result) describes its contents.
 
 ### Test edge cases
 
