@@ -293,7 +293,7 @@ Before start, the subprocess is isolated in its own process group. A graceful pr
 
 On Windows, graceful shutdown is `CTRL_BREAK_EVENT` to the process group, and the subprocess is assigned to a Job Object with `KILL_ON_JOB_CLOSE` so force termination kills the full descendant tree.
 
-The subprocess starts suspended and is resumed only after that assignment succeeds, so nothing it spawns can run before the job takes effect; this covers the auxiliary launches described below, not only turns. A failed assignment logs WARN `process group assignment failed` and the launch runs without a job; a failed resume logs WARN `process resume failed` and reports `response_error`.
+The subprocess starts suspended and is resumed only after that assignment succeeds, so nothing it spawns can run before the job takes effect; this covers the auxiliary launches described below, not only turns. A failed assignment logs WARN `process group assignment failed` and the launch runs without a job; a failed resume logs WARN `process resume failed` and reports `port_exit`. A failure to start the subprocess or to create its stdout or stderr pipe reports `port_exit` too.
 
 A launch whose context is already done when the resume is reached, by cancellation or by its deadline, is never resumed: Sortie terminates the subprocess before it runs and logs no resume warning. A turn ends this way as `turn_cancelled`.
 
@@ -393,14 +393,15 @@ An error kind is absent only on a `turn_completed` outcome; every other outcome 
 
 | Condition | Exit reason | Error kind | Description |
 |---|---|---|---|
-| No JSON envelope arrived within the larger of `read_timeout_ms` and 60 seconds of launch | `turn_failed` | `response_timeout` | Message is `timed out waiting for first opencode json event`. The subprocess is killed and its stderr re-emitted at WARN level. |
-| A JSON envelope carried a `sessionID` other than the one already adopted | `turn_failed` | `response_error` | Message is `session id mismatch: expected "...", got "..."`. The turn is aborted rather than reconciled. |
+| No JSON envelope arrived within the larger of `read_timeout_ms` and 60 seconds of launch | `turn_failed` | `response_timeout` | Message is `timed out waiting for first event`. The subprocess gets the graceful process-group signal and is force-killed after `stop_grace_ms`; its stderr is re-emitted at WARN level. |
+| A JSON envelope carried a `sessionID` other than the one already adopted | `turn_failed` | `response_error` | Message is `session id mismatch: expected "...", got "..."`. The turn is aborted rather than reconciled, and the subprocess is stopped the same graceful way, force-killed after `stop_grace_ms`. |
 | Stdout `error` envelope observed, whatever the process exit status | `turn_failed` | `turn_failed` | Structured logical failure, authoritative over the exit code. Message is the envelope's own detail; see [masked failures](#masked-failures). On OpenCode's hosted free tier, a refusal naming a denied `bash` or `read` tool gains a trailing clause naming the setting that denied it; see [free-tier refusals](#free-tier-refusals). |
 | Turn cancelled, or the session stopped, while the subprocess was still running | `turn_cancelled` | `turn_cancelled` | Message is `turn cancelled`. Cancellation outranks the process-exit classification. A subprocess that had already exited on its own is classified by its own exit status instead, however long the wait for its output ran. |
 | No `error` envelope, and the process exited before writing a line the adapter decodes as a JSON envelope, whatever its exit status | `turn_failed` | `port_exit` | The [early exit report](/reference/errors/#early-exit-report): `the agent runtime exited before responding: exit status N`, followed by the end of the process's stderr. A stdout line the adapter cannot decode as an envelope does not count as a response, even if the process later exits `0`. |
 | No `error` envelope, exit `0`, at least one `text`, `reasoning`, or `tool_use` part parsed | `turn_completed` | _(none)_ | Normal completion. |
 | No `error` envelope, exit `0`, output written but no such part parsed | `turn_failed` | `turn_failed` | The model produced nothing this turn. Message is `agent exited without producing output: no message from the agent and no tool call`. |
-| No `error` envelope, non-zero exit after writing output | `turn_failed` | `port_exit` | Process-level failure. Message is `exit code N`; when a signal Sortie did not send ended the process, the error text also names the signal, for example `signal: killed`. |
+| No `error` envelope, exit code `127` after writing output | `turn_failed` | `agent_not_found` | The agent binary was not found. Message is `exit code 127`. Not retried. |
+| No `error` envelope, non-zero exit other than `127` after writing output | `turn_failed` | `port_exit` | Process-level failure. Message is `exit code N`; when a signal Sortie did not send ended the process, the error text also names the signal, for example `signal: killed`. |
 
 The adapter never trusts exit code `0` as sufficient proof of success. A terminal stdout `error` envelope is authoritative.
 
@@ -423,7 +424,7 @@ If reading stdout encounters an error while the turn is still active, the adapte
 1. Stops reading and kills the process group.
 2. Recovers token usage from the session export, the same as any other turn ending; see [Accumulation logic](#accumulation-logic).
 3. Re-emits collected stderr lines at WARN level.
-4. Emits `turn_failed` with message `stdout read error` and reports an error of kind `response_error`.
+4. Emits `turn_failed` with message `stdout read error: <detail>` and reports an error of kind `port_exit` with the text `stdout scanner error`.
 
 If a cancellation or stop had already begun when the adapter killed the process, the turn ends as `turn_cancelled` instead: stderr is not re-emitted, but the process is still killed and usage is still recovered the same way.
 
@@ -446,7 +447,7 @@ OpenCode continuation is flag-based. The adapter persists the OpenCode session I
 | Continuation after worker restart | The session ID saved from a previous run | `--session <sessionID>` |
 
 
-If a resumed turn emits a different `sessionID` from the one already stored, the adapter aborts the turn with `response_error` and emits `turn_failed`. `session_started` is emitted only once per session, on the first accepted JSON envelope.
+If a resumed turn emits a different `sessionID` from the one already stored, the adapter aborts the turn with `response_error`, stops the subprocess gracefully, and emits `turn_failed`. `session_started` is emitted only once per session, on the first accepted JSON envelope.
 
 ---
 

@@ -146,7 +146,7 @@ Every other way the request can fail to complete becomes `credential_unverified`
 
 Failure text is uniform across coding agents. A turn that exits `0` having written output, but no evidence that the model did any work, reports `agent exited without producing output`, followed by the signals the adapter looked for and did not find.
 
-An adapter that reads both model-authored content and tool-call activity reports `agent exited without producing output: no message from the agent and no tool call`, which covers `claude-code`, `copilot-cli`, and `opencode`. A non-zero exit after the agent wrote output reports `exit code N`.
+An adapter that reads both model-authored content and tool-call activity reports `agent exited without producing output: no message from the agent and no tool call`, which covers `claude-code`, `copilot-cli`, and `opencode`. A non-zero exit after the agent wrote output reports `exit code N`, except exit code `127`, which reports `agent_not_found`.
 
 A `copilot-cli` turn whose `result` event reports a failed exit reports the message of the last `session.error` event that turn, which is the model provider's own message when the provider failed, and `non-zero exit in result event` when the runtime sent none.
 
