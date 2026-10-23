@@ -1,0 +1,30 @@
+# Link check of the built site, run by `npm run lint:links`. The root directory
+# and the docs.sortie-ai.com remap need the absolute path of public/, so they
+# stay on the command line.
+
+no_progress = true
+include_fragments = "anchor-only"
+index_files = ["index.html"]
+
+# A retried 429 from github.com rate-limits every request queued behind it.
+max_retries = 0
+
+# github.com answers random /blob/ links with 503, and lychee's GITHUB_TOKEN
+# fallback only checks that a repository exists, so it cannot rescue a file
+# link. A deleted file is still a 404.
+accept = ["100..=103", "200..=299", "502..=503"]
+
+exclude = [
+    # A Cloudflare redirect to the sortie repository.
+    '^file://.*/downloads/grafana-dashboard\.json$',
+
+    # The ChatGPT, Claude and "Edit this page" links come from hugo.toml on
+    # every page; none answers a bot.
+    '^https://chatgpt\.com/',
+    '^https://claude\.ai/',
+    '^https://github\.com/sortie-ai/docs/edit/',
+
+    # Behind a bot challenge that returns 403 to any crawler.
+    '^https://platform\.openai\.com/',
+    '^https://support\.discord\.com/',
+]

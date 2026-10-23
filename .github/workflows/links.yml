@@ -53,22 +53,9 @@ jobs:
       - name: Build site
         run: npm run build
 
-      # package.json cannot carry comments, so the reasons for the lint:links
-      # flags live here.
-      #
-      # Markdown mirrors and llms*.txt are left out: their /<page>.md links are
-      # answered by Cloudflare, not by a file in the build. The Grafana download
-      # is a Cloudflare redirect to the sortie repository. The ChatGPT, Claude
-      # and "Edit this page" links come from hugo.toml on every page; none
-      # answers a bot. platform.openai.com sits behind the same Cloudflare
-      # bot challenge and returns 403 to any crawler.
-      #
-      # Retries are off: a retried 429 from github.com rate-limits every
-      # request queued behind it.
-      #
-      # 503 is accepted because github.com answers random /blob/ links with
-      # it, and lychee's GITHUB_TOKEN fallback only checks that a repository
-      # exists, so it cannot rescue a file link. A deleted file is still a 404.
+      # lychee.toml carries the checker's settings and the reason for each one.
+      # Only HTML is checked: the Markdown mirrors and llms*.txt link to
+      # /<page>.md paths that Cloudflare answers, not a file in the build.
       - name: Check links and anchors
         env:
           GITHUB_TOKEN: ${{ github.token }}
