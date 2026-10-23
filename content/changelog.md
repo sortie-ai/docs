@@ -9,6 +9,38 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.30.0] - 2026-10-23 { #1.30.0 }
+
+This release is mostly about the dashboard telling the truth about how a run ended, and about seeing what an agent actually did.
+
+A run where the agent stopped to ask for help, asked for a human review, or found nothing to change no longer reads as succeeded. The dashboard names that outcome and shows what the agent wrote. A pull request that passed its checks and waits only for a required approval now says so and stays on the Pipeline. The status card no longer reads all clear while something still waits on a person, and a running issue's labels follow the tracker instead of freezing at the start of the run.
+
+Every tool call in the session view is now one readable line: what it ran, on which file, with which tool. When an agent runs a skill, you see which one, and History and Analytics count skill calls and failures per skill. Codex runs no longer show shell commands with secrets unmasked.
+
+You can add a weekly spending limit next to the daily and monthly ones. Notifications can now go to a Telegram chat or a Discord channel. A new one-shot mode handles the issues that are ready, then exits with a status a script can check, and hooks that run after a session learn whether it succeeded.
+
+Before you upgrade, check two things. The tool call metric now names MCP tools the way the session view does, so alerts and panels built on the old names get new series. OpenCode turns that fail in two specific ways report a different error kind, so alerts that match on it may need updating.
+
+### Added
+
+- When a pull request has passed its checks and waits only for the approval your branch rules require, the dashboard now says it is waiting on approval, and the issue stays on the Pipeline until someone approves, merges, or closes it. The state API marks it with `awaiting_approval`. ([#1444](https://github.com/sortie-ai/sortie/issues/1444))
+
+- The dashboard now shows the project or repository a Sortie instance tracks under the Sortie name, in the browser tab title, and on the Workflow screen. The state API reports it too, so a page that links several instances can name each one. ([#1442](https://github.com/sortie-ai/sortie/issues/1442))
+
+- `sortie --once` finishes the issues that are ready when it starts and then exits, with status `0` when each issue's last run succeeded or nothing was ready, `1` when startup or the first poll failed, and `2` when an issue's last run did not succeed or a signal stopped the work; an issue in a stage chain moves one stage forward per run, and `--once-result <path>` writes the outcome of each issue's last run to a JSON file. ([#1470](https://github.com/sortie-ai/sortie/issues/1470))
+
+- `after_run` hooks now receive `SORTIE_RUN_OUTCOME` (`succeeded`, `stopped`, `failed`, `cancelled`), so a hook that commits and pushes can skip an attempt that did not succeed. ([#1470](https://github.com/sortie-ai/sortie/issues/1470))
+
+- Agent events now name the skill an agent ran. When a Claude Code, Copilot CLI, or OpenCode agent calls a skill, the event log, the live event stream, and the session view show which one, and a Skills panel in the session view lists every skill call of the run in order and marks each one that failed, while the run is live and after it ends. The state and run history APIs serve the same list. ([#1438](https://github.com/sortie-ai/sortie/issues/1438))
+
+- History now lists each run's skill calls in order with failed calls marked, and Analytics adds a By skill table that counts, for the chosen range, the runs that called each skill, its calls, and its failed calls; `sortie stats --format json` reports the same counts. Runs recorded before this release have no skill calls on record, so Analytics shows its skill counts as "at least" while a range holds such runs. ([#1473](https://github.com/sortie-ai/sortie/issues/1473))
+
+- `agent.max_weekly_cost_usd` (or `SORTIE_AGENT_MAX_WEEKLY_COST_USD`) caps what the whole instance spends in estimated cost in a UTC week, from Monday 00:00 UTC to the next Monday, the way the daily and monthly limits cap a day and a month: once the week's spend reaches it, Sortie starts no new agent session until the week resets or you raise the limit, and sessions already running finish. You can set it alone or with the other limits; while more than one is reached, Sortie starts nothing until every one of them clears. Overview shows the week's spend against the limit and when it resets. ([#1453](https://github.com/sortie-ai/sortie/issues/1453))
+
+- Sortie can now post its notifications to a Telegram chat or channel: add a `telegram` entry to `notifications` with the bot's token in `bot_token` (for example `$SORTIE_TELEGRAM_BOT_TOKEN`) and the chat in `chat_id`, either its numeric id or a public channel's `@username`. Each message carries the same text as a Slack message, and a message longer than Telegram's 4096-character limit is cut to fit. ([#1454](https://github.com/sortie-ai/sortie/issues/1454))
+
+- Sortie can now post its notifications to a Discord channel: add a `discord` entry to `notifications` with the channel's webhook URL in `webhook_url` (for example `$SORTIE_DISCORD_WEBHOOK_URL`). Each message carries the same text as a Slack message, a message longer than Discord's 2000-character limit is cut to fit, and no message pings a user, a role, or `@everyone`. ([#1455](https://github.com/sortie-ai/sortie/issues/1455))
+
 ## [1.29.0] - 2026-10-20 { #1.29.0 }
 
 This release is mostly about money: you can now cap what agents spend in dollars, and the cost figures behind that cap are ones you can trust.
@@ -1457,6 +1489,7 @@ One thing to check after upgrading: if a script you run alongside an agent start
 - CI pipeline with `golangci-lint`, `gofmt` enforcement, and test execution via GitHub Actions.
 - Architecture Decision Records (ADR-0001 through ADR-0005).
 
+[1.30.0]: https://github.com/sortie-ai/sortie/compare/v1.29.0...v1.30.0
 [1.29.0]: https://github.com/sortie-ai/sortie/compare/v1.28.1...v1.29.0
 [1.28.1]: https://github.com/sortie-ai/sortie/compare/v1.28.0...v1.28.1
 [1.28.0]: https://github.com/sortie-ai/sortie/compare/v1.27.0...v1.28.0
