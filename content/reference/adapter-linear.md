@@ -168,7 +168,7 @@ The nested `inverseRelations` connection is capped at the first 25 nodes and is 
 
 Linear returns comments newest-first. The adapter re-sorts them ascending by creation time before returning.
 
-When Sortie writes a comment that carries the agent's [stop statement](/reference/agent-extensions/#stop-statement), the body is the stop text, a blank line, and the statement in a fenced Markdown code block. The fence is backticks, at least three and one more than the longest run of backticks in the statement.
+Sortie writes a comment as Markdown and sends the body to Linear as given. A comment that carries the agent's [stop statement](/reference/agent-extensions/#stop-statement) is written the same way.
 
 ### Blocker extraction
 

@@ -215,7 +215,7 @@ At startup the adapter resolves terminal states through the search surface, one 
 
 A transition sets the state label and removes the ones it replaces. A comment is appended rather than edited. Both require a token that can write to issues; see [authentication](#authentication).
 
-A comment that carries the agent's [stop statement](/reference/agent-extensions/#stop-statement) is the stop text, a blank line, and the statement in a fenced Markdown code block. The fence is backticks, at least three and one more than the longest run of backticks in the statement, so nothing inside the statement can close it.
+A comment body is Markdown and is posted to GitHub as given, with no conversion; the [stop statement](/reference/agent-extensions/#stop-statement) travels in it as ordinary text.
 
 ### Label writes
 

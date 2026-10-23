@@ -257,9 +257,7 @@ A transition resolves the available transitions for the issue and then applies t
 
 Comment bodies differ by API version: the newer surface takes a structured document, which the adapter builds around the orchestrator's text, while the older one takes the text verbatim. Reading works in the other direction, flattening a structured body back to plain text so a prompt template sees the same shape whichever deployment is behind it.
 
-A comment that carries the agent's [stop statement](/reference/agent-extensions/#stop-statement) ends in a literal block. On version `"3"` the block is a code block node holding the statement as one text node. On version `"2"` it is a `{noformat}` block.
-
-The adapter inserts a zero-width space (U+200B) after every `{` that starts the word `noformat`, in any letter case, so the statement cannot end the block early, and after every `[` that opens a `[~user]` mention, because Jira Server parses mentions inside `{noformat}`. Those two spots show an invisible character.
+A comment that carries the agent's [stop statement](/reference/agent-extensions/#stop-statement) is written like any other comment: on version `"3"` each line of the text becomes an ADF paragraph, and on version `"2"` the text is sent as the wiki-markup body.
 
 A comment failure is not fatal to the run. The orchestrator logs a warning and continues, so a token that can read but not comment degrades the run rather than ending it.
 

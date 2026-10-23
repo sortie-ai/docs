@@ -142,6 +142,13 @@ notifications:
   - kind: webhook
     url: $SORTIE_OPS_WEBHOOK_URL      # Generic JSON POST endpoint
     events: [session.started, session.completed, session.stopped, session.failed]
+  - kind: telegram                    # Telegram Bot API, plain text
+    bot_token: $SORTIE_TELEGRAM_BOT_TOKEN  # SORTIE_-prefixed reference (required)
+    chat_id: "-1001234567890"         # Chat id or @channelusername (required)
+    events: [session.failed]
+  - kind: discord                     # Discord channel webhook
+    webhook_url: $SORTIE_DISCORD_WEBHOOK_URL  # SORTIE_-prefixed reference (required)
+    events: [session.failed]
 
 # --- Claude Code adapter (pass-through) ------------------------------
 claude-code:
@@ -1201,21 +1208,24 @@ Each entry accepts three typed fields:
 
 | Field             | Type            | Default      | Description |
 | ----------------- | --------------- | ------------ | ----------- |
-| `kind`            | string          | _(required)_ | Destination discriminator. Built-in values: `webhook`, `slack`, and the reserved `tracker_comment`. |
-| `events`          | list of strings | `[agent.message]` for `webhook` and `slack`; _(required)_ for `tracker_comment` | The event types the entry receives. Each name must come from the [catalog](#event-catalog), none may repeat, and there is no wildcard. A `webhook` or `slack` entry that omits the key receives `agent.message` only, which is deprecated. A `tracker_comment` entry must write the key; `[]` means only the comments that deprecated settings enable. |
+| `kind`            | string          | _(required)_ | Destination discriminator. Built-in values: `webhook`, `slack`, `telegram`, `discord`, and the reserved `tracker_comment`. |
+| `events`          | list of strings | `[agent.message]` for `webhook`, `slack`, `telegram`, and `discord`; _(required)_ for `tracker_comment` | The event types the entry receives. Each name must come from the [catalog](#event-catalog), none may repeat, and there is no wildcard. An entry of any of those four kinds that omits the key receives `agent.message` only, which is deprecated. A `tracker_comment` entry must write the key; `[]` means only the comments that deprecated settings enable. |
 | `max_per_session` | integer         | `20`         | Cap on the agent's own `notify_operator` calls for the whole agent run. `0` selects the default (`20`); it never means unlimited. Must be non-negative. It has no effect on an entry that does not receive `agent.message`, and a `tracker_comment` entry rejects it. |
 
-Every other key in a `webhook` or `slack` entry has `$VAR` and `${VAR}` references resolved on string values, the same mechanism as [adapter pass-through configuration](#adapter-pass-through-configuration). Per-backend fields:
+Every other key in an entry of those four kinds has `$VAR` and `${VAR}` references resolved on string values, the same mechanism as [adapter pass-through configuration](#adapter-pass-through-configuration). Per-backend fields:
 
 | `kind`    | Field         | Description                                                               |
 | --------- | ------------- | -------------------------------------------------------------------------- |
 | `webhook` | `url`         | Endpoint that receives an HTTP POST of the notification as a JSON object. |
 | `slack`   | `webhook_url` | Slack incoming webhook URL that receives a Slack-shaped JSON body.        |
+| `telegram` | `bot_token` | Required. The bot's token, as a `SORTIE_`-prefixed environment reference. |
+| `telegram` | `chat_id` | Required. The target chat, written as an integer, as a string of digits, or as the `@username` of a public channel or supergroup. A negative id, such as that of a group, is accepted. |
+| `discord` | `webhook_url` | Required. Discord channel webhook URL that receives a JSON body with a `content` field. |
 | `tracker_comment` | _(none)_ | Takes only `kind` and `events`. Any other key is rejected. |
 
-The URL is the only setting a `webhook` or `slack` backend has. There is no key for headers, authentication, a Slack channel, or a timeout, and every send is a JSON POST with a fixed 10-second timeout. A key a backend does not read is ignored without an error, and `sortie validate` reports no warning for it, so a misspelled or unsupported key has no effect.
+The URL is the only setting a `webhook`, `slack`, or `discord` backend has, and the bot token and chat are the only settings a `telegram` backend has. There is no key for headers, authentication, a Slack channel, a message format, or a timeout, and every send is a JSON POST with a fixed 10-second timeout. A key a backend does not read is ignored without an error, and `sortie validate` reports no warning for it, so a misspelled or unsupported key has no effect.
 
-A credential for the endpoint has to be part of the URL: a user and password written into it, such as `https://user:password@host/path`, are sent as HTTP Basic authentication. Sortie registers every endpoint URL as a secret and masks it in logs; see [secrets and credential handling](/concepts/security/#secrets-and-credential-handling).
+A credential for the endpoint has to be part of the URL: a user and password written into it, such as `https://user:password@host/path`, are sent as HTTP Basic authentication. A `telegram` backend sends to `https://api.telegram.org`, with the bot token as part of the request path. Sortie registers every endpoint URL and the `bot_token` as secrets and masks them in logs, and a failed send is reported by category only (for example `unauthorized (HTTP 403)`, `rate limited (HTTP 429)`, `timeout`), never with the URL or the response body; see [secrets and credential handling](/concepts/security/#secrets-and-credential-handling).
 
 When more than one entry receives `agent.message` and sets `max_per_session`, the effective cap is the maximum non-zero value across those entries, falling back to `20` when every one is `0` or unset. The cap applies to the whole agent run: every turn and every tool server process the run spawns share one count. A retry or a continuation of a resumed session starts a new run and a new count.
 
@@ -1273,7 +1283,7 @@ A `tracker_comment` entry posts each event it receives as a comment on the event
 |---|---|
 | `session.started` | The single line `Sortie session started.` |
 | `session.completed` | `Sortie session completed.`, then the duration and the turns completed. The headline gains a `(re-queuing)` suffix when a continuation retry is scheduled. |
-| `session.stopped` | `Sortie session completed (agent signaled: <value>).`, then the duration and the turns completed, then the agent's stop statement in a literal block when it wrote one. |
+| `session.stopped` | `Sortie session completed (agent signaled: <value>).`, then the duration and the turns completed, then the agent's stop statement after a blank line when it wrote one. |
 | `session.failed` | `Sortie session failed.`, then the duration and the retry status: `Retry: yes (attempt N)` with the next attempt number, or `Retry: no (not retryable)`. |
 
 A stage event comments with a headline, then one line each for the source rule, the target rule, the reason when the hop was not made, the hop count, and the chain identifier:
@@ -1289,7 +1299,7 @@ Chain: <chain id>
 
 The `stage.advanced` headline is `Sortie advanced the issue to the next stage.` and carries no `Reason` line. For reason `failed` the line reads `Reason: the next stage's label could not be added to the issue`. The chain identifier is a random value that ties together the runs of one pass through a chain.
 
-No comment carries the agent session ID, the agent kind, or the error text. The cause of a failure is in the log, the run history, and the dashboard. The stop statement is the one piece of agent-written text a comment can carry. Sortie masks the secrets it knows in the statement, and the tracker shows it as literal text, so no slash command, mention, or markup in it takes effect. Slack and webhook destinations receive the full notification, including session and dispatch identity.
+No comment carries the agent session ID, the agent kind, or the error text. The cause of a failure is in the log, the run history, and the dashboard. The stop statement is the one piece of agent-written text a comment can carry. Sortie masks the secrets it knows in the statement and removes control characters from it, and the comment carries it as written. Every other destination receives the full notification, including session and dispatch identity.
 
 Comment failures are non-fatal. A failed comment logs WARN and never blocks dispatch, completion, retry, or handoff.
 
@@ -1301,14 +1311,20 @@ The destination follows these rules:
 
 **An explicit entry is authoritative for two comments.** The auto-merge success comment and the budget-hold comment have no setting of their own: they post whenever a tracker is configured. They keep posting only while no `tracker_comment` entry exists. Once you write an entry, it posts `auto_merge.merged` and `budget.held` only when it lists them, so an entry that omits them stops those comments. With no `tracker.kind` there is no issue to comment on and nothing posts.
 
-### What Slack and webhook receive
+### What each destination receives
 
 For an event Sortie produces, the `title` is `<issue key>: <event type>`, the `severity` is the catalog severity, and the `body` is the same text the tracker comment carries.
 
-The `slack` backend posts a Slack incoming-webhook body whose `text` field is the severity in uppercase and the title on one line, then the body. A stop statement follows after a blank line, with `&`, `<`, and `>` escaped so it cannot form a mention, a channel-wide ping, or a link:
+The `slack` backend posts a Slack incoming-webhook body whose `text` field is the severity in uppercase and the title on one line, then the body. A stop statement follows after a blank line, as written:
 
 ```json
 {"text": "[WARNING] PROJ-42: session.stopped\nSortie session completed (agent signaled: blocked).\nDuration: 12m4s\nTurns: 7\n\nThe ticket asks for both soft and hard delete of invoices.\nWhich one should the API expose?"}
+```
+
+The `telegram` backend posts the same text as `slack` to the Bot API `sendMessage` method, as plain text with no parse mode, so formatting characters in it are shown literally. The `discord` backend posts the same text as the `content` of the webhook message and disables mention parsing. Telegram limits a message to 4096 characters and Discord limits `content` to 2000. Both are counted in UTF-16 code units, so a character outside the Basic Multilingual Plane, such as most emoji, counts as two. A longer text is cut at the limit on a character boundary, with no marker appended, and is neither split nor rejected. `slack` and `webhook` cut nothing.
+
+```json
+{"chat_id": -1001234567890, "text": "[WARNING] PROJ-42: session.stopped\nSortie session completed (agent signaled: blocked).\nDuration: 12m4s\nTurns: 7\n\nThe ticket asks for both soft and hard delete of invoices.\nWhich one should the API expose?"}
 ```
 
 The `webhook` backend posts the same JSON object it posts for an `agent.message`, plus two keys that appear only on an event Sortie produces: `event_type`, the catalog name, and `agent_text`, the stop statement, present only when the event carries one. An `agent.message` payload carries neither key, so an endpoint configured before these keys existed receives the same JSON as before.
@@ -1342,13 +1358,13 @@ A stage event carries the identity of the run whose exit reached the hop decisio
 | `stage.hop_count` | integer | The issue's consecutive hop count once the decision applies: the new count after a hop, the unchanged count otherwise. |
 | `stage.reason` | string | `failed` or `ceiling` on `stage.not_advanced`. Absent on `stage.advanced`. |
 
-A stage event carries no `agent_text`. The `slack` backend has no `stage` field: its `text` holds the comment body above.
+A stage event carries no `agent_text`. Only the `webhook` backend carries the `stage` object: the text of every other backend holds the comment body above.
 
 Events from reactions and the budget hold have no run behind them, so their `dispatch_id`, `session_id`, and `agent` are empty strings and `attempt` is `null`. The [agent extensions reference](/reference/agent-extensions/#what-each-backend-delivers) describes every other field.
 
 ### Delivery
 
-Sortie sends an event it produces to every destination that lists it, all at once. A failure to deliver to one destination is logged at WARN as `notification delivery failed` with the `event_type`, `destination`, and `notifier_kind`, and never stops the others. Sortie does not retry a failed send. A slow Slack or webhook endpoint never delays the agent's start or the comment on the issue.
+Sortie sends an event it produces to every destination that lists it, all at once. A failure to deliver to one destination is logged at WARN as `notification delivery failed` with the `event_type`, `destination`, and `notifier_kind`, and never stops the others. Sortie does not retry a failed send. A slow endpoint never delays the agent's start or the comment on the issue.
 
 A reload whose destinations for events Sortie produces cannot be built, such as an unknown `kind` or a required secret that resolved to an empty string, is rejected. The previous configuration stays in force and the error is reported as for any other invalid reload.
 
@@ -1364,7 +1380,7 @@ Every form below keeps working. Each one the configuration relies on draws one w
 | `reactions.<kind>.escalation: comment` on an active reaction | Set `escalation: none` and list `escalation.<kind>` in a `tracker_comment` entry. |
 | The auto-merge success comment, with the auto-merge reaction active, a tracker configured, and no `tracker_comment` entry | Add an entry that lists `auto_merge.merged`. |
 | The budget-hold comment, with `agent.max_sessions`, `agent.max_tokens`, or `agent.max_cost_usd` above `0`, a tracker configured, and no `tracker_comment` entry | Add an entry that lists `budget.held`. |
-| A `webhook` or `slack` entry without `events` | Add `events: [agent.message]`. |
+| An entry of a backend kind without `events` | Add `events: [agent.message]`. |
 
 A configuration in the old form:
 

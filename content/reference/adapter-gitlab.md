@@ -447,7 +447,7 @@ The first two are prevented by the adapter's own validation: the [`query_filter`
 
 ### Write-path guards
 
-A comment that carries the agent's [stop statement](/reference/agent-extensions/#stop-statement) is the stop text, a blank line, and the statement in a fenced Markdown code block. The fence is backticks, at least three and one more than the longest run of backticks in the statement, so nothing inside the statement can close it. The two guards below apply to every comment Sortie posts, this one included.
+A comment that carries the agent's [stop statement](/reference/agent-extensions/#stop-statement) is the stop text, a blank line, and the statement, posted verbatim as one note with no Markdown conversion. The missing-note check and the quick-action warning below apply to every comment Sortie posts.
 
 | Guard | Behavior |
 |---|---|

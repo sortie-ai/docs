@@ -171,7 +171,7 @@ Pull requests are excluded server-side by the type constraint on every list quer
 
 Gitea has no transition API, so a transition is composed from label and state edits rather than being a single call: the target label is resolved or created and attached, the labels of the other configured states are removed, and the native open or closed status is reconciled. Every step is idempotent, so a partial failure converges on retry rather than stranding the issue, and a transition to the state an issue already holds does no label work at all.
 
-A comment that carries the agent's [stop statement](/reference/agent-extensions/#stop-statement) is the stop text, a blank line, and the statement in a fenced Markdown code block. The fence is backticks, at least three and one more than the longest run of backticks in the statement, so nothing inside the statement can close it.
+A comment is posted as a Markdown comment with `POST /repos/{owner}/{repo}/issues/{index}/comments`, and its text is sent as given, including the agent's [stop statement](/reference/agent-extensions/#stop-statement).
 
 ### Label writes
 

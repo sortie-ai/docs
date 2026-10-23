@@ -173,27 +173,25 @@ This is a stated property, not a default that can drift silently. [ADR-0019](htt
 
 ## What reaches a tracker comment
 
-A tracker issue can be read by people outside your deployment, so Sortie keeps two kinds of content apart. The comments Sortie writes itself are fixed text: a headline, a duration, a turn count, a retry line. They never carry error text, the agent's session ID, or the agent kind. Slack and webhook destinations get the full notification, session and dispatch identity included, because an operator channel is a different audience.
+A tracker issue can be read by people outside your deployment, so Sortie keeps two kinds of content apart. The comments Sortie writes itself are fixed text: a headline, a duration, a turn count, a retry line. They never carry error text, the agent's session ID, or the agent kind. The webhook, Slack, Telegram, and Discord destinations get the full notification, because an operator channel is a different audience: the text kinds add a severity and title line that names the issue and the event, and the webhook adds the session and dispatch identity as JSON fields.
 
 Agent-written text reaches an issue in exactly one way. When an agent stops on `blocked`, `needs-human-review`, or `no-change-needed`, it can write a reason after the value in `.sortie/status`, and Sortie publishes that stop statement with its own stop event. A message the agent sends through `notify_operator` never reaches the issue, and the agent never picks a destination. Each destination decides which events it receives, and the operator's configuration is the only thing that does.
 
-The statement is untrusted text, and each destination has its own syntax in which it could do harm: a tracker can run a line that starts with a slash command, a mention can page people, markup can change what a comment says, and a secret can leak. So the statement travels as a separate field and each destination neutralizes it in its own terms.
-
-Sortie masks the secrets it knows, strips control characters, and bounds the length before any destination sees it. The tracker shows it as a literal block, Slack receives it with `&`, `<`, and `>` escaped, and the webhook carries it under its own JSON key for the consumer to present.
+The statement is untrusted text, and the one thing Sortie guards is a secret leaking through it. Sortie masks the secrets it knows, normalizes line endings, strips control characters, replaces invalid UTF-8, and bounds the length once, before any destination sees it. Every destination then receives that same cleaned text, appended after the fixed text of the notification and rendered as plain text. The webhook carries it under its own JSON key (`agent_text`) beside the fixed fields.
 
 Masking has the limits described under [secrets and credential handling](#secrets-and-credential-handling): a secret Sortie does not know is not masked. Read [the stop statement reference](/reference/agent-extensions/#stop-statement) for the exact processing, and treat what an agent writes as you would any agent output.
 
 ## Outbound notifications
 
-With a `notifications` list configured in WORKFLOW.md, Sortie gains a new kind of egress. The `notify_operator` tool in the MCP sidecar posts the agent's messages to operator-supplied URLs during sessions, and since an entry can also subscribe to the events Sortie produces, the orchestrator process itself posts session outcomes, escalations, and budget holds to those URLs.
+With a `notifications` list configured in WORKFLOW.md, Sortie gains a new kind of egress. The `notify_operator` tool in the MCP sidecar posts the agent's messages to operator-configured destinations during sessions, and since an entry can also subscribe to the events Sortie produces, the orchestrator process itself posts session outcomes, escalations, and budget holds to those destinations.
 
-Other traffic goes to a known external API behind an adapter; this is the first surface that reaches whatever URL the configuration names, so it deserves the same scrutiny as hooks.
+Other traffic goes to a known external API behind an adapter. The `webhook`, `slack`, and `discord` backends post to whatever URL the configuration names, so they deserve the same scrutiny as hooks. The `telegram` backend calls a fixed host, `api.telegram.org`, with the bot token carried in the URL path; the configuration chooses the bot and the chat, not the host.
 
-The endpoint URL is trusted configuration, in the same class as hook scripts and WORKFLOW.md itself. Anyone who can edit the workflow file chooses where notifications go, so the file's access controls are the access control. There is no destination allowlist inside Sortie; review of WORKFLOW.md changes is the review of notification destinations.
+The destination (the webhook URL, or the Telegram bot token and chat) is trusted configuration, in the same class as hook scripts and WORKFLOW.md itself. Anyone who can edit the workflow file chooses where notifications go, so the file's access controls are the access control. There is no destination allowlist inside Sortie; review of WORKFLOW.md changes is the review of notification destinations.
 
 Backend secrets ride the same `$VAR` indirection as tracker credentials, with one extra constraint for an entry that receives the agent's messages: the variable name must carry the `SORTIE_` prefix. The sidecar re-resolves the workflow file in its own process, and only `SORTIE_`-prefixed variables reach that process, so a reference without the prefix resolves to the empty string there. Sortie turns that into a fatal sidecar startup error instead of a notification silently posted nowhere.
 
-And rather than rely on log masking alone, the notification backends are built to never log the endpoint URL, the request body, or the response body; delivery errors surface as fixed categories (`timeout`, `connection failure`, and HTTP status classes such as `unauthorized (HTTP 401)`) rather than raw error text that could embed the secret-bearing URL.
+And rather than rely on log masking alone, the network backends send through one shared transport that never logs the endpoint URL (which holds the token for Telegram), the request body, or the response body; delivery errors surface as fixed categories (`timeout`, `connection failure`, and HTTP status classes such as `unauthorized (HTTP 401)`) rather than raw error text that could embed the secret-bearing URL.
 
 The blast radius is bounded on three axes. A notification cap (default 20; `0` selects the default rather than unlimited) bounds how much spam a misbehaving agent can generate.
 

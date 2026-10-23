@@ -307,7 +307,7 @@ time=2026-03-26T14:35:21.600+00:00 level=WARN msg="tracker comment failed" issue
 
 The WARN means the comment failed but the session lifecycle is unaffected. Check API token permissions if persistent.
 
-A send to a Slack or webhook entry that fails logs a separate WARN, which names the event and the entry:
+A send to a `webhook`, `slack`, `telegram`, or `discord` entry that fails logs a separate WARN, which names the event, the entry, and its kind:
 
 ```
 time=2026-03-26T14:35:21.600+00:00 level=WARN msg="notification delivery failed" event_type=session.failed destination=notifications[1] notifier_kind=slack error="..."

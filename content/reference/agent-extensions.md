@@ -92,7 +92,7 @@ mkdir -p .sortie && printf '%s\n' "blocked" "The ticket asks for both soft and h
 | Applies to | `blocked`, `needs-human-review`, and `no-change-needed`. Sortie takes the statement from the read that produced the signal, after a coding turn or inside the self-review phase. A `no-change-needed` declaration that self-review retracts takes its statement with it. |
 | Read bound | The first 1024 bytes of the file, the value line included. A longer file is cut there, and the published statement ends with `…`. |
 | Cleanup before publishing | Line endings become line feeds. Control characters other than tab and line feed are removed. Invalid UTF-8 is replaced with U+FFFD. Secrets Sortie knows are masked as `[redacted]`, including a trailing fragment of one that the read bound cut. Surrounding whitespace is trimmed, and a result longer than 1024 characters is cut there and ends with `…`. A statement that is empty after this is not published, and the stop is reported without it. |
-| Where it appears | On the `session.stopped` event, and with the run itself. The tracker comment shows it in a literal block after the stop text, Slack shows it after the message with `&`, `<`, and `>` escaped, and the webhook carries it under `agent_text`. See [what Slack and webhook receive](/reference/workflow-config/#what-slack-and-webhook-receive). Every run that ended on a recognized status keeps that status and the statement in its run history, whatever the notification settings. The [HTTP API](/reference/http-api/#get-apiv1runs-run-history) serves both with each run, and the dashboard shows the statement beside the outcome (see [run outcome words](/reference/dashboard/#run-outcome-words)). |
+| Where it appears | On the `session.stopped` event, and with the run itself. The tracker comment, Slack, Telegram, and Discord show it as plain text after the message, separated by a blank line, and the webhook carries it under `agent_text`. Telegram and Discord cut the whole message at their length limit, so a long message can cut the statement. See [what each destination receives](/reference/workflow-config/#what-each-destination-receives). Every run that ended on a recognized status keeps that status and the statement in its run history, whatever the notification settings. The [HTTP API](/reference/http-api/#get-apiv1runs-run-history) serves both with each run, and the dashboard shows the statement beside the outcome (see [run outcome words](/reference/dashboard/#run-outcome-words)). |
 | Who sees it | A destination receives it only when its `events` list names `session.stopped`, or, for the tracker comment, when the deprecated `tracker.comments.on_completion` is `true`. With neither, no notification carries it, but the run still does. |
 
 The statement is the agent's own text, written for people who read the issue. Sortie masks only the secrets it knows, so the agent must not write credentials into it. The tracker comment never carries the agent kind, the session ID, or error text, but the statement can carry anything the agent writes. See [the security model](/concepts/security/#what-reaches-a-tracker-comment).
@@ -816,11 +816,11 @@ The failure shape is the same structured envelope every built-in tool uses.
 
 Real-time notification to the operator's configured channels, the entries in `notifications` that receive the `agent.message` event. The agent calls this tool to escalate a decision it should not make alone, report progress on a long task, or flag a blocker, without terminating the session. Sending a notification changes nothing in orchestration: no retry suppression, no tracker transition, no claim release. To tell the orchestrator to stop, the agent writes `.sortie/status`; see the [agent communication model](/concepts/agent-communication/) for how the two surfaces relate.
 
-`notify_operator` is a **Tier 2** tool: it makes outbound HTTP POST calls to operator-configured endpoints. Sortie registers the tool only when at least one entry in the `notifications` list in [WORKFLOW.md](/reference/workflow-config/#notifications) receives `agent.message`.
+`notify_operator` is a **Tier 2** tool: it makes outbound HTTP POST calls to the destinations the operator configured. Sortie registers the tool only when at least one entry in the `notifications` list in [WORKFLOW.md](/reference/workflow-config/#notifications) receives `agent.message`.
 
-A `webhook` or `slack` entry with no `events` key receives it by default, which is deprecated. A list that is empty, absent, or holds only entries for other events leaves the tool unregistered, so the agent is never offered a tool whose messages reach no destination.
+A `webhook`, `slack`, `telegram`, or `discord` entry with no `events` key receives it by default, which is deprecated. A list that is empty, absent, or holds only entries for other events leaves the tool unregistered, so the agent is never offered a tool whose messages reach no destination.
 
-An invalid entry among those that receive `agent.message` (unknown kind, missing endpoint URL, a secret that resolved to the empty string) is a fatal MCP server startup error, never a partial registration. A `tracker_comment` entry never receives `agent.message`: messages from the agent do not reach the issue.
+An invalid entry among those that receive `agent.message` (an unknown kind, a missing required field such as the URL, bot token, or chat ID, or a secret that resolved to the empty string) is a fatal MCP server startup error, never a partial registration. A `tracker_comment` entry never receives `agent.message`: messages from the agent do not reach the issue.
 
 ### Input schema
 
@@ -889,7 +889,9 @@ The `slack` backend posts a Slack incoming-webhook body whose `text` field rende
 
 The Slack rendering carries only the message. The envelope (issue key, dispatch ID, session ID) does not appear in the Slack text.
 
-An `agent.message` payload carries exactly the keys above. The same backends also receive events Sortie produces, which add `event_type` and `agent_text` to the webhook payload; see [what Slack and webhook receive](/reference/workflow-config/#what-slack-and-webhook-receive).
+The `telegram` and `discord` backends post the same text as `slack`: the severity in uppercase and the title on one line, then the body, as plain text in a Telegram chat or a Discord channel. A message longer than the destination's limit is cut at the limit. See [what each destination receives](/reference/workflow-config/#what-each-destination-receives) for the bodies and [the notifications section](/reference/workflow-config/#notifications) for the limits.
+
+An `agent.message` payload carries exactly the keys above. The same backends also receive events Sortie produces, which add `event_type` and `agent_text` to the webhook payload; see [what each destination receives](/reference/workflow-config/#what-each-destination-receives).
 
 ### Response envelope
 
