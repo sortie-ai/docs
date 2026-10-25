@@ -217,6 +217,12 @@ sortie_ssh_host_usage{host="build02.internal"} 1
 
 Use this to alert on hosts nearing capacity or to right-size your `max_concurrent_agents_per_host` setting.
 
+When every host runs as many sessions as the setting allows, eligible issues wait. The dashboard lists them under **Not dispatched** as "No free SSH host", and the `held` list of the state endpoint carries them with the reason `ssh_hosts_full`:
+
+```bash
+curl -s localhost:7678/api/v1/state | jq '.held[] | select(.hold.reason == "ssh_hosts_full") | .issue_identifier'
+```
+
 ## Configure SSH host key checking
 
 Sortie uses `StrictHostKeyChecking=accept-new` by default: the first connection to a new host accepts its key on trust, and subsequent connections reject key changes. This works for most setups, but your environment may need a different policy.
