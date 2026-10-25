@@ -106,7 +106,7 @@ The route accepts `GET` and `HEAD`. Sortie's HTTP server has no authentication, 
 
 ## GET /api/v1/state: System state
 
-Returns a full runtime snapshot: running sessions, retry queue, budget-exhausted and parked issues, pending pull request reactions, issues between stages, one entry per active issue in a stable order, the list of what needs a person, aggregate totals, rate limits, the workflow configuration in effect, which names the tracker kind and project, the health of Sortie's own checks, the Sortie version, and the time the process started.
+Returns a full runtime snapshot: running sessions, retry queue, budget-exhausted and parked issues, pending pull request reactions, issues between stages, the eligible issues the latest dispatch pass held back, one entry per active issue in a stable order, the list of what needs a person, aggregate totals, rate limits, the workflow configuration in effect, which names the tracker kind and project, the health of Sortie's own checks, the Sortie version, and the time the process started.
 
 ```sh
 curl http://localhost:7678/api/v1/state
@@ -126,6 +126,7 @@ curl http://localhost:7678/api/v1/state
     "parked": 1,
     "pending_reactions": 2,
     "between_stages": 1,
+    "held": 1,
     "attention": 4
   },
   "running": [
@@ -397,6 +398,7 @@ curl http://localhost:7678/api/v1/state
       },
       "agent_kind": "claude-code",
       "configured_model": "claude-sonnet-4-5",
+      "hold": null,
       "status_text": "Between stages: specify to implement",
       "status_text_full": "Moved from stage specify to stage implement, and Sortie added `stage-implement`; implement starts when a poll tick reads that label on the issue."
     }
@@ -506,6 +508,30 @@ curl http://localhost:7678/api/v1/state
       "status_text": "Between stages: specify to implement",
       "status_text_full": "Moved from stage specify to stage implement, and Sortie added `stage-implement`; implement starts when a poll tick reads that label on the issue.",
       "pr_loop": {"ci_failure": {"result": "unrecorded", "continuations": 0}, "review_comments": {"result": "unrecorded", "continuations": 0}, "bot_review": {"result": "unrecorded", "continuations": 0}, "merge_conflicts": {"result": "unrecorded", "continuations": 0}, "auto_merge": {"result": "unrecorded", "continuations": 0}}
+    }
+  ],
+  "held": [
+    {
+      "issue_id": "vwx234",
+      "issue_identifier": "MT-656",
+      "issue_title": "Wire the export queue",
+      "issue_url": "https://tracker.example.com/browse/MT-656",
+      "issue_type": "Story",
+      "issue_labels": ["export"],
+      "state": "To Do",
+      "hold": {
+        "reason": "blocked_by",
+        "held_since": "2026-03-26T14:12:30Z",
+        "blockers": [
+          {"issue_id": "stu901", "issue_identifier": "MT-655", "state": "In Progress"}
+        ],
+        "slot": null,
+        "resets_at": null,
+        "reason_text": "Blocked by MT-655 (In Progress)",
+        "release_text": "Released when the blocker reaches a terminal state."
+      },
+      "status_text": "Blocked by MT-655 (In Progress)",
+      "status_text_full": "Blocked by MT-655 (In Progress). Sortie dispatches the issue once the blocker reaches a terminal state."
     }
   ],
   "attention": [
@@ -1079,6 +1105,7 @@ The hop is stored in the database with its type, labels, and state, so a restart
 | `rule_name` | The rule the issue's next run dispatches on, which is `target_rule`. |
 | `agent_kind`, `configured_model` | The agent kind and `model` a dispatch of `rule_name` resolves to under the configuration as of the latest poll tick. Each omitted when the configuration no longer names a rule with a stage label under that name, and `configured_model` also when the rule sets none. |
 | `stage_position` | Always present. Where `rule_name` stands on its [stage chain](/reference/workflow-config/#stage-chains), or `null` when the rule is on no chain. See [dispatch time and stage position](#dispatch-time-and-stage-position). |
+| `hold` | Always present. The [hold object](#hold-object) the latest dispatch pass gave the issue, or `null` while the pass recorded no hold for it. A hop whose stage label no read has shown yet holds the issue with the reason `stage_hop_unconfirmed`. Every other member of the row is the same with or without `hold`. |
 
 **`active[]` entries:** Every issue that `running`, `retrying`, `budget_exhausted`, `parked`, `pending_reactions`, or `between_stages` holds, once per issue. A client that shows one line per issue reads this list and merges, chooses, and orders nothing itself. The list is always present, `[]` when no issue is active. The six lists above and `counts` are unchanged, and `counts` has no `active` member: the length of `active` is the number of active issues.
 
@@ -1099,6 +1126,47 @@ An entry takes its values from the one row that decides the issue's `status`, as
 The entries are ordered by the issue's place, then `issue_identifier`, then `issue_id`, each compared byte by byte. An issue's place is the earliest `dispatched_at` its rows carry when the issue enters the lists. An issue none of whose rows is dated is placed before every dated issue. The place does not change when the issue moves from one list to another, when a new pass begins while the issue is listed, or when a `dispatched_at` of `null` becomes a time. An issue that no list held and that then returns takes a new place. The order can therefore differ from the order of the entries' `dispatched_at` values.
 
 Sortie keeps the places in memory and serves them nowhere. A restart discards them, and each issue then takes its place from the earliest `dispatched_at` of its restored rows. A client that filters the list keeps the served order.
+
+**`held[]` entries:** Eligible issues in an active state that the latest dispatch pass held back instead of dispatching. A dispatch pass is one run of the dispatch loop of a poll tick. The list is always present, `[]` when the pass held nothing, and sorted by `issue_identifier`, then `issue_id`. `counts.held` equals its length.
+
+An issue is listed here only when no other list shows it: not while it is running, scheduled for a retry, held by a budget, parked, waiting on a pending reaction, or between stages. An issue between stages serves its hold on its `between_stages[]` entry. A held issue is not an active issue, so it is not an `active[]` entry and adds nothing to `counts.attention` or `attention[]`. The spend ceiling keeps its own `spend_ceiling_reached` attention items.
+
+Sortie keeps the list in memory only. It is empty until a poll tick has run the dispatch loop and after a restart. A tick that ends before the loop, because its dispatch preflight or its candidate fetch failed, leaves the previous list in place.
+
+| Field | Description |
+|---|---|
+| `issue_id`, `issue_identifier` | The tracker's internal issue ID and the human-readable key. Always present. |
+| `display_identifier`, `issue_title`, `issue_url`, `issue_type`, `state` | The qualified form of the key, the title, the tracker link, the issue type, and the tracker state, as the pass read the issue. Each omitted when empty. Masked like the running row's `issue_title`. |
+| `issue_labels` | The issue's labels as the pass read them. Always present; `[]` when the issue has none. Masked like the running row's. |
+| `hold` | The [hold object](#hold-object). Always present. |
+| `status_text`, `status_text_full` | The row's [status sentences](#status-sentences). `status_text` equals `hold.reason_text`. Always present. |
+
+#### Hold object
+
+The `hold` of a `held[]` entry and of a `between_stages[]` entry has these members.
+
+| Field | Type | Description |
+|---|---|---|
+| `reason` | string | Why the pass held the issue; one of the values below. A client that meets a value it does not know shows `reason_text` and `release_text`. |
+| `held_since` | string | When a dispatch pass first held the issue, in UTC. Never `null`. It does not change while later passes keep the issue held, whatever their reasons, nor across a tick that ends before the loop. It is new when a pass that runs the loop does not hold the issue and a later pass does, and after a restart. |
+| `blockers` | array or `null` | Non-null exactly for `blocked_by`: every blocker whose state is empty or not terminal, in the order the tracker returned them. Each has `issue_id`, `issue_identifier`, `display_identifier` (omitted when empty), and `state` (omitted when the tracker returned none; masked). |
+| `slot` | object or `null` | Non-null exactly for `agent_slots_full`. `scope` is `global` or `state`. `state` is the issue's tracker state as the pass read it, present exactly for scope `state`, and masked. `used` is the number of sessions running against the limit, and `limit` is the limit. |
+| `resets_at` | string or `null` | Non-null exactly for the spend reasons: when the holding window resets, in UTC. |
+| `reason_text` | string | A short sentence that says why. It ends without a period. |
+| `release_text` | string | One sentence that says what releases the hold. It ends with a period. |
+
+| `reason` | The pass held the issue because |
+|---|---|
+| `blocked_by` | A blocker has a non-terminal state or none. |
+| `blockers_unresolved` | Reading the blockers failed, or an earlier failure ended blocker reads for the pass. |
+| `blockers_not_read` | The pass reads the blockers of a limited number of issues, in turn, and did not reach this one. |
+| `blockers_incomplete` | The tracker declared the blocker list incomplete. |
+| `agent_slots_full` | The global agent slot limit, `agent.max_concurrent_agents`, or the limit of the issue's state, `agent.max_concurrent_agents_by_state`, is taken. |
+| `ssh_hosts_full` | Every SSH host runs as many sessions as its per-host limit allows. |
+| `daily_spend_ceiling`, `weekly_spend_ceiling`, `monthly_spend_ceiling` | A spend window holds dispatch. |
+| `stage_hop_unconfirmed` | The read that should confirm the issue's stage move failed or did not show the hop's stage label. |
+
+A hold has one reason. While a spend window holds, an issue that a full capacity limit stops shows the spend reason, because a freed slot or host would not dispatch it. When a full global slot limit or no free SSH host stops the pass, the pass reads no blockers for the issues it has not reached, so an issue that also has an open blocker shows the capacity reason. A per-state slot limit that is full holds only the issues of that state, and the pass reads no blockers for them either.
 
 **`attention[]` entries:** Things that need a person. Sortie derives the list on each request from the rows above and the `health` block and stores it nowhere, so an item exists exactly while its cause holds and disappears on the first request after the cause clears. The list is always present, `[]` when nothing needs a person, and `counts.attention` is the number of items whose `acknowledged_at` is `null`. A person can [acknowledge an item](#post-apiv1attentionidacknowledge-acknowledge-an-attention-item) to record that it was seen. The item stays in the list, with `acknowledged_at` set, until its cause clears, and no longer counts. A client that shows the list needs no ordering, wording, or counting rules of its own: the order, the sentences, and the action come with each item.
 
@@ -1204,7 +1272,7 @@ The value is an object with one member for each key of `config.reactions`, named
 
 #### Status sentences
 
-Every row of `running`, `retrying`, `budget_exhausted`, `parked`, `pending_reactions`, and `between_stages` carries a pair of sentences that say in plain English what the issue is doing, what it waits on, or how it ended. Every entry of [`active`](#field-notes) carries the pair of its deciding row. The `poll` check of [`health`](#field-notes) carries one further sentence, `summary_text`, that follows the rules below. The per-issue response of [`GET /api/v1/{identifier}`](#get-apiv1identifier-issue-detail) carries the same pair on its rows and once for the issue, and every [`issue_outcome`](#issue-outcome) carries a pair too.
+Every row of `running`, `retrying`, `budget_exhausted`, `parked`, `pending_reactions`, `between_stages`, and `held` carries a pair of sentences that say in plain English what the issue is doing, what it waits on, or how it ended. Every entry of [`active`](#field-notes) carries the pair of its deciding row. The `poll` check of [`health`](#field-notes) carries one further sentence, `summary_text`, that follows the rules below. The per-issue response of [`GET /api/v1/{identifier}`](#get-apiv1identifier-issue-detail) carries the same pair on its rows and once for the issue, and every [`issue_outcome`](#issue-outcome) carries a pair too.
 
 | Field | Type | Description |
 |---|---|---|
@@ -3339,6 +3407,7 @@ When an issue has no running session, no pending retry, no budget hold, is not p
     },
     "agent_kind": "claude-code",
     "configured_model": "claude-sonnet-4-5",
+    "hold": null,
     "status_text": "Between stages: specify to implement",
     "status_text_full": "Moved from stage specify to stage implement, and Sortie added `stage-implement`; implement starts when a poll tick reads that label on the issue."
   },
@@ -3587,12 +3656,14 @@ When no live entry holds the issue but run history does, `status` is `"history"`
 | `budget_exhausted` | Full budget-exhausted entry (same shape as entries in the `budget_exhausted` array on `/api/v1/state`), or `null`. |
 | `parked` | Full parked entry (same shape as entries in the `parked` array on `/api/v1/state`), or `null`. Always present. Populated whenever the issue is parked, whatever `status` reads. |
 | `pending_reactions` | The issue's rows in the record shape and order of the `pending_reactions` array on `/api/v1/state`, `[]` when it has none. Always present, whatever `status` reads. |
-| `between_stages` | Full between-stages entry (same shape as entries in the `between_stages` array on `/api/v1/state`), or `null`. Always present. Populated whenever the issue is between stages, whatever `status` reads. |
+| `between_stages` | Full between-stages entry (same shape as entries in the `between_stages` array on `/api/v1/state`, `hold` included), or `null`. Always present. Populated whenever the issue is between stages, whatever `status` reads. |
 | `recent_events` | The newest 50 agent events of one run, oldest first, in the event shape of [`GET /api/v1/runs/{dispatch_id}/events`](#get-apiv1runsdispatch_idevents-run-events). The run is the one `running.dispatch_id` names while the issue runs, and otherwise the issue's newest recorded run with a non-empty `dispatch_id`, so a recorded CI result is passed over. Always present; `[]` when the issue has no such run or Sortie kept no events for it. |
 | `last_error` | The `error` of the issue's retry entry, or `null` when it has none, worded as the retry's `error` is. After a reschedule this is the reschedule reason. |
 | `pr_loop` | What each configured pull request reaction recorded in the pass of the entry that decides `status`; see [pull request reaction history](#pull-request-reaction-history). Always present. |
 | `tracked` | Reserved for future use. Currently an empty object. It is not the tracker project, which `config.tracker.project` of [`GET /api/v1/state`](#get-apiv1state-system-state) serves. |
 | `history` | `null` when the issue has no recorded run, otherwise an object. See [History member](#history-member). |
+
+The route does not read the `held` list of `GET /api/v1/state`. An issue that only that list shows has no live entry here, so the route answers it from run history with `status` `"history"`, or with `404` and `issue_not_found` when the issue has no recorded run.
 
 ### Next outcomes
 

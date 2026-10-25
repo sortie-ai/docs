@@ -338,6 +338,8 @@ A held candidate is not silent: it increments the `sortie_candidate_holds_total`
 
 `sortie --dry-run` reports the blocker reasons (`blocked_by`, `blockers_unresolved`, `blockers_not_read`, and `blockers_incomplete`) per candidate as `skip_reason` (see the [CLI reference](/reference/cli/#--dry-run)) and does not evaluate the spend ceiling, and the [Prometheus metrics reference](/reference/prometheus-metrics/#counters) documents the counter in full.
 
+The dashboard's **Not dispatched** block and the `held` list of [`GET /api/v1/state`](/reference/http-api/#hold-object) show each held candidate with its reason and what releases it. They also cover holds the counter does not count: a full agent slot limit, no free SSH host, and an unconfirmed stage hop.
+
 ---
 
 ## Backoff formula
