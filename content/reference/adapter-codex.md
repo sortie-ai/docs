@@ -99,7 +99,9 @@ No reply schema in the second class carries a value that both refuses and lets t
 
 The two requests spell the sandbox differently, and the adapter translates between them: `thread/start` receives the kebab-case form (`workspace-write`), the `turn/start` policy's `type` receives the camelCase form (`workspaceWrite`). A value the adapter does not recognize is forwarded to both as written.
 
-The [credential-verification session](/reference/workflow-config/#credential-verification) every worker attempt opens before its working session overrides all of this: it starts its thread with `sandbox: "read-only"` and `ephemeral: true` regardless of `codex.thread_sandbox`, and its own sandbox policy is fixed at `{type: "readOnly", writableRoots: [], networkAccess: false}` regardless of `codex.turn_sandbox_policy`. `ephemeral` is the signal that asks the app-server not to keep that thread once the session ends.
+The [credential-verification session](/reference/workflow-config/#credential-verification) a worker attempt opens before its working session overrides all of this: it starts its thread with `sandbox: "read-only"` and `ephemeral: true` regardless of `codex.thread_sandbox`, and its own sandbox policy is fixed at `{type: "readOnly", writableRoots: [], networkAccess: false}` regardless of `codex.turn_sandbox_policy`. `ephemeral` is the signal that asks the app-server not to keep that thread once the session ends.
+
+The same thread also starts with a short fixed prompt as its `baseInstructions`, and a `config` override that sets `project_doc_max_bytes` to `0`, `web_search` to `disabled`, and a fixed list of tool features to `false`. Sortie reads the MCP server names from the app-server's `config/read` response and sets `mcp_servers.<name>.enabled` to `false` for each; when that read fails, no server is disabled and the session still starts. `codex.personality` is not sent. A Codex build that does not know one of the configuration keys ignores it, and the request carries more than it would on a newer build.
 
 {{< callout type="warning" >}}
 **`approval_policy: never` allows arbitrary command execution within the sandbox.** Use this only in sandboxed environments. Sortie's workspace isolation does not replace container-level isolation.
@@ -282,7 +284,7 @@ When `turn/completed` carries `status: "failed"`, the `turn.error.codexErrorInfo
 
 | `codexErrorInfo` | Error kind | Description |
 |---|---|---|
-| `Unauthorized` | `response_error` | Invalid or expired API credentials. |
+| `Unauthorized` | `credential_unverified` | Invalid or expired API credentials. The message reads `the agent runtime refused its credential:` followed by the app-server's own message. |
 | `BadRequest` | `response_error` | Malformed request. |
 | `ContextWindowExceeded` | `turn_failed` | Token limit exceeded. |
 | `UsageLimitExceeded` | `turn_failed` | API usage quota exhausted. |
@@ -295,7 +297,9 @@ When `turn/completed` carries `status: "failed"`, the `turn.error.codexErrorInfo
 | `Other` | `turn_failed` | Catch-all. |
 | _(unknown value)_ | `turn_failed` | Unrecognized error info defaults to `turn_failed`. |
 
-Both `response_error` and `turn_failed` are retryable with exponential backoff by [Sortie's default agent-error retry classification](/reference/errors/#agent-errors), same as every other agent error kind above `agent_not_found` and `invalid_workspace_cwd`; `codexErrorInfo` distinguishes only which error kind is reported, not whether the orchestrator retries.
+The adapter compares the value without regard to case and accepts both wire forms: a plain string, and an object with one member named for the value. Whichever form arrives, or when the field is absent or unreadable, the turn keeps the app-server's own error message.
+
+`response_error`, `turn_failed`, and `credential_unverified` are all retryable with exponential backoff by [Sortie's default agent-error retry classification](/reference/errors/#agent-errors), same as every other agent error kind above `agent_not_found` and `invalid_workspace_cwd`; `codexErrorInfo` distinguishes only which error kind is reported, not whether the orchestrator retries.
 
 ### Process exit handling
 

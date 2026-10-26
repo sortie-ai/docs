@@ -39,9 +39,11 @@ The `AgentAdapter` interface has three methods, organized around session lifecyc
 
 An agent adapter holds no configuration of its own. It is constructed once with no arguments, and each session receives its kind's settings block in `StartSession`, so an edited block or a [dispatch rule](/reference/workflow-config/#dispatch) that gives one issue its own settings reaches the next session without a second adapter instance.
 
-The orchestrator calls those same three methods twice per worker attempt, not once. Before the working session, it drives a second, short-lived one: `StartSession` with `CredentialVerification` set on the params, one `RunTurn` sending a fixed prompt, then `StopSession`.
+The orchestrator usually calls those same three methods twice per worker attempt, not once. Before the working session, it drives a second, short-lived one: `StartSession` with `CredentialVerification` set on the params, one `RunTurn` sending a fixed prompt, then `StopSession`.
 
-This is a shared orchestrator-level wrapper, not a fourth interface method: an adapter gets it for free, and only has to notice the flag if its runtime needs to behave differently on that one session (no tools, no continuation record, a cleanup call if the runtime offers one).
+This is a shared orchestrator-level wrapper, not a fourth interface method: an adapter gets it for free, and only has to notice the flag if its runtime needs to behave differently on that one session (no tools, no continuation record, a cleanup call if the runtime offers one). The same flag lets an adapter trim the request: the check proves only that the credential and model work, so a runtime that can drop its instructions, tools, and skills for one launch does so, and each adapter declares what its request still carries.
+
+The check costs a model request, so the orchestrator remembers a success and skips the second session while the same agent setup has a proof less than 15 minutes old. The trade is a window in which a revoked credential is not noticed until the first working turn. Where the adapter recognizes the refusal, it reports the same `credential_unverified` error kind; either way the proof is dropped and the retry runs the check. See [credential verification](/reference/workflow-config/#credential-verification) for what counts as the same setup.
 
 A cheaper check, `StartSession` succeeding or an environment variable being non-empty, would not prove the runtime's backend actually accepts the credential; running the real request is the one check that works the same way regardless of what a given adapter's own protocol looks like.
 

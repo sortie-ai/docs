@@ -116,7 +116,7 @@ Launches the subprocess, performs the `initialize` handshake, and creates or con
 | The connection ends before `initialize` answers | `port_exit`, on a [credential-verification](/reference/workflow-config/#credential-verification) session and a working session alike |
 | Either connection loss above, when the runtime process has itself exited | `port_exit`, as the [early exit report](/reference/errors/#early-exit-report) carrying the runtime's exit status and the end of its stderr; a connection that ends while the runtime stays alive reports `agent connection ended before responding` instead |
 | `initialize` timed out | `response_timeout` |
-| `initialize` or `session/new` returned error code `-32000`, the protocol's own "authentication required" code | `credential_unverified` |
+| `initialize`, `session/new`, or `session/prompt` returned error code `-32000`, the protocol's own "authentication required" code | `credential_unverified`, on a [credential-verification](/reference/workflow-config/#credential-verification) session and a working turn alike |
 | `initialize` returned any other protocol-level error, or reported a version other than the one this adapter is generated against | `response_error` |
 | `session/new`, `session/load`, or `session/resume` returned a protocol-level error after continuation was not confirmed and the `session/new` fallback also failed, and the error was not code `-32000` | `response_error` |
 
@@ -223,7 +223,7 @@ Whether a runtime's own implementation actually produces every one of these five
 
 `refusal` and `max_tokens` are treated as non-retryable classification decisions rather than transport failures: a retry of the same input would meet the same refusal or the same limit. `max_turn_requests` is retryable with exponential backoff, since a fresh turn starts a new request budget on the runtime's side.
 
-Two conditions precede a `stopReason` read at all: a protocol-level error on the response reports `response_error`, and a lost connection reports `port_exit`.
+Two conditions precede a `stopReason` read at all: a protocol-level error on the response reports `response_error`, except code `-32000`, which reports `credential_unverified`; and a lost connection reports `port_exit`.
 
 A lost connection covers the subprocess exiting, the stream ending, and a write to the runtime failing while a turn is active, when the connection's own end of stream does not follow within `read_timeout_ms` of that failure; a line exceeding the connection's bound reports `turn_outcome_unknown` instead, because it is a different failure from losing the process.
 
@@ -369,7 +369,7 @@ A [credential-verification](/reference/workflow-config/#credential-verification)
 
 A failed delete is logged at Warn rather than Debug, since a failed close only means an already-going-away process is a little slower to notice, while a failed delete means the verification conversation is left stored on the runtime's side.
 
-A runtime whose handshake advertises neither method leaves that conversation in its own store on every worker attempt, whatever the outcome. Both documented runtimes on this kind are in that position: neither Gemini CLI nor Kiro CLI on this route advertises a close or delete method. [Gemini CLI's own page](/reference/agent-client-protocol-gemini/#sessions-are-not-closed-through-the-protocol) names where that leaves the conversation; no location is established for Kiro CLI on this route.
+A runtime whose handshake advertises neither method leaves that conversation in its own store on every check that runs, whatever the outcome. Both documented runtimes on this kind are in that position: neither Gemini CLI nor Kiro CLI on this route advertises a close or delete method. [Gemini CLI's own page](/reference/agent-client-protocol-gemini/#sessions-are-not-closed-through-the-protocol) names where that leaves the conversation; no location is established for Kiro CLI on this route.
 
 ---
 
@@ -399,11 +399,33 @@ SSH exit code `255` (a connection failure) and exit code `127` (the remote binar
 
 ---
 
+## The credential-verification request
+
+The protocol's session creation carries no member that drops a runtime's instructions, tools, or skills, so the generic kind has no reduction of its own. A [credential-verification](/reference/workflow-config/#credential-verification) session on a local launch gets one only when the command line names a runtime Sortie has switches for: the executable, or its npm package, appears in `agent.command`. The switches are added after your command line, for that session only.
+
+| Runtime | Switches added | The request still carries |
+|---|---|---|
+| Gemini CLI | `GEMINI_SYSTEM_MD`, naming a temporary file that holds a short fixed system prompt | All tools, project instructions, and user instructions |
+| Copilot CLI | `--available-tools view` and `--no-custom-instructions` | The built-in system prompt, the read-only `view` tool, and both instruction sets, because the runtime loads its instruction files over the protocol whatever the switch says |
+| OpenCode | `OPENCODE_CONFIG_CONTENT`, denying every tool | Project instructions, user instructions, and the built-in system prompt |
+| Kiro CLI | `KIRO_AGENT_CONFIG_DIR` and `--agent`, selecting an agent with no tools that is defined in a temporary directory | Project instructions, user instructions, and the built-in system prompt |
+
+Sortie creates the temporary file or directory on the launching host and removes it when the session ends. A launch carries everything in these cases:
+
+- The launch is remote, because the command line is not visible there and a file Sortie writes exists only on the launching host.
+- The command line names no runtime from the table, or names more than one.
+- The command line or Sortie's environment already sets one of the switches the runtime would get. Replacing your own setting could change the model, provider, or credential the runtime uses.
+- The runtime is Kiro CLI and the command line has no `--model`. Selecting an agent replaces your default agent, which could carry the model, and the verification agent sets none.
+
+A runtime that exits before it responds on the first check is checked once more with none of these switches; see [credential verification](/reference/workflow-config/#credential-verification).
+
+---
+
 ## Authentication
 
 Sortie manages no credential for this kind. A local subprocess inherits the full parent process environment, and whichever runtime `agent.command` names reads its own credential from it, exactly as every other agent adapter's subprocess does. There is no adapter-specific preflight, canary, or environment variable, because there is no fixed runtime to preflight.
 
-Whether the credential actually works is still settled, like every kind, by the [credential-verification step](/reference/workflow-config/#credential-verification): a runtime whose `initialize` or `session/new` answers `-32000` there fails the run with `credential_unverified` before any working turn, and one that exits before it answers fails it with the [early exit report](/reference/errors/#early-exit-report) under `port_exit`. See the [session start errors table](#session-start) for the exact mapping.
+Whether the credential actually works is still settled, like every kind, by the [credential-verification step](/reference/workflow-config/#credential-verification) unless Sortie proved the same setup recently: a runtime whose `initialize` or `session/new` answers `-32000` there fails the run with `credential_unverified` before any working turn, and one that exits before it answers fails it with the [early exit report](/reference/errors/#early-exit-report) under `port_exit`. See the [session start errors table](#session-start) for the exact mapping.
 
 A remote session inherits the build host's environment instead. This kind declares no credential variable, so a remote launch carries nothing on its own account: put what the named runtime reads on the host, or name it under [`worker.ssh_pass_env`](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent).
 

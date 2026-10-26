@@ -196,6 +196,8 @@ Sharing, compaction, the permission policy, and tool servers ride together in on
 
 A remote turn carries the same document without `mcp`. The version check, usage export, and `session delete` invocations never carry it, on either kind of launch.
 
+The [credential-verification](/reference/workflow-config/#credential-verification) session's document sets `permission` to deny every tool, whatever `opencode.allowed_tools`, `opencode.denied_tools`, and `opencode.dangerously_skip_permissions` say, so the request carries no tool definitions, calls no tool, and writes nothing into the issue workspace. The check makes one model request. It still carries the instruction files and the built-in system prompt, because the runtime offers no switch that drops them. When the check falls back to the full context, it uses the configured policy.
+
 On a local launch, before adding its managed values, the adapter strips `OPENCODE_AUTO_SHARE`, `OPENCODE_DISABLE_AUTOCOMPACT`, `OPENCODE_DISABLE_AUTOUPDATE`, `OPENCODE_DISABLE_LSP_DOWNLOAD`, `OPENCODE_PERMISSION`, and `OPENCODE_CONFIG_CONTENT` out of the inherited environment, so an operator-side value never reaches the subprocess. It does not remove permission rules from `opencode.json`, so OpenCode still deep-merges the adapter policy with on-disk configuration, the adapter's own document loading last.
 
 On a remote launch the adapter strips nothing. It sends its own `OPENCODE_CONFIG_CONTENT`, which replaces any value of that name in the remote login environment, and leaves every other variable there, `OPENCODE_PERMISSION` included, as it finds it.

@@ -594,11 +594,53 @@ All other fields apply to future dispatches only, except where the per-field Dyn
 
 ### Credential verification
 
-Before a worker attempt sends the working session's first turn, it opens a separate, short-lived session with the configured agent kind, asks it to answer one fixed prompt, and closes that session again. This runs on every worker attempt, every agent kind, and every host, including one assigned from [`worker.ssh_hosts`](#worker); there is nothing to configure. Its purpose is to catch a credential the runtime cannot actually use before the agent starts working the issue, rather than partway through a turn.
+Before a worker attempt sends the working session's first turn, it opens a separate, short-lived session with the configured agent kind, asks it to answer one fixed prompt, and closes that session again. This runs for every agent kind and every host, including one assigned from [`worker.ssh_hosts`](#worker), unless Sortie has already [proved the same agent setup within the last 15 minutes](#when-sortie-skips-the-check). There is nothing to configure. Its purpose is to catch a credential the runtime cannot actually use before the agent starts working the issue, rather than partway through a turn.
 
 A runtime that cannot complete that one request fails the worker attempt with error kind `credential_unverified` before any working turn runs. A runtime that exits before it responds fails it with `port_exit` instead, carrying its exit status and the end of its standard error; see the [early exit report](/reference/errors/#early-exit-report). Either failure is retryable with exponential backoff, the same as most agent errors; see the [`credential_unverified` row](/reference/errors/#agent-errors) for what else can surface from this step and what to do about it.
 
-A successful check costs one short model request, priced at the configured model's rate like any other request; that spend counts toward the run's own token usage and toward `agent.max_tokens` the same way a working turn's spend does. The extra time to start and stop the short-lived session is wall-clock overhead only; it is not itself token spend. The step reuses the session's own configuration, so it authenticates exactly the way the working session that follows it would.
+The step reuses the session's own configuration, so it authenticates exactly the way the working session that follows it would. The extra time to start and stop the short-lived session is wall-clock overhead only; it is not itself token spend.
+
+#### When Sortie skips the check
+
+Sortie keeps a proof of each agent setup that completed a request. The setup is the agent kind, its command, its SSH host, the names of the environment variables carried to that host, and the kind's settings block. The workspace is not part of it. A proof stays fresh for 15 minutes after the last check or the last working turn of that setup that ended as completed, so every such turn renews it.
+
+An attempt that finds a fresh proof logs `agent credential verification skipped` with the time of the proof, in place of `agent credential verified`, and goes straight to the working session. It sends no verification request and pays for none.
+
+Sortie drops a proof when:
+
+- a check of that setup fails, unless the attempt was cancelled;
+- an attempt ends in an error and none of its working turns completed;
+- an attempt ends with `credential_unverified`, whichever turn raised it;
+- any part of the setup changes, so a reload that edits the command or the settings starts a new proof.
+
+Sortie keeps proofs in memory, so a restart forgets them, and attempts that start together on the same setup each run the check.
+
+A proof can outlive the credential it proved. After a revocation inside the window, the next attempt skips the check and fails on its first working turn, which drops the proof; the retry runs the check and names the credential. A workspace whose own project configuration selects another provider or model fails the same way while a proof from another workspace stands.
+
+#### What the check costs
+
+An attempt that runs the check pays one model request at the configured model's rate, and the request counts in the run's token usage, its cost estimate, and `agent.max_tokens` the same way a working turn's spend does. It also counts in the API request count of a kind whose [figures arrive during each turn](#usage-reporting-by-agent-kind). A kind or launch that reports no token usage has no figure to count. An attempt that skips the check carries none of this.
+
+The request runs in a session of its own, which Sortie closes or deletes as described under [session cleanup and waits](#session-cleanup-and-waits). A figure read from the runtime's own record of the working session therefore falls short of the run's figure by that request; the [Copilot CLI adapter](/reference/adapter-copilot/#why-a-run-exceeds-the-session-journal) shows the comparison.
+
+#### What the request carries
+
+The request drops the agent's instructions, tools, and skills wherever the runtime lets a single launch drop them without changing the credential, model, provider, or endpoint. It does not send a kind setting whose only effect is prompt text or tool visibility. Every other setting reaches it unchanged. Project instructions are the instruction files the runtime reads from the workspace; user instructions are the ones it reads from the operator's home directory.
+
+| Agent kind | What the request still carries |
+|---|---|
+| `claude-code` | Nothing of the agent's context. |
+| `copilot-cli` | The built-in system prompt and the read-only `view` tool. |
+| `codex` | The user instructions and the built-in tools that have no switch. |
+| `opencode` | Project instructions, user instructions, and the built-in system prompt. Every tool is denied. |
+| `agent-client-protocol` | Everything, except on a local launch of a runtime with its own reductions; see [the verification request](/reference/adapter-agent-client-protocol/#the-credential-verification-request). |
+| `mock` | Nothing; the kind launches no process. |
+
+Each kind's adapter page names the switches it uses and the settings it leaves out.
+
+A runtime build that rejects one of these switches can exit before it responds. When the first check session never reaches the model, because the runtime exits before it answers or the session fails to start with `port_exit` or `response_error`, Sortie logs a warning that carries the first failure and runs the check once more with the full context. That session's outcome is the check's outcome. A timeout, a `credential_unverified` failure, and an SSH connection failure start no second session.
+
+#### Session cleanup and waits
 
 Every built-in kind cleans up after itself where its runtime allows it: `claude-code` disables session persistence for this one session, so it leaves no file behind; `codex` marks the session ephemeral and read-only; `copilot-cli` and `opencode` delete the conversation they created once the check is done; `agent-client-protocol` deletes it only when the runtime's own handshake advertises a delete method, and otherwise falls back to whatever teardown a working session on that runtime would use, which for a runtime whose handshake advertises neither a close nor a delete method leaves the conversation in the runtime's own store; `mock` creates nothing to clean up.
 

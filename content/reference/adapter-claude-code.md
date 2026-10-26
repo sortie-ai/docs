@@ -114,7 +114,9 @@ The adapter passes `--session-id <uuid>` on the first turn of a session it opene
 
 `session_persistence: false` passes `--no-session-persistence`, and Claude Code then writes no session file for `--resume` to read. Sortie refuses that configuration before any run starts, as the `agent.kind.session_resume` error under [validate-time checks](#validate-time-checks).
 
-The [credential-verification session](/reference/workflow-config/#credential-verification) every worker attempt opens before its working session always carries `--no-session-persistence` on top of whatever `claude-code.session_persistence` says, along with `--tools ""` and `--strict-mcp-config`, so that one extra session asks for no tools, reaches no MCP server, and writes no session file for the CLI to keep. It leaves no leftover conversation behind for this reason, unlike a kind whose runtime has no such flag and instead deletes the conversation explicitly.
+The [credential-verification session](/reference/workflow-config/#credential-verification) a worker attempt opens before its working session always carries `--no-session-persistence` on top of whatever `claude-code.session_persistence` says, along with `--tools ""` and `--strict-mcp-config`, so that one extra session asks for no tools, reaches no MCP server, and writes no session file for the CLI to keep. It leaves no leftover conversation behind for this reason, unlike a kind whose runtime has no such flag and instead deletes the conversation explicitly.
+
+The same session also carries `--safe-mode`, which leaves out the instruction files, plugins, skills, hooks, and MCP servers, and `--system-prompt` with a short fixed prompt in place of Claude Code's own. It does not send `claude-code.system_prompt`. The login, the model, and the `env` block of Claude Code's own settings still apply, so the request reaches the endpoint the working session uses. A Claude Code build that rejects one of these flags and exits before it responds is checked once more without them, after a warning in the log.
 
 The refusal is unconditional. It does not depend on `agent.max_turns`, on the configured reactions, on the retry budgets, or on `tracker.handoff_state`. A single-turn budget does not avoid the conflict either: Sortie hands an issue its earlier session back on a continuation, including one still queued when Sortie restarts, and on the retry after a stall while Sortie keeps running, so the first turn of such a dispatch is already a resumed turn.
 
@@ -391,7 +393,7 @@ The adapter runs no credential preflight and reads no credential variable for it
 
 The kind does declare three names, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY`, and `CLAUDE_CODE_OAUTH_TOKEN`, and they serve one purpose: a remote launch carries whichever of them Sortie's own environment sets, so a build host needs no copy of its own. A local launch inherits all three with everything else, and the declaration changes nothing there.
 
-A credential the CLI rejects therefore never surfaces as a session that refuses to start: it surfaces on the [credential-verification session](/reference/workflow-config/#credential-verification) every worker attempt opens first, as `credential_unverified` before any working turn, rather than on the working session itself.
+A credential the CLI rejects therefore never surfaces as a session that refuses to start: it surfaces on the [credential-verification session](/reference/workflow-config/#credential-verification) a worker attempt opens first, as `credential_unverified` before any working turn, rather than on the working session itself. When Sortie skips that session because it proved the same setup recently, a credential revoked in between surfaces on the first working turn instead: an assistant event that reports `authentication_failed` ends the turn as `credential_unverified` with Claude Code's own text.
 
 ---
 

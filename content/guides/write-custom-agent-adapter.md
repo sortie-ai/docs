@@ -114,13 +114,14 @@ import (
 
 func init() {
 	registry.Agents.RegisterWithMeta("acme", NewACMEAdapter, registry.AgentMeta{
-		RequiresCommand:  true,
-		DefaultCommand:   "acme-cli",
-		MCPInjection:     registry.MCPInjectionUnsupported,
-		UsageArrival:     registry.UsageArrivalIncremental,
-		UsageAttribution: registry.UsageAttributionPerModel,
-		CredentialEnv:    registry.DeclareCredentialEnv("ACME_API_KEY"),
-		EffortForwarding: registry.EffortNotForwarded,
+		RequiresCommand:     true,
+		DefaultCommand:      "acme-cli",
+		MCPInjection:        registry.MCPInjectionUnsupported,
+		UsageArrival:        registry.UsageArrivalIncremental,
+		UsageAttribution:    registry.UsageAttributionPerModel,
+		CredentialEnv:       registry.DeclareCredentialEnv("ACME_API_KEY"),
+		EffortForwarding:    registry.EffortNotForwarded,
+		VerificationContext: registry.DeclareVerificationContext(),
 	})
 }
 
@@ -152,6 +153,8 @@ Declare it even when the answer is none: `registry.DeclareCredentialEnv()` with 
 If it does not, declare `registry.EffortNotForwarded` and read the key nowhere in the package, so neither `registry.EffortSetting` nor `registry.EffortKey` appears in a non-test file; a workflow that sets `effort` for the kind then draws the `agent.effort.not_forwarded` warning.
 
 Leaving the field unset, a forwarding kind without that test, and a not-forwarded package that reads the key each fail the completeness test in `cmd/sortie`.
+
+`VerificationContext` declares which parts of the agent's context your runtime's credential-verification request still carries, because it offers no switch that drops them. The components are `registry.VerificationKeepsSomeTools` or `registry.VerificationKeepsAllTools` (declare at most one), `registry.VerificationKeepsProjectInstructions`, `registry.VerificationKeepsUserInstructions`, and `registry.VerificationKeepsSystemPrompt`. `registry.DeclareVerificationContext()` with no arguments says the request keeps nothing, which is a different statement from leaving the field unset. Leaving it unset fails a completeness test that walks every registered kind. The example declares that nothing is kept, which is true only for a runtime whose every context component a launch can drop. Declare what your request still carries, and handle the matching switches as described in [resolve the launch target and start the session](#resolve-the-launch-target-and-start-the-session). `fakemodel.AssertConformance` proves the declaration on the wire: every component it does not keep must be absent from the verification request, and `Binding.UserInstructions` must name the runtime's user-level instruction file when user instructions are dropped.
 
 `MCPInjection` declares what your adapter does with the MCP configuration the worker generates for Sortie's own tools. Three values name a delivery, and the zero value names an adapter that has declared nothing:
 
@@ -313,9 +316,15 @@ Store the returned target in your session state and pass a pointer to it into `N
 
 When your runtime lets an environment variable outrank the reasoning level you deliver, as Claude Code does with `CLAUDE_CODE_EFFORT_LEVEL`, set `target.WithheldEnv` to that variable's name right after `ResolveLaunchTarget` returns, whenever the level is set. A local launch then runs without the variable, and a remote launch neither carries it nor lets the remote shell pass it on.
 
-Before your working session's first turn, `agentcore.VerifyCredential` opens a session of its own, through the same adapter and with the same `Settings` block as the working session, with `params.CredentialVerification` set, sends one fixed request through it, and closes it again; see [credential verification](/reference/workflow-config/#credential-verification) for the mechanism. That request is the credential check every adapter gets.
+Before your working session's first turn, unless the orchestrator holds a fresh proof of the same agent setup, `agentcore.VerifyCredential` opens a session of its own, through the same adapter and with the same `Settings` block as the working session, with `params.CredentialVerification` set, sends one fixed request through it, and closes it again; see [credential verification](/reference/workflow-config/#credential-verification) for the mechanism. That request is the credential check every adapter gets.
 
-Add a guard of your own only for a runtime that would block on an interactive login when no credential is present, because a blocked request never fails and so never reports anything. Gate the guard on `params.CredentialVerification` rather than on local-versus-SSH, so it runs identically in both modes, and let a working session (`params.CredentialVerification` false) skip it entirely, because its own verification session already proved the credential moments before. Guard only the wait your runtime would block on, and leave acceptance to the shared request.
+The request should carry only what proving the credential needs. In a verification session, drop every context component your runtime can drop with a switch that qualifies: it applies to that one launch, persists nothing past the session, cannot change the credential, model, provider, or endpoint, and appears in the runtime's own help text, configuration reference, or published schema. Put each such switch behind `params.ReducedVerificationContext()`, not behind `params.CredentialVerification` alone. Hand a runtime that can replace its system prompt `agentcore.VerificationSystemPrompt`. Do not pass a setting of your kind whose only effect is prompt text or tool visibility, and pass every other setting unchanged.
+
+A runtime build can reject a switch it predates. When the first verification session never reaches the model, because the turn ends with the early exit report or `StartSession` fails with `port_exit` or `response_error`, `VerifyCredential` logs a warning and runs one more session with `params.VerificationFullContext` set. Under that flag `ReducedVerificationContext()` reports false, so a session that gates its switches on it applies none of them. No code beyond that gate is needed.
+
+Map a structured credential refusal from the runtime to `domain.ErrCredentialUnverified` on a working turn as well as at session start, because a skipped check leaves a credential revoked in the meantime to surface on a working turn. A start-time refusal returns `agentcore.CredentialRefusedError`. A turn that reports through `agentcore.TurnEvidence` sets `TerminalErrorKind` to `domain.ErrCredentialUnverified` and `TerminalMessage` to `agentcore.CredentialRefusedMessage` of the runtime's text. A runtime that states a refusal only on standard error or by exiting keeps the kind it reports.
+
+Add a guard of your own only for a runtime that would block on an interactive login when no credential is present, because a blocked request never fails and so never reports anything. Gate the guard on `params.CredentialVerification` rather than on local-versus-SSH, so it runs identically in both modes, and let a working session (`params.CredentialVerification` false) skip it entirely, because the verification step has already proved the credential. Guard only the wait your runtime would block on, and leave acceptance to the shared request.
 
 When the guard finds the credential absent, return a `*domain.AgentError` whose `Kind` is `domain.ErrCredentialUnverified`. When the guarded command exits on its own, return `agentcore.ExitedEarly(target, result).Report(stderr)`, the shared [early exit report](/reference/errors/#early-exit-report), so the runtime's own exit status and standard error reach the operator instead of a guess about the credential; the OpenCode adapter's version probe returns it the same way.
 
@@ -546,7 +555,7 @@ The error kind is a control-flow decision, not a label. The orchestrator reads i
 
 Only the first row comes from evidence the adapter sets itself. The others are what the shared rule assigns to a zero exit with work, to an exit before any output, and to a non-zero exit after output, and every adapter gets them for free.
 
-Such an adapter's working turns read no authentication signal of their own at all, exit 0 with empty output included: a rejected credential on a working turn lands in the shared early-exit row above, carrying the runtime's own stderr, because by the time a working turn runs, the [credential-verification step](/reference/workflow-config/#credential-verification) has already proved the credential once.
+Such an adapter's working turns read no authentication signal of their own at all, exit 0 with empty output included: a rejected credential on a working turn lands in the shared early-exit row above, carrying the runtime's own stderr, because by the time a working turn runs, the [credential-verification step](/reference/workflow-config/#credential-verification) has already proved the credential, either in this run or within the last 15 minutes.
 
 The one failure kind shown here, `ErrPortExit`, is retryable. Other kinds are not: `ErrAgentNotFound`, `ErrInvalidWorkspaceCwd`, `ErrTurnInputRequired`, and `ErrTurnCancelled` are non-retryable, so the orchestrator releases the claim instead of scheduling another attempt. Choose the kind that reflects what the orchestrator should do next, and confirm its retry semantics in the [agent errors reference](/reference/errors/#agent-errors).
 
