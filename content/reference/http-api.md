@@ -1165,6 +1165,7 @@ The `hold` of a `held[]` entry and of a `between_stages[]` entry has these membe
 | `ssh_hosts_full` | Every SSH host runs as many sessions as its per-host limit allows. |
 | `daily_spend_ceiling`, `weekly_spend_ceiling`, `monthly_spend_ceiling` | A spend window holds dispatch. |
 | `stage_hop_unconfirmed` | The read that should confirm the issue's stage move failed or did not show the hop's stage label. |
+| `park_comments_unread` | A person released the issue's park, and the read of the comments the next run receives failed. The next poll reads them again. |
 
 A hold has one reason. While a spend window holds, an issue that a full capacity limit stops shows the spend reason, because a freed slot or host would not dispatch it. When a full global slot limit or no free SSH host stops the pass, the pass reads no blockers for the issues it has not reached, so an issue that also has an open blocker shows the capacity reason. A per-state slot limit that is full holds only the issues of that state, and the pass reads no blockers for them either.
 

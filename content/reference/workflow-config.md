@@ -1888,7 +1888,7 @@ worker:
 
 The markdown body after the closing `---` is a Go `text/template` rendered per issue. The template engine runs in strict mode (`missingkey=error`): referencing an undefined variable or function fails rendering immediately.
 
-The template receives four core top-level variables on every render, `.issue`, `.attempt`, `.run`, and `.stage`, plus reaction continuation variables that are `nil` except on every turn of the matching reaction run (`.review_comments` and `.bot_review_comments` are also set on the first turn of a new run, as described under each): `.ci_failure`, `.review_comments`, `.bot_review_comments`, `.merge_conflict`, `.label_review`, and `.label_fix`. Every continuation variable defaults to `nil` so a template referencing it renders under `missingkey=error` even when the corresponding reaction is never configured.
+The template receives the core top-level variables `.issue`, `.attempt`, `.run`, `.stage`, and `.park` on every render, plus reaction continuation variables that are `nil` except on every turn of the matching reaction run (`.review_comments` and `.bot_review_comments` are also set on the first turn of a new run, as described under each): `.ci_failure`, `.review_comments`, `.bot_review_comments`, `.merge_conflict`, `.label_review`, and `.label_fix`. Every continuation variable defaults to `nil` so a template referencing it renders under `missingkey=error` even when the corresponding reaction is never configured. `.park` is `nil` the same way, except on the first turn of the first run after a person releases a parked issue.
 
 ### `.issue`
 
@@ -1908,7 +1908,7 @@ Normalized issue object. All fields are present regardless of the underlying tra
 | `.issue.issue_type`  | string          | Tracker-defined type (Bug, Story, Task, Epic). Empty string when absent.           |
 | `.issue.branch_name` | string          | Tracker-provided branch metadata. Empty string when absent.                        |
 | `.issue.parent`      | object or nil   | Parent issue reference. `nil` when no parent. Has `.id` and `.identifier`.         |
-| `.issue.comments`    | list or nil     | Comment records. `nil` means not fetched; empty list means no comments exist. Each comment has `.id`, `.author`, `.body`, and `.created_at`. |
+| `.issue.comments`    | list or nil     | Comment records, oldest first. `nil` means not fetched; empty list means no comments exist. Each comment has `.id`, `.author`, `.body`, and `.created_at`. Sortie fetches every comment of the issue for the first run after a person releases a parked issue, see [`.park`](#park). A run the poll tick starts otherwise leaves it `nil`. |
 | `.issue.blocked_by`  | list of objects | Blocker references, each with `.id`, `.identifier`, `.state`, and `.display_id`. Non-nil empty list when no blockers. Sortie holds an issue out of dispatch until this list is resolved, so it is always authoritative by the time a session starts. `.display_id` is the qualified form when the tracker's own identifier is ambiguous (for example GitHub's `owner/repo#5` against an `identifier` of `5`), and empty otherwise. |
 | `.issue.created_at`  | string          | ISO-8601 creation timestamp. Empty string when absent.                             |
 | `.issue.updated_at`  | string          | ISO-8601 last-update timestamp. Empty string when absent.                          |
@@ -1939,6 +1939,29 @@ Present on every render, first and continuation turns alike, and never `nil`, so
 
 ```
 {{ if .stage.previous }}The {{ .stage.previous }} stage finished first ({{ .stage.previous_outcome }}). Read what it left in the workspace before you start.{{ end }}
+```
+
+### `.park`
+
+Present on every render, so `{{ .park }}` and `{{ if .park }}` work in every template. It is set only on the first turn of the first run after a person releases a parked issue, by removing the parking label or moving the issue to another tracker state. It is `nil` on later turns of that run and on every other run, including retries, reaction runs, and a run after a park that lifted because an earlier run produced observable work.
+
+| Field               | Type   | Description |
+| ------------------- | ------ | ----------- |
+| `.park.reason`      | string | `agent_blocked` when the agent wrote `blocked`, or `handoff_absence` when `agent.max_consecutive_absences` consecutive runs showed no evidence of work. |
+| `.park.statement`   | string | The stop statement of the run the park follows. Empty when that run gave none. |
+| `.park.parked_at`   | string | When the park was recorded, RFC 3339 in UTC, whole seconds. |
+| `.park.released_at` | string | When Sortie observed the release, in the same form. |
+| `.park.gesture`     | string | `label_removed` or `state_changed`. |
+| `.park.comments`    | list   | The comments written since the park, oldest first, each with `.id`, `.author`, `.body`, and `.created_at`. An empty list when nobody commented. |
+
+A comment counts as written since the park when its creation time is at or after the park time. A comment whose time Sortie cannot read is included, and when the park time is unreadable every comment is. If Sortie itself posted the stop statement as a tracker comment, that comment is in the list too, so the statement can appear twice.
+
+The run continues the agent's earlier session when the agent kind supports resuming, the parked run was an ordinary run that ended normally, and the dispatch still selects the same agent kind and prompt template. Otherwise the run starts a new session, and `.park.statement` still says why the earlier run stopped. Sortie reads the issue's comments before it starts the run. When that read fails, no run starts, the issue shows under **Not dispatched** with the reason `park_comments_unread`, and the next poll reads again.
+
+```
+{{ if .park }}A person released this issue ({{ .park.gesture }}). You stopped earlier: {{ .park.statement }}
+{{ range .park.comments }}{{ .author }}: {{ .body }}
+{{ end }}{{ end }}
 ```
 
 ### `.ci_failure`
