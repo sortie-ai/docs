@@ -56,6 +56,7 @@ Step-by-step instructions for configuring, operating, and extending Sortie.
 
 {{< cards >}}
   {{< card link="use-sortie-in-docker" title="Docker" subtitle="Build and run the distroless container image." >}}
+  {{< card link="run-in-restricted-networks" title="Network-Restricted Environments" subtitle="Install offline and plan endpoints, proxies, certificates, and agent connectivity." >}}
   {{< card link="deploy-sortie-to-kubernetes" title="Kubernetes" subtitle="Deploy with Deployment, PVC, ConfigMap, and Service." >}}
 {{< /cards >}}
 
@@ -73,3 +74,4 @@ Step-by-step instructions for configuring, operating, and extending Sortie.
 {{< cards >}}
   {{< card link="troubleshoot-common-failures" title="Common Failures" subtitle="Agent won't start, tracker errors, and more." >}}
 {{< /cards >}}
+
