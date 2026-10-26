@@ -97,6 +97,8 @@ Release a parked issue with any one of three gestures:
 2. Remove the parking label, but only once Sortie has confirmed, on a later fetch, that the label actually reached the tracker. A label you see missing before that confirmation happened releases nothing.
 3. Let a later run for the same issue produce a work-observed verdict; the park lifts on its own.
 
+After the first two gestures, answer in an issue comment before you release it. The next run starts with the agent's earlier session where the agent supports it, and your prompt template can show the agent its own stop statement and your comments through `.park`. See [hand the agent a person's answer after a park](/guides/write-prompt-template/#hand-the-agent-a-persons-answer-after-a-park). The third gesture involves no person, so it hands nothing over.
+
 To find out which issues are parked right now, read the `parked` list of `GET /api/v1/state`, or ask for one issue with `GET /api/v1/{identifier}`, which answers with `status` `parked`. Each entry gives the title, link, reason, and parking label, plus the dispatch rule, agent, and model of the run that led to the park, so you can tell which stage got stuck. See the [HTTP API reference](/reference/http-api/#get-apiv1state-system-state).
 
 A review-comment or CI continuation retry is never stopped by this ceiling; it runs on its own retry budget. The consecutive-absence count is neither kept nor consulted when `tracker.handoff_evidence` is `off`.
