@@ -45,7 +45,7 @@ The agent binary isn't installed or isn't on `PATH`.
 level=WARN msg="worker run failed, scheduling retry" error="agent session start: agent: credential_unverified: the agent runtime did not complete a credential verification request: Not logged in · Please run /login" next_attempt=1 delay_ms=10000
 ```
 
-Workers never reach a real turn. Before it starts work on an issue, Sortie opens a short-lived session of its own and sends one request through the configured agent, to confirm the credential actually works; see [credential verification](/reference/workflow-config/#credential-verification). What that gives you is the failure happening immediately, before any real work starts, under a name that says it is a credential problem (`credential_unverified`) rather than a puzzling stall or a working session that quietly fails partway through its first turn.
+Workers never reach a real turn. Before it starts work on an issue, Sortie opens a short-lived session of its own and sends one request through the configured agent, to confirm the credential actually works; see [credential verification](/reference/workflow-config/#credential-verification). Sortie skips that session while it holds a proof of the same agent setup from the last 15 minutes, so a credential that fails right after a good run is refused on the first working turn instead, with the same error kind. What that gives you is the failure happening immediately, before any real work starts, under a name that says it is a credential problem (`credential_unverified`) rather than a puzzling stall or a working session that quietly fails partway through its first turn.
 
 The message ends with what the agent itself reported, here Claude Code's answer to a missing `ANTHROPIC_API_KEY`, but it does not name the variable that is missing or wrong. The steps below find it.
 
@@ -67,7 +67,7 @@ The message ends with what the agent itself reported, here Claude Code's answer 
 
 5. On `copilot-cli`, a rejected credential can instead fail with `port_exit` and the CLI's own message, because that CLI refuses a credential by printing a message and exiting. That case is [agent exits before it responds](#agent-exits-before-it-responds); the fixes above still apply.
 
-No `agent credential verified` line precedes an error like this one; that line only appears once the check has actually passed. If you do see `agent credential verified` followed by a failure, the credential itself is fine and the problem is in the working turn instead: see [agent exits without producing output](#agent-exits-without-producing-output) or [a turn runs long and gets cut off](#a-turn-runs-long-and-gets-cut-off).
+No `agent credential verified` line precedes an error raised by the check; that line only appears once the check has actually passed. If you do see `agent credential verified` followed by a failure, the credential itself is fine and the problem is in the working turn instead: see [agent exits without producing output](#agent-exits-without-producing-output) or [a turn runs long and gets cut off](#a-turn-runs-long-and-gets-cut-off).
 
 ## A remote agent authenticates as the wrong account
 

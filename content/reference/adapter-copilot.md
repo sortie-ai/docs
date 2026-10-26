@@ -8,7 +8,7 @@ url: /reference/adapter-copilot/
 ---
 The Copilot CLI adapter connects Sortie to the [GitHub Copilot CLI](https://docs.github.com/en/copilot/using-github-copilot/using-github-copilot-in-the-command-line) via subprocess management. It launches the `copilot` binary with `--output-format json`, reads newline-delimited JSON from stdout, and normalizes events into Sortie's own event vocabulary. Registered under kind `"copilot-cli"`.
 
-Each turn spawns an independent subprocess. Session start runs a version canary before a session is created, local-mode only; whether the credential actually works is settled separately, by the [credential-verification step](/reference/workflow-config/#credential-verification) every kind runs before its first working turn.
+Each turn spawns an independent subprocess. Session start runs a version canary before a session is created, local-mode only; whether the credential actually works is settled separately, by the [credential-verification step](/reference/workflow-config/#credential-verification) every kind runs before its first working turn, unless Sortie proved the same setup recently.
 
 Copilot CLI 1.0.51 or later is required: this adapter assigns its own session identifier with `--session-id`, a flag older releases reject. See [session identity](#session-identity).
 
@@ -137,7 +137,7 @@ Validates the workspace path, resolves the agent binary, runs a canary check, an
 4. Mints a fresh v4 UUID as the session identifier, unless a session ID saved from a previous run was supplied for a continuation session, in which case that value is used instead.
 5. The session then records the workspace path, resolved binary, session ID, and SSH configuration for later turns to use.
 
-No credential check runs here. Whether the environment or an authenticated `gh` actually lets Copilot CLI answer is settled once, before the working session's first turn, by the [credential-verification step](/reference/workflow-config/#credential-verification); see [authentication](#authentication).
+No credential check runs here. Whether the environment or an authenticated `gh` actually lets Copilot CLI answer is settled before the working session's first turn, by the [credential-verification step](/reference/workflow-config/#credential-verification); see [authentication](#authentication).
 
 **Errors:**
 
@@ -228,6 +228,14 @@ The kind's [declared usage reporting](/reference/workflow-config/#usage-reportin
 The model name comes from the same session-state journal record that supplies the token totals, not from the stdout stream. Between the current `session.shutdown` record and the one before it, the adapter compares each `modelMetrics` entry's combined input and output tokens and names the key with the largest growth, breaking a tie by whichever name sorts first; a model with zero or negative growth since the previous record is not a candidate.
 
 A record with no `modelMetrics` map, or whose entries show no growth over the previous one, names no model. The adapter does not fall back to the configured `copilot-cli.model` value in that case, since that field names the model requested rather than the model the runtime actually used.
+
+### Why a run exceeds the session journal
+
+A run's reported usage can exceed what the session journal holds for the working session. The difference is the credential-verification request. The check runs in a Copilot session of its own, and the journal of that session is deleted with it when the check ends, so the working session's journal never held it. Sortie counts the request in the run's usage and cost estimate because the model call is billed like any other, and adds it to every figure the working session reports.
+
+The extra amount is one request from a fresh session: input that is nearly all cache write with no cache read, because a new session writes its whole prompt to cache, and the few output tokens of the one-sentence answer. Its size is the size of the verification prompt, which depends on the CLI version and the model. The request is small because the check sends only the built-in system prompt and one tool; see [authentication](#authentication).
+
+A run adds at most one such request. A run whose log shows `agent credential verification skipped` adds none, and its usage equals the journal's change over the run. A local run that performed the check exceeds the journal by exactly that request. An SSH launch reads no journal and reports no usage, so the check adds nothing there.
 
 ### API timing
 
@@ -367,11 +375,11 @@ SSH exit code `255` indicates a connection failure (refused, timeout, unreachabl
 
 Sortie does not manage Copilot CLI credentials and runs no preflight of its own: the adapter spawns the subprocess with the full parent process environment, and the Copilot CLI resolves its own credential from it. Which source it reads, and in what order, is the CLI's own to document.
 
-Whether that resolves to a working credential is settled once, before the working session's first turn, by the [credential-verification step](/reference/workflow-config/#credential-verification) every agent kind runs: it opens a session of its own, sends one fixed request, and reports `credential_unverified` if the CLI cannot answer it.
+Whether that resolves to a working credential is settled before the working session's first turn, by the [credential-verification step](/reference/workflow-config/#credential-verification) every agent kind runs unless Sortie proved the same setup recently: it opens a session of its own, sends one fixed request, and reports `credential_unverified` if the CLI cannot answer it.
 
 A CLI that rejects the credential by printing a message and exiting before it writes to stdout is reported as the [early exit report](/reference/errors/#early-exit-report) instead, `port_exit`, carrying that message. The step exercises the credential rather than checking for its presence, so whichever source the CLI actually resolves, an environment variable or a stored login, passes or fails on the same footing.
 
-That verification session carries the same switches as the working session it precedes, with three exceptions: `--max-autopilot-continues 0` in place of the configured ceiling, `--disable-builtin-mcps` in place of any MCP configuration, and no tool server. Once the check completes, session stop deletes that session's own conversation through a one-shot `copilot --server --stdio` process, sending it a `session.delete` request; a failed delete is only logged, never retried, and never fails the run.
+That verification session carries the same switches as the working session it precedes, with these exceptions: `--max-autopilot-continues 0` in place of the configured ceiling, `--disable-builtin-mcps` in place of any MCP configuration, no tool server, `--available-tools view` in place of `copilot-cli.available_tools`, no `--excluded-tools`, and `--no-custom-instructions` whatever `copilot-cli.no_custom_instructions` says. The request therefore carries the built-in system prompt and one read-only tool, and none of the custom instructions or other tool descriptions the working session sends. A CLI build that rejects one of these switches and exits before it responds is checked once more without `--available-tools view` and `--no-custom-instructions`, with the operator's own tool and instruction settings, after a warning in the log. Once the check completes, session stop deletes that session's own conversation through a one-shot `copilot --server --stdio` process, sending it a `session.delete` request; a failed delete is only logged, never retried, and never fails the run.
 
 A remote session receives the tokens directly instead of running any check locally. This kind declares `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, and `GITHUB_TOKEN` as its credential variables, so a remote launch carries whichever of them Sortie's own environment sets into the agent's environment on the build host.
 

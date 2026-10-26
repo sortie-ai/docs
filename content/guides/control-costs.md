@@ -206,6 +206,12 @@ The remedy is to price the model, with a [`token_rates`](/reference/workflow-con
 
 See the [`agent` section reference](/reference/workflow-config/#agent) for validation, the environment overrides, and reload behavior.
 
+## Know what the credential check adds
+
+A worker attempt that holds no recent proof of its agent setup sends one short request before its first turn, to confirm the credential works. The request is billed like any other and counts in the run's token usage, its estimated cost, and `agent.max_tokens`. Nothing configures it, and the request is kept small by leaving the agent's instructions and tools out wherever the runtime allows.
+
+An attempt that starts within 15 minutes of a successful check or working turn on the same setup skips the request and pays nothing for it. Search the log for `agent credential verified` to find the attempts that paid, and for `agent credential verification skipped` to find the ones that did not. The cost is a fixed amount per paying attempt, so it weighs more on short runs than on long ones. Details are in [credential verification](/reference/workflow-config/#credential-verification).
+
 ## Limit turns per session
 
 Each worker session runs a loop: invoke `RunTurn`, check the result, decide whether to continue. `agent.max_turns` caps how many iterations that loop gets.

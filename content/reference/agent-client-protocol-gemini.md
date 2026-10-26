@@ -108,7 +108,7 @@ Sortie cancels a turn that exceeds `agent.stall_timeout_ms` or `agent.turn_timeo
 
 This runtime advertises no `sessionCapabilities` object at all in its `initialize` handshake. Sortie decides whether to send `session/close` from that capability being present, so against this runtime there is never a capability to select: a session here always ends through process termination, described in the [kind page's process shutdown section](/reference/adapter-agent-client-protocol/#process-shutdown), never through a protocol close call.
 
-The short-lived [credential-verification](/reference/workflow-config/#credential-verification) session every worker attempt opens before the working one ends the same way, and it is not exempt from what that costs: its own transcript lands in the same store described under [token accounting](#token-accounting-reads-local-files-and-its-in-turn-signal-understates), `~/.gemini/tmp/<project>/chats/` or the same layout under `GEMINI_CLI_HOME`, and nothing calls back to remove it.
+The short-lived [credential-verification](/reference/workflow-config/#credential-verification) session a worker attempt opens before the working one, unless Sortie proved the same setup recently, ends the same way, and it is not exempt from what that costs: its own transcript lands in the same store described under [token accounting](#token-accounting-reads-local-files-and-its-in-turn-signal-understates), `~/.gemini/tmp/<project>/chats/` or the same layout under `GEMINI_CLI_HOME`, and nothing calls back to remove it.
 
 ### A normal-looking stop reason does not mean the turn ended cleanly
 
