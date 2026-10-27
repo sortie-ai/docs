@@ -74,4 +74,3 @@ Step-by-step instructions for configuring, operating, and extending Sortie.
 {{< cards >}}
   {{< card link="troubleshoot-common-failures" title="Common Failures" subtitle="Agent won't start, tracker errors, and more." >}}
 {{< /cards >}}
-
