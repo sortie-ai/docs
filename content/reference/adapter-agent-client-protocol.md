@@ -163,7 +163,7 @@ The runtime process can exit while a descendant it spawned still holds its stand
 
 A turn ended this way reports `port_exit` with the message `the agent runtime exited before the session finished collecting its output`; a turn started after this has already happened is refused with the same message before it reaches the runtime. Sortie logs `agent stdout was not fully collected before the session ended` at WARN, with the five-second bound in its `drain_bound` attribute.
 
-On a remote launch, the process watched for exit is the local `ssh` relay rather than the runtime on the far end. Stopping the session afterward still runs the fixed order above in full.
+On a remote launch, the process watched for exit is the local `ssh` relay rather than the runtime on the far end. Stopping the session afterward still runs the fixed order above in full. Ending the relay also starts the [shutdown of the runtime on the worker host](/reference/workflow-config/#remote-agent-shutdown).
 
 ---
 
