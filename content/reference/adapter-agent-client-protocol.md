@@ -92,10 +92,10 @@ This kind declares no check that would leave the runtime waiting for a person: u
 Launches the subprocess, performs the `initialize` handshake, and creates or continues a session with `session/new`, `session/load`, or `session/resume`.
 
 1. Resolves the launch target: validates that the workspace path is a non-empty absolute path pointing to an existing directory, and resolves `command` from `PATH` with no default to fall back to. In SSH mode, resolves the local `ssh` binary instead.
-2. Parses the generated MCP configuration from the resolved configuration path on a local launch only; a remote launch holds no servers regardless of the path, because the protocol's stdio server declaration names an executable the remote host would have to resolve, and the configuration's environment block can carry tracker credentials that must not cross to a remote host. A server whose `enabled` field is present and `false` is dropped here.
+2. Resolves the session's tool delivery from the generated MCP configuration. A server whose `enabled` field is present and `false` is dropped here. On a remote launch the stdio servers are dropped too, because the protocol's stdio server declaration names an executable the remote host would have to resolve, and Sortie starts its HTTP tool server and opens one short extra SSH connection to learn whether the worker host accepts the reverse forward. See [MCP](#mcp).
 3. Starts the subprocess with the full parent process environment, places it in its own process group, and wires stdin, stdout, and stderr. A local launch whose command line names a runtime Sortie ships a [measurement source](#token-accounting) for also carries that source's environment variables.
 4. Sends `initialize` with the pinned protocol version and no filesystem or terminal client capability. A response reporting any other protocol version ends the session, because the protocol defines no renegotiation and leaves the decision to disconnect to the client. A response that disagrees with the measurement source the start carried, or that names a runtime a source reads when the start carried none, stops the subprocess and repeats steps 3 and 4 before step 5; see [restart to settle the measurement source](#restart-to-settle-the-measurement-source).
-5. Renders the parsed MCP servers into the wire format `session/new` (or a continuation call) will carry, omitting any HTTP server when the handshake's `mcpCapabilities.http` is not `true`. A stdio server is never withheld this way; the protocol allows omitting a server type, not the whole channel.
+5. Renders the MCP servers into the wire format `session/new` (or a continuation call) will carry. When the handshake's `mcpCapabilities.http` is `true`, Sortie's own server is an HTTP entry, served from the orchestrator host. Otherwise any HTTP server is omitted. A stdio server is never withheld by this step on a local launch; the protocol allows omitting a server type, not the whole channel.
 6. Resolves the session: `session/new` alone when no session ID from a previous run is supplied, or the handshake advertises no continuation method; otherwise the advertised route, confirmed and falling back to `session/new` within this same call when not confirmed. See [session resume mechanism](#session-resume-mechanism).
 7. Records the identifier to end through the protocol later, only when the handshake advertised a teardown method: a [credential-verification](/reference/workflow-config/#credential-verification) session records `session/delete` when the handshake advertises `sessionCapabilities.delete`, falling back to `session/close` when only that is advertised; every other session records `session/close` when advertised and nothing otherwise. See [session close](#session-close).
 8. The session records the identifier the runtime actually created as its session ID, and the subprocess PID as the agent's process ID.
@@ -314,9 +314,17 @@ The protocol's stdio server declaration carries no trust or pre-authorization fi
 
 ## MCP
 
-The worker writes `.sortie/mcp.json` for every agent kind. On a local launch, session start parses it and renders its servers into the wire shape `session/new` carries; on a remote launch, no servers are parsed at all, so a session over SSH reaches none of Sortie's tools and its first-turn prompt names none, for the same reason the [Codex](/reference/adapter-codex/#mcp_config) and [OpenCode](/reference/adapter-opencode/#mcp) adapters withhold theirs on SSH: the configuration's credential values would otherwise sit on the local `ssh` process's own argument list, readable by any other user of the orchestrator host.
+The worker writes `.sortie/mcp.json` for every agent kind. Session start reads it and renders its servers into the wire shape `session/new` carries.
 
-An HTTP server is delivered only when the handshake's `mcpCapabilities.http` reports `true`; when it does not, the server is silently omitted and the toolServers capability entry is lowered for the rest of the session (see [capability tracking](#capability-tracking)). A stdio server is always attempted; the protocol's `mcpCapabilities` distinguishes HTTP and SSE support, not stdio support. A server whose `enabled` field is explicitly `false` in the generated configuration is dropped before rendering, because the protocol carries no disabled state of its own.
+A runtime whose handshake reports `mcpCapabilities.http` as `true` receives Sortie's own tool server as an HTTP entry, on a local launch and on an SSH launch. Sortie starts the server on the orchestrator host. The entry carries the server's loopback address, which on an SSH launch is the remote end of the launch's reverse forward, and a per-session bearer as an `Authorization` header. The protocol has no reference form for a header value, so the bearer and every operator HTTP header value travel literally inside the `session/new` request, and a runtime that logs its requests can write them down. See [delivery over SSH](/reference/agent-extensions/#delivery-over-ssh).
+
+A runtime that accepts only HTTP servers is why the HTTP route applies to local launches too: `copilot --acp` discards every stdio entry without an error or a notification, so Sortie's tools reach it only over HTTP, and an operator stdio server never does.
+
+A runtime that does not report HTTP support receives the generated stdio entries on a local launch. On an SSH launch it receives no server, runs without Sortie's tools, and the session declares a gap. An operator HTTP server is omitted for such a runtime, and the tool-servers capability entry is lowered for the rest of the session (see [capability tracking](#capability-tracking)).
+
+On an SSH launch, stdio servers from `mcp_config` are never sent. A server whose `enabled` field is explicitly `false` in the generated configuration is dropped before rendering, because the protocol carries no disabled state of its own.
+
+After `session/new` returns, session start waits up to `read_timeout_ms` for the runtime to connect to Sortie's HTTP server. When none connects, the session declares the `no_connection` gap and its first-turn prompt carries no tool advertisement. This is the one signal Sortie has for a runtime that drops declared servers without saying so.
 
 Whether a declared server's tools are actually reachable once the session starts depends on the runtime's own workspace-trust and approval configuration, not on delivery; see [tool call tracking](#tool-call-tracking).
 
@@ -332,12 +340,12 @@ Every session keeps a record of four capabilities this transport can deliver, ea
 
 | Capability | Starts at | Lowered when |
 |---|---|---|
-| Tool servers | Delivered, unless the launch is remote | An HTTP server is withheld because the handshake did not advertise `mcpCapabilities.http`. |
+| Tool servers | Delivered | Sortie withheld a server or never reached its own: the handshake did not advertise `mcpCapabilities.http`, the worker host refused the reverse forward, the tool server did not start, or the runtime never connected. SSH launches also lower it for operator stdio servers. See [when a session runs without the tools](/reference/agent-extensions/#when-a-session-runs-without-the-tools). |
 | Token counts | Absent, unless a measurement source claimed the launch | The source is dropped after a drain that produced no record. No per-turn token count reaches this adapter on the wire. See [token accounting](#token-accounting). |
 | Session continuation | Delivered | The handshake advertises neither `session/load` nor `session/resume`, or an attempted continuation call is not confirmed. See [session resume mechanism](#session-resume-mechanism). |
 | Agent version | Delivered | The handshake's `initialize` response carries no `agentInfo`. |
 
-The first time a turn starts, the adapter emits one `notification` naming every entry then in the gap state, in this fixed order. The token counts entry starts there unless a measurement source claimed the launch, so a session no source measures carries this notice on that entry alone and reads `this session started with a declared capability gap in: token counts`.
+Once per session, the adapter emits one `notification` naming every entry then in the gap state, in this fixed order. It emits it right after the first turn's `session_started` event. Session start has already settled the tool-server outcome by then, on a local launch with a stdio runtime as on any other, because it waits up to `read_timeout_ms` for an HTTP runtime's first connection. The token counts entry starts there unless a measurement source claimed the launch, so a session no source measures carries this notice on that entry alone and reads `this session started with a declared capability gap in: token counts`.
 
 A source that claims the launch and is then turned away by the handshake has the launch started again without it, and the notice reads the same way. A capability lowered afterward is logged at `Warn` instead of producing a second notice, so an unfamiliar line in the run log after that point is recognizable as a declared limit rather than as an unreported error.
 
@@ -379,7 +387,7 @@ When the worker configuration includes `ssh_hosts`, the adapter launches the loc
 
 ### SSH options
 
-The adapter uses the shared `sshutil` transport defaults, the same ones every other SSH-capable adapter uses:
+The adapter uses the shared `sshutil` transport defaults, the same ones every other SSH-capable adapter uses. A launch that delivers Sortie's tools adds a reverse forward and the options that go with it; see [delivery over SSH](/reference/agent-extensions/#delivery-over-ssh).
 
 | Option | Value | Purpose |
 |---|---|---|
@@ -391,7 +399,7 @@ The adapter uses the shared `sshutil` transport defaults, the same ones every ot
 
 ### What an SSH launch does not carry
 
-No configured environment reaches the remote runtime beyond what OpenSSH itself forwards, and the generated MCP configuration is never parsed for a remote launch at all; see [MCP](#mcp). A credential a specific runtime needs on the remote host has to already be present there, or forwarded by whatever mechanism that runtime's own page describes; this kind manages none of its own.
+No configured environment reaches the remote runtime beyond what OpenSSH itself forwards, and the generated configuration's `env` block never leaves the orchestrator host; see [MCP](#mcp). A credential a specific runtime needs on the remote host has to already be present there, or forwarded by whatever mechanism that runtime's own page describes; this kind manages none of its own.
 
 ### Exit codes
 
@@ -446,7 +454,7 @@ See [Gemini CLI on the Agent Client Protocol](/reference/agent-client-protocol-g
 | Token accounting | Result event `modelUsage`, with top-level `usage` fallback | Session-state journal on disk | `thread/tokenUsage/updated` notification | Separate `export` subprocess | Nothing on the wire; a measurement source Sortie ships for the named runtime, local launch only, and unmeasured wherever none applies |
 | Model reporting | From `assistant` events | From the session-state journal's `session.shutdown` record, after the subprocess exits | From the thread-open response, updated on reroute | Recovered from export `providerID/modelID` | From the measurement source, when one applies |
 | Permission control | `--permission-mode` or `--dangerously-skip-permissions` | `--autopilot` + `--no-ask-user` + tool scoping | `approvalPolicy` and sandbox policy | `--dangerously-skip-permissions` plus a synthesized policy in the inline configuration document | `session/request_permission`, refused in a form that lets the turn continue, or ends the attempt when only a person could answer |
-| Sortie's tools | Generated config path on `--mcp-config` | Generated config path on `--additional-mcp-config` | Generated servers re-expressed as command-line overrides, local launch only | Generated servers re-expressed as an inline configuration document, local launch only | Generated servers re-expressed on `session/new`, local launch only, and reachable only when the runtime's own configuration authorizes the call without asking |
+| Sortie's tools | Derived config file on `--mcp-config`, an inline document over SSH | Derived config file on `--additional-mcp-config`, an inline document over SSH | Generated servers re-expressed as command-line overrides; over SSH they ride the session's standard input | Generated servers re-expressed as an inline configuration document; over SSH it names HTTP servers only | Generated servers re-expressed on `session/new`; over SSH a runtime that accepts HTTP MCP servers reaches them, and any tool is callable only when the runtime's own configuration authorizes the call without asking |
 | Authentication | `ANTHROPIC_API_KEY` (+ Bedrock, Vertex) | `COPILOT_GITHUB_TOKEN` / `GH_TOKEN` / `GITHUB_TOKEN` / `gh auth` | `CODEX_API_KEY` or cached Codex auth | OpenCode-managed provider auth | None managed by Sortie; the named runtime authenticates itself |
 
 ---

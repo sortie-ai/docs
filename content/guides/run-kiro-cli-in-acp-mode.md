@@ -13,10 +13,10 @@ ACP mode is Kiro CLI's own protocol interface. Sortie drives it as the generic `
 
 Which credential authenticates the session decides whether Sortie's own tools reach the agent. Confirm this before touching `agent.command`.
 
-| Credential (local launch) | Sortie's tools |
+| Credential | Sortie's tools |
 |---|---|
 | Stored device login | Delivered and callable, subject to the trust posture below |
-| `KIRO_API_KEY` | Silently dropped: a governance-profile check against the runtime's own backend fails under this credential (whether that holds for every key or only some plans is unestablished), with no signal on the wire or in Sortie's own output |
+| `KIRO_API_KEY` | Silently dropped: a governance-profile check against the runtime's own backend fails under this credential (whether that holds for every key or only some plans is unestablished), with no signal on the wire. Sortie notices only that the runtime never connects, and declares a tool-server gap after `read_timeout_ms` |
 
 A stored device login is the only way to reach that tool channel.
 
@@ -28,7 +28,7 @@ kiro-cli whoami
 
 A machine with no login prints `Not logged in` and exits with code 1, and a run started there fails at start with `You are not logged in, please log in with kiro-cli login`, so run this check before an unattended run.
 
-If the check reports the wrong credential, or Sortie's tools stay silently absent after you switch, the runtime's own log carries the reason: `Failed to get governance config from API - MCP disabled, web tools disabled`. See [which login delivers Sortie's tools](/reference/agent-client-protocol-kiro/#which-login-delivers-sorties-tools) for the full mechanism.
+If the check reports the wrong credential, or Sortie's tools stay absent after you switch, the runtime's own log carries the reason: `Failed to get governance config from API - MCP disabled, web tools disabled`. See [which login delivers Sortie's tools](/reference/agent-client-protocol-kiro/#which-login-delivers-sorties-tools) for the full mechanism.
 
 ## Configure ACP mode
 
@@ -77,7 +77,7 @@ extensions:
 
 A stored device login cannot be carried this way: only environment variable names travel to a remote host, through `ssh_pass_env` or a kind's own declared credential set, so the login has to already exist on that host.
 
-And Sortie's tools are not delivered over an SSH launch at all, whatever the credential: the protocol adapter parses the generated MCP configuration for a local launch only, the same restriction `codex` and `opencode` carry. If tool delivery is why you're using ACP mode, keep those workers local.
+Sortie's tools reach a remote Kiro CLI over a reverse SSH forward, and the worker host must allow it; see [let remote agents use Sortie's tools](/guides/scale-agents-with-ssh/#let-remote-agents-use-sorties-tools). The credential rule above still decides whether Kiro CLI uses them: a stored device login on the worker host delivers them, an API key does not.
 
 See [environment variables carried to a remote agent](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent) for the full mechanism.
 

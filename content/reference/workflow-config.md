@@ -1562,7 +1562,7 @@ claude-code:
 | `denied_tools` | string | _(none)_ | Forwarded to `--deny-tool` as a single argument. |
 | `available_tools` | string | _(none)_ | Forwarded to `--available-tools` as a single argument. |
 | `excluded_tools` | string | _(none)_ | Forwarded to `--excluded-tools` as a single argument. |
-| `mcp_config` | string | _(none)_ | Path to an MCP server configuration file, resolved relative to the WORKFLOW.md directory when not absolute. Its servers are merged into the copy Sortie generates for its own tool sidecar; the original is never modified, and a file already declaring `sortie-tools` fails the attempt. That generated copy is what reaches `--additional-mcp-config`, so this value is forwarded on its own only when no copy was generated. See [Sortie's own tools and the `mcp_config` field](/reference/adapter-copilot/#sorties-own-tools-and-the-mcp_config-field). |
+| `mcp_config` | string | _(none)_ | Path to an MCP server configuration file, resolved relative to the WORKFLOW.md directory when not absolute. Its servers are merged into the copy Sortie generates for its own tool server; the original is never modified, and a file already declaring `sortie-tools` fails the attempt. That generated copy is what reaches `--additional-mcp-config`, so on a local launch this value is forwarded on its own only when no copy was generated, and on an SSH launch never. Over SSH only the HTTP servers in the file are delivered. See [Sortie's own tools and the `mcp_config` field](/reference/adapter-copilot/#sorties-own-tools-and-the-mcp_config-field). |
 | `disable_builtin_mcps` | boolean | `false` | Adds `--disable-builtin-mcps` when true, withholding the CLI's built-in MCP servers. |
 | `no_custom_instructions` | boolean | `false` | Adds `--no-custom-instructions` when true, so the CLI skips the custom instruction files it would otherwise read. |
 | `experimental` | boolean | `false` | Adds `--experimental` when true, enabling the CLI's experimental features. |
@@ -1594,11 +1594,11 @@ copilot-cli:
 | `thread_sandbox` | string | `workspaceWrite` | Thread sandbox mode, forwarded unchanged. The default confines writes to the workspace and allows no network access. |
 | `personality` | string | _(none)_ | Personality preset. Maps to `personality` on `thread/start`. |
 | `turn_sandbox_policy` | map | _(none)_ | Per-turn sandbox policy override. Keys such as `networkAccess`, `writableRoots`. |
-| `mcp_config` | string | _(none)_ | Path to an MCP server configuration file, resolved relative to the WORKFLOW.md directory when not absolute. Its servers are merged into the copy Sortie generates for its own tool sidecar; the original is never modified, and a file already declaring `sortie-tools` fails the attempt. |
+| `mcp_config` | string | _(none)_ | Path to an MCP server configuration file, resolved relative to the WORKFLOW.md directory when not absolute. Its servers are merged into the copy Sortie generates for its own tool server; the original is never modified, and a file already declaring `sortie-tools` fails the attempt. Over SSH only the HTTP servers in the file are delivered; see [delivery by agent kind](/reference/agent-extensions/#delivery-by-agent-kind). |
 
 The Codex adapter uses a persistent subprocess model: the `codex app-server` is launched once, when the session starts, and kept alive across turns. This differs from Claude Code, Copilot CLI, and OpenCode, which spawn a new subprocess per turn.
 
-The runtime accepts no MCP configuration path, so instead of handing over the generated file the adapter re-expresses its servers as configuration overrides on the app-server command line. That happens on a local launch only; an SSH session receives none, and reaches no Sortie tool. See the [Codex adapter reference](/reference/adapter-codex/) for the full lifecycle and [MCP](/reference/adapter-codex/#mcp) for the delivery detail.
+The runtime accepts no MCP configuration path, so instead of handing over the generated file the adapter re-expresses its servers as configuration overrides on the app-server command line. On an SSH launch the same overrides travel on the SSH session's standard input and name HTTP servers only. See the [Codex adapter reference](/reference/adapter-codex/) for the full lifecycle and [MCP](/reference/adapter-codex/#mcp) for the delivery detail.
 
 > [!WARNING]
 > `approval_policy: never` allows arbitrary command execution within the sandbox boundary. Use only in sandboxed environments. The default `thread_sandbox: workspaceWrite` restricts writes to the workspace path with no network access.
@@ -1634,9 +1634,9 @@ The adapter runs OpenCode 2.x. It queries the version `agent.command` reports at
 | `disable_autocompact` | boolean | `true` | Disables OpenCode's own context autocompaction. |
 | `allowed_tools` | list of strings | `[]` | Builds an allowlist permission policy: listed keys become `allow`, every known key not listed becomes `deny`, unknown keys are forwarded unchanged. |
 | `denied_tools` | list of strings | `[]` | Adds `deny` rules to the same policy `allowed_tools` builds. Overlap with `allowed_tools` is rejected when the adapter is built. |
-| `mcp_config` | string | _(none)_ | Path to an MCP server configuration file, resolved relative to the WORKFLOW.md directory when not absolute. Its servers are merged into the copy Sortie generates for its own tool sidecar; the original is never modified, and a file already declaring `sortie-tools` fails the attempt. |
+| `mcp_config` | string | _(none)_ | Path to an MCP server configuration file, resolved relative to the WORKFLOW.md directory when not absolute. Its servers are merged into the copy Sortie generates for its own tool server; the original is never modified, and a file already declaring `sortie-tools` fails the attempt. Over SSH only the HTTP servers in the file are delivered; see [delivery by agent kind](/reference/agent-extensions/#delivery-by-agent-kind). |
 
-The OpenCode runtime accepts no MCP configuration path either, so the adapter re-expresses the generated servers as the runtime's own server entries and sets them in the turn's environment. That happens on a local launch only; an SSH session receives no servers and reaches no Sortie tool. The rest of that environment document, the permission policy and compaction setting included, applies on SSH as it does locally. See [MCP](/reference/adapter-opencode/#mcp).
+The OpenCode runtime accepts no MCP configuration path either, so the adapter re-expresses the generated servers as the runtime's own server entries and sets them in the turn's environment. An SSH session receives the same document, with Sortie's server reached over a reverse forward and operator stdio servers left out. The rest of that environment document, the permission policy and compaction setting included, applies on SSH as it does locally. See [MCP](/reference/adapter-opencode/#mcp).
 
 The adapter runs one `opencode run --format json` subprocess per turn and a second subprocess after the turn to recover authoritative token usage. The adapter exposes none of `--attach`, `--port`, `--command`, `--file`, `--title`, `--continue`, or `--fork` through WORKFLOW.md. See the [OpenCode CLI adapter reference](/reference/adapter-opencode/) for the exact commands, the full lifecycle, SSH behavior, and authentication model.
 
@@ -1659,11 +1659,11 @@ opencode:
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `mcp_config` | string | _(none)_ | Path to an MCP server configuration file, resolved relative to the WORKFLOW.md directory when not absolute. Its servers are merged into the copy Sortie generates for its own tool sidecar; the original is never modified, and a file already declaring `sortie-tools` fails the attempt. |
+| `mcp_config` | string | _(none)_ | Path to an MCP server configuration file, resolved relative to the WORKFLOW.md directory when not absolute. Its servers are merged into the copy Sortie generates for its own tool server; the original is never modified, and a file already declaring `sortie-tools` fails the attempt. Over SSH only the HTTP servers in the file are delivered; see [delivery by agent kind](/reference/agent-extensions/#delivery-by-agent-kind). |
 
 This kind names no default runtime and has no other pass-through fields: every runtime-specific setting, such as a model flag, a reasoning option, or a trust switch, is part of `agent.command` itself rather than a field in this block. An `effort` key here has no effect and draws `agent.effort.not_forwarded`. Because it has no default command, a [`dispatch` rule](#dispatch) can route to it only when it is also the default kind.
 
-The adapter re-expresses the generated MCP configuration's servers on `session/new`, on a local launch only; an SSH session receives none, and reaches no Sortie tool. See the [Agent Client Protocol adapter reference](/reference/adapter-agent-client-protocol/) for the full lifecycle, the transport-level limits every runtime on this kind shares, and [MCP](/reference/adapter-agent-client-protocol/#mcp) for the delivery detail.
+The adapter re-expresses the generated MCP configuration's servers on `session/new`. A runtime that accepts HTTP MCP servers reaches Sortie's tools over SSH too; any other runtime reaches none there. See the [Agent Client Protocol adapter reference](/reference/adapter-agent-client-protocol/) for the full lifecycle, the transport-level limits every runtime on this kind shares, and [MCP](/reference/adapter-agent-client-protocol/#mcp) for the delivery detail.
 
 ```yaml
 agent-client-protocol:
@@ -1868,7 +1868,7 @@ To stop the request on a network-restricted or audited deployment, set `price_ta
 SSH remote execution. The host with the fewest active sessions is selected per dispatch. See the [scale agents with SSH](/guides/scale-agents-with-ssh/) guide for operational setup.
 
 > [!NOTE]
-> SSH worker mode requires POSIX remote hosts (Linux, macOS). The orchestrator itself runs on any platform, but remote command execution relies on `cd`, `--` and `&&` shell chaining via the remote host's POSIX shell. A launch that carries an environment variable also needs the standard `dd` utility on the remote host.
+> SSH worker mode requires POSIX remote hosts (Linux, macOS). The orchestrator itself runs on any platform, but remote command execution relies on `cd`, `--` and `&&` shell chaining via the remote host's POSIX shell. A launch that carries an environment variable also needs the standard `dd` utility on the remote host. A launch that delivers Sortie's tools needs `dd` as well, and needs the host's `sshd` to accept remote port forwarding; see [delivery over SSH](/reference/agent-extensions/#delivery-over-ssh).
 
 | Field                          | Type            | Default                        | Description                                                                 |
 | ------------------------------ | --------------- | ------------------------------ | --------------------------------------------------------------------------- |
@@ -1906,7 +1906,7 @@ The system `ssh` binary does not hand the orchestrator's environment to the remo
 | Entry that is not a variable name | Dropped with a warning naming the entry's position, never its contents. A valid name that Sortie reserves for the delivery mechanism itself is also dropped, with a warning that names it. |
 | Adapter-computed settings | Unaffected by either field. A kind that computes settings for its own runtime, such as OpenCode's managed `OPENCODE_*` values, sends them on the same carrier under neither field's control. |
 | Local launches | Unaffected by either field. A local agent subprocess already inherits Sortie's full environment. |
-| Remote host requirement | Any launch that carries a variable needs the standard `dd` utility on the remote host. Every remote `opencode` launch carries one, whatever these fields say. A host without `dd` fails the launch with `sortie: dd is required on the remote host to receive environment variables` on the agent's standard error. |
+| Remote host requirement | Any launch that carries a variable needs the standard `dd` utility on the remote host. Every remote `opencode` launch carries one, whatever these fields say, and every launch that delivers Sortie's tools needs `dd` whether or not it carries a variable. A host without `dd` fails the launch with `sortie: dd is required on the remote host to receive environment variables` on the agent's standard error. |
 
 ```yaml
 worker:

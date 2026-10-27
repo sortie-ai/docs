@@ -104,7 +104,11 @@ When Claude Code does not recognize the `--effort` value, it runs at the model's
 
 ### Sortie's own tools and the `mcp_config` field
 
-Sortie generates one MCP server configuration per session, declaring a `sortie-tools` stdio server that exposes Sortie's own tools to the agent. That generated file, not the raw `claude-code.mcp_config` value, is what the adapter passes to `--mcp-config`, on a local launch and over SSH alike.
+Sortie generates one MCP server configuration per session, declaring a `sortie-tools` stdio server that exposes Sortie's own tools to the agent. The adapter never passes the raw `claude-code.mcp_config` value to `--mcp-config`. It passes the generated servers in one of two forms.
+
+On a local launch the adapter writes a derived file, `.sortie/claude-mcp.json`, and passes its path. Both forms mark the `sortie-tools` member `alwaysLoad` and name each operator HTTP header value by an environment variable, `${SORTIE_MCP_HEADER_<n>}`, instead of holding the value; Sortie sets those variables in the runtime's environment. The derived file keeps the `env` block, so it carries the same secrets as the generated one.
+
+On an SSH launch no file is passed, because a host path names nothing on the worker host. The adapter passes the servers as an inline JSON document on `--mcp-config`. In it, `sortie-tools` is an HTTP server at the address of the launch's reverse forward, with an `Authorization` header that refers to `${SORTIE_TOOL_SERVER_BEARER}`. Operator HTTP servers appear with their URLs, and operator stdio servers are left out. See [delivery over SSH](/reference/agent-extensions/#delivery-over-ssh).
 
 When `claude-code.mcp_config` names an operator-supplied file, Sortie reads it, parses its `mcpServers` object, and inserts the `sortie-tools` entry into it before writing the merged result. A relative path resolves against the directory containing `WORKFLOW.md`. If the operator's file already defines a server named `sortie-tools`, generation fails with a name-collision error rather than silently overwriting it. If the file is missing, unreadable, or not valid JSON, generation fails with the underlying error.
 
@@ -365,7 +369,7 @@ When the worker configuration includes `ssh_hosts`, the adapter launches Claude 
 
 ### SSH options
 
-The adapter uses these SSH options:
+The adapter uses these SSH options. A launch that delivers Sortie's tools adds a reverse forward and the options that go with it; see [delivery over SSH](/reference/agent-extensions/#delivery-over-ssh).
 
 | Option | Value | Purpose |
 |---|---|---|

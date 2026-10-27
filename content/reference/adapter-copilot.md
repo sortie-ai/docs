@@ -99,11 +99,15 @@ Every invocation also includes `--autopilot` and `--no-ask-user`, which are alwa
 
 ### Sortie's own tools and the `mcp_config` field
 
-Sortie generates one MCP server configuration per session, declaring a `sortie-tools` stdio server that exposes Sortie's own tools to the agent. When that generated file exists, the adapter passes it to `--additional-mcp-config` as `@<path>`, regardless of whether `copilot-cli.mcp_config` is also set, on a local launch and over SSH alike.
+Sortie generates one MCP server configuration per session, declaring a `sortie-tools` stdio server that exposes Sortie's own tools to the agent. When that generated file exists, the adapter passes the generated servers to `--additional-mcp-config`, regardless of whether `copilot-cli.mcp_config` is also set.
+
+On a local launch the adapter writes a derived file, `.sortie/copilot-mcp.json`, and passes it as `@<path>`. The derived file names each operator HTTP header value by an environment variable, `${SORTIE_MCP_HEADER_<n>}`, instead of holding the value; Sortie sets those variables in the runtime's environment. The file keeps the generated file's `env` block, which carries every `SORTIE_`-prefixed variable of Sortie's environment, so treat it as holding the same secrets.
+
+On an SSH launch no file is passed, because a host path names nothing on the worker host. The adapter passes the servers as an inline JSON document. In it, `sortie-tools` is an HTTP server at the address of the launch's reverse forward, with an `Authorization` header that refers to `${SORTIE_TOOL_SERVER_BEARER}`. Operator HTTP servers appear with their URLs, and operator stdio servers are left out. See [delivery over SSH](/reference/agent-extensions/#delivery-over-ssh).
 
 When `copilot-cli.mcp_config` names an operator-supplied file, Sortie reads it, inserts the `sortie-tools` entry into its `mcpServers` object, and writes the merged result. This is the same merge the Claude Code adapter performs, since both read from the orchestrator-generated config. A relative path resolves against the directory containing `WORKFLOW.md`. A server already named `sortie-tools` in the operator's file fails generation with a name-collision error rather than being silently overwritten.
 
-Only when no generated configuration was merged does the adapter fall back to forwarding `copilot-cli.mcp_config` directly to `--additional-mcp-config`. In that fallback path the adapter also decides how to present the value to the flag: a value starting with `{` is passed through as inline JSON, a value already starting with `@` is passed through unchanged, and any other value is treated as a file path and prefixed with `@`, matching the flag's own file-vs-inline convention.
+Only when no generated configuration was merged, and only on a local launch, does the adapter fall back to forwarding `copilot-cli.mcp_config` directly to `--additional-mcp-config`. In that fallback path the adapter also decides how to present the value to the flag: a value starting with `{` is passed through as inline JSON, a value already starting with `@` is passed through unchanged, and any other value is treated as a file path and prefixed with `@`, matching the flag's own file-vs-inline convention.
 
 ### Runtime-denied permission requests
 
@@ -351,7 +355,7 @@ When the worker configuration includes `ssh_hosts`, the adapter launches Copilot
 
 ### SSH options
 
-The adapter uses these SSH options:
+The adapter uses these SSH options. A launch that delivers Sortie's tools adds a reverse forward and the options that go with it; see [delivery over SSH](/reference/agent-extensions/#delivery-over-ssh).
 
 | Option | Value | Purpose |
 |---|---|---|

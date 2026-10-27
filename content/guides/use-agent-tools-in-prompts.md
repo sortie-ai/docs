@@ -17,15 +17,16 @@ Where an agent kind can reach them, Sortie registers its tools via MCP and adver
 
 ## Pick a kind that has the tools
 
-Not every session can call Sortie's tools. For three agent kinds it depends on where the session runs, and for Kiro CLI in ACP mode on how it signs in. Decide this before you write a line of tool guidance into a prompt.
+Not every session can call Sortie's tools. Every kind except `mock` reaches them on a local launch and over SSH, but a session over SSH loses them when the worker host refuses SSH port forwarding, and Kiro CLI in ACP mode loses them under an API key. Decide this before you write a line of tool guidance into a prompt.
 
 | `agent.kind` | Local dispatch | Dispatch over SSH |
 |---|---|---|
-| `claude-code` | Tools available | Tools available |
-| `copilot-cli` | Tools available | Tools available |
-| `codex` | Tools available | No tools |
-| `opencode` | Tools available | No tools |
-| `agent-client-protocol` | Tools available, subject to the runtime's own workspace-trust and approval configuration | No tools |
+| `claude-code` | Tools available | Tools available when the host allows SSH port forwarding |
+| `copilot-cli` | Tools available | Tools available when the host allows SSH port forwarding |
+| `codex` | Tools available | Tools available when the host allows SSH port forwarding |
+| `opencode` | Tools available | Tools available when the host allows SSH port forwarding |
+| `agent-client-protocol` | Tools available, subject to the runtime's own workspace-trust and approval configuration | Tools available when the host allows SSH port forwarding and the runtime accepts HTTP MCP servers, subject to the same configuration |
+| `mock` | No tools | No tools |
 
 Kiro CLI runs on `agent-client-protocol`, and there Sortie's tools arrive only under a stored device login; an API key starts sessions but delivers none. See [Kiro CLI on the Agent Client Protocol](/reference/agent-client-protocol-kiro/) for how to confirm which credential a run uses.
 
@@ -33,10 +34,10 @@ A session with no tools is not told about them either: Sortie withholds the firs
 
 Two consequences for the way you write prompts:
 
-- If you run [agents over SSH](/guides/scale-agents-with-ssh/) and want tools, keep those workflows on `claude-code` or `copilot-cli`. Moving a `codex`, `opencode`, or `agent-client-protocol` workflow onto a host pool silently removes the tools from every session it dispatches.
+- If you run [agents over SSH](/guides/scale-agents-with-ssh/#let-remote-agents-use-sorties-tools) and want tools, allow remote port forwarding on every host in the pool. A host that refuses it runs the session without the tools.
 - Instructions you write yourself are not withheld. If a workflow can dispatch to a kind with no channel, phrase them conditionally ("If the `cost_budget` tool is available") the way the `notify_operator` examples below do, so an agent without the tool is not left chasing one.
 
-Run [`sortie validate`](/reference/cli/#validate) to see where a workflow stands. A kind with no channel anywhere draws an `agent.kind.no_tool_channel` warning; the file stays valid and the exit code stays `0`.
+Run [`sortie validate`](/reference/cli/#validate) to see where a workflow stands. A kind with no channel draws an `agent.kind.no_tool_channel` warning; the file stays valid and the exit code stays `0`. Validation reads the file offline, so it cannot see a host that refuses forwarding. That shows up in the log of the session; see [when a session runs without the tools](/reference/agent-extensions/#when-a-session-runs-without-the-tools).
 
 ## Guide the agent to check its own status
 

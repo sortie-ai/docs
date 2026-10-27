@@ -15,6 +15,7 @@ Distribute agent sessions across a pool of remote build machines so your orchest
 - SSH key-based access from the orchestrator host to each build machine (no password prompts)
 - The agent binary (e.g., `claude`, `copilot`, or `codex`) installed and on `PATH` on every remote host
 - The standard `dd` utility on every remote host, which Sortie uses to deliver environment variables (see [give the remote agent its credentials](#give-the-remote-agent-its-credentials))
+- Remote port forwarding allowed by every remote host's `sshd`, if agents there should use Sortie's tools (see [let remote agents use Sortie's tools](#let-remote-agents-use-sorties-tools))
 - `~/.ssh/config` entries or DNS for your build hosts (recommended but not required)
 
 > [!NOTE]
@@ -53,13 +54,6 @@ extensions:
 This tells Sortie to run agents on `build01` and `build02` instead of locally. Each host accepts up to 2 concurrent sessions, giving you 4 total agent slots across the pool. Sortie picks the least-loaded host for each new dispatch.
 
 If you also have `agent.max_concurrent_agents` set, total concurrency is the lower of the two limits. With `max_concurrent_agents: 3` and two hosts at 2 each, you get 3 concurrent agents. The global cap wins.
-
-> [!WARNING]
-> **On `codex` and `opencode`, moving to SSH removes Sortie's agent tools.** Both runtimes accept no MCP configuration path, so Sortie normally hands them the servers by writing them into the launch itself, and it does that on a local launch only. For `codex` the remaining route is the remote command string, which is the local `ssh` process's argument list, readable by every other user of the orchestrator host, and the configuration carries your tracker credential; Sortie declines to publish it.
->
-> A remote session on either kind reaches no tool, and Sortie withholds the first-turn tool advertisement rather than name one the agent cannot call. Nothing fails; the agent works without `tracker_api`, `sortie_status`, `workspace_history`, `cost_budget`, and `notify_operator` if you configured it.
->
-> If your prompts depend on those tools, keep the host pool on `claude-code` or `copilot-cli`, which hand over the generated file itself and are unaffected. See [delivery by agent kind](/reference/agent-extensions/#delivery-by-agent-kind).
 
 ## Give the remote agent its credentials
 
@@ -122,6 +116,50 @@ level=WARN msg="agent stderr" line="sortie: dd is required on the remote host to
 ```
 
 Sortie needs `dd` on the host for any launch that carries a variable, which includes every remote `opencode` launch whatever your configuration says. It ships with coreutils and busybox, so most images have it; distroless and scratch-based images often do not. Install it and the retry succeeds.
+
+## Let remote agents use Sortie's tools
+
+An agent on a worker host calls `tracker_api`, `sortie_status`, `workspace_history`, `cost_budget`, and `notify_operator` the same way a local one does. Sortie keeps the tool server on the orchestrator host and gives each remote launch a reverse SSH forward back to it, so the tracker credential never leaves the orchestrator host. This works for every agent kind except `mock`, and for an `agent-client-protocol` runtime that accepts HTTP MCP servers. The host only has to allow the forward.
+
+1. Check that the host's `sshd` allows remote forwarding for the SSH user. With OpenSSH, `AllowTcpForwarding` must be `yes` or `remote`:
+
+    ```bash
+    ssh build01.internal "sudo sshd -T | grep -i allowtcpforwarding"
+    ```
+
+    If a key in `authorized_keys` carries the `restrict` option, add `port-forwarding` beside it.
+
+2. Request a forward by hand. This uses the same `-R` form as Sortie, but `ExitOnForwardFailure=yes` so that a refusal shows up in the exit code; Sortie's own launch sets `no` and carries on without the tools:
+
+    ```bash
+    ssh -o LogLevel=INFO -o ExitOnForwardFailure=yes -R 127.0.0.1:0:127.0.0.1:9 build01.internal true
+    ```
+
+    A host that allows the forward prints a line like `Allocated port 41873 for remote forward to 127.0.0.1:9` and exits `0`. A host that refuses prints `Warning: remote port forwarding failed for listen port 0` and exits non-zero. Fix the `sshd` or key setting from step 1 until the first output appears.
+
+3. Dispatch an issue to a worker host and read the log. A session that reached the tools logs one line:
+
+    ```
+    level=INFO msg="delivered tool server to session" component=tool-relay
+    ```
+
+If the host refuses the forward, the session still runs. It has no Sortie tools, Sortie leaves the tool advertisement out of the prompt, and the log says why:
+
+```
+level=WARN msg="declared tool server gap for session" component=tool-relay reason=forward_refused
+```
+
+The session also emits a notification, `this session started with a declared capability gap in: tool servers`. The other `reason` values and what each means are in [when a session runs without the tools](/reference/agent-extensions/#when-a-session-runs-without-the-tools).
+
+### Servers from `mcp_config`
+
+Over SSH, Sortie delivers the HTTP servers from your `mcp_config` file and leaves out the ones that start a local program (stdio), because the program would have to run on the worker host. Sortie logs each omission:
+
+```
+level=WARN msg="withheld tool servers from remote session" servers=[github]
+```
+
+To keep such a server on remote sessions, run it as an HTTP service the worker host can reach and point `mcp_config` at its URL.
 
 ## Update hooks for remote execution
 
@@ -291,7 +329,7 @@ The key pieces:
 - **`SORTIE_SSH_HOST`** in hooks: the bridge between local orchestration and remote preparation
 - **Least-loaded dispatch**: Sortie balances work across hosts automatically
 - **Retry affinity**: failed sessions prefer the same host on retry, avoiding redundant workspace setup
-- **Agent tools**: available on `claude-code` and `copilot-cli` remotely; withheld on `codex`, `opencode`, and `agent-client-protocol`, which reach them only on a local launch
+- **Agent tools**: available to every agent kind except `mock` over a reverse forward, provided each host's `sshd` allows it; a session on a host that refuses runs without them
 - **Token usage**: reported remotely on `claude-code`, `codex`, and `opencode`; `copilot-cli` and `agent-client-protocol` report none over SSH, because both recover their figures from files the runtime writes on the machine that ran it, which the adapter reads only on a local launch, so token budgets and cost estimates go inert for those sessions
 
 For the full SSH configuration schema, see the [WORKFLOW.md reference](/reference/workflow-config/). For environment variables injected into hooks during SSH dispatch, see the [environment variables reference](/reference/environment/).

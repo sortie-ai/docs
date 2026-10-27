@@ -192,9 +192,9 @@ The adapter sets one environment variable on every subprocess it launches, the v
 
 Sharing, compaction, the permission policy, and tool servers ride together in one inline configuration document, delivered through `OPENCODE_CONFIG_CONTENT` on every turn, local or remote, whether or not the session carries tool servers.
 
-`share` is always `"disabled"`. `compaction.auto` is `false` only when `opencode.disable_autocompact` is `true`. `permission` carries the policy above and `mcp` carries the translated tool servers, a member present on a local launch only; see [MCP](#mcp). `agent.title.disable` is `true`, the title-agent switch described in [Token accounting](#token-accounting).
+`share` is always `"disabled"`. `compaction.auto` is `false` only when `opencode.disable_autocompact` is `true`. `permission` carries the policy above and `mcp` carries the translated tool servers, a member present when the session delivers any; see [MCP](#mcp). `agent.title.disable` is `true`, the title-agent switch described in [Token accounting](#token-accounting).
 
-A remote turn carries the same document without `mcp`. The version check, usage export, and `session delete` invocations never carry it, on either kind of launch.
+A remote turn carries the same document. When the launch requests a reverse forward, the whole document is sent once the forward's remote port is known, because the `mcp` member names that port. The version check, usage export, and `session delete` invocations never carry it, on either kind of launch.
 
 The [credential-verification](/reference/workflow-config/#credential-verification) session's document sets `permission` to deny every tool, whatever `opencode.allowed_tools`, `opencode.denied_tools`, and `opencode.dangerously_skip_permissions` say, so the request carries no tool definitions, calls no tool, and writes nothing into the issue workspace. The check makes one model request. It still carries the instruction files and the built-in system prompt, because the runtime offers no switch that drops them. When the check falls back to the full context, it uses the configured policy.
 
@@ -236,9 +236,9 @@ Refuses unusable settings, validates the workspace path, resolves the launch tar
 1. Refuses the settings listed under [settings refused at session start](#settings-refused-at-session-start).
 2. Validates that the workspace path is a non-empty absolute path pointing to an existing directory.
 3. Resolves the configured command from `PATH`, defaulting to `opencode` when `agent.command` is empty. In SSH mode, resolves the local `ssh` binary instead and stores the remote command string for later use.
-4. On a local launch, reads the generated MCP configuration and parses it into OpenCode's own server-entry shape, holding the result for every turn of the session. Skipped entirely in SSH mode. See [MCP](#mcp).
+4. Resolves the session's tool delivery from the generated MCP configuration, on a local launch and an SSH launch alike. On an SSH launch this starts Sortie's HTTP tool server and opens one short extra SSH connection to learn whether the worker host accepts the reverse forward. See [MCP](#mcp).
 5. Queries the resolved command's version, over SSH when the launch is remote, and refuses the session when it is unreadable or not a 2.x release; see [version check](#version-check).
-6. Builds the inline configuration document every turn of the session will carry, from the settings and the servers parsed in step 4.
+6. Builds the inline configuration document every turn of the session will carry, from the settings and the tool servers resolved in step 4.
 7. The session has no running process ID or subprocess yet, and takes the session ID saved from a previous run as its own when continuation is requested.
 
 Session start performs no provider-auth probe.
@@ -460,14 +460,14 @@ When the worker configuration includes `ssh_hosts`, the adapter launches the loc
 ### How it works
 
 1. Session start resolves the local `ssh` binary, then runs the remote command's version query over that same SSH path to check its OpenCode version; see [version check](#version-check). A version query failure fails session start the same way it does on a local launch, and needs the remote host's `dd` utility (step 4).
-2. Each turn sends `OPENCODE_DISABLE_AUTOUPDATE` and the inline configuration document in `OPENCODE_CONFIG_CONTENT` to the remote shell on the SSH session's standard input, together with any variable [`worker.ssh_pass_env`](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent) names. The document carries everything a local turn's does except the tool servers; see [managed environment](#managed-environment) and [MCP](#mcp).
+2. Each turn sends `OPENCODE_DISABLE_AUTOUPDATE` and the inline configuration document in `OPENCODE_CONFIG_CONTENT` to the remote shell on the SSH session's standard input, together with any variable [`worker.ssh_pass_env`](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent) names. The document carries the same members a local turn's does, the tool servers included; see [managed environment](#managed-environment) and [MCP](#mcp). A turn that delivers Sortie's tools also sets `SORTIE_TOOL_SERVER_BEARER` and any `SORTIE_MCP_HEADER_<n>` variables the same way.
 3. The remote shell enters the workspace, exports what the launch sent it, and only then runs the configured command with the turn's arguments, each step chained on the success of the one before it.
 4. Because every remote launch on this kind sends the managed variables, every remote host needs the standard `dd` utility. A host without it fails the launch with `sortie: dd is required on the remote host to receive environment variables` on standard error.
 5. The export recovery step uses the same SSH path with the export arguments described in [Token accounting](#token-accounting).
 
 ### SSH options
 
-The adapter uses the shared `sshutil` transport defaults:
+The adapter uses the shared `sshutil` transport defaults. A launch that delivers Sortie's tools adds a reverse forward and the options that go with it; see [delivery over SSH](/reference/agent-extensions/#delivery-over-ssh).
 
 | Option | Value | Purpose |
 |---|---|---|
@@ -501,15 +501,17 @@ Sortie does not manage OpenCode credentials and runs no authentication preflight
 
 The OpenCode CLI accepts no MCP configuration path as an argument, and it does not read the `mcpServers` key the generated `.sortie/mcp.json` is written under.
 
-The adapter delivers the servers rather than the file: on a local launch, session start reads the generated configuration and parses its servers into OpenCode's own server-entry shape, keyed under `mcp`, with a stdio server becoming a local entry and an HTTP server a remote one. A server entry that omits its enable flag is rendered enabled, matching the runtime's own default.
+The adapter delivers the servers rather than the file: session start reads the generated configuration and renders its servers into OpenCode's own server-entry shape, keyed under `mcp`, with a stdio server becoming a local entry and an HTTP server a remote one. A server entry that omits its enable flag is rendered enabled, matching the runtime's own default. An HTTP entry names each header value by an environment variable, `{env:SORTIE_MCP_HEADER_<n>}`, instead of holding it; Sortie sets those variables in the turn's environment.
 
 The turn sets those entries on the turn subprocess through the runtime's inline-configuration environment variable, `OPENCODE_CONFIG_CONTENT`. The `mcp` entries live inside the one inline document that also carries the tool policy, sharing, and compaction (see [managed environment](#managed-environment)), so the variable is set whether or not the session carries servers.
 
 The runtime merges the document with whatever project or global configuration the operator already has, rather than replacing it, and the auxiliary `export` and `session delete` invocations the adapter also runs rebuild their environment without it, so none of them spawns a tool sidecar of its own. Any `OPENCODE_CONFIG_CONTENT` inherited from the orchestrator's own environment is stripped first, on every one of those.
 
-### SSH mode delivers no tool servers
+### Tool servers over SSH
 
-A remote turn carries the configuration document, but without the `mcp` member. The adapter renders the generated servers into that document on a local launch only, so an OpenCode session on an SSH host reaches none of Sortie's tools and its first-turn prompt carries no tool advertisement. The rest of the document, the permission policy, sharing, compaction, and the title-agent switch, applies there as it does locally. `OPENCODE_DISABLE_AUTOUPDATE` reaches the session too, and so does anything [`worker.ssh_pass_env`](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent) names.
+A remote turn carries the same document with an `mcp` member that differs from a local one. `sortie-tools` is a remote entry at the address of the launch's reverse forward, with an `Authorization` header of `Bearer {env:SORTIE_TOOL_SERVER_BEARER}`. Servers from `mcp_config` that run as a local program (stdio) are left out. Operator HTTP servers appear with their URLs.
+
+The document is sent on the SSH session's standard input after the forward's remote port is known. If the worker host refuses the forward, the document carries no `sortie-tools` entry, the session declares a gap, and its first-turn prompt carries no tool advertisement. See [delivery over SSH](/reference/agent-extensions/#delivery-over-ssh) for the forward, the bearer, and the gap reasons. The rest of the document, the permission policy, sharing, compaction, and the title-agent switch, applies as it does locally. `OPENCODE_DISABLE_AUTOUPDATE` reaches the session too, and so does anything [`worker.ssh_pass_env`](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent) names.
 
 ### Startup failures
 
@@ -517,11 +519,11 @@ The run projection this adapter reads carries no MCP startup signal, so a server
 
 ### `mcp_config`
 
-`opencode.mcp_config` names an operator-supplied MCP server configuration file. The worker reads it, merges its servers with the `sortie-tools` entry into the generated copy, and the adapter translates the merged result, so an operator's own servers reach a local OpenCode session alongside Sortie's. A relative path resolves against the directory containing `WORKFLOW.md`. An unreadable path, a file that is not valid JSON, or a file already declaring a server named `sortie-tools` fails the attempt before the session starts.
+`opencode.mcp_config` names an operator-supplied MCP server configuration file. The worker reads it, merges its servers with the `sortie-tools` entry into the generated copy, and the adapter translates the merged result, so an operator's own servers reach an OpenCode session alongside Sortie's. Over SSH only the HTTP servers reach it. A relative path resolves against the directory containing `WORKFLOW.md`. An unreadable path, a file that is not valid JSON, or a file already declaring a server named `sortie-tools` fails the attempt before the session starts.
 
 Two more conditions fail the session with `response_error` when the merged configuration reaches the adapter, and the message names the offending server: an entry that carries neither `command` nor `url`, carries both, or declares a `type` contradicting the fields it carries; and an entry carrying a key outside the modeled set, which is `type`, `command`, `args`, `env`, `url`, `headers`, and `enabled`.
 
-Both come from shared validation, so a file that fails here fails a `codex` session the same way. A header on an HTTP entry is carried into the document as written, which a `codex` session does not do; see the [Codex adapter reference](/reference/adapter-codex/#http-headers).
+Both come from shared validation, so a file that fails here fails a `codex` session the same way.
 
 ---
 
@@ -541,7 +543,7 @@ Both come from shared validation, so a file that fails here fails a `codex` sess
 | Token accounting source | Result event `modelUsage`, with top-level `usage` fallback | Session-state journal on disk, with stream output tokens as the in-turn estimate | `thread/tokenUsage/updated` notification | Separate export subprocess after main turn exit |
 | Permission control | `--permission-mode` or `--dangerously-skip-permissions` | `--autopilot` + `--no-ask-user` + explicit tool scoping | `approvalPolicy` and sandbox policy in JSON-RPC | `--dangerously-skip-permissions` plus a synthesized policy in the inline configuration document |
 | Sandbox enforcement | None at adapter level | None at adapter level | OS-level sandbox plus configurable policy | No adapter-level sandbox; permission policy only |
-| Sortie's tools | Generated config path on `--mcp-config` | Generated config path on `--additional-mcp-config` | Generated servers re-expressed as command-line overrides, local launch only | Generated servers re-expressed as an inline configuration document in the turn environment, local launch only; a remote turn carries the document without them (see [MCP](#mcp)) |
+| Sortie's tools | Derived config file on `--mcp-config`, an inline document over SSH | Derived config file on `--additional-mcp-config`, an inline document over SSH | Generated servers re-expressed as command-line overrides; on an SSH launch the same overrides ride the SSH session's standard input and name HTTP servers only | Generated servers re-expressed as an inline configuration document in the turn environment; on an SSH launch the document names Sortie's HTTP tool server and operator HTTP servers only (see [MCP](#mcp)) |
 | Authentication | `ANTHROPIC_API_KEY` and provider routing flags | GitHub token variables or `gh auth` | `CODEX_API_KEY` or cached Codex auth | OpenCode-managed provider auth from env, auth store, `.env`, or `opencode.json`; a remote session uses the host's own, or whatever `worker.ssh_pass_env` names |
 | Provider multiplexing | Anthropic direct, Bedrock, Vertex | GitHub only | OpenAI or cached Codex auth | Multi-provider through OpenCode model/provider config |
 | Inner turn limit | `claude-code.max_turns` | `copilot-cli.max_autopilot_continues` | None | None exposed by the adapter |

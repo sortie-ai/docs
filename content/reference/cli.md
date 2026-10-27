@@ -455,8 +455,8 @@ Dot-context, unknown-variable, and unknown-field warnings cover the body, the de
 
 **Configuration checks:**
 
-- **Unreachable `mcp_config`** (`agent.mcp_config`). An agent kind's pass-through block sets `mcp_config` (`mock.mcp_config`, for example; the `agent:` section carries no such key) for a kind whose adapter delivers the generated MCP configuration to the agent process in no form at all, so the value cannot reach the agent. `mock` is one such built-in kind, and any custom adapter declaring the same disposition draws the warning too. `claude-code` and `copilot-cli` deliver the generated file itself, so the check never fires for them. `codex`, `opencode`, and `agent-client-protocol` deliver that file's servers re-expressed rather than the file, and only on a local launch; the check does not fire for them either, because validation reads the workflow file offline and cannot know which sessions will be dispatched to an SSH host. Set `mcp_config` in one of those three blocks and dispatch the session over SSH, and you get neither the warning nor the effect.
-- **No tool execution channel** (`agent.kind.no_tool_channel`). The agent kind delivers no channel for Sortie's tools even on a local launch, so the session can neither call them nor be told about them. It fires for every kind whose adapter declares that it never delivers the generated MCP configuration, `mock` being one such built-in kind, and for any adapter that declares no MCP disposition at all. It does not fire for `codex`, `opencode`, or `agent-client-protocol`, whose channel exists locally; validation reads the workflow file offline and cannot know which sessions will be dispatched to an SSH host.
+- **Unreachable `mcp_config`** (`agent.mcp_config`). An agent kind's pass-through block sets `mcp_config` (`mock.mcp_config`, for example; the `agent:` section carries no such key) for a kind whose adapter delivers the generated MCP configuration to the agent process in no form at all, so the value cannot reach the agent. `mock` is one such built-in kind, and any custom adapter declaring the same disposition draws the warning too. `claude-code`, `copilot-cli`, `codex`, `opencode`, and `agent-client-protocol` each deliver the generated servers on a local launch and on an SSH launch, so the check never fires for them.
+- **No tool execution channel** (`agent.kind.no_tool_channel`). The agent kind delivers no channel for Sortie's tools even on a local launch, so the session can neither call them nor be told about them. It fires for every kind whose adapter declares that it never delivers the generated MCP configuration, `mock` being one such built-in kind, and for any adapter that declares no MCP disposition at all. It does not fire for a kind that delivers a channel, whether or not the session is dispatched to an SSH host. A session that loses its channel at run time, because the worker host refuses SSH port forwarding for example, is outside what validation reads; see [when a session runs without the tools](/reference/agent-extensions/#when-a-session-runs-without-the-tools).
 - **Token ceiling on a kind that reports no usage** (`agent.kind.no_usage_reporting`). `agent.max_tokens` is set against an agent kind whose declared usage reporting yields no figure for the sessions this configuration produces, so the per-issue token ceiling has nothing to count against. Budget those sessions by time instead, through `agent.turn_timeout_ms`.
 - **Money ceiling on a kind that reports no usage** (`agent.max_cost_usd.no_usage_reporting`). `agent.max_cost_usd` is set above `0` against an agent kind whose declared usage reporting yields no figure for the sessions this configuration produces, so there is nothing to price and the per-issue money ceiling can never be reached for that kind. Budget those sessions by time instead, through `agent.turn_timeout_ms`.
 - **Money ceiling with no rate source** (`agent.max_cost_usd.no_rate_source`). `agent.max_cost_usd` is set above `0` while no price source is configured: `price_table.embedded` and `price_table.fetch` are off, and neither a `token_rates` entry nor a price table you supply is set. No run can be priced, so the ceiling holds no issue. The check reads configuration only, so `validate` and the running service agree. A model that the configured rates do not list draws no warning. See [`token_rates`](/reference/workflow-config/#token_rates) and [`price_table`](/reference/workflow-config/#price_table) for the sources.
@@ -1356,39 +1356,43 @@ A worked example, expanded for readability and trimmed to one row per breakdown.
 
 ### `mcp-server`
 
-Starts an MCP stdio server that exposes registered agent tools over JSON-RPC on stdin/stdout. Intended to be launched by an MCP-compatible agent runtime via `.sortie/mcp.json`, *not run manually*.
+Starts an MCP server that exposes registered agent tools. By default it speaks JSON-RPC on stdin/stdout. With `--http` it serves MCP over streamable HTTP on a loopback port instead. Intended to be launched by an MCP-compatible agent runtime via `.sortie/mcp.json`, or by Sortie itself for an HTTP session, *not run manually*.
 
 ```
-sortie mcp-server --workflow <path>
+sortie mcp-server --workflow <path> [--http]
 ```
 
-The subcommand loads the workflow file, builds the tracker adapter from its configuration, assembles the tools available to the session, and serves MCP requests until stdin closes or the process receives a signal. No agents are spawned and no HTTP server starts. The database is opened read-only, and only when both `SORTIE_DB_PATH` and `SORTIE_ISSUE_ID` are present in the environment; no migration is applied and nothing is written.
+The subcommand loads the workflow file, builds the tracker adapter from its configuration, assembles the tools available to the session, and serves MCP requests until stdin closes or the process receives a signal. No agents are spawned. The database is opened read-only, and only when both `SORTIE_DB_PATH` and `SORTIE_ISSUE_ID` are present in the environment; no migration is applied and nothing is written.
+
+The server negotiates MCP protocol versions `2026-07-28`, `2025-11-25`, `2025-06-18`, `2025-03-26`, and `2024-11-05`. A client that opens with any of them connects without falling back.
 
 #### Flags
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
 | `--workflow` | string | _(none)_ | Path to the WORKFLOW.md file. Required, and must be absolute; a relative path is rejected. |
+| `--http` | boolean | `false` | Serve MCP over streamable HTTP on a loopback port instead of stdio. Requires a non-empty `SORTIE_TOOL_SERVER_BEARER` and exits when standard input closes. See [HTTP mode](#http-mode). |
 | `-h`, `--help` | boolean | `false` | Print the mcp-server help message and exit. |
 
-No other flags beyond `--workflow` and `-h`/`--help`. All behavior derives from the workflow file and environment variables.
+No other flags beyond these. All behavior derives from the workflow file and environment variables.
 
 #### Startup sequence
 
-1. Parse the `--workflow` flag. Exit `1` when it is missing or not an absolute path.
-2. Log to stderr, `text` format at `info` level. Neither `--log-level` nor `--log-format` exists on this subcommand.
-3. Load and parse the workflow file.
-4. Build the resolved configuration from the parsed workflow file.
-5. Resolve the tracker adapter for `tracker.kind` (when non-empty). Gather the tracker configuration, set `user_agent` to `sortie-mcp/<version>`, merge extensions, and build the adapter.
-6. Assemble the session's tools. Each tool is included only when its inputs are present: `tracker_api` when the tracker adapter was built and `tracker.project` is non-empty; `sortie_status` when `SORTIE_WORKSPACE` is set; `workspace_history` and `cost_budget` together when both `SORTIE_DB_PATH` and `SORTIE_ISSUE_ID` are set and the read-only database opens; `notify_operator` when at least one `notifications` entry receives `agent.message`. A read-only open that fails logs a warning and skips the two database-backed tools; an unresolvable backend among the entries that receive `agent.message` is fatal. With none of the inputs present, the session has no tools.
-7. Build the MCP server with the assembled tools, reading from stdin and writing to stdout.
-8. Serve requests until stdin closes or a shutdown signal arrives.
+1. Parse the `--workflow` and `--http` flags. Exit `1` when `--workflow` is missing or not an absolute path, or when `--http` is set and `SORTIE_TOOL_SERVER_BEARER` is empty.
+2. With `--http`, listen on `127.0.0.1` at a port the operating system picks and write the address to stdout before anything else loads.
+3. Log to stderr, `text` format at `info` level. Neither `--log-level` nor `--log-format` exists on this subcommand.
+4. Load and parse the workflow file.
+5. Build the resolved configuration from the parsed workflow file.
+6. Resolve the tracker adapter for `tracker.kind` (when non-empty). Gather the tracker configuration, set `user_agent` to `sortie-mcp/<version>`, merge extensions, and build the adapter.
+7. Assemble the session's tools. Each tool is included only when its inputs are present: `tracker_api` when the tracker adapter was built and `tracker.project` is non-empty; `sortie_status` when `SORTIE_WORKSPACE` is set; `workspace_history` and `cost_budget` together when both `SORTIE_DB_PATH` and `SORTIE_ISSUE_ID` are set and the read-only database opens; `notify_operator` when at least one `notifications` entry receives `agent.message`. A read-only open that fails logs a warning and skips the two database-backed tools; an unresolvable backend among the entries that receive `agent.message` is fatal. With none of the inputs present, the session has no tools.
+8. Build the MCP server with the assembled tools.
+9. Serve requests on stdin and stdout, or over HTTP with `--http`, until stdin closes or a shutdown signal arrives.
 
-Failures at steps 1–6 write to stderr and return exit code `1`.
+Failures at steps 1–7 write to stderr and return exit code `1`.
 
 #### Environment variables
 
-The MCP server receives its environment exclusively from the `env` field in `.sortie/mcp.json`. The worker writes all `SORTIE_*`-prefixed variables from the orchestrator's process environment into this block, plus the per-session variables below, which override any same-named process variable. See [MCP server environment](/reference/environment/#mcp-server-environment) for the full composition model.
+When an agent runtime spawns the server, it receives its environment exclusively from the `env` field in `.sortie/mcp.json`. With `--http`, Sortie starts the server and the environment is Sortie's own overlaid with that field. The worker writes all `SORTIE_*`-prefixed variables from the orchestrator's process environment into this block, plus the per-session variables below, which override any same-named process variable. See [MCP server environment](/reference/environment/#mcp-server-environment) for the full composition model.
 
 Per-session variables written by the worker. Every row but `SORTIE_ATTEMPT` is written on every dispatch; `SORTIE_ATTEMPT` is written only when the orchestrator has an attempt number:
 
@@ -1417,7 +1421,22 @@ The MCP server exits cleanly when either:
 - **stdin closes**: the agent runtime terminates the stdio pipe, and the server detects EOF.
 - **A shutdown signal arrives**: `SIGINT` or `SIGTERM` stops the server.
 
-No explicit shutdown handshake. The server's lifetime is bound to the agent runtime's stdio pipe.
+No explicit shutdown handshake. The server's lifetime is bound to the stdio pipe of whoever started it: the agent runtime, or Sortie in HTTP mode.
+
+#### HTTP mode
+
+`--http` serves the MCP streamable HTTP transport at `/mcp` on `127.0.0.1`. It is how Sortie delivers its tools to an agent on an [SSH worker host](/reference/agent-extensions/#delivery-over-ssh) and to a local `agent-client-protocol` runtime that accepts HTTP MCP servers.
+
+| Aspect | Behavior |
+|---|---|
+| Authentication | Every request must send `Authorization: Bearer <value of SORTIE_TOOL_SERVER_BEARER>`. Any other request receives `401`. The variable must be non-empty or the subcommand exits `1`. |
+| Origin | A request whose `Origin` header names a host other than `127.0.0.1`, `localhost`, or `::1` receives `403`. A request without the header passes. |
+| Path | Any path other than `/mcp` receives `404`. |
+| Port | Chosen by the operating system. |
+| Standard output | One JSON object per line, written by the server for the process that started it: `{"listening":"127.0.0.1:<port>"}` once at startup, and `{"connected":true}` ahead of the first successful answer to an authorized request. When the first authorized `POST` has an `Accept` header that names neither `application/json` nor `text/event-stream`, one `{"refused":"accept","accept":"<header value>"}` line follows. |
+| Shutdown | The server exits when standard input closes, in addition to `SIGINT` and `SIGTERM`. |
+
+The server answers each request on its own and keeps no session between requests.
 
 #### Exit codes
 

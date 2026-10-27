@@ -17,7 +17,7 @@ There is also a third path, aimed elsewhere: the **`notify_operator` tool** send
 
 ## Both channels in one session
 
-Imagine Sortie dispatches an agent to work on PROJ-42, a bug fix. The agent calls `tracker_api` to read comments on the issue, an MCP tool call that travels over stdio to the `sortie mcp-server` sidecar, hits the tracker adapter, and returns JSON. The agent finds a comment: "Blocked on API key from the infra team. Don't start until we have credentials."
+Imagine Sortie dispatches an agent to work on PROJ-42, a bug fix. The agent calls `tracker_api` to read comments on the issue, an MCP tool call that travels to the `sortie mcp-server` process, hits the tracker adapter, and returns JSON. The agent finds a comment: "Blocked on API key from the infra team. Don't start until we have credentials."
 
 The agent can't proceed. It writes one word to `.sortie/status`:
 
@@ -49,23 +49,21 @@ The [agent-to-orchestrator protocol specification](https://github.com/sortie-ai/
 
 ## Data plane: MCP tool calls
 
-When Sortie dispatches an agent, the worker creates a `.sortie/mcp.json` configuration file in the workspace. This file tells the agent runtime how to spawn the MCP server: run `sortie mcp-server` as a child process, communicate over stdio, and pass environment variables for session context (issue ID, workspace path, database path, credentials).
+When Sortie dispatches an agent, the worker creates a `.sortie/mcp.json` configuration file in the workspace. This file declares the tool server: run `sortie mcp-server`, and pass environment variables for session context (issue ID, workspace path, database path, credentials).
 
-The agent runtime reads the config, spawns the sidecar, and from that point owns the MCP server process. The worker has no direct relationship with the MCP server: it created the config file and walked away. The worker manages the agent. The agent manages its tools. Clean ownership boundaries.
+What happens next depends on where the agent runs. On the orchestrator host the agent runtime reads the config, spawns the server as a child process, speaks MCP to it over stdio, and from that point owns the process. The worker has no direct relationship with the server: it created the config file and walked away. The worker manages the agent. The agent manages its tools.
 
-Something still has to point the runtime at that configuration, and that something is the adapter. Two of them hand over the file itself: Claude Code takes the path on `--mcp-config`, Copilot CLI on `--additional-mcp-config`.
+An agent on an SSH worker host cannot run that server without receiving the tracker credential in the environment block, and Sortie does not copy the tracker credential to worker hosts. So the ownership flips. Sortie starts the server on the orchestrator host, speaking MCP over HTTP on a loopback port, and asks the SSH connection that launches the agent for a reverse forward: a port on the worker host's loopback interface that tunnels back to that server. The agent connects to its own `127.0.0.1` and reaches the tool server through the tunnel, presenting a bearer token generated for the session. The tracker credential stays where it was, and what reaches the worker host is a URL and a token that stop working when the session ends.
 
-Two runtimes accept no such path at all, and there the adapter delivers the servers instead of the file, translating each one into the form that runtime does parse: Codex onto its own command line as configuration overrides, OpenCode into the configuration document it reads from the environment. The sidecar that ends up running is the same in all four cases. What differs is only the shape of the sentence that asks for it.
+Something still has to point the runtime at the server, and that something is the adapter. Claude Code takes a configuration on `--mcp-config`, Copilot CLI on `--additional-mcp-config`. Two runtimes accept no such path at all, and there the adapter delivers the servers instead of the file, translating each one into the form that runtime does parse: Codex onto its own command line as configuration overrides, OpenCode into the configuration document it reads from the environment. The Agent Client Protocol adapter declares them in the session-creation request. Over SSH, the forward's port is known only after `sshd` allocates it, so the Claude Code, Copilot CLI, Codex, and OpenCode adapters place their configuration late, on the SSH connection's standard input, instead of in a file or on the `ssh` command line where any other user of the orchestrator host could read it.
 
-Translation buys reach at the cost of one boundary it will not cross. Both translated forms live in the launch itself, not in a file the remote host can be handed, and neither adapter builds that form for a remote launch.
-
-For Codex the reason is concrete: the only route left is the remote command string, which is the local `ssh` process's own argument list, readable by every other user of the orchestrator host, and the generated configuration carries the tracker credential. Sortie declines to publish it. A Codex or OpenCode session dispatched to an SSH host reaches no tools at all.
+The tunnel is a dependency the stdio path does not have. The worker host's `sshd` can refuse it, and an operator's tool server that runs as a local program has nothing to run on over there. Sortie treats both as a declared gap and not as a failure: a refused forward leaves the session working without Sortie's tools, and an `mcp_config` server of the stdio kind is left out while its HTTP siblings go through.
 
 Which raises the question the rest of this design turns on: what should the prompt say to a session in that position? The honest answer is nothing. Sortie writes the tool advertisement into the first turn only for a session whose kind and launch mode actually deliver a channel. An agent that cannot call `tracker_api` is never told `tracker_api` exists.
 
 The alternative (advertise to everyone, let the ones without a channel discover the truth by being refused) looks harmless and is not: the agent burns a turn on a call that cannot work, receives a refusal from its own runtime rather than from Sortie, and nothing in the logs or the run report explains why. A capability Sortie cannot deliver is one it does not name.
 
-The rule has one limit: Sortie can withhold only what it knows it cannot deliver, and it decides from the agent kind and the launch mode alone. Kiro CLI in ACP mode shows the gap. Under a stored device login its tools arrive; under an API key the runtime drops every declared tool server without any signal Sortie can read, so the advertisement still goes out.
+The rule has one limit: Sortie can withhold only what it knows it cannot deliver. It knows a refused forward, a runtime that accepts no HTTP server, and a runtime that never connects within `read_timeout_ms`. It cannot know about a runtime that connects and then declines to call a tool, which is the runtime's own approval policy at work. Kiro CLI in ACP mode shows the first case: under a stored device login its tools arrive; under an API key the runtime drops every declared tool server, and Sortie finds out only by the connection that never comes.
 
 [Kiro CLI on the Agent Client Protocol](/reference/agent-client-protocol-kiro/) covers which credential to use. [Delivery by agent kind](/reference/agent-extensions/#delivery-by-agent-kind) lists where each kind lands.
 
@@ -111,13 +109,13 @@ Before each new dispatch, Sortie deletes any existing `.sortie/status` file. Sta
 
 ## Agent to operator: notify_operator
 
-The two channels above terminate at the orchestrator. The `notify_operator` tool is different: it rides the data plane's transport, an MCP tool call into the `sortie mcp-server` sidecar, but the destination is outside the orchestration loop. The sidecar posts the notification to channels the operator configured in WORKFLOW.md, such as a Slack incoming webhook or a generic HTTP endpoint. The audience is a human.
+The two channels above terminate at the orchestrator. The `notify_operator` tool is different: it rides the data plane's transport, an MCP tool call into the `sortie mcp-server` process, but the destination is outside the orchestration loop. The sidecar posts the notification to channels the operator configured in WORKFLOW.md, such as a Slack incoming webhook or a generic HTTP endpoint. The audience is a human.
 
 Orchestration does not react. A notification suppresses no retry, performs no tracker transition, releases no claim. Sortie treats it as what it is: a message to a person who may act on it.
 
 The agent supplies the content and never chooses where it goes: the operator's configuration decides which destinations receive agent messages, and none of them is the tracker issue. The tool exists only when at least one notifications entry receives agent messages; otherwise it is not registered and the agent never sees it.
 
-Because it shares the MCP transport, it shares the data plane's failure mode: a crashed sidecar takes notifications down with the tools. An agent that is blocked should therefore do both, in this order: call `notify_operator` so a human hears about it now, then write `.sortie/status` so the retries actually stop. The file survives an MCP crash, and it is the only signal the orchestrator acts on.
+Because it shares the MCP transport, it shares the data plane's failure mode: a crashed tool server takes notifications down with the tools. An agent that is blocked should therefore do both, in this order: call `notify_operator` so a human hears about it now, then write `.sortie/status` so the retries actually stop. The file survives an MCP crash, and it is the only signal the orchestrator acts on.
 
 See the [agent extensions reference](/reference/agent-extensions/) for the tool schema and delivery behavior, and [how to route Sortie's events](/guides/route-notifications/) for choosing what each destination receives.
 
