@@ -78,7 +78,7 @@ Whether the run is then recorded `budget_stopped` depends on what that cancellat
 - A run that reaches its own conclusion before the cancellation catches it, with no self-review left to run, keeps the outcome it would have had without the ceiling.
 - Otherwise, the cancellation interrupts the turn in progress, keeps a further turn from starting, or cuts self-review short or keeps it from starting; the run is recorded `budget_stopped`, and a stop landing in or around self-review also skips the handoff transition.
 
-When the run is recorded `budget_stopped`, the run history's `error` field carries the tokens used and the ceiling, the claim is released, and no retry is scheduled.
+When the run is recorded `budget_stopped`, the `error` of the run in the dashboard and the JSON API reads like `Sortie stopped the run because the issue used 1.5M tokens, reaching its limit of 1M.`, the claim is released, and no retry is scheduled.
 
 How far past the ceiling a session gets depends on how often your adapter reports. A kind declaring `UsageArrival: incremental` reports once per model API request, so the stop lands within one request of the budget.
 
@@ -141,7 +141,7 @@ To pick a value, read the figure the ceiling compares: the **Cost** meter in the
 
 The ceiling is enforced at the same points as the token ceiling. Before a dispatch, Sortie holds the issue: it releases the claim, drops the retry, posts one comment on the issue that states the estimated cost against the ceiling, and shows a "Money budget reached" item under **Needs attention** in the dashboard. The hold clears on the next poll tick after you raise `max_cost_usd` above what the issue has used, or remove it.
 
-During a session, Sortie cancels the run as soon as a usage figure carries the issue's cost to the ceiling. The run is recorded `budget_stopped`, its `error` reads `money ceiling reached: used $X of $Y`, the claim is released, and no retry is scheduled. The log carries `run stopped by money ceiling`, and `sortie_runs_stopped_by_budget_total` counts it under reason `money_budget`. The same cancellations that can pre-empt a token stop can pre-empt this one; see [Cap tokens per issue](#cap-tokens-per-issue) for which runs end up recorded `budget_stopped`.
+During a session, Sortie cancels the run as soon as a usage figure carries the issue's cost to the ceiling. The run is recorded `budget_stopped`, the `error` of the run in the dashboard and the JSON API reads like `Sortie stopped the run because the issue's estimated cost, $12.40, reached its limit of $10.00.`, the claim is released, and no retry is scheduled. The log carries `run stopped by money ceiling`, and `sortie_runs_stopped_by_budget_total` counts it under reason `money_budget`. The same cancellations that can pre-empt a token stop can pre-empt this one; see [Cap tokens per issue](#cap-tokens-per-issue) for which runs end up recorded `budget_stopped`.
 
 A session stops at the first usage figure after the spend, so a run can pass the ceiling by what the agent spends before that report. A kind whose figures arrive during each turn overshoots by about one model request; a kind whose figures arrive when a turn ends can overshoot by a whole turn. Leave headroom below the amount you cannot afford to exceed.
 
