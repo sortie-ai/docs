@@ -744,7 +744,7 @@ Further column groups sit outside the tier, and each supplies only the part of t
 The tier is all-or-nothing by design. A database carrying four of the five groups still reports `base`, and the report then drops the groups it does carry along with the ones it never recorded. The warning names both lists so the two are not confused:
 
 ```
-warning: this database was written before sortie recorded dispatch-rule routing, tokens and cost, which runs the coding agent could measure, the model each run was configured with, stage chains, what started each run, the first run after each stage hop, which runs stopped to wait for a person, the skill calls of each run. The report falls back to run counts and durations, so it also leaves out turns, self-review results, which this database does carry. Run sortie once with this workflow to get the full report.
+warning: this database was written before sortie recorded dispatch-rule routing, tokens and cost, which runs the coding agent could measure, the model each run was configured with, stage chains, what started each run, the first run after each stage hop, which runs required action, the skill calls of each run. The report falls back to run counts and durations, so it also leaves out turns, self-review results, which this database does carry. Run sortie once with this workflow to get the full report.
 ```
 
 A degraded report is still a report: the warning goes to stderr in text mode and into `warnings` in JSON, and the exit code is `0`. In JSON, `by_rule`, `by_template`, `by_model`, `by_chain`, `chain_funnels`, `by_trigger`, and `by_origin` are empty arrays, `skill_calls` and `self_review` are `null`, and every figure the tier cannot supply is `null` rather than `0`. A null means the database never recorded that figure, not that the figure measured zero.
@@ -767,7 +767,7 @@ Both lists run oldest first, in the form "A", "A and B", or "A, B, and C".
 | Stage chains | The breakdown by stage chain |
 | What started each run | The breakdown by retry trigger |
 | The first run after each stage hop | The breakdown by run origin |
-| Which runs stopped to wait for a person | The funnel of each stage chain, named only when the workflow defines a stage chain |
+| Which runs required action | The funnel of each stage chain, named only when the workflow defines a stage chain |
 | The cost of each run | Cost |
 | The skill calls of each run | The breakdown by skill |
 
@@ -865,7 +865,7 @@ The title names the entry stages, joined by `or`. The columns:
 | `ADVANCED` | `outcomes.advanced`. On the last stage, `outcomes.handed_off` followed by `handed off`. |
 | `CEILING` | `outcomes.ceiling`. |
 | `HOP FAILED` | `outcomes.hop_failed`. |
-| `NO HOP` | `outcomes.no_hop`. When it is above zero, the reason with the most passes follows, worded `failed run`, `needs a person`, `budget held`, `stopped by an operator`, or `verdict withheld`. The other reasons are in JSON only. |
+| `NO HOP` | `outcomes.no_hop`. When it is above zero, the reason with the most passes follows, worded `failed run`, `needs a person`, `budget held`, `usage limit`, `stopped by an operator`, or `verdict withheld`. The other reasons are in JSON only. |
 | `IN STAGE` | `outcomes.in_stage`. |
 | `MEDIAN` | `median_seconds`, `-` when it is `null`. |
 
@@ -899,7 +899,7 @@ The latest finished run of a pass on the stage decides its outcome. The first ro
 | `advanced` | | Hopped to the next stage, with the hop result `advanced` or `partial`. On the last stage the pass counts in `handed_off` instead. |
 | `ceiling` | | Reached [`dispatch.max_consecutive_hops`](/reference/workflow-config/#stage-chains), so the hop was refused. |
 | `hop_failed` | | Failed to hop, with the hop result `failed`. |
-| `no_hop` | `needs_person` | Succeeded, but the agent reported itself blocked and waiting for a person. |
+| `no_hop` | `needs_person` | Succeeded, but the agent declared `blocked`. |
 | `handed_off` | | Succeeded on the last stage. Always `0` on any other stage. |
 | `no_hop` | `budget_held` | Is held by a budget now. |
 | `no_hop` | `operator_stopped` | Succeeded on a stage that is not the last without a hop, as when the issue left the active states. |
@@ -911,7 +911,7 @@ The latest finished run of a pass on the stage decides its outcome. The first ro
 
 A pass that is running, queued for a retry, or held by a budget is read from the database, where Sortie keeps a record of each running session and budget hold, and from the retry queue. It counts only when the range is open at its end or ends after `generated_at`. For an earlier end, each pass is decided by its runs in the range alone. Sortie empties these records when it starts and restores nothing from them.
 
-`chain_funnels` is `[]` when the workflow defines no stage chain, whatever the database holds. A `full` database written before Sortie recorded which runs stopped to wait for a person also reports `[]`, and while the workflow defines a chain, the [schema tiers](#schema-tiers) warning names the funnel. On a `base` database `chain_funnels` is `[]` as well.
+`chain_funnels` is `[]` when the workflow defines no stage chain, whatever the database holds. A `full` database written before Sortie recorded which runs required action also reports `[]`, and while the workflow defines a chain, the [schema tiers](#schema-tiers) warning names the funnel. On a `base` database `chain_funnels` is `[]` as well.
 
 Adding the column does not backfill it. A run recorded before the upgrade in which the agent reported itself blocked was stored as a plain success, so its pass counts in `handed_off` on the last stage and in `no_hop` with the reason `operator_stopped` on any other stage, unless a session, a retry, or a budget holds the pass now. A run recorded with the status `needs_person` is classified as such at any age.
 
@@ -921,7 +921,7 @@ The `by retry trigger` table (`by_trigger` in JSON) groups runs by what started 
 
 | Group name | Runs it collects |
 |---|---|
-| `error`, `continuation`, `stall`, `ci_fix` | Runs dispatched by a retry that one of those triggers started. |
+| `error`, `usage_limit`, `continuation`, `stall`, `ci_fix` | Runs dispatched by a retry that one of those triggers started. |
 | `<none>` | Runs recorded with an empty trigger: a dispatch from the poll tick, a retry that a review, bot review, merge conflict, or label command reaction started, and a recorded CI result. |
 | `<unknown>` | Runs whose row records no trigger: runs recorded before Sortie stored the trigger, and runs dispatched by a retry queued before it did. |
 
@@ -948,7 +948,7 @@ A run belongs to the first group in this table that matches it:
 | Group name | Runs it collects |
 |---|---|
 | `<unknown>` | Runs whose row records no trigger: runs recorded before Sortie stored what started a run, and runs dispatched by a retry queued before it did. |
-| `error`, `continuation`, `stall`, `ci_fix` | Runs dispatched by a retry that one of those triggers started, including a retry of a run a reaction dispatched. |
+| `error`, `usage_limit`, `continuation`, `stall`, `ci_fix` | Runs dispatched by a retry that one of those triggers started, including a retry of a run a reaction dispatched. |
 | `review`, `bot-review`, `merge-conflict`, `label-review`, `label-fix` | Runs a pull request reaction dispatched, named by the reaction kind, the value [`GET /api/v1/runs`](/reference/http-api/#get-apiv1runs-run-history) serves as `reaction_kind`. |
 | `<none>` | Recorded CI results (`ci_failed` runs), which no dispatch started. |
 | `stage_hop` | The first run the poll tick dispatched after a stage hop, into the stage the hop led to. |
@@ -1130,7 +1130,7 @@ Envelope:
 | `issues` | integer | Distinct issues, by tracker issue ID, that those runs belong to. `0` when `runs` is `0`. A recorded CI result counts its issue like any other run. Present on every tier. |
 | `succeeded` | integer | Runs whose status is exactly `succeeded`. |
 | `failed` | integer | Runs that ended in any status no other outcome count names, an unrecognized status included. |
-| `stopped` | integer | Runs whose status is `needs_person` or `budget_stopped`. |
+| `stopped` | integer | Runs whose status is `needs_person`, `budget_stopped`, or `usage_limited`. |
 | `cancelled` | integer | Runs whose status is `cancelled`. |
 | `success_rate` | number | `succeeded` over `runs`, between 0 and 1. `0` when `runs` is `0`. |
 | `duration_seconds` | object | Duration figures over succeeded runs only. |
