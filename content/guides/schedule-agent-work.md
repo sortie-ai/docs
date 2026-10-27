@@ -15,7 +15,7 @@ There is no scheduler to enable in Sortie and no separate kind of agent run.
 
 This guide builds that pattern for GitHub Issues and Jira Cloud.
 
-This is different from running Sortie itself in a GitHub Actions job. Sortie is
+This is different from [running Sortie itself in a GitHub Actions job](/guides/run-sortie-in-github-actions/). Sortie is
 already running; the workflow below only creates the tracker issue it will
 process.
 
