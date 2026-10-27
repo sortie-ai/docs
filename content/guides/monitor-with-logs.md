@@ -164,15 +164,26 @@ time=2026-03-26T14:31:45.800+00:00 level=INFO msg="turn completed" issue_id=abc1
 
 `agent credential verified` is [credential verification](/reference/workflow-config/#credential-verification), a short-lived session Sortie opens for itself before a worker attempt, on every agent kind, to prove the credential actually works before spending a real turn on it; `duration_ms` is how long that check took. When Sortie already proved the same agent setup within the last 15 minutes, the attempt logs `agent credential verification skipped` with a `proven_at` time instead, and starts its working session without the check. A `WARN` line `credential verification did not reach the model, retrying with the full agent context` means the runtime rejected a switch that drops its instructions and tools; the check repeats once with the full context and its result stands. Each issue then gets a working session with one or more turns. `turn_number` and `max_turns` show where the agent is in its work budget.
 
-When the session's kind and launch mode deliver no tool channel, one more line lands between `agent session started` and `turn started`. Sortie says so once, on the first turn, and leaves the tool advertisement out of the prompt:
+When the session's kind delivers no tool channel, one more line lands between `agent session started` and `turn started`. Sortie says so once, on the first turn, and leaves the tool advertisement out of the prompt:
 
 ```
 time=2026-03-26T14:30:03.420+00:00 level=INFO msg="agent session started" issue_id=abc123 issue_identifier=MT-649 session_id=session-abc-001
-time=2026-03-26T14:30:03.425+00:00 level=INFO msg="no tool execution channel for this session, withholding tool advertisement" issue_id=abc123 issue_identifier=MT-649 session_id=session-abc-001 agent_kind=codex remote=true
+time=2026-03-26T14:30:03.425+00:00 level=INFO msg="no tool execution channel for this session, withholding tool advertisement" issue_id=abc123 issue_identifier=MT-649 session_id=session-abc-001 agent_kind=mock
 time=2026-03-26T14:30:03.500+00:00 level=INFO msg="turn started" issue_id=abc123 issue_identifier=MT-649 turn_number=1 max_turns=5
 ```
 
-This is the line to look for when an agent never mentions Sortie's tools. `remote=true` means the session was dispatched to an SSH host, which is the whole reason on a `codex`, `opencode` or `agent-client-protocol` session. Nothing is failing: the agent was deliberately not told about tools it could not call. See [delivery by agent kind](/reference/agent-extensions/#delivery-by-agent-kind).
+This is the line to look for when an agent never mentions Sortie's tools. Nothing is failing: the agent was deliberately not told about tools it could not call. The built-in `mock` kind and a custom adapter that declares no tool channel produce it, and so does a session whose gap was already known when the session started; for that, look for the `declared tool server gap for session` line below. See [delivery by agent kind](/reference/agent-extensions/#delivery-by-agent-kind).
+
+A session on an SSH host reaches Sortie's tools through a reverse forward, and the tool server logs its own outcome with `component=tool-relay`. These records carry no issue fields, so match them to a session by time:
+
+```
+time=2026-03-26T14:30:03.380+00:00 level=INFO msg="delivered tool server to session" component=tool-relay
+time=2026-03-26T14:30:03.380+00:00 level=WARN msg="declared tool server gap for session" component=tool-relay reason=forward_refused
+```
+
+`delivered tool server to session` means the runtime connected to the tool server. `declared tool server gap for session` means it did not, and `reason` says why: the host refused the forward, the runtime accepts no HTTP server, or no runtime connected in time. The session continues without Sortie's tools and emits a notification, `this session started with a declared capability gap in: tool servers`. The `no tool execution channel` line above follows only when the gap was known before the first prompt: a tool server that did not start or a refused forward on any kind, and for `codex` and `agent-client-protocol` also a runtime without HTTP support or one that never connected, since their session start waits for the connection. A kind that starts one process per turn learns `no_connection` only when its first turn completes, after the prompt went out with the tool advertisement, so that case logs the gap and emits the notification but no `no tool execution channel` line. The reasons are listed in [when a session runs without the tools](/reference/agent-extensions/#when-a-session-runs-without-the-tools); the fix for a refused forward is in [let remote agents use Sortie's tools](/guides/scale-agents-with-ssh/#let-remote-agents-use-sorties-tools).
+
+Further `WARN` lines belong to tool delivery. `withheld tool servers from remote session` lists, in `servers`, the `mcp_config` servers an SSH session left out because they run as a local program. `tool server env value left on the command line` names a `server` and a `variable` whose value Codex could not receive through its environment; the value is never logged.
 
 An agent runtime can also change its own session id after the session has already started. Sortie logs it the moment it happens:
 

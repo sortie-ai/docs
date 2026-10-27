@@ -116,7 +116,8 @@ func init() {
 	registry.Agents.RegisterWithMeta("acme", NewACMEAdapter, registry.AgentMeta{
 		RequiresCommand:     true,
 		DefaultCommand:      "acme-cli",
-		MCPInjection:        registry.MCPInjectionUnsupported,
+		MCPDialect:           registry.MCPDialectNone,
+		MCPDialectNoneReason: "acme-cli has no MCP support",
 		UsageArrival:        registry.UsageArrivalIncremental,
 		UsageAttribution:    registry.UsageAttributionPerModel,
 		CredentialEnv:       registry.DeclareCredentialEnv("ACME_API_KEY"),
@@ -156,17 +157,20 @@ Leaving the field unset, a forwarding kind without that test, and a not-forwarde
 
 `VerificationContext` declares which parts of the agent's context your runtime's credential-verification request still carries, because it offers no switch that drops them. The components are `registry.VerificationKeepsSomeTools` or `registry.VerificationKeepsAllTools` (declare at most one), `registry.VerificationKeepsProjectInstructions`, `registry.VerificationKeepsUserInstructions`, and `registry.VerificationKeepsSystemPrompt`. `registry.DeclareVerificationContext()` with no arguments says the request keeps nothing, which is a different statement from leaving the field unset. Leaving it unset fails a completeness test that walks every registered kind. The example declares that nothing is kept, which is true only for a runtime whose every context component a launch can drop. Declare what your request still carries, and handle the matching switches as described in [resolve the launch target and start the session](#resolve-the-launch-target-and-start-the-session). `fakemodel.AssertConformance` proves the declaration on the wire: every component it does not keep must be absent from the verification request, and `Binding.UserInstructions` must name the runtime's user-level instruction file when user instructions are dropped.
 
-`MCPInjection` declares what your adapter does with the MCP configuration the worker generates for Sortie's own tools. Three values name a delivery, and the zero value names an adapter that has declared nothing:
+`MCPDialect` declares the configuration syntax your runtime reads for the tool servers Sortie generates. The shared tool delivery renders Sortie's own tool server and the operator's `mcp_config` servers in that syntax, so your adapter never parses `.sortie/mcp.json` itself. Pick the value that names the syntax your runtime parses:
 
-| Value | Meaning | Sortie's tools reach the session |
+| Value | Syntax the shared delivery renders | Delivered in |
 |---|---|---|
-| `MCPInjectionSupported` | Your adapter hands the generated file's path to the runtime. | Local and SSH |
-| `MCPInjectionTranslated` | Your runtime accepts no config path, so your adapter re-expresses the declared servers in the form it does parse. | Local only |
-| `MCPInjectionUnsupported` | Your adapter never delivers the configuration to the agent process. | Never |
+| `MCPDialectMCPServersJSON` | An `{"mcpServers": {...}}` document, header values as `${VAR}` references. | `Delivery.Document` |
+| `MCPDialectMCPServersJSONAlwaysLoad` | The same document, with Sortie's own member marked `alwaysLoad`. | `Delivery.Document` |
+| `MCPDialectMCPServersTOML` | One `-c mcp_servers.<name>=<inline table>` argument pair per server, header and stdio environment values by variable name. | `Delivery.Args` and `Delivery.Env` |
+| `MCPDialectMCPMemberJSON` | The `mcp` member of the runtime's inline JSON configuration, header values as `{env:VAR}` references. | `Delivery.Document` |
+| `MCPDialectACPSession` | One Agent Client Protocol `McpServer` object per server, for the session-creation request. | `Delivery.Entries` |
+| `MCPDialectNone` | Nothing. Your adapter never delivers the configuration to the agent process. Set `MCPDialectNoneReason` to say why. | None |
 
-Declare the truth about what your adapter does today, not what the CLI could theoretically be made to do. The declaration is load-bearing in both directions: it decides whether the runtime is pointed at the tool sidecar *and* whether Sortie writes the first-turn tool advertisement, so a session is never told about a tool it cannot call.
+Declare the truth about what your adapter does today, not what the CLI could theoretically be made to do. The declaration is load-bearing in both directions: it decides whether the runtime is pointed at the tool server *and* whether Sortie writes the first-turn tool advertisement, so a session is never told about a tool it cannot call.
 
-Leaving the field at its zero value, `MCPInjectionUndeclared`, delivers no channel either, so an undeclared adapter silently gets no tools and no advertisement. Declare it explicitly: start at `MCPInjectionUnsupported` and change the value when you wire delivery up. [`sortie validate`](/reference/cli/#validate) reports any kind with no channel as an `agent.kind.no_tool_channel` warning, which is how an operator finds out.
+Leaving the field at its zero value, `MCPDialectUndeclared`, delivers no channel either, and a completeness test over every registered kind fails it. Declare the field explicitly: start at `MCPDialectNone` and change the value when you wire delivery up, as [deliver Sortie's tools](#deliver-sorties-tools) describes. [`sortie validate`](/reference/cli/#validate) reports any kind with no channel as an `agent.kind.no_tool_channel` warning, which is how an operator finds out.
 
 `UsageArrival` and `UsageAttribution` declare when your runtime's token figures reach the orchestrator and what they describe. Every consumer of usage data reads the declaration instead of branching on your kind string: `sortie validate`, the **Usage reporting** line of the dashboard's Workflow screen, and the `usage_arrival` and `usage_attribution` fields on each running entry in the [JSON API](/reference/http-api/#get-apiv1state-system-state).
 
@@ -219,14 +223,6 @@ With it declared, [`sortie validate`](/reference/cli/#validate) and startup pref
 
 Read the value with the same helper and default your own settings parser uses, so the verdict cannot disagree with the launch your adapter would actually build, and do not modify the map you are handed.
 
-`MCPInjectionTranslated` is `local only` for a reason worth knowing before you pick it, and the reason is not the one people expect.
-
-Per-turn arguments do cross an SSH launch: `sshutil.BuildSSHLaunch` shell-quotes each one onto the remote command string, and the remote agent receives them. That string is itself an argument of the local `ssh` process, so anything you put in it, per-turn arguments included, lands on an argument list every other user of the orchestrator host can read.
-
-`LaunchTarget.Args`, the initial-argument slot a translating adapter would otherwise use, is empty in SSH mode for the same reason it has nothing to hold: the local command is `ssh`, not your agent. An adapter that translates onto the command line therefore delivers nothing on a remote launch.
-
-`SSHOptions` does give you a second route, the launch's standard input, which carries environment variables without exposing them; whether your runtime can read the translated form from there is a question about that runtime, and none of the built-in translating kinds delivers it that way today.
-
 **Verify:** a one-line test confirms the kind resolves.
 
 ```go {filename="acme_test.go"}
@@ -237,6 +233,20 @@ func TestRegistered(t *testing.T) {
 	}
 }
 ```
+
+### Deliver Sortie's tools
+
+Skip this step while your kind declares `MCPDialectNone`. Once you declare a dialect, the shared tool delivery in `agentcore` does the rest, and your adapter only places its output.
+
+1. In `StartSession`, call `agentcore.ResolveToolDelivery(ctx, params, target, dialect, logger)`. It loads the generated configuration, drops disabled servers, renders the result once to prove it renders, and returns a `*agentcore.ToolSession`. Close the session on every later error path; `Close` is idempotent. On a remote launch it also starts Sortie's HTTP tool server and settles the SSH reverse forward before your runtime launches.
+2. On a local launch, call `tools.Delivery(sshutil.ForwardOutcome{})` and place the field your dialect fills, as the table above lists. Add `tools.LocalEnv()` to the runtime's environment so header references resolve.
+3. On a remote launch the rendering depends on the remote port `sshd` allocates, so it cannot be known at build time. Set `opts.Forward = tools.Forward(place)` on the `SSHOptions` you hand to `sshutil.BuildSSHLaunch`, where `place` is an `agentcore.PlaceFunc` that turns a `mcpconfig.Delivery` into the `sshutil.LatePreamble` carrying it (trailing arguments and environment entries), and read the launch's stderr through `launch.WatchStderr`. A fork-per-turn adapter instead sets `Tools` and `ToolPlacement` on `ForkPerTurnHooks`, and the skeleton does all of this.
+4. Set `NoToolChannel: tools.NoToolChannel()` on the `Session` you return, and route events through `tools.Emit(emit, nil)`. The first adds the gap to the worker's decision about the advertisement, and the second emits the once-per-session gap notice. The skeleton wraps `emit` for you.
+5. A persistent-process adapter calls `tools.AwaitConnection(ctx)` after it has told the runtime about the servers, so a runtime that never connects is declared a gap within `read_timeout_ms`.
+
+Per-turn arguments cross an SSH launch, but the remote command string is itself an argument of the local `ssh` process, readable by every other user of the orchestrator host. Never put a credential in it. A late preamble travels on the launch's standard input instead.
+
+**Verify:** call `agenttest.AssertMCPInjection(t, dialect, mcpConfigPath, surface)` with the launch surface your adapter produced for a local session. It fails a surface that carries a disabled server, a header value outside its reference, or a stdio environment value on an argument list.
 
 ### Define the passthrough config
 

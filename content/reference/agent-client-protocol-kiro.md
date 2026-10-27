@@ -42,10 +42,10 @@ A deployment that needs Sortie's own tools has to authenticate with a stored dev
 
 | Credential | Sessions and turns | Sortie's tools |
 |---|---|---|
-| `KIRO_API_KEY` | Work correctly | Silently absent; every declared server is dropped before any tool is offered |
+| `KIRO_API_KEY` | Work correctly | Absent; every declared server is dropped before any tool is offered, and Sortie declares a gap after `read_timeout_ms` |
 | Stored device login | Work correctly | Delivered and callable, subject to the trust-and-posture switch below |
 
-The runtime's own log is the only place that states the cause when tools go missing: it records `Failed to get governance config from API - MCP disabled, web tools disabled`, and a vendor-namespaced `governance_disabled` notification also reaches the wire. Nothing on Sortie's own event stream marks this session as degraded.
+The runtime's own log is the only place that states the cause when tools go missing: it records `Failed to get governance config from API - MCP disabled, web tools disabled`, and a vendor-namespaced `governance_disabled` notification also reaches the wire. The runtime advertises HTTP MCP support, so Sortie sees only that it never connects to its tool server. Session start waits [`agent.read_timeout_ms`](/reference/workflow-config/#agent) (default `5000`) for that first connection, then declares the `no_connection` gap: the log line `declared tool server gap for session` appears, the session emits the capability-gap notice, and the first-turn prompt carries no tool advertisement. Neither the log nor the notice names the credential as the cause.
 
 ### Confirming which credential a run will actually use
 
@@ -81,9 +81,9 @@ No per-turn token count reaches Sortie on this route, and Sortie ships no measur
 
 This runtime's `initialize` handshake advertises an empty `sessionCapabilities` object, so `session/close` is never selected against it: a session here always ends through process termination, described in the [kind page's process shutdown section](/reference/adapter-agent-client-protocol/#process-shutdown). The short-lived [credential-verification](/reference/workflow-config/#credential-verification) session a worker attempt opens before the working one ends the same way, with nothing to call back and remove it; see [the kind page's session close section](/reference/adapter-agent-client-protocol/#session-close) for what that leaves behind on a runtime, this one included, that advertises neither method.
 
-### Sortie's tools are not delivered over SSH
+### The debug log records the tool server's bearer
 
-A launch over SSH parses no tool servers, so the session reaches none of Sortie's tools whichever credential the remote host holds; see [MCP](/reference/adapter-agent-client-protocol/#mcp) and [SSH remote execution](/reference/adapter-agent-client-protocol/#ssh-remote-execution) on the kind page.
+Sortie hands this runtime its tool server as an HTTP entry whose `Authorization` header carries a per-session bearer. At its debug log level the runtime writes that header to its own log under its runtime directory. The bearer stops working when the session ends, so a log read later holds nothing usable, but treat the log of a running session as sensitive.
 
 ### A large vendor-namespaced surface exists and is safely ignored
 

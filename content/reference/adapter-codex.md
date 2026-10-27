@@ -131,7 +131,7 @@ Launches the app-server subprocess, performs the JSON-RPC initialization handsha
 
 1. Validates that the workspace path is a non-empty absolute path pointing to an existing directory.
 2. Resolves `command` from `PATH` (splits on whitespace to extract the binary and its argument tokens). In SSH mode, resolves the local `ssh` binary instead.
-3. On a local launch, reads the generated MCP configuration and appends one `-c` / `mcp_servers.<name>=<inline table>` argument pair per declared server to the launch arguments. Skipped entirely in SSH mode. See [MCP](#mcp).
+3. Resolves the session's tool delivery from the generated MCP configuration. On a local launch it appends one `-c` / `mcp_servers.<name>=<inline table>` argument pair per declared server to the launch arguments. On an SSH launch it starts Sortie's HTTP tool server, opens one short extra SSH connection to learn whether the worker host accepts the reverse forward, and later sends the same overrides on the SSH session's standard input. See [MCP](#mcp).
 4. Launches the subprocess in the workspace path, with the full parent process environment, isolated in its own process group.
 5. Wires stdin, stdout, and stderr pipes, and reads stdout one line at a time (1 MB max line size).
 6. **Initialize handshake:** sends `initialize` request with `clientInfo` and `capabilities.experimentalApi: true`. Waits for response. Sends `initialized` notification.
@@ -365,7 +365,7 @@ This kind declares no credential variable, so a remote launch carries none on it
 
 ### SSH options
 
-The adapter uses these SSH options via the shared `sshutil` package:
+The adapter uses these SSH options via the shared `sshutil` package. A launch that delivers Sortie's tools adds a reverse forward and the options that go with it; see [delivery over SSH](/reference/agent-extensions/#delivery-over-ssh).
 
 | Option | Value | Purpose |
 |---|---|---|
@@ -406,23 +406,25 @@ Authentication sequence at session start: sends `account/read`. If `result.accou
 
 `codex app-server` accepts no MCP-config path argument. The adapter delivers the servers rather than the file: it reads the generated `.sortie/mcp.json` and re-expresses each declared server as configuration the runtime parses for itself.
 
-On a local launch, session start appends one `-c` / `mcp_servers.<name>=<inline table>` argument pair per declared server to the app-server command line. One pair per server rather than one for the whole table, so an operator's own `[mcp_servers]` entries in their own Codex configuration merge with Sortie's instead of being replaced. The runtime spawns each declared server itself over stdio, which makes `sortie-tools` a child of the app-server and the same sidecar every other kind reaches.
+Each declared server becomes one `-c` / `mcp_servers.<name>=<inline table>` argument pair, which a local launch appends to the app-server command line. One pair per server rather than one for the whole table, so an operator's own `[mcp_servers]` entries in their own Codex configuration merge with Sortie's instead of being replaced.
+
+On a local launch the runtime spawns each declared server itself over stdio, which makes `sortie-tools` a child of the app-server. On an SSH launch the pairs are not on a command line at all; see [SSH mode delivers over HTTP](#ssh-mode-delivers-over-http).
 
 ### Environment values
 
-For a stdio server, an environment entry whose variable the adapter's own process already holds under the same value is delivered by name, through the runtime's environment-passthrough key, and the runtime resolves it from the environment it hands the spawned server. Every other entry is rendered as a literal value inside the inline table. Credentials that Sortie already holds therefore travel by name and never appear on the command line the host's process list exposes.
+On a local launch, for a stdio server, Sortie adds each environment entry to the app-server's own process environment and lists the variable's name in the entry's `env_vars` key. The runtime resolves the value from the environment it hands the spawned server, so the value never appears on the command line the host's process list exposes.
+
+An entry stays a literal `env` value inside the inline table in two cases. The app-server's environment already holds that name with a different value, or two stdio servers declare it with different values. `env_vars` passes a variable only under its own name, so neither can travel by name. Sortie then logs `tool server env value left on the command line` at `WARN`, naming the server and the variable and never the value.
 
 ### HTTP headers
 
-A header on an HTTP server entry is delivered by variable name, never by value. The adapter looks through its own process environment for a variable holding that header's value and renders the variable's name into the entry's header-passthrough key, leaving the runtime to resolve it. This is the same rule the [SSH exclusion](#ssh-mode-delivers-nothing) rests on: a header value written into the inline table would sit on the app-server's argument list, which any other user of the host can read.
+A header on an HTTP server entry is delivered by variable name, never by value. Sortie sets `SORTIE_MCP_HEADER_<n>` in the app-server's environment for each header, with `<n>` counting from 1 in byte order of server name and then header name, and the entry's `env_http_headers` table maps each header to its variable. The bearer of Sortie's own HTTP server uses the runtime's bearer-token key instead, `bearer_token_env_var`, naming `SORTIE_TOOL_SERVER_BEARER`. A header value written into the inline table would sit on the app-server's argument list, which any other user of the host can read. Every header value is delivered this way, so a header does not need to be in a variable of the orchestrator process first.
 
-A header whose value is in none of those variables cannot be delivered that way, and the session fails with `response_error` naming the header but never its value. This is the one condition on which a file that works for `claude-code`, `copilot-cli`, and `opencode` fails here, because each of those three carries the header's value as written. An operator moving a header-authenticated HTTP server onto Codex has to put that header's value in an environment variable of the orchestrator process first.
+### SSH mode delivers over HTTP
 
-### SSH mode delivers nothing
+A remote session receives the overrides on the SSH session's standard input, beside the variables the launch carries, rather than on the local `ssh` process's argument list. They depend on the outcome of the launch's reverse forward, so they are rendered after it resolves. `sortie-tools` is an HTTP server at the forwarded address with its bearer carried by `bearer_token_env_var`. Servers from `mcp_config` that run as a local program (stdio) are left out. HTTP servers appear with their URLs and header references. See [delivery over SSH](/reference/agent-extensions/#delivery-over-ssh).
 
-A remote session receives no overrides at all. The overrides ride on the app-server's own launch arguments, and an SSH launch has none of its own: the local process is `ssh`, and the agent command travels to the host inside a remote command string.
-
-Writing the overrides into that string would place the configuration's credential values on the local `ssh` process's own argument list, where any other user of the orchestrator host can read them. The adapter delivers nothing rather than pay that price, so a Codex session on an SSH host reaches none of Sortie's tools and its first-turn prompt carries no tool advertisement.
+A refused or unconfirmed forward starts the app-server without Sortie's own override. The session declares a gap and its first-turn prompt carries no tool advertisement. The app-server connects to the tool server at `thread/start`, so session start waits up to `read_timeout_ms` for that first connection and declares a gap when none arrives.
 
 ### Startup failures
 
@@ -430,17 +432,15 @@ The runtime reports each declared server's startup outcome on its own notificati
 
 ### `mcp_config`
 
-`codex.mcp_config` names an operator-supplied MCP server configuration file. The worker reads it, merges its servers with the `sortie-tools` entry into the generated copy, and the merged result is what this adapter translates, so an operator's own servers reach a local Codex session alongside Sortie's. A relative path resolves against the directory containing `WORKFLOW.md`. An unreadable path, a file that is not valid JSON, or a file already declaring a server named `sortie-tools` fails the attempt before the session starts.
+`codex.mcp_config` names an operator-supplied MCP server configuration file. The worker reads it, merges its servers with the `sortie-tools` entry into the generated copy, and the merged result is what this adapter translates, so an operator's own servers reach a Codex session alongside Sortie's. Over SSH only the HTTP servers reach it. A relative path resolves against the directory containing `WORKFLOW.md`. An unreadable path, a file that is not valid JSON, or a file already declaring a server named `sortie-tools` fails the attempt before the session starts.
 
-Three more conditions fail the session with `response_error` when the merged configuration reaches the adapter, and the message names the offending server:
+These conditions fail the session with `response_error` when the merged configuration reaches the adapter, and the message names the offending server:
 
 | Condition | Also fails on `opencode` |
 |---|---|
 | An entry carries neither `command` nor `url`, or carries both, or declares a `type` that contradicts the fields it carries | Yes |
 | An entry carries a key outside the modeled set: `type`, `command`, `args`, `env`, `url`, `headers`, `enabled` | Yes |
 | A server name is not a valid bare segment of the runtime's dotted-path override grammar | No |
-
-An HTTP entry's headers carry a fourth condition of their own; see [HTTP headers](#http-headers).
 
 Codex also reads its own MCP server list from configuration files of its own, entirely outside anything this adapter writes; which files it consults, and under what trust conditions, is Codex's to document. See the [external references](#external-references). Because the adapter runs the app-server with the per-issue workspace as its working directory, whatever project-scoped configuration behavior Codex has applies to that workspace like any other Codex working directory.
 
@@ -460,7 +460,7 @@ Codex also reads its own MCP server list from configuration files of its own, en
 | Model reporting | From `assistant` events | From the session-state journal's `session.shutdown` record, after the subprocess exits | From the thread-open response, updated on reroute |
 | Permission mode | `--permission-mode` or `--dangerously-skip-permissions` | `--autopilot` + `--no-ask-user` + `--allow-all` | `approvalPolicy: "never"` (JSON-RPC param) |
 | Sandbox enforcement | None at adapter level | None at adapter level | Requested through `sandbox` on `thread/start` and `sandboxPolicy` on `turn/start`; enforcement is the app-server's |
-| Sortie's tools | Generated config path on `--mcp-config` | Generated config path on `--additional-mcp-config` | Generated servers re-expressed as `-c mcp_servers.<name>=...` overrides, local launch only; see [MCP](#mcp) |
+| Sortie's tools | Derived config file on `--mcp-config`, an inline document over SSH | Derived config file on `--additional-mcp-config`, an inline document over SSH | Generated servers re-expressed as `-c mcp_servers.<name>=...` overrides; over SSH they ride the session's standard input; see [MCP](#mcp) |
 | Authentication | No preflight; the CLI reads the inherited environment | `COPILOT_GITHUB_TOKEN` / `GH_TOKEN` / `GITHUB_TOKEN` / `gh auth` | `CODEX_API_KEY`, or credentials the app-server already holds |
 | Inner turn limit | `claude-code.max_turns` | `copilot-cli.max_autopilot_continues` | None (agent runs to completion per turn) |
 

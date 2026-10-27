@@ -63,7 +63,7 @@ Every runtime claim on this page that rests on a measurement was taken under `--
 
 Run this agent inside a hardened sandbox regardless: neither switch replaces container-level isolation, and the combination of a trusted workspace and an auto-approving posture is what a sandbox boundary exists to contain.
 
-The runtime's own workspace-trust guard raises an error only in its own headless command-line mode; it treats protocol mode as interactive, so the guard that would otherwise reject an untrusted workspace never fires on this route. An untrusted workspace therefore fails closed with no signal at all: the session-creation call still reports success, the declared tool servers are silently dropped, and nothing in the response or in a later notification marks that anything went wrong.
+The runtime's own workspace-trust guard raises an error only in its own headless command-line mode; it treats protocol mode as interactive, so the guard that would otherwise reject an untrusted workspace never fires on this route. An untrusted workspace therefore fails closed with no signal at all: the session-creation call still reports success, the declared tool servers are silently dropped, and nothing in the response or in a later notification marks that anything went wrong. The one exception is a runtime that advertises HTTP MCP support: Sortie waits `read_timeout_ms` for it to connect to Sortie's tool server and declares the tool-server gap when it never does; see [MCP](/reference/adapter-agent-client-protocol/#mcp).
 
 `--skip-trust` is what prevents that outcome, not a hardening option layered on top of a workspace that would otherwise be usable.
 

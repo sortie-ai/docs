@@ -100,7 +100,7 @@ level=WARN msg="agent stderr" line="sortie: dd is required on the remote host to
 
 Sortie delivers environment variables to a remote agent on the SSH session's standard input, and the remote shell reads them with `dd`. A host without `dd` on `PATH` fails the launch, and Sortie retries it, so the same line repeats until the utility is there.
 
-Every remote `opencode` launch carries variables whatever your configuration says, because the adapter sends settings of its own. Other kinds carry them whenever their credential variables are set in Sortie's environment or `worker.ssh_pass_env` names something.
+Every remote `opencode` launch carries variables whatever your configuration says, because the adapter sends settings of its own. So does every launch that delivers Sortie's tools, because the tool server's bearer travels the same way. Other launches carry variables whenever the kind's credential variables are set in Sortie's environment or `worker.ssh_pass_env` names something.
 
 1. Check each host:
 
@@ -109,6 +109,25 @@ Every remote `opencode` launch carries variables whatever your configuration say
     ```
 
 2. Install it where it is missing. It ships with coreutils and with busybox, so most base images have it; distroless and scratch-based images often do not.
+
+## A remote agent runs without Sortie's tools
+
+The agent on an SSH host never mentions `tracker_api` or the other tools, and the log has this line:
+
+```
+level=WARN msg="declared tool server gap for session" component=tool-relay reason=forward_refused
+```
+
+The session works, but without Sortie's tools. `reason` names the cause.
+
+1. For `forward_refused`, the host's `sshd` refused the reverse forward Sortie requests. `forward_unconfirmed` means `ssh` reported neither an allocated port nor a refusal, and the same check applies. Run the hand check from [let remote agents use Sortie's tools](/guides/scale-agents-with-ssh/#let-remote-agents-use-sorties-tools). With OpenSSH, set `AllowTcpForwarding yes` or `remote` for the SSH user, or add `port-forwarding` beside `restrict` on the key in `authorized_keys`.
+2. For `relay_unavailable`, the tool server process did not start on the orchestrator host. The log line carries an `error` or an `exit_code`. Run `sortie mcp-server --help` as the user running Sortie to confirm the binary starts.
+3. For `runtime_without_http`, the runtime accepts no HTTP MCP servers, so it cannot use a tool server that lives on another host.
+4. For `no_connection`, the runtime started but never connected within `read_timeout_ms`. The runtime may have dropped the declared server; for Kiro CLI, see [which login delivers Sortie's tools](/reference/agent-client-protocol-kiro/#which-login-delivers-sorties-tools).
+
+Each remote session start also opens one short extra SSH connection to learn whether the host accepts the forward. A host that limits new connections per user or per source address sees that extra connection for every session start.
+
+Every reason, and what Sortie does in each case, is in [when a session runs without the tools](/reference/agent-extensions/#when-a-session-runs-without-the-tools).
 
 ## Agent exits before it responds
 

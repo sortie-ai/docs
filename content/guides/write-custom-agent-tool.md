@@ -294,7 +294,7 @@ For integration testing, spawn the MCP server with your tool registered and veri
 
 ## Access session context
 
-Tools receive session context through environment variables set by the MCP server process. The orchestrator passes these via the `env` block in `.sortie/mcp.json` when launching the sidecar.
+Tools receive session context through environment variables set by the MCP server process. The orchestrator passes these via the `env` block in `.sortie/mcp.json`, whether the agent runtime or Sortie starts the server. Over SSH the server runs on the orchestrator host, so a tool sees the same paths and environment it sees locally.
 
 Key variables:
 
