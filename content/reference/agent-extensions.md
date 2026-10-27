@@ -227,8 +227,9 @@ SSH options added to a launch that carries a forward:
 |---|---|---|
 | `ExitOnForwardFailure` | `no` | A refused forward does not end the launch. The session starts and declares a gap. |
 | `LogLevel` | `INFO` | Keeps the `Allocated port` line that reports the remote port visible, whatever `ssh_config` sets. |
-| `ControlPath` | `none` | Stops a multiplexing master connection from owning the forward and hiding its outcome. |
 | `-R` | `127.0.0.1:0:127.0.0.1:<port>` | The reverse forward. Remote port `0` lets `sshd` choose. |
+
+Every remote launch sets `ControlPath=none`, so a forward always belongs to the launch's own connection and never to a multiplexing master from `ssh_config`. [Remote agent shutdown](/reference/workflow-config/#remote-agent-shutdown) gives the other reason.
 
 ### When a session runs without the tools
 

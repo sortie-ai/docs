@@ -14,6 +14,7 @@ Distribute agent sessions across a pool of remote build machines so your orchest
 - A working Sortie setup (the [quick start](/getting-started/quick-start/) covers this)
 - SSH key-based access from the orchestrator host to each build machine (no password prompts)
 - The agent binary (e.g., `claude`, `copilot`, or `codex`) installed and on `PATH` on every remote host
+- The standard `sleep` utility on every remote host, which the remote shell uses to notice that the SSH connection has ended and stop the agent
 - The standard `dd` utility on every remote host, which Sortie uses to deliver environment variables (see [give the remote agent its credentials](#give-the-remote-agent-its-credentials))
 - Remote port forwarding allowed by every remote host's `sshd`, if agents there should use Sortie's tools (see [let remote agents use Sortie's tools](#let-remote-agents-use-sorties-tools))
 - `~/.ssh/config` entries or DNS for your build hosts (recommended but not required)
@@ -24,7 +25,7 @@ Distribute agent sessions across a pool of remote build machines so your orchest
 Verify connectivity before touching any Sortie config:
 
 ```bash
-ssh build01.internal "which claude && command -v dd && echo ok"
+ssh build01.internal "which claude && command -v dd && command -v sleep && echo ok"
 ```
 
 Expected output:
@@ -32,10 +33,11 @@ Expected output:
 ```
 /usr/local/bin/claude
 /usr/bin/dd
+/usr/bin/sleep
 ok
 ```
 
-If that fails, fix your SSH setup first. Sortie delegates to the system `ssh` binary and inherits your full SSH configuration: `ProxyJump` bastions, FIDO2 keys, agent forwarding all work without Sortie-specific config.
+If that fails, fix your SSH setup first. Sortie delegates to the system `ssh` binary and inherits your full SSH configuration: `ProxyJump` bastions, FIDO2 keys, agent forwarding all work without Sortie-specific config. The one exception is connection sharing: Sortie turns it off for its own connections, so `ControlMaster` and `ControlPersist` in your `ssh_config` have no effect on them.
 
 ## Add the worker extension
 
@@ -315,6 +317,8 @@ For the full list of allowed values, see the [worker configuration reference](/r
 SSH connection problems (exit code 255) are transient infrastructure failures. Sortie retries them automatically with exponential backoff. The retry uses host affinity: it prefers dispatching back to the same host, but falls back to the least-loaded alternative if that host is at capacity or unreachable.
 
 A remote "command not found" error (exit code 127) means the agent binary is missing on that host. The run fails with `port_exit`, its error carrying `exit status 127` and the remote shell's own message, and is retried with exponential backoff, so it keeps failing until the binary is installed. Check that your configured `agent.command` (e.g., `claude`, `copilot`, `codex app-server`) is installed and on `PATH` for the SSH user.
+
+A remote agent does not outlive its SSH connection. When Sortie cancels a turn, stops a session, or shuts down, or when the connection drops, the worker host sends the agent `SIGTERM` and, after `agent.stop_grace_ms`, `SIGKILL`. No host cleanup is needed. See [remote agent shutdown](/reference/workflow-config/#remote-agent-shutdown) for the details.
 
 ## What we configured
 
