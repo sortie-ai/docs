@@ -179,7 +179,7 @@ Nobody commented. Re-read the issue before you continue.
 {{ end }}
 ```
 
-Inside `range`, the dot is a comment, as in the comments section above.
+Inside `range`, the dot is a comment, as in the comments section above. When Sortie posted the stop statement as a tracker comment, that comment is in `.park.comments` as well, so the statement can print twice. Drop the `.park.statement` line if you want it only once.
 
 On this run `.issue.comments` holds every comment of the issue, not only the new ones, and the run continues the agent's earlier session where the agent supports it. Leave the first-run instructions in place, because a run that cannot resume starts without the earlier conversation. See [`.park`](/reference/workflow-config/#park) for every field and the rules for which comments count.
 

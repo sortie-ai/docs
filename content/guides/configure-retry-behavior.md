@@ -135,6 +135,31 @@ agent:
   max_retry_backoff_ms: 120000  # 2 min cap for faster recovery
 ```
 
+A refusal by the agent provider's usage limit that reports its reset time is the exception: that retry waits for the reset, past this cap. See [wait for a provider usage limit](#wait-for-a-provider-usage-limit).
+
+### Wait for a provider usage limit
+
+When a provider refuses work because the account's usage limit is reached, backing off every few minutes only starts sessions that fail at once. Claude Code and Codex report the refusal together with the time the limit resets, and Sortie waits for that time instead. Other agent kinds do not report it, so a refusal from them retries on the exponential backoff above.
+
+Nothing needs configuring. When the reported reset is in the future, Sortie:
+
+- holds new sessions of the refused agent kind until the reset, or until one poll interval after it for issues other than the refused one. A refusal for one configured model holds that model alone.
+- schedules the refused issue's retry for the reset, or for the end of the ordinary backoff delay when that is later.
+- keeps dispatching issues routed to other agent kinds and models.
+
+The wait is capped at 7 days past the moment of the refusal. A refusal that reports no reset time, or one that is already past, takes the ordinary backoff and holds nothing.
+
+A refused run does not use up `agent.max_sessions` when it produced no output tokens. A refused run with output tokens, or with no token report, counts like any failed session. Its history status reads `usage_limited`.
+
+The hold and the retry survive a restart. The hold lifts early when a run of the same agent kind that started after the hold began ends normally.
+
+```
+level=INFO msg="agent kind held by usage limit" agent_kind="claude-code" model_only=false model="" resets_at=2026-10-28T17:00:00Z
+level=WARN msg="worker run refused by usage limit, retrying at reset" issue_id="PROJ-42" issue_identifier="PROJ-42" resets_at=2026-10-28T17:00:00Z next_attempt=1 model_only=false
+```
+
+To see the wait, open the [Overview](/reference/dashboard/#overview) or read the `held` list of `GET /api/v1/state`: every issue the hold stops appears with the reason `usage_limit` and the reset time. The refused issue sits in the `retrying` list with the trigger `usage_limit`. See the [HTTP API reference](/reference/http-api/#hold-object). To test before the reset whether the limit has reopened, [run the waiting retry now](#run-a-waiting-retry-now).
+
 ### Non-retryable errors skip the queue entirely
 
 Some failures indicate a configuration problem that retrying won't fix. Sortie releases the claim immediately:
@@ -238,7 +263,7 @@ A retry waits out its delay, up to `max_retry_backoff_ms`. When the cause is gon
    grep -e "retry made due on request" -e "retried issue dispatched" sortie.log
    ```
 
-The request does not skip any check. The retry still needs a free agent slot and room in the session and token budgets, and the issue must still be in an active tracker state. A retry that cannot start goes back to waiting at the same attempt number and the due time it had before your request, and its `error` in the list from step 1 says why. A retry the issue's state pauses stays paused.
+The request skips one check: the [usage-limit hold](#wait-for-a-provider-usage-limit), so a retry of a refused issue starts at once even before the reset. Every other check applies. The retry still needs a free agent slot and room in the session and token budgets, and the issue must still be in an active tracker state. A retry that cannot start goes back to waiting at the same attempt number and the due time it had before your request, and its `error` in the list from step 1 says why. A retry the issue's state pauses stays paused.
 
 If the response is `404` with `retry_not_found`, the issue has no waiting retry: it already ran, or Sortie released it. The server has no authentication, so keep it behind a reverse proxy with authentication or a VPN when others can reach it. For the response fields and every status code, see the [HTTP API reference](/reference/http-api/#post-apiv1retriesidentifierrun-run-a-scheduled-retry-now).
 
@@ -263,6 +288,9 @@ grep "effort budget exhausted" sortie.log
 # Token budget exhausted
 grep "token budget exhausted" sortie.log
 
+# Provider usage limit held an agent kind
+grep "agent kind held by usage limit" sortie.log
+
 # Stall killed a session
 grep "stall detected" sortie.log
 
@@ -277,6 +305,6 @@ grep "issue parked" sortie.log
 
 ## What we configured
 
-You now have control over Sortie's retry behavior: how many times it retries (`max_sessions`), how much an issue may spend across those attempts (`max_tokens` and `max_cost_usd`), how long it waits between retries (`max_retry_backoff_ms`), how it detects stuck sessions (`stall_timeout_ms`), when it gives up on a single turn (`turn_timeout_ms`), and how many consecutive absences of observable work it tolerates before parking an issue (`max_consecutive_absences`). The continuation retry for successful-but-incomplete work runs at a fixed 1-second interval and needs no configuration.
+You now have control over Sortie's retry behavior: how many times it retries (`max_sessions`), how much an issue may spend across those attempts (`max_tokens` and `max_cost_usd`), how long it waits between retries (`max_retry_backoff_ms`), how it detects stuck sessions (`stall_timeout_ms`), when it gives up on a single turn (`turn_timeout_ms`), and how many consecutive absences of observable work it tolerates before parking an issue (`max_consecutive_absences`). A provider usage limit needs no setting: the retry waits for the reset the provider reports. The continuation retry for successful-but-incomplete work runs at a fixed 1-second interval and needs no configuration.
 
 For the full state machine and backoff formulas, see the [state machine reference](/reference/state-machine/). For all config field defaults in one place, see the [workflow config reference](/reference/workflow-config/). For budget and cost controls that complement retry settings, see [how to control agent costs](/guides/control-costs/).
