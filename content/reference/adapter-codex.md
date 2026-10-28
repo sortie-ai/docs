@@ -252,6 +252,21 @@ The adapter does not track per-request API latency. No event this adapter emits 
 
 ---
 
+## Usage limits
+
+The adapter reports the limits of a Codex account from the stream, with no request of its own. Each `account/rateLimits/updated` notification carries a `primary` and a `secondary` window, and each window the notification fills is one limit.
+
+| Window member | Reported as |
+|---|---|
+| `usedPercent` | The share used, as a percentage. |
+| `windowDurationMins` | The length, which names the limit: `5-hour limit`, `Weekly limit`. A length that is not a whole number of hours or days reads in minutes, such as `45-minute limit`. |
+| `limitName` | The scope, written before `limit`: a 5-hour window with the `limitName` `X` reads `5-hour X limit`. |
+| `resetsAt` | The reset time, from Unix seconds. |
+
+A limit is keyed by the notification's `limitId` together with `primary` or `secondary`, so each account limit keeps its own entry and a newer notification replaces it. The notification carries no status, so the dashboard shows the share and the reset time. How a reached limit ends a turn is under [error category mapping](#error-category-mapping).
+
+---
+
 ## Tool call tracking
 
 The adapter routes no tool call of its own. Sortie's tools reach the session as MCP servers the runtime spawns from the overrides described under [MCP](#mcp), and the runtime carries every call and result. What the adapter does is observe: it correlates the app-server's item notifications into `tool_result` events for the orchestrator, the logs, and the dashboard.

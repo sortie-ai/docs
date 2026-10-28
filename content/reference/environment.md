@@ -282,7 +282,7 @@ That inheritance belongs to a local launch. An agent Sortie starts on a remote h
 
 **A missing `ANTHROPIC_API_KEY` is the most common `claude-code` deployment failure.** Sortie starts and polls the tracker normally, but every agent session fails at credential verification with an auth error. The Sortie logs show a worker exit with `exit_type=error`; the root cause is only visible in the agent's stderr output.
 
-**For `copilot-cli`, a missing GitHub token is the equivalent failure.** The Copilot CLI itself implements try-and-fallback across `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, and `GITHUB_TOKEN`; precedence matters only when multiple sources hold different valid tokens.
+**For `copilot-cli`, a missing GitHub token is the equivalent failure.** The Copilot CLI itself implements try-and-fallback across `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, and `GITHUB_TOKEN`; precedence matters only when multiple sources hold different valid tokens. Sortie itself reads the first of the three that is set in the agent's environment to request the account's [usage limits](/reference/adapter-copilot/#usage-limits) when a turn ends.
 
 Sortie runs no preflight of its own here: whether one of these variables resolves to a working credential is settled by the [credential-verification step](/reference/workflow-config/#credential-verification), which fails before any work starts when none of them does: with error kind `credential_unverified`, or with the [early exit report](/reference/errors/#early-exit-report) under `port_exit`, carrying the CLI's own message, when the CLI prints that message and exits.
 

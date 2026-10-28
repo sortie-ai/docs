@@ -71,6 +71,14 @@ Run this agent inside a hardened sandbox regardless of which posture you choose.
 
 ---
 
+## Usage limits
+
+When each turn ends, Sortie asks Kiro CLI for the credits used against the account's plan, and reports them to the dashboard and to `rate_limits` in [`GET /api/v1/state`](/reference/http-api/#get-apiv1state-system-state). The request goes over the session's own connection with no agent text, and Sortie contacts no host for it. The mechanism shared with other runtimes is under [usage limits](/reference/adapter-agent-client-protocol/#usage-limits) on the kind's page.
+
+Each usage entry that has a limit is one limit, labelled `Monthly` followed by the entry's display name and `limit`. The amount is reported in `credits`, used against the limit, and the share used is derived from it. The reset time is the start of the billing-cycle reset date, in UTC, because Kiro CLI states a date with no time. An entry without a limit is not reported, and the limits carry no status. The pulls stop for the session when Kiro CLI answers neither of the two usage requests it is asked.
+
+---
+
 ## Limitations
 
 ### Token accounting has no source on this route

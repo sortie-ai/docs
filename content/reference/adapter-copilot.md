@@ -247,6 +247,22 @@ The `result` event carries `usage.totalApiDurationMs`, which the adapter attache
 
 ---
 
+## Usage limits
+
+When each turn ends, the adapter reads the monthly quotas of the signed-in GitHub account. A turn that was cancelled or timed out reads nothing. A failed read reports nothing and leaves the limits already reported in place. A session started with `COPILOT_PROVIDER_BASE_URL` set reads nothing for the rest of the session, because a custom provider spends no Copilot quota.
+
+The adapter takes the first of `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, and `GITHUB_TOKEN` that is set in the agent's environment and sends a request to `api.github.com` with it. Sortie's own host sends the request, including when the agent runs on an SSH worker. The token goes only into the request's authorization header; Sortie does not store or log it. When no variable is set, or GitHub answers `401`, `403`, or `404`, the adapter instead starts a one-shot headless server of the CLI (`--headless --no-auto-update --stdio`) and asks it for the account quota, so the answer comes from the CLI's own sign-in. On an SSH worker that server runs on the worker host. Any other status from GitHub is a failed read.
+
+| Quota | Label |
+|---|---|
+| Premium requests | `Monthly premium request limit` |
+| Chat | `Monthly chat limit` |
+| Completions | `Monthly completion limit` |
+
+A quota the account has without a limit is not reported. The share used is 100 less the percentage of the quota that remains, and the reset time is the quota reset date GitHub states. The quotas carry no status.
+
+---
+
 ## Tool call tracking
 
 The adapter observes tool execution by correlating `tool.execution_start` and `tool.execution_complete` events.
