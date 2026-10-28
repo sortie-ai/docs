@@ -283,6 +283,24 @@ The adapter measures wall-clock time between events to estimate per-request API 
 
 ---
 
+## Usage limits
+
+The adapter reports the plan limits of a Claude subscription from the stream, with no request of its own. Every `rate_limit_event` the CLI emits names one limit, and the adapter reports it to the dashboard and to the `rate_limits` member of [`GET /api/v1/state`](/reference/http-api/#get-apiv1state-system-state). A session on an API key sends no `rate_limit_event`, so it reports no limits.
+
+| `rateLimitType` | Label |
+|---|---|
+| `five_hour` | `5-hour limit` |
+| `seven_day`, `seven_day_overage_included` | `Weekly limit` |
+| `seven_day_opus` | `Weekly Opus limit` |
+| `seven_day_sonnet` | `Weekly Sonnet limit` |
+| `overage` | `Extra usage limit` |
+
+A `rate_limit_event` that names no type reports the limit as `Usage limit`. The event's `status` maps to the window status: `allowed` is `allowed`, `allowed_warning` is `warning`, and `rejected` is `exhausted`. The event's `utilization`, a fraction that can exceed 1, becomes the share used. An `allowed` event carries no `utilization`, so such a limit shows its status and its reset time and no share until the CLI warns. The reset time is the event's `resetsAt`.
+
+A newer report of a limit replaces the older one, and a limit the stream stops mentioning stays until its reset time passes. How a limit that is reached ends a turn is under [turn outcome](#turn-outcome).
+
+---
+
 ## Tool call tracking
 
 The adapter observes tool execution by correlating `tool_use` and `tool_result` content blocks.

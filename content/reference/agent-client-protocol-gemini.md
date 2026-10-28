@@ -69,6 +69,26 @@ The runtime's own workspace-trust guard raises an error only in its own headless
 
 ---
 
+## Usage limits
+
+When each turn ends, Sortie asks Google for the remaining quota of the signed-in account and reports it to the dashboard and to `rate_limits` in [`GET /api/v1/state`](/reference/http-api/#get-apiv1state-system-state). Limits are reported only for Gemini CLI signed in with Google. A Gemini CLI on an API key or on Vertex AI reports none, and the pulls stop for the session. The mechanism shared with other runtimes is under [usage limits](/reference/adapter-agent-client-protocol/#usage-limits) on the kind's page.
+
+Sortie reads the sign-in where Gemini CLI itself keeps it, on the machine that runs the agent, in this order:
+
+| Condition in the agent's environment | Sign-in read |
+|---|---|
+| `GOOGLE_GENAI_USE_GCA` and `GOOGLE_CLOUD_ACCESS_TOKEN` both set | The access token in `GOOGLE_CLOUD_ACCESS_TOKEN`, which is treated as never expiring. |
+| `GEMINI_FORCE_ENCRYPTED_FILE_STORAGE` is not `true` | The file `.gemini/oauth_creds.json`. |
+| `GEMINI_FORCE_ENCRYPTED_FILE_STORAGE` is `true` | The operating system keychain, then the encrypted file `.gemini/gemini-credentials.json`, then `.gemini/oauth_creds.json`. The keychain is skipped when `GEMINI_FORCE_FILE_STORAGE` is `true` or a WSL variable (`WSL_DISTRO_NAME`, `WSLENV`, `WSL_INTEROP`) is set. |
+
+The files are under `GEMINI_CLI_HOME`, or under the home directory when that is not set. A stored access token that has expired is skipped and nothing is reported, because only Gemini CLI refreshes it.
+
+Sortie's host sends the access token to `cloudcode-pa.googleapis.com`, or to the endpoint `CODE_ASSIST_ENDPOINT` names in the agent's environment, including when the agent runs on an SSH worker. The project comes from `GOOGLE_CLOUD_PROJECT` in the agent's environment, then from `GOOGLE_CLOUD_PROJECT_ID`, and otherwise from the project Google assigns to the account. Sortie never stores or logs the token.
+
+Each model's quota is one limit, labelled with the model identifier followed by `limit`. The share used is 100 less the percentage that remains, and the reset time is the one Google states. The limits carry no status.
+
+---
+
 ## Limitations
 
 ### Token accounting reads local files, and its in-turn signal understates

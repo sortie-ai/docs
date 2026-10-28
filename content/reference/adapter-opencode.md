@@ -350,6 +350,24 @@ The adapter does not emit per-request API timing and does not report how long an
 
 ---
 
+## Usage limits
+
+When each turn ends, the adapter runs `opencode api experimental.usage.limits` and reports the limits of the signed-in OpenCode console subscription. The command answers from OpenCode's own sign-in, uses OpenCode's background service, and starts it when it is not running. It runs on the host that runs the agent, the worker host for an SSH worker, and Sortie's host contacts no other host for it. A turn that was cancelled or timed out runs nothing. A failed command reports nothing and leaves the limits already reported in place.
+
+| Console limit | Label |
+|---|---|
+| `rolling` | `Rolling limit` |
+| `weekly` | `Weekly limit` |
+| `monthly` | `Monthly limit` |
+
+The share used is the limit's `percent`, and the reset time is its `resetsAt`. A limit the console marks as limited has status `exhausted`; every other limit has no status.
+
+The adapter stops asking for the rest of the session when the command cannot answer: a release without the command, an OpenCode that is not signed in to its console, or a command that outlives its timeout. An account with no console subscription reports nothing.
+
+A free usage limit that a run reaches is reported separately, from the run's error event, as `Free usage limit` with status `exhausted`. The error's retry delay gives its reset time. See [free-tier refusals](#free-tier-refusals).
+
+---
+
 ## Tool call tracking
 
 ### Correlation

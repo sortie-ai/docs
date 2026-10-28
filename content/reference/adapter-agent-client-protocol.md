@@ -281,6 +281,20 @@ The first start of the runtime carries the settings of every source that claimed
 
 ---
 
+## Usage limits
+
+The protocol carries no usage-limit report, so a session reports the limits of the plan or account behind the runtime only through a source Sortie ships for one specific runtime. The runtime is recognized from the name its handshake reports or, for Kiro CLI on one engine, from the launch command. A session whose runtime has no source reports no limits. A limit reaches the dashboard and the `rate_limits` member of [`GET /api/v1/state`](/reference/http-api/#get-apiv1state-system-state) under the key `agent-client-protocol`.
+
+| Runtime | How the limits are read | Reference |
+|---|---|---|
+| `@agentclientprotocol/claude-agent-acp` | Live, from the `_claude/rateLimit` member of the `_meta` object of a `usage_update` session update. The member carries the same report as Claude Code's `rate_limit_event`, so the limits, labels, and statuses are the same. | [Claude Code usage limits](/reference/adapter-claude-code/#usage-limits) |
+| Gemini CLI | Pulled when a turn ends, from the endpoint the runtime itself calls, with the runtime's Google sign-in. | [Gemini CLI usage limits](/reference/agent-client-protocol-gemini/#usage-limits) |
+| Kiro CLI | Pulled when a turn ends, over the session's own connection. | [Kiro CLI usage limits](/reference/agent-client-protocol-kiro/#usage-limits) |
+
+A pull runs after a turn ends and not after a turn that was cancelled or timed out. The credential-verification session pulls nothing. A pull that fails reports nothing and leaves the limits already reported in place. A pull that finds the runtime cannot answer in this session, such as a Gemini CLI on an API key, stops the pulls for the rest of the session.
+
+---
+
 ## Permission handling
 
 An operator neither answers a permission request nor configures the answer. The adapter's refusal posture is the one every agent adapter shares, applied here to `session/request_permission`:

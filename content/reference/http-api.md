@@ -639,7 +639,29 @@ curl http://localhost:7678/api/v1/state
     "running_unreported": 0,
     "running_non_reporting": 0
   },
-  "rate_limits": {},
+  "rate_limits": {
+    "claude-code": {
+      "reported_at": "2026-03-26T14:02:00Z",
+      "windows": [
+        {
+          "label": "5-hour limit",
+          "used_percent": null,
+          "status": "allowed",
+          "resets_at": "2026-03-26T17:00:00Z",
+          "reported_at": "2026-03-26T14:02:00Z",
+          "amount": null
+        },
+        {
+          "label": "Weekly limit",
+          "used_percent": 82,
+          "status": "warning",
+          "resets_at": "2026-03-28T09:00:00Z",
+          "reported_at": "2026-03-26T11:40:00Z",
+          "amount": null
+        }
+      ]
+    }
+  },
   "active_estimated_cost_usd": 0.06372,
   "cost_unpriced_running": 0,
   "spend_ceiling": {
@@ -1340,7 +1362,25 @@ It is `null` where Sortie cannot date the pass: a retry or hop stored without a 
 
 The windows are the current UTC calendar day, the current UTC week, which starts on Monday at 00:00 UTC, and the current UTC calendar month, not the browser's local day. See [how to control agent costs](/guides/control-costs/#cap-what-the-whole-instance-spends).
 
-**`rate_limits`:** Reserved for future use. Currently an empty object.
+**`rate_limits`:** The usage limits that agents report for the plan or account they run on, as an object keyed by agent kind. A kind has a member once it has reported a limit since Sortie started, and the object is empty until then. Sortie holds the limits in memory only, so a restart empties it. A kind that reports no limits never appears; see the agent's reference page for what it reports. Each member has these members:
+
+| Member | Value |
+|---|---|
+| `reported_at` | The newest report among every limit Sortie holds for the kind, reset or not, in RFC 3339 UTC. |
+| `windows` | Array of the kind's limits that have not reset, ordered by length with unstated lengths last, then by `label`. Empty when every limit the kind reported has reset. |
+
+Each element of `windows` has these members. A figure the agent did not report is `null`, never zero.
+
+| Member | Value |
+|---|---|
+| `label` | Display name written by Sortie, such as `5-hour limit`, `Weekly Opus limit`, or `Monthly premium request limit`. |
+| `used_percent` | Number or `null`. The share of the limit used, as a percentage. It can exceed 100 when the agent reports a use above the limit. Derived from `amount` when the agent reports an amount and no share. |
+| `status` | String or `null`. `"allowed"` under the limit, `"warning"` near it, `"exhausted"` used up until it resets. `null` when the agent reports none. |
+| `resets_at` | String or `null`. When the limit resets, in RFC 3339 UTC. A limit whose `resets_at` has passed is left out of `windows`. |
+| `reported_at` | When the agent reported this limit, in RFC 3339 UTC. |
+| `amount` | Object or `null`. The use in the vendor's own unit, never converted: `used` and `limit` as numbers and `unit`, the plural name of the unit, such as `credits`. `null` when the agent reports no amount. |
+
+The agent reference pages say which kinds report limits and how: [Claude Code](/reference/adapter-claude-code/#usage-limits), [Codex](/reference/adapter-codex/#usage-limits), [Copilot CLI](/reference/adapter-copilot/#usage-limits), [OpenCode](/reference/adapter-opencode/#usage-limits), and the [Agent Client Protocol](/reference/adapter-agent-client-protocol/#usage-limits) kind, which covers Gemini CLI and Kiro CLI. The dashboard shows these limits in the **Usage** section of [Overview](/reference/dashboard/#overview).
 
 **`config`:** The workflow configuration in effect, so a client can tell which stages, dispatch rules, and pull request reactions the workflow has without reading `WORKFLOW.md`. Present on this endpoint only; `GET /api/v1/{identifier}` carries no `config`. It holds no credential: no tracker endpoint, API key, or query filter, no agent command, hook, workspace path, or database path, no notification destination, and no agent settings block. The strings it does carry (state names, labels, SSH host names, bot usernames) are served as written.
 
