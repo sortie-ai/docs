@@ -419,6 +419,16 @@ An issue listed there is eligible. Its entry says what holds it and what release
 
 11. **The instance spend ceiling was reached.** With `agent.max_daily_cost_usd`, `agent.max_weekly_cost_usd`, or `agent.max_monthly_cost_usd` set, Sortie starts no agent session for any issue once the estimated cost of the UTC day, the UTC week (which starts on Monday at 00:00 UTC), or the UTC month reaches that window's ceiling, and scheduled retries wait with their attempt numbers kept. Every eligible issue shows under **Not dispatched** with the reason "Daily spend ceiling reached", "Weekly spend ceiling reached", or "Monthly spend ceiling reached" and the time left until the window resets. Check the item of the same name under **Needs attention** on the dashboard, `curl -s localhost:7678/api/v1/state | jq '.spend_ceiling'` for `holds_dispatch` and `resets_at`, or grep your logs for `spend ceiling reached`. Dispatch stays held until every window that has reached its ceiling clears, either because the window resets or because you raise or remove its ceiling. See [how to control agent costs](/guides/control-costs/#cap-what-the-whole-instance-spends).
 
+12. **An agent provider's usage limit is reached.** Only `claude-code` and `codex` produce this hold; on any other agent kind a refused session takes the ordinary retry backoff and no issue is held. When the provider refuses a session and reports when the limit resets, **Not dispatched** shows every issue routed to that kind with the reason "Usage limit reached for" the kind and the time left until the reset. A limit on one configured model reads "Usage limit reached for" that model "on" the kind, and issues routed to other agents or models keep dispatching. To confirm, list the entries with `usage_limit` as the reason:
+
+    ```bash
+    curl -s localhost:7678/api/v1/state | jq '.held[] | select(.hold.reason == "usage_limit") | {issue_identifier, agent_kind: .hold.agent_kind, resets_at: .hold.resets_at}'
+    ```
+
+    The issue whose session the provider refused is not in that list; it waits in the retry queue. Nothing in `WORKFLOW.md` lifts the hold. Wait for `resets_at`, or route the issues to another agent kind with a [dispatch rule](/guides/configure-dispatch-rules/). How the wait works is in [wait for a provider usage limit](/guides/configure-retry-behavior/#wait-for-a-provider-usage-limit); the fields are in the [hold object](/reference/http-api/#hold-object).
+
+13. **Sortie could not read the comments since a park.** After a person releases a parked issue, the next run receives the comments posted since the park. When the read of those comments fails, **Not dispatched** reads "Waiting to read the comments since the park", `hold.reason` is `park_comments_unread`, and the log carries `park release comment read failed, holding issue`. The issue is no longer parked. The next poll reads the comments again and dispatches the issue once the read succeeds; a read that keeps failing points at the tracker connection; see [Tracker returns 401 or 403](#tracker-returns-401-or-403).
+
 ## Sortie won't start at all
 
 ```
