@@ -96,7 +96,7 @@ Before the first answer the page body reads "Loading". When Sortie does not answ
 
 **Overview** answers: does anything need a person right now? The page opens with a headline sentence and a lede, then the blocks below.
 
-![Overview with the headline "Nothing needs attention.", the Agents running, Ended today, Last one ended, and Runs finished today figures, the Usage section with a Budget card of daily and monthly meters against their ceilings, an empty Active list with the Rule menu, and an Ended today list with its tally line](/img/dashboard/overview.webp)
+![Overview with the headline "3 items need attention." and a sentence on what else is handled, the Needs attention list with Acknowledge and Open buttons, the Usage section with a Budget card of daily and weekly spend meters and a plan limits card for each agent, and the Active list with its phase chips and the Rule menu](/img/dashboard/overview.webp)
 
 | Headline | Shown when |
 |---|---|
@@ -265,7 +265,7 @@ A failed read of run history shows "Run history could not be read." above the st
 
 The session view answers: what is this agent doing, or what did it do? It shows one agent session of one issue, live while the session runs and from the stored events once it ends. It opens from a run card, from the **Open live session** and **Last session** buttons, from `O`, and from the palette. `Esc` returns to the issue page.
 
-![Session view of a finished session with its facts line, an Events pane with turns and folded tool calls, and the Usage, Cost per model, Session, and Sessions panels](/img/dashboard/agent-session.webp)
+![Session view of a finished session with its facts line, an Events pane with turns and folded tool calls, and the Usage, Cost per model, Skills, Session, and Sessions panels](/img/dashboard/agent-session.webp)
 
 The page head shows the issue key and title, the heading "Session N of" the key, and a line of facts: agent kind, model, route, the reaction that started the session when a pull request fix did, the SSH host when one is used, its time span and duration, and its status, such as "Running, turn 3 of 20", "Succeeded, 4 turns", or "Action required, 4 turns", with no turn count while the run completed no turn (see [run outcome words](#run-outcome-words)). A running session whose agent has sent no event for longer than usual shows a stall notice, and a running session with no stall timeout shows a notice that stall detection is off. A finished session shows a note under the facts line, alarmed only when the run failed. It gives the error when the run recorded one, then the sentence the agent wrote with a declared outcome in curly quotes, then, for the newest session of an issue that has nothing running, the sentence the issue page shows for what happens next. The status in the head is not repeated in the note.
 
