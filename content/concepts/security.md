@@ -165,9 +165,7 @@ Binding to `127.0.0.1` does not by itself keep a web page out. Your browser runs
 
 One boundary needs stating precisely, because it is easy to misread. Sortie launches your coding agent as a subprocess and passes its own process environment through to it unfiltered. That agent is a separate program with its own vendor relationship and its own telemetry posture. Claude Code, Codex, and the others each make their own decisions about what they report home and to whom.
 
-Sortie sets no environment variable that turns that reporting on or off, with one exception: a launch it identifies as Gemini CLI on the `agent-client-protocol` kind gets four `GEMINI_TELEMETRY_*` variables. They set the runtime's telemetry target to `local`, point its output at a private file in a directory Sortie creates for the session, and turn prompt logging off, so that Sortie can read the token counts from that file. They serve Sortie's own token accounting and name no remote destination.
-
-No other runtime, and no launch over SSH, receives them; the [Gemini CLI reference](/reference/agent-client-protocol-gemini/#token-accounting-reads-local-files-and-its-in-turn-signal-understates) lists them.
+Sortie sets no environment variable that turns that reporting on or off, on any runtime, locally or over SSH. Its own token accounting never depends on an agent's telemetry.
 
 The claim in this section is about Sortie's own network behavior; it says nothing about the program Sortie hands your workspace to. Consult that agent's own documentation for its posture.
 

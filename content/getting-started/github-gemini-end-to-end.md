@@ -182,7 +182,7 @@ With this flag, Gemini runs any command the model decides to run, with your user
 
 `SORTIE_GITHUB_TOKEN` lets Sortie read issues and swap their labels; `GEMINI_API_KEY`, or your stored login, authenticates Gemini CLI. Sortie never reads or checks the Gemini credential. The `gemini` process signs itself in from the environment it inherits, as it did for your `reply with ok` check, so start Sortie from that same shell.
 
-Budgeting follows the runtime and where it runs, not the kind on its own. Sortie measures a local Gemini session by reading the runtime's own telemetry, so a token ceiling has something to count here; the [Gemini CLI reference's token accounting section](/reference/agent-client-protocol-gemini/#token-accounting-reads-local-files-and-its-in-turn-signal-understates) names the conditions that decide which way a session went.
+Sortie measures a Gemini session from the token counts Gemini reports itself, so a token ceiling has something to count here. Because this file pins no model, Gemini runs on its default `auto` selector, which spends a request choosing the model that Gemini reports nowhere, so the figure is a lower bound. A concrete model pinned with `--model` gives complete figures. The [Gemini CLI runtime reference](/reference/agent-client-protocol-gemini/) has the detail.
 
 The limits that bound this run sit in the file either way: `max_turns: 3` caps the turns per session, `turn_timeout_ms` stops any turn at 30 minutes, `stall_timeout_ms` stops one that goes five minutes without an event, and `max_concurrent_agents: 1` runs one Gemini process at a time. See [How to Control Agent Costs](/guides/control-costs/#limit-turns-per-session) for the limits that apply.
 
@@ -317,11 +317,11 @@ The issue is open, `backlog` is gone, and `review` is present. If the label did 
 
 The dashboard is served only while Sortie runs, so start it again with `sortie ./WORKFLOW.md` and open `http://127.0.0.1:7678/`. [Overview](/reference/dashboard/#overview) lists issue `8` under **Ended today** with the ending "Review". On [History](/reference/dashboard/#history), its run reads `Succeeded` with `1` in the **Turns** column.
 
-What the **Tokens** column reads depends on whether Sortie received usable records from Gemini. Sortie takes this runtime's token figures from Gemini's own telemetry, which it switches on because `agent.command` names `gemini`. When the turn ends, the column carries this run's tokens, and while Gemini works on your next issue its [session view](/reference/dashboard/#session-view) names the model Gemini reported.
+When the turn ends, the **Tokens** column carries this run's tokens. With the model left to Gemini's `auto` selector, the figure is a lower bound: the column shows it cut down, never rounded up, with a dotted underline, and hovering it reads "Some turns were not fully counted, so the real figure is higher. It will not be corrected later." followed by where the figure was measured from. The run's [session view](/reference/dashboard/#session-view) splits the tokens under **Cost per model** by the model that served each request.
 
-If the column reads "not measured", Sortie received no usable record from Gemini.
+If the column reads "N/A", Sortie received no usable figure from Gemini, and hovering it says why.
 
-On the **Workflow** screen, **Usage reporting** reads `figures arrive when a turn ends, per model` either way, because that is what the kind declares for a local launch before the runtime has answered for itself. The [Gemini CLI reference](/reference/agent-client-protocol-gemini/#token-accounting-reads-local-files-and-its-in-turn-signal-understates) has the rest.
+On the **Workflow** screen, **Usage reporting** reads `agent-client-protocol: reports tokens` either way, because that is what the kind declares before the runtime has answered for itself. The [Gemini CLI runtime reference](/reference/agent-client-protocol-gemini/) has the rest.
 
 ### Troubleshooting
 

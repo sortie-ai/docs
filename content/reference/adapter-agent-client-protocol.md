@@ -93,8 +93,8 @@ Launches the subprocess, performs the `initialize` handshake, and creates or con
 
 1. Resolves the launch target: validates that the workspace path is a non-empty absolute path pointing to an existing directory, and resolves `command` from `PATH` with no default to fall back to. In SSH mode, resolves the local `ssh` binary instead.
 2. Resolves the session's tool delivery from the generated MCP configuration. A server whose `enabled` field is present and `false` is dropped here. On a remote launch the stdio servers are dropped too, because the protocol's stdio server declaration names an executable the remote host would have to resolve, and Sortie starts its HTTP tool server and opens one short extra SSH connection to learn whether the worker host accepts the reverse forward. See [MCP](#mcp).
-3. Starts the subprocess with the full parent process environment, places it in its own process group, and wires stdin, stdout, and stderr. A local launch whose command line names a runtime Sortie ships a [measurement source](#token-accounting) for also carries that source's environment variables.
-4. Sends `initialize` with the pinned protocol version and no filesystem or terminal client capability. A response reporting any other protocol version ends the session, because the protocol defines no renegotiation and leaves the decision to disconnect to the client. A response that disagrees with the measurement source the start carried, or that names a runtime a source reads when the start carried none, stops the subprocess and repeats steps 3 and 4 before step 5; see [restart to settle the measurement source](#restart-to-settle-the-measurement-source).
+3. Starts the subprocess with the full parent process environment, places it in its own process group, and wires stdin, stdout, and stderr. A launch whose `agent.command` names OpenCode also carries the setting that turns off its session titles; see [token accounting](#token-accounting).
+4. Sends `initialize` with the pinned protocol version and no filesystem or terminal client capability. A response reporting any other protocol version ends the session, because the protocol defines no renegotiation and leaves the decision to disconnect to the client. The response's `agentInfo.name` selects the session's usage declaration; see [runtime identification](#runtime-identification).
 5. Renders the MCP servers into the wire format `session/new` (or a continuation call) will carry. When the handshake's `mcpCapabilities.http` is `true`, Sortie's own server is an HTTP entry, served from the orchestrator host. Otherwise any HTTP server is omitted. A stdio server is never withheld by this step on a local launch; the protocol allows omitting a server type, not the whole channel.
 6. Resolves the session: `session/new` alone when no session ID from a previous run is supplied, or the handshake advertises no continuation method; otherwise the advertised route, confirmed and falling back to `session/new` within this same call when not confirmed. See [session resume mechanism](#session-resume-mechanism).
 7. Records the identifier to end through the protocol later, only when the handshake advertised a teardown method: a [credential-verification](/reference/workflow-config/#credential-verification) session records `session/delete` when the handshake advertises `sessionCapabilities.delete`, falling back to `session/close` when only that is advertised; every other session records `session/close` when advertised and nothing otherwise. See [session close](#session-close).
@@ -233,51 +233,62 @@ A lost connection also covers a runtime that exits while a descendant still hold
 
 ## Token accounting
 
-Whether a session on this kind reports token usage depends on the runtime it launches and on where that runtime runs. The protocol carries no spend counter, so a figure can only come from a measurement source Sortie ships for one specific runtime and reads outside the wire.
+The protocol defines no per-turn token counter, so what a session on this kind measures comes from the usage declaration it runs under. Sortie ships a declaration for some runtimes, and every other runtime runs under the default declaration. A declaration names the members of the runtime's protocol messages that carry spend and, where the runtime keeps them, the per-request records Sortie reads when a turn ends. It applies the same way locally and over SSH: on an SSH launch, Sortie reads the records on the worker host. How a run's spend is measured across every agent kind, and which ceilings reach a run, is on [spend measurement](/concepts/spend-measurement/).
 
-Where such a source applies, figures arrive when a turn ends and attribute to a model. Where none applies, the session reports nothing and `agent.turn_timeout_ms` is the bound that applies instead. For this kind's declaration beside every other kind's, see the [usage reporting table](/reference/workflow-config/#usage-reporting-by-agent-kind).
+| Runtime | Handshake name | Token figure from the protocol | Records read when a turn ends | Amounts recorded beside the tokens |
+|---|---|---|---|---|
+| Gemini CLI | `gemini-cli` | The `usage` member of the `session/prompt` result, as that turn's counts | The runtime's chat journal | None |
+| Copilot CLI | `Copilot` | The `usage` member of the `session/prompt` result, as counts cumulative over the runtime process | The runtime's session-state journal | `premium requests` and `AI credits`, from the journal |
+| OpenCode | `OpenCode` | The `usage` member of the `session/prompt` result, as that turn's counts | The session's export, and the export of every subagent session the turn started | US dollars, from the export |
+| Kiro CLI | `Kiro CLI Agent`; none on `--agent-engine v3` | None | None | `credits`, per turn, from the runtime's credit notification |
+| Any other runtime | Any other name | The `usage` member of the `session/prompt` result, always a lower bound | None | The `cost` member of a `usage_update`, in the unit its `currency` names |
 
-A source supplies a figure only when two checks pass before the session is created, plus a third that plays out during it.
+The runtime-specific detail of Gemini CLI and Kiro CLI is on [Gemini CLI on the Agent Client Protocol](/reference/agent-client-protocol-gemini/) and [Kiro CLI credits](/reference/agent-client-protocol-kiro/#spend-in-credits).
 
-- **Claim.** A source claims a launch only when the launch is local and `agent.command`, the program and every argument, names the runtime the source reads. A claim arms the runtime's environment variables and creates a temporary directory. No source claims a launch over SSH, because a source reads output the runtime writes on the machine that ran it.
-- **Handshake.** The `initialize` response's `agentInfo.name` has to be the name the source reads. The runtime's version is not part of this check: no build is refused for its version, and a record counts only when it carries every counter the source maps. A handshake that disagrees with the claim starts the runtime again, as [described below](#restart-to-settle-the-measurement-source).
+The default declaration reads `inputTokens`, `outputTokens`, `cachedReadTokens`, and `cachedWriteTokens` from the prompt result's `usage` member, and never `thoughtTokens` or `totalTokens`. The protocol does not settle whether those counts are per turn or cumulative, and the declaration reads them so that neither reading counts a token twice. The figure is therefore exact for some runtimes and short for others, and Sortie always records it as a lower bound. A member that is absent, null, or not an integer is unknown, never zero.
 
-A session that leaves the first two checks without a confirmed source is unmeasured for the whole of its life, decided before a turn runs.
+How a turn settles:
 
-The third check plays out on whichever turn's own wait for the source is the first to run to the source's own conclusion, and only when [`agent.read_timeout_ms`](#agent-section) gives that wait enough time to let the source answer at all: a turn whose own wait ends first, before the source has answered, ends unmeasured itself but leaves the source in place for the next turn, since the source was never actually asked and answered within that turn.
+- A turn the protocol figure settles keeps that figure. Where the runtime's records name the model that served each request, Sortie splits the figure by that model; otherwise the figure is a session total that names no model.
+- A turn that ends without a prompt result, such as a cancelled or killed turn, is settled from the records when they can be read.
+- A model request counts once in the run total, whichever source reports it.
+- When a session is continued with `session/load` or `session/resume`, Sortie reads the records before the first prompt, and the requests already in them count as the session's history, not as this run's spend.
+- A records read that fails, a dropped SSH connection, or a read that outlasts `agent.read_timeout_ms` is a failed read, never a complete one.
+- A turn that reached the model and ends with no figure is recorded as spend that occurred with its amount unknown, never as zero.
 
-Only a turn whose wait does let the source answer, and gets nothing back before any turn has had a figure out of it, drops the source for the rest of the session; a later turn then never gets its own chance to prove the source works. Once one turn has had a figure, the source stays for the session, and a later turn that gets nothing back costs that turn its own figure and nothing more.
+Sortie records a turn's figure as a lower bound when the default declaration measured it, when no figure covered the turn, and in these runtime-specific cases:
 
-Which way any of this went is observable rather than inferred: the once-per-session capability notice names `token counts` exactly when no figure will arrive, described under [capability tracking](#capability-tracking); a drop that happens after that notice already went out is logged at `Warn` instead, per the same section. Sortie ships one such source today, for Gemini CLI.
+- A Gemini CLI session whose current model is an automatic selector makes a model request no source records.
+- An OpenCode subagent that fails, goes unnamed, or whose export cannot be read leaves its turn short.
+- An OpenCode session titles itself with a model request no source records. Sortie turns that request off on every launch whose `agent.command` names OpenCode, locally and over SSH, by adding `agent.title.disable` to `OPENCODE_CONFIG_CONTENT` and keeping every member the operator set. An operator's own `agent.title.disable` other than `true`, a value that is not a JSON object, or a command that does not name OpenCode leaves the request on.
 
-The transport carries no per-turn token counter the orchestrator can record as spend. `session/prompt`'s response carries a stop reason. The one usage notification the protocol defines, `usage_update`, reports the tokens currently in context, the context window's total size, and an optional cumulative session cost, none of which is the per-turn input and output count Sortie records; the adapter logs that notification at debug level and takes no figure from it.
+A prompt result may also carry a vendor-namespaced `_meta.quota.token_count` block. Sortie never records it as spend, because it leaves out cache-read and reasoning tokens; a non-zero count only tells the adapter that the turn reached the model.
 
-A session no source measures emits no `token_usage` event. It is recorded unmeasured, contributes nothing to `agent.max_tokens`, advances no `sortie_tokens_total` series, is excluded from `sortie stats` token and cost figures, and is counted in that command's `tokens_unmeasured_runs`.
+The protocol's `usage_update` session update reports the tokens currently in context and the context window's size, and neither enters a figure. Under the default declaration, its optional `cost` member is read as a running total of the session's cost, `amount` in the unit `currency` names. A three-letter currency code is recorded uppercased, and any other unit, such as `credits`, is recorded as reported. An empty `currency`, or an absent or null `cost`, records nothing. An amount that is not a finite non-negative number is unknown in that unit and makes the recorded amount a lower bound. A created session counts the amount from zero, and the first reading of a continued session counts nothing and makes the amount a lower bound. A runtime with its own declaration has this member ignored.
 
-What the dashboard shows for it is the same whichever way it went unmeasured: the session view reads "not measured" for the session's tokens and cost, never zero, and the totals that include the run say they leave it out. **Usage reporting** in [Workflow](/reference/dashboard/#workflow) states the declaration for the agent kind rather than what a session's runtime turned out to deliver, so it reads "reports tokens" for this kind even when a local session's runtime delivers no figure.
+Sortie keeps every amount in the unit it was reported in. An amount in a unit other than US dollars, such as Kiro CLI credits or Copilot CLI premium requests, is recorded with the run and enters no token or money total. A US dollar amount prices a model that no price table prices: an amount reported for a model prices that model's share, and an amount that names no model prices the run only when the run's figure is attributed to a single model.
 
-Set `agent.max_tokens` and such a run also closes with `run reported no token usage, token ceiling could not bound it`; no dispatch-time warning precedes it, because the declaration the session was dispatched under said a figure would arrive.
+A session that settles no token figure, such as every Kiro CLI session and a session whose runtime sends no `usage` member, emits no `token_usage` event, is recorded unmeasured, and contributes nothing to `agent.max_tokens`. With `agent.max_tokens` set, such a run closes with `run reported no token usage, token ceiling could not bound it`. [`sortie validate`](/reference/cli/#validate) reports no `agent.kind.no_usage_reporting` warning for this kind, local or over SSH, because a session on it can carry a figure. How a run with no figure, or with a figure marked as a lower bound, reads on each surface is on the [HTTP API](/reference/http-api/), [CLI](/reference/cli/), and [dashboard](/reference/dashboard/) references.
 
-[`sortie validate`](/reference/cli/#validate) sees only the first of those two offline, because it reads the workflow and not the runtime: `agent.kind.no_usage_reporting` and `agent.kind.no_cost_estimate` fire for a configuration that launches over SSH, and not for the same one running locally.
+Whether a session measures tokens is visible in the capability record: the once-per-session notice names `token counts` when the declaration reads no token figure, and the entry is lowered when the first turn that reached the model ends with no figure while no earlier turn had one; see [capability tracking](#capability-tracking).
 
-A runtime may also attach its own vendor-namespaced token figure to a turn's result. Sortie reads that one only as a presence signal and a lower bound on the turn, never as the spend it records, because it leaves out cache-read and reasoning tokens. Its job is to let the adapter tell a figure that covered the whole turn from one that fell short. What a given runtime publishes there, and what that figure leaves out, is on that runtime's own page.
+### Runtime identification
 
-Model reporting follows the same split. The protocol carries no model field the adapter reads, so a session no source measures reports no model name, while a measured one attributes its figures to the model its source names.
+Sortie selects a session's declaration from the `agentInfo.name` of the `initialize` response:
 
-### Restart to settle the measurement source
+- A name Sortie ships a declaration for selects that declaration.
+- Any other name selects the default declaration.
+- A response that carries no name selects the declaration of the runtime `agent.command` names, and the default declaration when it names none. `agent.command` names a runtime when one of its words is the runtime's executable or npm package; on an SSH launch Sortie reads the remote command, never the `ssh` executable.
 
-The first start of the runtime carries the settings of every source that claimed the launch. When the handshake disagrees with that claim, Sortie stops the subprocess and runs `agent.command` again before the session is created, so the process the session runs on carries the settings of the source its handshake confirms and no other. Each restart logs one `Info` record with `component=clientprotocol-adapter` and `name`, the runtime name the handshake reported, empty when the response carried none.
+Before the handshake, the command alone decides what the launch carries for measurement: the OpenCode title setting, and the `initialize` subscription that lets Sortie read a Copilot CLI usage-limit refusal.
 
-| Handshake result | What Sortie does | Log message |
-|---|---|---|
-| A source claimed the launch, and the handshake names no runtime that source reads | Starts again without that source's settings. The session is unmeasured. | `agent relaunched without usage settings meant for another runtime` |
-| No source claimed the launch, the launch is local, and the handshake names a runtime a source reads | Starts again with that source's settings. The session is measured. | `agent relaunched so its token usage can be measured: agent.command does not name the runtime it starts` |
+When the handshake names a runtime other than the one `agent.command` names, the session runs under the handshake's declaration and logs one `Warn` record, with `component=clientprotocol-adapter`:
 
-- A session start runs the runtime at most three times.
-- A remote launch is never claimed and never started again.
-- The temporary directory of a source that is no longer used is removed before the next start. The directory of the confirmed source is removed when the session ends.
-- Each start runs `agent.command` from the beginning, so a wrapper script runs once per start, and the session's process ID is the last start's. Workspace hooks do not run again.
-- Each stopped start ends through the same sequence as a session end; see [process shutdown](#process-shutdown). Only the last start produces the session, so the `agent implementation` record is still logged once per session.
+| Log message | Fields |
+|---|---|
+| `agent runtime differs from its configured command` | `configured_runtime`, the declaration the command named; `handshake_runtime`, the name the handshake reported; `usage_declaration`, the declaration the session runs under |
+
+Sortie does not start the runtime again. A command that names no runtime Sortie ships a declaration for logs nothing.
 
 ---
 
@@ -287,9 +298,10 @@ The protocol carries no usage-limit report, so a session reports the limits of t
 
 | Runtime | How the limits are read | Reference |
 |---|---|---|
-| `@agentclientprotocol/claude-agent-acp` | Live, from the `_claude/rateLimit` member of the `_meta` object of a `usage_update` session update. The member carries the same report as Claude Code's `rate_limit_event`, so the limits, labels, and statuses are the same. | [Claude Code usage limits](/reference/adapter-claude-code/#usage-limits) |
+| Copilot CLI | Pulled when a turn ends, from GitHub with the first GitHub token the runtime's environment carries, or, without one or when GitHub refuses it, by asking the runtime's own command on its host. | [Copilot CLI usage limits](/reference/adapter-copilot/#usage-limits) |
 | Gemini CLI | Pulled when a turn ends, from the endpoint the runtime itself calls, with the runtime's Google sign-in. | [Gemini CLI usage limits](/reference/agent-client-protocol-gemini/#usage-limits) |
 | Kiro CLI | Pulled when a turn ends, over the session's own connection. | [Kiro CLI usage limits](/reference/agent-client-protocol-kiro/#usage-limits) |
+| OpenCode | Pulled when a turn ends, by running the runtime's own command on its host. | [OpenCode usage limits](/reference/adapter-opencode/#usage-limits) |
 
 A pull runs after a turn ends and not after a turn that was cancelled or timed out. The credential-verification session pulls nothing. A pull that fails reports nothing and leaves the limits already reported in place. A pull that finds the runtime cannot answer in this session, such as a Gemini CLI on an API key, stops the pulls for the rest of the session.
 
@@ -355,13 +367,13 @@ Every session keeps a record of four capabilities this transport can deliver, ea
 | Capability | Starts at | Lowered when |
 |---|---|---|
 | Tool servers | Delivered | Sortie withheld a server or never reached its own: the handshake did not advertise `mcpCapabilities.http`, the worker host refused the reverse forward, the tool server did not start, or the runtime never connected. SSH launches also lower it for operator stdio servers. See [when a session runs without the tools](/reference/agent-extensions/#when-a-session-runs-without-the-tools). |
-| Token counts | Absent, unless a measurement source claimed the launch | The source is dropped after a drain that produced no record. No per-turn token count reaches this adapter on the wire. See [token accounting](#token-accounting). |
+| Token counts | Absent, unless the session's usage declaration reads a token figure | The first turn that reached the model ends with no figure while no earlier turn had one. See [token accounting](#token-accounting). |
 | Session continuation | Delivered | The handshake advertises neither `session/load` nor `session/resume`, or an attempted continuation call is not confirmed. See [session resume mechanism](#session-resume-mechanism). |
 | Agent version | Delivered | The handshake's `initialize` response carries no `agentInfo`. |
 
-Once per session, the adapter emits one `notification` naming every entry then in the gap state, in this fixed order. It emits it right after the first turn's `session_started` event. Session start has already settled the tool-server outcome by then, on a local launch with a stdio runtime as on any other, because it waits up to `read_timeout_ms` for an HTTP runtime's first connection. The token counts entry starts there unless a measurement source claimed the launch, so a session no source measures carries this notice on that entry alone and reads `this session started with a declared capability gap in: token counts`.
+Once per session, the adapter emits one `notification` naming every entry then in the gap state, in this fixed order. It emits it right after the first turn's `session_started` event. Session start has already settled the tool-server outcome by then, on a local launch with a stdio runtime as on any other, because it waits up to `read_timeout_ms` for an HTTP runtime's first connection. The token counts entry starts there unless the session's usage declaration reads a token figure, so a Kiro CLI session carries this notice on that entry alone and reads `this session started with a declared capability gap in: token counts`.
 
-A source that claims the launch and is then turned away by the handshake has the launch started again without it, and the notice reads the same way. A capability lowered afterward is logged at `Warn` instead of producing a second notice, so an unfamiliar line in the run log after that point is recognizable as a declared limit rather than as an unreported error.
+A capability lowered afterward is logged at `Warn` instead of producing a second notice, so an unfamiliar line in the run log after that point is recognizable as a declared limit rather than as an unreported error.
 
 ---
 
@@ -413,7 +425,7 @@ The adapter uses the shared `sshutil` transport defaults, the same ones every ot
 
 ### What an SSH launch does not carry
 
-No configured environment reaches the remote runtime beyond what OpenSSH itself forwards, and the generated configuration's `env` block never leaves the orchestrator host; see [MCP](#mcp). A credential a specific runtime needs on the remote host has to already be present there, or forwarded by whatever mechanism that runtime's own page describes; this kind manages none of its own.
+No configured environment reaches the remote runtime beyond what OpenSSH itself forwards and the OpenCode title setting described under [token accounting](#token-accounting), and the generated configuration's `env` block never leaves the orchestrator host; see [MCP](#mcp). A credential a specific runtime needs on the remote host has to already be present there, or forwarded by whatever mechanism that runtime's own page describes; this kind manages none of its own.
 
 ### Exit codes
 
@@ -465,8 +477,8 @@ See [Gemini CLI on the Agent Client Protocol](/reference/agent-client-protocol-g
 | Protocol | CLI flags + JSONL stdout | CLI flags + JSONL stdout | JSON-RPC 2.0 over stdin/stdout | CLI flags + newline-delimited stdout envelopes | Agent Client Protocol: newline-delimited JSON-RPC 2.0 over stdio |
 | Session ID source | UUID generated by adapter | UUID generated by adapter | Thread ID from `thread/start` response | Discovered from the first JSON envelope | `session/new` response, or the resumed identifier when continuation is confirmed |
 | Resume mechanism | `--resume <UUID>` | `--session-id <uuid>` on the first turn, `--resume <uuid>` after; never `--continue` | `thread/resume` or automatic within session | `--session <sessionID>` | `session/load` or `session/resume`, whichever the handshake advertises, confirmed by a negative control and, for load, by observed replay |
-| Token accounting | Result event `modelUsage`, with top-level `usage` fallback | Session-state journal on disk | `thread/tokenUsage/updated` notification | Separate `export` subprocess | Nothing on the wire; a measurement source Sortie ships for the named runtime, local launch only, and unmeasured wherever none applies |
-| Model reporting | From `assistant` events | From the session-state journal's `session.shutdown` record, after the subprocess exits | From the thread-open response, updated on reroute | Recovered from export `providerID/modelID` | From the measurement source, when one applies |
+| Token accounting | The result event's `model_usage_since_last_result`, with the runtime's session journal settling what it leaves open | `session.usage_checkpoint` events on stdout, with the session-state journal's `session.usage_record` lines settling what they leave open | `thread/tokenUsage/updated` notification, with the thread's rollout file settling what it leaves open | `step_finish` reports, settled by a separate `export` subprocess | The `session/prompt` result's `usage` member and the runtime's own records, read on the runtime's host, under the usage declaration the handshake selects; locally and over SSH alike |
+| Model reporting | Per served model, from `model_usage_since_last_result` and the journal | Per served model, from the usage checkpoints and the journal's `session.usage_record` lines | From the thread-open response, updated on reroute | Recovered from export `providerID/modelID` | From the runtime's records, where they name the serving model; none otherwise |
 | Permission control | `--permission-mode` or `--dangerously-skip-permissions` | `--autopilot` + `--no-ask-user` + tool scoping | `approvalPolicy` and sandbox policy | `--dangerously-skip-permissions` plus a synthesized policy in the inline configuration document | `session/request_permission`, refused in a form that lets the turn continue, or ends the attempt when only a person could answer |
 | Sortie's tools | Derived config file on `--mcp-config`, an inline document over SSH | Derived config file on `--additional-mcp-config`, an inline document over SSH | Generated servers re-expressed as command-line overrides; over SSH they ride the session's standard input | Generated servers re-expressed as an inline configuration document; over SSH it names HTTP servers only | Generated servers re-expressed on `session/new`; over SSH a runtime that accepts HTTP MCP servers reaches them, and any tool is callable only when the runtime's own configuration authorizes the call without asking |
 | Authentication | `ANTHROPIC_API_KEY` (+ Bedrock, Vertex) | `COPILOT_GITHUB_TOKEN` / `GH_TOKEN` / `GITHUB_TOKEN` / `gh auth` | `CODEX_API_KEY` or cached Codex auth | OpenCode-managed provider auth | None managed by Sortie; the named runtime authenticates itself |

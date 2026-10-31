@@ -258,7 +258,7 @@ Path fields (`workspace.root`, `db_path`) still receive `~` expansion even when 
 
 ## Agent runtime variables
 
-Agent adapters spawn subprocesses that inherit the parent process environment, less the few variables an adapter manages itself, which its reference page names. Sortie validates none of these variables: they pass straight through, and if one is missing, the agent subprocess fails, not Sortie. `COPILOT_HOME` is the one Sortie reads for itself, to locate a file the runtime writes.
+Agent adapters spawn subprocesses that inherit the parent process environment, less the few variables an adapter manages itself, which its reference page names. Sortie validates none of these variables: they pass straight through, and if one is missing, the agent subprocess fails, not Sortie. Sortie reads four of them for itself, to locate the files a runtime writes under its home: `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `COPILOT_HOME`, and `GEMINI_CLI_HOME`. On a remote launch the remote shell resolves each one on the worker host.
 
 That inheritance belongs to a local launch. An agent Sortie starts on a remote host through [`worker.ssh_hosts`](/reference/workflow-config/#worker) gets the remote host's environment, plus the bounded set described under [variables carried to a remote agent](#variables-carried-to-a-remote-agent).
 
@@ -277,7 +277,7 @@ That inheritance belongs to a local launch. An agent Sortie starts on a remote h
 | `COPILOT_GITHUB_TOKEN` | `copilot-cli` adapter | GitHub token dedicated to Copilot CLI. Highest priority among the three token variables the CLI checks. |
 | `GH_TOKEN` | `copilot-cli` adapter | GitHub token shared with the `gh` CLI. Second priority for Copilot CLI authentication. Also used by many GitHub tooling integrations. |
 | `GITHUB_TOKEN` | `copilot-cli` adapter | GitHub token common in CI environments. Third priority for Copilot CLI authentication. |
-| `COPILOT_HOME` | `copilot-cli` adapter (optional) | Root directory the Copilot CLI writes its per-session state under. Default: `~/.copilot`. Sortie reads it too: the adapter resolves `<COPILOT_HOME>/session-state/<session id>/events.jsonl`, the [session-state journal](/reference/adapter-copilot/#session-state-journal) that supplies the run's token counts. An empty or unset value resolves to the default. |
+| `COPILOT_HOME` | `copilot-cli` adapter (optional) | Root directory the Copilot CLI writes its per-session state under. Default: `~/.copilot`. Sortie reads it too: the adapter resolves `<COPILOT_HOME>/session-state/<session id>/events.jsonl`, the [session-state journal](/reference/adapter-copilot/#session-state-journal) that settles a turn the [usage checkpoints](/reference/adapter-copilot/#usage-checkpoints) on the event stream leave open. An empty or unset value resolves to the default. On a remote launch the remote shell resolves the variable on the worker host; see [usage measurement over SSH](/reference/adapter-copilot/#usage-measurement-over-ssh). |
 | `CODEX_API_KEY` | `codex` adapter | OpenAI API key. Sortie reads it from its own environment and signs the app-server in with it over the adapter's protocol channel, on a local launch and a remote one alike, when the runtime reports no account of its own. A local subprocess also inherits the variable; a remote one never receives it. With the variable unset, the adapter falls back to whatever credentials the runtime already holds where it runs, such as `~/.codex/auth.json`. |
 
 **A missing `ANTHROPIC_API_KEY` is the most common `claude-code` deployment failure.** Sortie starts and polls the tracker normally, but every agent session fails at credential verification with an auth error. The Sortie logs show a worker exit with `exit_type=error`; the root cause is only visible in the agent's stderr output.
@@ -314,19 +314,6 @@ A remote session receives `OPENCODE_DISABLE_AUTOUPDATE` and `OPENCODE_CONFIG_CON
 It still runs the [credential-verification step](/reference/workflow-config/#credential-verification) like every other kind, and a runtime that answers its handshake with a protocol-level authentication error there fails the run with `credential_unverified` before any work starts.
 
 See the [Agent Client Protocol adapter reference](/reference/adapter-agent-client-protocol/) for the kind itself, and [Gemini CLI](/reference/agent-client-protocol-gemini/) or [Kiro CLI](/reference/agent-client-protocol-kiro/) on that route for what each of those two runtimes actually reads.
-
-A local launch of Gemini CLI specifically does carry something Sortie sets, though it is not a credential: Sortie's own [measurement source](/reference/agent-client-protocol-gemini/#token-accounting-reads-local-files-and-its-in-turn-signal-understates) sets four variables to redirect the runtime's own telemetry to a file it reads for token accounting.
-
-They are appended to the environment Sortie itself started from, so they override any value already set there, and they reach nothing but that session's runtime. Sortie sets them only when `agent.command` names Gemini CLI or the handshake reports it; the process a session runs on for any other runtime on this kind carries none of them.
-
-| Variable | Purpose | Description |
-|---|---|---|
-| `GEMINI_TELEMETRY_ENABLED` | Turns telemetry on | Set to `true` for the whole session. |
-| `GEMINI_TELEMETRY_TARGET` | Where telemetry goes | Set to `local`, so the session's telemetry lands in a file rather than at any collector the inherited value named. |
-| `GEMINI_TELEMETRY_LOG_PROMPTS` | Prompt logging | Set to `false`, which turns prompt logging in the runtime's telemetry off. |
-| `GEMINI_TELEMETRY_OUTFILE` | Telemetry output path | Points into a private directory Sortie creates for the session and removes when the session ends. |
-
-An SSH launch never sets these, which is one reason Gemini CLI over SSH is never measured.
 
 ### Variables carried to a remote agent
 

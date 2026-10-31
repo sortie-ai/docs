@@ -854,8 +854,8 @@ curl http://localhost:7678/api/v1/state
 | `skills` | The session's skill calls so far, in completion order, as the elements of `skills` on a [run](#get-apiv1runs-run-history) are. Omitted until the run has completed a skill call, and for an agent that reports none. |
 | `tool_time_percent` | Percentage of elapsed wall-clock time spent in tool execution. `null` when not yet computed. |
 | `api_time_percent` | Percentage of elapsed wall-clock time spent waiting on API calls. `null` when not yet computed. |
-| `usage_arrival` | When this session's token figures arrive, frozen at dispatch from the agent kind, its configuration, and whether the session runs over SSH. `"incremental"` (one figure per LLM API request, while the turn is still running), `"turn_end"` (at most one figure per turn, after the turn's work is over), `"none"` (no figure is ever produced), or `""` when the kind declares nothing. |
-| `usage_attribution` | What this session's token figures attribute to, frozen alongside `usage_arrival`. `"per_model"` (a figure names the model that produced it), `"session_total"` (figures are session-level totals with no model), `"none"` (there is no figure to attribute), or `""` when the kind declares nothing. |
+| `usage_arrival` | When this session's token figures arrive, derived at dispatch from the usage sources the session's agent kind attaches and frozen for the session. It follows the kind, not the launch, so a session on an SSH worker has the value the same kind has locally. `"incremental"` (one figure per LLM API request, while the turn is still running), `"turn_end"` (at most one figure per turn, after the turn's work is over), `"none"` (no figure is ever produced), or `""` when the kind is not registered. |
+| `usage_attribution` | What this session's token figures attribute to, derived and frozen alongside `usage_arrival`. `"per_model"` (a figure names the model that produced it), `"session_total"` (figures are session-level totals, not split by model), `"none"` (there is no figure to attribute), or `""` when the kind is not registered. Sessions of the `agent-client-protocol` kind report `"session_total"`, and their figures can still name a model. |
 | `tokens_awaited` | `true` only when the session has recorded no token figure and the moment its `usage_arrival` names for one has not passed. A session whose `usage_arrival` reports figures and whose `tokens_awaited` is `false` has recorded nothing and will record nothing. |
 | `tokens_pending` | `true` only when `usage_arrival` is `"turn_end"`, `tokens_measured` is `true`, and the turn whose figure is still to settle has not ended. The counts in `tokens` then exclude the turn in progress rather than being final. |
 | `api_requests_measured` | `true` exactly when `api_request_count` is non-null. It requires `usage_arrival` to be `"incremental"`, and then either a figure already counted or no turn yet begun. A `"turn_end"` session is never measured, because its counter settles at most once per turn rather than once per request; an `"incremental"` session with nothing counted is not measured either once its first turn has begun, whatever its agent kind declares. |
@@ -1396,7 +1396,7 @@ Most members follow the last successful load of `WORKFLOW.md`; a reload that fai
 | `tracker.in_progress_state`, `tracker.handoff_state`, `tracker.no_change_state` | The state Sortie writes at dispatch, after a successful run, and after a successful run whose agent declared that nothing needed changing. Each omitted when unset. |
 | `polling.interval_ms` | The poll interval in milliseconds. |
 | `agent.kind` | The workflow-wide agent kind. It serves every issue that no dispatch rule and no `dispatch.default` selects. |
-| `agent.usage_arrival` | When sessions on the workflow-wide agent report token usage: `"incremental"`, `"turn_end"`, `"none"`, or `""` for a kind that declares nothing or is not registered. Resolved as a session resolves it at start, including the effect of SSH hosts; see [usage reporting by agent kind](/reference/workflow-config/#usage-reporting-by-agent-kind). |
+| `agent.usage_arrival` | When sessions on the workflow-wide agent report token usage: `"incremental"`, `"turn_end"`, or `"none"`. Derived from the usage sources the kind attaches, as a session derives it at start, so SSH hosts do not change it. `"none"` when sessions of the kind can carry no token figure, a kind that is not registered included; see [usage reporting by agent kind](/reference/workflow-config/#usage-reporting-by-agent-kind). |
 | `agent.max_turns` | The most turns a session runs: `agent.max_turns`, or `1` when it is below `1`. |
 | `agent.stall_timeout_ms` | Integer, or `null` when stall detection is off. |
 | `agent.max_retry_backoff_ms` | The cap on retry backoff in milliseconds. |
@@ -1413,7 +1413,7 @@ Most members follow the last successful load of `WORKFLOW.md`; a reload that fai
 | `dispatch.rules[].match` | Present only when `selected_by` is `"match"`. Holds each non-empty key of the rule's `match` block: `labels`, `issue_type`, `title`, `identifier`, and `assignee` as lists in the order written, and `priority` as `{"op": "<op>", "value": n}` for `eq`, `lt`, `lte`, `gt`, and `gte`, or `{"op": "in", "values": [...]}` for `in`. |
 | `dispatch.rules[].next` | The rule that follows this one in a [stage chain](/reference/workflow-config/#stage-chains). Omitted when the rule has none. |
 | `dispatch.rules[].agent_kind` | The agent kind dispatch resolves for the rule. |
-| `dispatch.rules[].usage_arrival` | The rule's usage-reporting arrival, resolved like `agent.usage_arrival` with the rule's settings block laid over its kind's block. One kind can report under one rule and report nothing under another. |
+| `dispatch.rules[].usage_arrival` | The rule's usage-reporting arrival, derived like `agent.usage_arrival` from the rule's agent kind. The rule's settings block does not change it, so rules that run the same kind report the same value. |
 | `dispatch.default` | `{"agent_kind", "usage_arrival"}` of the `dispatch.default` block when it names an agent or a template, otherwise `null`. A running or retry row whose `rule_name` is `default` ran on this selection. A row with no `rule_name` ran on the workflow-wide agent. A catch-all rule takes every issue that no stage rule and no earlier match rule takes, so while one is configured neither `dispatch.default` nor the workflow-wide agent selects an issue. |
 | `dispatch.chains` | Each stage chain the `next` links form, as rule names in `next` order, in the order of the rules that start them. A chain starts at a rule that carries `next` and that no `next` names, and ends at a rule without `next`. Chains that share a tail list it in each. `[]` when no rule carries `next`. |
 | `dispatch.max_consecutive_hops` | The value `dispatch.max_consecutive_hops` is written with, or `null` when the key is absent. |
@@ -1532,8 +1532,11 @@ Sortie checks every parameter before it reads anything. A parameter outside this
         "cache_write_tokens": 4000
       },
       "uncached_tokens": 31100,
-      "tokens_measured": true,
-      "unaccounted_turns": 0,
+      "usage_completeness": "complete",
+      "usage_provenance": [{"source": "output", "strategy": "live"}],
+      "vendor_amounts": [],
+      "unmeasured_cause": null,
+      "unmeasured_units": [],
       "estimated_cost_usd": 0.1923,
       "cost_status": "estimated",
       "model_usage": [
@@ -1549,7 +1552,8 @@ Sortie checks every parameter before it reads anything. A parameter outside this
           "uncached_tokens": 31100,
           "estimated_cost_usd": 0.1923,
           "cost_status": "estimated",
-          "unrated_classes": []
+          "unrated_classes": [],
+          "price_source": "embedded"
         }
       ],
       "chain_id": "3c8v5n2w7r1t4y6u9i0o8p2asd",
@@ -1615,12 +1619,15 @@ Runs are ordered by descending `run_id`, which is the order Sortie recorded them
 | `started_at`, `completed_at` | string | Timestamps as recorded. |
 | `dispatched_at` | string or `null` | When Sortie dispatched the first run of the pass the run belongs to, as in [dispatch time and stage position](#dispatch-time-and-stage-position). `null` when the pass cannot be dated. |
 | `turns_completed` | integer | Agent turns the run completed. |
-| `tokens` | object | The five token members of a running row's `tokens`. Each member is `null` when `tokens_measured` is `false`. A measured zero is `0`. |
-| `uncached_tokens` | integer or `null` | The run's tokens without cache reads: `tokens.total_tokens` less `tokens.cache_read_tokens`, floored at zero, so cache writes stay in it. A sibling of `tokens`, not a member of it. `null` exactly when `tokens_measured` is `false`. |
-| `tokens_measured` | boolean | `false` when the agent reported no token usage for the run. |
-| `unaccounted_turns` | integer | Turns of the run that reached the model without a token figure proven to cover the whole turn: the agent ended the turn before reporting its final usage, the report could not be read, or the figure rests on an estimated starting point after a resume. A turn that ended normally is left out when a later turn of the same run and session reports the session's running total, which includes it, unless a turn between them was stopped or failed after producing output, or rests on an estimated starting point. When non-zero, the figures in `tokens` are lower bounds. |
-| `estimated_cost_usd` | number or `null` | The estimated USD cost recorded when the run finished, from `tokens` and the rates in force then for the run's models ([`token_rates`](/reference/workflow-config/#token_rates) entries over the [price table](/reference/workflow-config/#price_table)), unrounded. Never priced again, so a later edit of the rates does not change it. Non-`null` exactly when `cost_status` is `"estimated"` or `"partial"`. |
-| `cost_status` | string | The status recorded with the cost. `"unmeasured"` when `tokens_measured` is `false`. `"estimated"` when the run has no unaccounted turns and either spent no tokens or every token class it spent was priced. `"partial"` when the estimate is a lower bound: the run has unaccounted turns and was priced or spent no tokens, or a token class it spent had no rate. `"unpriced"` when the run spent tokens and no rate priced any of them when it finished, or the run reported its spend only as a total. |
+| `tokens` | object | The five token members of a running row's `tokens`. Each member is `null` when `usage_completeness` is `"unmeasured"`. A measured zero is `0`. |
+| `uncached_tokens` | integer or `null` | The run's tokens without cache reads: `tokens.total_tokens` less `tokens.cache_read_tokens`, floored at zero, so cache writes stay in it. A sibling of `tokens`, not a member of it. `null` exactly when `usage_completeness` is `"unmeasured"`. |
+| `usage_completeness` | string | How far the run's token figure reaches. `"complete"`: it covers every turn. `"lower_bound"`: a turn spent tokens that no source counted, so the figures in `tokens` are lower bounds. `"unmeasured"`: no token figure arrived, so the run's spend is unknown, not zero. Always present; a run recorded before Sortie kept provenance gets the value its recorded figures imply. [Spend measurement](/concepts/spend-measurement/) explains how each agent kind reaches these values. |
+| `usage_provenance` | array or `null` | The sources that settled the run's token figure, as objects with `source` and `strategy`. `source` is `"protocol"` (the agent protocol's own messages), `"output"` (the runtime's own output, in a format of its own), or `"journal"` (the runtime's session records on the host that ran it). `strategy` is `"live"` (read as the reports arrived) or `"records"` (read from the session records when the turn ended). `"live"` pairs come first, then the rest by `source` and `strategy`. `[]` when no source settled a figure. `null` for a run recorded before Sortie kept provenance. |
+| `vendor_amounts` | array or `null` | The amounts the agent reported for the run in a unit other than US dollars, never converted: another currency code, or a vendor unit such as `credits`. Each element holds `unit`, `model` (the model the source attributed the amount to, `""` when it named none), `amount`, and `lower_bound` (`true` when the run may have spent more in that unit). Ordered by `unit`, then `model`. `[]` when there are none. `null` for a run recorded before Sortie kept provenance. A US-dollar amount is not listed; it can price a model's part, which `price_source` `"agent"` marks. |
+| `unmeasured_cause` | string or `null` | Why the run has no token figure. `null` unless `usage_completeness` is `"unmeasured"`. `"amounts_only"`: the agent reported amounts, in any unit US dollars included, and no token figure. `"ended_early"`: the run did not succeed and ended without a usage report. `"no_usage"`: the run succeeded and its agent sent no usage. `"unknown"`: the run was recorded before Sortie kept provenance. |
+| `unmeasured_units` | array of string | The distinct units the run reported, ascending, `USD` included, when `unmeasured_cause` is `"amounts_only"`. `[]` otherwise. |
+| `estimated_cost_usd` | number or `null` | The estimated USD cost recorded when the run finished, from `tokens` and the rates in force then for the run's models ([`token_rates`](/reference/workflow-config/#token_rates) entries over the [price table](/reference/workflow-config/#price_table)), unrounded. A model's part that no rate prices takes the US-dollar amount the agent reported for that model instead. Never priced again, so a later edit of the rates does not change it. Non-`null` exactly when `cost_status` is `"estimated"` or `"partial"`. |
+| `cost_status` | string | The status recorded with the cost. `"unmeasured"` when `usage_completeness` is `"unmeasured"`. `"estimated"` when `usage_completeness` is `"complete"` and the run either spent no tokens or had every token class it spent priced. `"partial"` when the estimate is a lower bound: `usage_completeness` is `"lower_bound"` and the run was priced or spent no tokens, a token class it spent had no rate, a model's part was left unpriced beside a priced one, or an agent-reported amount that priced a part is itself a lower bound. `"unpriced"` when the run spent tokens and nothing priced any of them when it finished, or the run reported its spend only as a total. |
 | `model_usage` | array | The run's spend split by model, one element per model the run spent tokens on, ordered by `model`. Always present, never `null`. `[]` when the run recorded no per-model spend: an unmeasured run, a run that spent nothing, and a run that reported only a total with no split by token class. See [`model_usage` elements](#model_usage-elements). |
 | `chain_id` | string | The stage chain the run belongs to. Omitted when empty. |
 | `stage_previous`, `stage_previous_outcome` | string | The rule whose hop led to the run, and the outcome of the run that made it. Omitted when empty. |
@@ -1651,7 +1658,7 @@ A run whose agent ended it with a status carries both members, shown here as the
 
 #### `model_usage` elements
 
-Each element is one model's part of the run's spend. It carries no price source and no price table version.
+Each element is one model's part of the run's spend. It carries no price table version.
 
 | Field | Type | Description |
 |---|---|---|
@@ -1659,8 +1666,9 @@ Each element is one model's part of the run's spend. It carries no price source 
 | `tokens` | object | The five token members of a running row's `tokens`, for this model. No member is `null`, and `total_tokens` is `input_tokens` plus `output_tokens`. |
 | `uncached_tokens` | integer | `tokens.total_tokens` less `tokens.cache_read_tokens`, floored at zero. |
 | `estimated_cost_usd` | number or `null` | The USD cost recorded for this model's part, unrounded and never priced again. Non-`null` exactly when `cost_status` is `"estimated"` or `"partial"`. |
-| `cost_status` | string | `"estimated"`, `"partial"` when a token class the model spent has no rate, or `"unpriced"`. A part recorded without a price reads `"unpriced"` with a `null` cost. |
+| `cost_status` | string | `"estimated"`, `"partial"` when a token class the model spent has no rate or the agent-reported amount that priced the part is a lower bound, or `"unpriced"`. A part recorded without a price reads `"unpriced"` with a `null` cost. |
 | `unrated_classes` | array or `null` | The token classes whose missing rate left the part `"partial"` or `"unpriced"`, from `input`, `output`, `cache_read`, and `cache_write`, in that order. `[]` when the part names none. `null` when the part records no classes, because it has no recorded price or was priced before the classes were kept; `null` never means `[]`. |
+| `price_source` | string or `null` | What priced the part: `"operator"` (a [`token_rates`](/reference/workflow-config/#token_rates) entry or a [price table](/reference/workflow-config/#price_table) of your own), `"fetched"` (the shared price table Sortie downloads), `"embedded"` (the price table built into the binary), or `"agent"` (the US-dollar amount the agent reported for the model, used for a model no rate prices). `null` when the part has no recorded price, and for a part recorded before Sortie kept the source. |
 
 A `status` of `"ci_failed"` marks a recorded CI result rather than an agent session: it has no `agent_kind`, and each origin member and `dispatch_id` is `""`.
 
@@ -1793,8 +1801,11 @@ Sortie checks every parameter before it reads anything. A parameter outside this
             "cache_write_tokens": 4000
           },
           "uncached_tokens": 31100,
-          "tokens_measured": true,
-          "unaccounted_turns": 0,
+          "usage_completeness": "complete",
+          "usage_provenance": [{"source": "output", "strategy": "live"}],
+          "vendor_amounts": [],
+          "unmeasured_cause": null,
+          "unmeasured_units": [],
           "estimated_cost_usd": 0.1923,
           "cost_status": "estimated",
           "model_usage": [
@@ -1810,7 +1821,8 @@ Sortie checks every parameter before it reads anything. A parameter outside this
               "uncached_tokens": 31100,
               "estimated_cost_usd": 0.1923,
               "cost_status": "estimated",
-              "unrated_classes": []
+              "unrated_classes": [],
+              "price_source": "embedded"
             }
           ],
           "self_review": null,
@@ -1852,7 +1864,12 @@ Sortie checks every parameter before it reads anything. A parameter outside this
         "uncached_tokens": 31100,
         "tokens_complete": true,
         "estimated_cost_usd": 0.1923,
-        "cost_status": "estimated"
+        "cost_status": "estimated",
+        "unmeasured_cause": null,
+        "unmeasured_units": [],
+        "vendor_amounts": [],
+        "agent_priced_usd": null,
+        "agent_priced_models": []
       }
     }
   ],
@@ -2012,7 +2029,7 @@ If the events of a finished run cannot be written, its run history record is sto
 
 ## GET /api/v1/stats: Run statistics
 
-Returns the report that [`sortie stats --format json`](/reference/cli/#stats) prints: run and issue counts, success rate, duration percentiles, token sums, and estimated cost over the runs completed in a range, with that cost per UTC day or month and breakdowns by outcome, coding agent, dispatch rule, prompt template, model, stage chain, retry trigger, and run origin, with the skill calls of the runs, and a funnel for each stage chain. The [stage funnels](/reference/cli/#stage-funnels) hold the passes running, queued for a retry, or held by a budget at the time of the request. The route and the command share one aggregation, so for one database and absolute bounds the two bodies differ only in `generated_at`, apart from the dispatch-rule difference [described below](#pricing-and-reload).
+Returns the report that [`sortie stats --format json`](/reference/cli/#stats) prints: run and issue counts, success rate, duration percentiles, token sums, and estimated cost over the runs completed in a range, with that cost per UTC day or month and breakdowns by outcome, coding agent, dispatch rule, prompt template, model, usage provenance, stage chain, retry trigger, and run origin, with the skill calls of the runs, and a funnel for each stage chain. The [stage funnels](/reference/cli/#stage-funnels) hold the passes running, queued for a retry, or held by a budget at the time of the request. The route and the command share one aggregation, so for one database and absolute bounds the two bodies differ only in `generated_at`, apart from the dispatch-rule difference [described below](#pricing-and-reload).
 
 ```sh
 curl 'http://localhost:7678/api/v1/stats?since=24h'
@@ -2041,7 +2058,7 @@ Sortie checks every parameter before it reads anything, so a malformed request n
 
 ### Response
 
-The body is compact JSON with the shape of the command's `--format json` output. [Output formats](/reference/cli/#output-formats) in the CLI reference defines every field, including `summary.issues`, `spend`, `by_model`, `by_trigger`, and `by_origin`. The example is for a workflow that defines no stage chain, so `by_chain` and `chain_funnels` are `[]`, and it lists one group in each breakdown that is not split by outcome or trigger. `summary` also holds `failed`, `stopped`, and `cancelled`, the runs by outcome, which add up to `runs` with `succeeded`. Every `tokens` object carries `uncached`, `total` less `cache_read`, so `uncached` plus `cache_read` equals `total`.
+The body is compact JSON with the shape of the command's `--format json` output. [Output formats](/reference/cli/#output-formats) in the CLI reference defines every field, including `summary.issues`, `spend`, `by_model`, `by_trigger`, `by_origin`, and `by_provenance`. The example is for a workflow that defines no stage chain, so `by_chain` and `chain_funnels` are `[]`, and it lists one group in each breakdown that is not split by outcome, trigger, or usage provenance. `summary` also holds `failed`, `stopped`, and `cancelled`, the runs by outcome, which add up to `runs` with `succeeded`. Every `tokens` object carries `uncached`, `total` less `cache_read`, so `uncached` plus `cache_read` equals `total`.
 
 ```json
 {
@@ -2069,13 +2086,19 @@ The body is compact JSON with the shape of the command's `--format json` output.
     "duration_excluded_runs": 1,
     "cost_unpriced_runs": 1,
     "cost_partial_runs": 1,
-    "tokens_unmeasured_runs": 1
+    "tokens_unmeasured_runs": 1,
+    "tokens_lower_bound_runs": 0,
+    "tokens_lower_bound": true,
+    "cost_lower_bound": true,
+    "agent_priced_usd": null,
+    "unmeasured_cause": "ended_early",
+    "unmeasured_units": []
   },
   "spend": {
     "period": "day",
     "buckets": [
-      {"start": "2026-02-23T00:00:00Z", "runs": 2, "cost_usd": 7.27, "tokens_unmeasured_runs": 1, "cost_unpriced_runs": 0, "cost_partial_runs": 0},
-      {"start": "2026-02-24T00:00:00Z", "runs": 4, "cost_usd": 12.25, "tokens_unmeasured_runs": 0, "cost_unpriced_runs": 1, "cost_partial_runs": 1}
+      {"start": "2026-02-23T00:00:00Z", "runs": 2, "cost_usd": 7.27, "tokens_unmeasured_runs": 1, "cost_unpriced_runs": 0, "cost_partial_runs": 0, "cost_lower_bound": true, "agent_priced_usd": null},
+      {"start": "2026-02-24T00:00:00Z", "runs": 4, "cost_usd": 12.25, "tokens_unmeasured_runs": 0, "cost_unpriced_runs": 1, "cost_partial_runs": 1, "cost_lower_bound": true, "agent_priced_usd": null}
     ]
   },
   "by_status": [
@@ -2092,7 +2115,13 @@ The body is compact JSON with the shape of the command's `--format json` output.
       "cost_per_succeeded_run_usd": 5.956666667,
       "tokens_unmeasured_runs": 0,
       "cost_unpriced_runs": 0,
-      "cost_partial_runs": 0
+      "cost_partial_runs": 0,
+      "tokens_lower_bound_runs": 0,
+      "tokens_lower_bound": false,
+      "cost_lower_bound": false,
+      "agent_priced_usd": null,
+      "unmeasured_cause": null,
+      "unmeasured_units": []
     },
     {
       "name": "failed",
@@ -2107,7 +2136,13 @@ The body is compact JSON with the shape of the command's `--format json` output.
       "cost_per_succeeded_run_usd": null,
       "tokens_unmeasured_runs": 0,
       "cost_unpriced_runs": 0,
-      "cost_partial_runs": 0
+      "cost_partial_runs": 0,
+      "tokens_lower_bound_runs": 0,
+      "tokens_lower_bound": false,
+      "cost_lower_bound": false,
+      "agent_priced_usd": null,
+      "unmeasured_cause": null,
+      "unmeasured_units": []
     },
     {
       "name": "cancelled",
@@ -2122,7 +2157,13 @@ The body is compact JSON with the shape of the command's `--format json` output.
       "cost_per_succeeded_run_usd": null,
       "tokens_unmeasured_runs": 0,
       "cost_unpriced_runs": 1,
-      "cost_partial_runs": 0
+      "cost_partial_runs": 0,
+      "tokens_lower_bound_runs": 0,
+      "tokens_lower_bound": false,
+      "cost_lower_bound": false,
+      "agent_priced_usd": null,
+      "unmeasured_cause": null,
+      "unmeasured_units": []
     }
   ],
   "by_adapter": [
@@ -2139,7 +2180,13 @@ The body is compact JSON with the shape of the command's `--format json` output.
       "cost_per_succeeded_run_usd": 6.506666667,
       "tokens_unmeasured_runs": 1,
       "cost_unpriced_runs": 1,
-      "cost_partial_runs": 1
+      "cost_partial_runs": 1,
+      "tokens_lower_bound_runs": 0,
+      "tokens_lower_bound": true,
+      "cost_lower_bound": true,
+      "agent_priced_usd": null,
+      "unmeasured_cause": "ended_early",
+      "unmeasured_units": []
     }
   ],
   "by_rule": [
@@ -2156,7 +2203,13 @@ The body is compact JSON with the shape of the command's `--format json` output.
       "cost_per_succeeded_run_usd": 6.506666667,
       "tokens_unmeasured_runs": 1,
       "cost_unpriced_runs": 1,
-      "cost_partial_runs": 1
+      "cost_partial_runs": 1,
+      "tokens_lower_bound_runs": 0,
+      "tokens_lower_bound": true,
+      "cost_lower_bound": true,
+      "agent_priced_usd": null,
+      "unmeasured_cause": "ended_early",
+      "unmeasured_units": []
     }
   ],
   "by_template": [
@@ -2173,7 +2226,13 @@ The body is compact JSON with the shape of the command's `--format json` output.
       "cost_per_succeeded_run_usd": 6.506666667,
       "tokens_unmeasured_runs": 1,
       "cost_unpriced_runs": 1,
-      "cost_partial_runs": 1
+      "cost_partial_runs": 1,
+      "tokens_lower_bound_runs": 0,
+      "tokens_lower_bound": true,
+      "cost_lower_bound": true,
+      "agent_priced_usd": null,
+      "unmeasured_cause": "ended_early",
+      "unmeasured_units": []
     }
   ],
   "by_model": [
@@ -2190,7 +2249,13 @@ The body is compact JSON with the shape of the command's `--format json` output.
       "cost_per_succeeded_run_usd": 6.506666667,
       "tokens_unmeasured_runs": 1,
       "cost_unpriced_runs": 1,
-      "cost_partial_runs": 1
+      "cost_partial_runs": 1,
+      "tokens_lower_bound_runs": 0,
+      "tokens_lower_bound": true,
+      "cost_lower_bound": true,
+      "agent_priced_usd": null,
+      "unmeasured_cause": "ended_early",
+      "unmeasured_units": []
     }
   ],
   "by_chain": [],
@@ -2209,7 +2274,13 @@ The body is compact JSON with the shape of the command's `--format json` output.
       "cost_per_succeeded_run_usd": 3.76,
       "tokens_unmeasured_runs": 1,
       "cost_unpriced_runs": 0,
-      "cost_partial_runs": 1
+      "cost_partial_runs": 1,
+      "tokens_lower_bound_runs": 0,
+      "tokens_lower_bound": true,
+      "cost_lower_bound": true,
+      "agent_priced_usd": null,
+      "unmeasured_cause": "ended_early",
+      "unmeasured_units": []
     },
     {
       "name": "<none>",
@@ -2224,7 +2295,13 @@ The body is compact JSON with the shape of the command's `--format json` output.
       "cost_per_succeeded_run_usd": null,
       "tokens_unmeasured_runs": 0,
       "cost_unpriced_runs": 1,
-      "cost_partial_runs": 0
+      "cost_partial_runs": 0,
+      "tokens_lower_bound_runs": 0,
+      "tokens_lower_bound": false,
+      "cost_lower_bound": false,
+      "agent_priced_usd": null,
+      "unmeasured_cause": null,
+      "unmeasured_units": []
     },
     {
       "name": "ci_fix",
@@ -2239,7 +2316,13 @@ The body is compact JSON with the shape of the command's `--format json` output.
       "cost_per_succeeded_run_usd": 12,
       "tokens_unmeasured_runs": 0,
       "cost_unpriced_runs": 0,
-      "cost_partial_runs": 0
+      "cost_partial_runs": 0,
+      "tokens_lower_bound_runs": 0,
+      "tokens_lower_bound": false,
+      "cost_lower_bound": false,
+      "agent_priced_usd": null,
+      "unmeasured_cause": null,
+      "unmeasured_units": []
     }
   ],
   "by_origin": [
@@ -2256,9 +2339,60 @@ The body is compact JSON with the shape of the command's `--format json` output.
       "cost_per_succeeded_run_usd": 6.506666667,
       "tokens_unmeasured_runs": 1,
       "cost_unpriced_runs": 1,
-      "cost_partial_runs": 1
+      "cost_partial_runs": 1,
+      "tokens_lower_bound_runs": 0,
+      "tokens_lower_bound": true,
+      "cost_lower_bound": true,
+      "agent_priced_usd": null,
+      "unmeasured_cause": "ended_early",
+      "unmeasured_units": []
     }
   ],
+  "by_provenance": [
+    {
+      "name": "output:live",
+      "runs": 5,
+      "succeeded": 3,
+      "success_rate": 0.6,
+      "share": 0.8333,
+      "duration_seconds": {"p50": 1200, "p95": 1800, "mean": 1200, "samples": 3},
+      "mean_turns": 4,
+      "tokens": {"input": 3900000, "output": 760000, "total": 4660000, "cache_read": 50000, "cache_write": 10000, "uncached": 4610000},
+      "cost_usd": 19.52,
+      "cost_per_succeeded_run_usd": 6.506666667,
+      "tokens_unmeasured_runs": 0,
+      "cost_unpriced_runs": 1,
+      "cost_partial_runs": 1,
+      "tokens_lower_bound_runs": 0,
+      "tokens_lower_bound": false,
+      "cost_lower_bound": true,
+      "agent_priced_usd": null,
+      "unmeasured_cause": null,
+      "unmeasured_units": []
+    },
+    {
+      "name": "<none>",
+      "runs": 1,
+      "succeeded": 0,
+      "success_rate": 0,
+      "share": 0.1667,
+      "duration_seconds": {"p50": 300, "p95": 300, "mean": 300, "samples": 1},
+      "mean_turns": 1,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_per_succeeded_run_usd": null,
+      "tokens_unmeasured_runs": 1,
+      "cost_unpriced_runs": 0,
+      "cost_partial_runs": 0,
+      "tokens_lower_bound_runs": 0,
+      "tokens_lower_bound": false,
+      "cost_lower_bound": false,
+      "agent_priced_usd": null,
+      "unmeasured_cause": "ended_early",
+      "unmeasured_units": []
+    }
+  ],
+  "skill_calls": {"unrecorded_runs": 0, "by_skill": []},
   "self_review": {
     "runs_with_metadata": 0,
     "by_final_verdict": [],
@@ -2631,8 +2765,11 @@ Every `200` response carries `history`. The running and finished examples show i
           "cache_write_tokens": 2000
         },
         "uncached_tokens": 25000,
-        "tokens_measured": true,
-        "unaccounted_turns": 0,
+        "usage_completeness": "complete",
+        "usage_provenance": [{"source": "output", "strategy": "live"}],
+        "vendor_amounts": [],
+        "unmeasured_cause": null,
+        "unmeasured_units": [],
         "estimated_cost_usd": 0.174,
         "cost_status": "estimated",
         "self_review": null,
@@ -2656,7 +2793,8 @@ Every `200` response carries `history`. The running and finished examples show i
             "uncached_tokens": 25000,
             "estimated_cost_usd": 0.174,
             "cost_status": "estimated",
-            "unrated_classes": []
+            "unrated_classes": [],
+            "price_source": "embedded"
           }
         ],
         "stage_chain": null,
@@ -2689,8 +2827,11 @@ Every `200` response carries `history`. The running and finished examples show i
           "cache_write_tokens": 3000
         },
         "uncached_tokens": 30000,
-        "tokens_measured": true,
-        "unaccounted_turns": 0,
+        "usage_completeness": "complete",
+        "usage_provenance": [{"source": "output", "strategy": "live"}],
+        "vendor_amounts": [],
+        "unmeasured_cause": null,
+        "unmeasured_units": [],
         "estimated_cost_usd": 0.261,
         "cost_status": "estimated",
         "self_review": null,
@@ -2714,7 +2855,8 @@ Every `200` response carries `history`. The running and finished examples show i
             "uncached_tokens": 30000,
             "estimated_cost_usd": 0.261,
             "cost_status": "estimated",
-            "unrated_classes": []
+            "unrated_classes": [],
+            "price_source": "embedded"
           }
         ],
         "stage_chain": null,
@@ -2736,7 +2878,12 @@ Every `200` response carries `history`. The running and finished examples show i
       "uncached_tokens": 55000,
       "tokens_complete": true,
       "estimated_cost_usd": 0.435,
-      "cost_status": "estimated"
+      "cost_status": "estimated",
+      "unmeasured_cause": null,
+      "unmeasured_units": [],
+      "vendor_amounts": [],
+      "agent_priced_usd": null,
+      "agent_priced_models": []
     },
     "hops": [],
     "last_stage": null,
@@ -2839,8 +2986,11 @@ When an issue is in the retry queue rather than actively running, `status` is `"
           "cache_write_tokens": 2000
         },
         "uncached_tokens": 25000,
-        "tokens_measured": true,
-        "unaccounted_turns": 0,
+        "usage_completeness": "complete",
+        "usage_provenance": [{"source": "output", "strategy": "live"}],
+        "vendor_amounts": [],
+        "unmeasured_cause": null,
+        "unmeasured_units": [],
         "estimated_cost_usd": 0.174,
         "cost_status": "estimated",
         "model_usage": [
@@ -2856,7 +3006,8 @@ When an issue is in the retry queue rather than actively running, `status` is `"
             "uncached_tokens": 25000,
             "estimated_cost_usd": 0.174,
             "cost_status": "estimated",
-            "unrated_classes": []
+            "unrated_classes": [],
+            "price_source": "embedded"
           }
         ],
         "self_review": null,
@@ -2897,8 +3048,11 @@ When an issue is in the retry queue rather than actively running, `status` is `"
           "cache_write_tokens": 2000
         },
         "uncached_tokens": 25000,
-        "tokens_measured": true,
-        "unaccounted_turns": 0,
+        "usage_completeness": "complete",
+        "usage_provenance": [{"source": "output", "strategy": "live"}],
+        "vendor_amounts": [],
+        "unmeasured_cause": null,
+        "unmeasured_units": [],
         "estimated_cost_usd": 0.174,
         "cost_status": "estimated",
         "model_usage": [
@@ -2914,7 +3068,8 @@ When an issue is in the retry queue rather than actively running, `status` is `"
             "uncached_tokens": 25000,
             "estimated_cost_usd": 0.174,
             "cost_status": "estimated",
-            "unrated_classes": []
+            "unrated_classes": [],
+            "price_source": "embedded"
           }
         ],
         "self_review": null,
@@ -2944,7 +3099,12 @@ When an issue is in the retry queue rather than actively running, `status` is `"
       "uncached_tokens": 50000,
       "tokens_complete": true,
       "estimated_cost_usd": 0.348,
-      "cost_status": "estimated"
+      "cost_status": "estimated",
+      "unmeasured_cause": null,
+      "unmeasured_units": [],
+      "vendor_amounts": [],
+      "agent_priced_usd": null,
+      "agent_priced_models": []
     },
     "hops": [],
     "last_stage": {
@@ -3044,8 +3204,11 @@ When an issue has neither a running session nor a pending retry, but is held out
           "cache_write_tokens": 2000
         },
         "uncached_tokens": 25000,
-        "tokens_measured": true,
-        "unaccounted_turns": 0,
+        "usage_completeness": "complete",
+        "usage_provenance": [{"source": "output", "strategy": "live"}],
+        "vendor_amounts": [],
+        "unmeasured_cause": null,
+        "unmeasured_units": [],
         "estimated_cost_usd": 0.174,
         "cost_status": "estimated",
         "model_usage": [
@@ -3061,7 +3224,8 @@ When an issue has neither a running session nor a pending retry, but is held out
             "uncached_tokens": 25000,
             "estimated_cost_usd": 0.174,
             "cost_status": "estimated",
-            "unrated_classes": []
+            "unrated_classes": [],
+            "price_source": "embedded"
           }
         ],
         "self_review": null,
@@ -3091,7 +3255,12 @@ When an issue has neither a running session nor a pending retry, but is held out
       "uncached_tokens": 25000,
       "tokens_complete": true,
       "estimated_cost_usd": 0.174,
-      "cost_status": "estimated"
+      "cost_status": "estimated",
+      "unmeasured_cause": null,
+      "unmeasured_units": [],
+      "vendor_amounts": [],
+      "agent_priced_usd": null,
+      "agent_priced_models": []
     },
     "hops": [],
     "last_stage": {
@@ -3185,8 +3354,11 @@ When an issue has no running session, no pending retry, and no budget hold, but 
           "cache_write_tokens": 2000
         },
         "uncached_tokens": 25000,
-        "tokens_measured": true,
-        "unaccounted_turns": 0,
+        "usage_completeness": "complete",
+        "usage_provenance": [{"source": "output", "strategy": "live"}],
+        "vendor_amounts": [],
+        "unmeasured_cause": null,
+        "unmeasured_units": [],
         "estimated_cost_usd": 0.174,
         "cost_status": "estimated",
         "model_usage": [
@@ -3202,7 +3374,8 @@ When an issue has no running session, no pending retry, and no budget hold, but 
             "uncached_tokens": 25000,
             "estimated_cost_usd": 0.174,
             "cost_status": "estimated",
-            "unrated_classes": []
+            "unrated_classes": [],
+            "price_source": "embedded"
           }
         ],
         "self_review": null,
@@ -3232,7 +3405,12 @@ When an issue has no running session, no pending retry, and no budget hold, but 
       "uncached_tokens": 25000,
       "tokens_complete": true,
       "estimated_cost_usd": 0.174,
-      "cost_status": "estimated"
+      "cost_status": "estimated",
+      "unmeasured_cause": null,
+      "unmeasured_units": [],
+      "vendor_amounts": [],
+      "agent_priced_usd": null,
+      "agent_priced_models": []
     },
     "hops": [],
     "last_stage": null,
@@ -3343,8 +3521,11 @@ When an issue has no running session, no pending retry, no budget hold, and is n
           "cache_write_tokens": 2000
         },
         "uncached_tokens": 25000,
-        "tokens_measured": true,
-        "unaccounted_turns": 0,
+        "usage_completeness": "complete",
+        "usage_provenance": [{"source": "output", "strategy": "live"}],
+        "vendor_amounts": [],
+        "unmeasured_cause": null,
+        "unmeasured_units": [],
         "estimated_cost_usd": 0.174,
         "cost_status": "estimated",
         "model_usage": [
@@ -3360,7 +3541,8 @@ When an issue has no running session, no pending retry, no budget hold, and is n
             "uncached_tokens": 25000,
             "estimated_cost_usd": 0.174,
             "cost_status": "estimated",
-            "unrated_classes": []
+            "unrated_classes": [],
+            "price_source": "embedded"
           }
         ],
         "self_review": null,
@@ -3390,7 +3572,12 @@ When an issue has no running session, no pending retry, no budget hold, and is n
       "uncached_tokens": 25000,
       "tokens_complete": true,
       "estimated_cost_usd": 0.174,
-      "cost_status": "estimated"
+      "cost_status": "estimated",
+      "unmeasured_cause": null,
+      "unmeasured_units": [],
+      "vendor_amounts": [],
+      "agent_priced_usd": null,
+      "agent_priced_models": []
     },
     "hops": [],
     "last_stage": null,
@@ -3488,8 +3675,11 @@ When an issue has no running session, no pending retry, no budget hold, is not p
           "cache_write_tokens": 2000
         },
         "uncached_tokens": 25000,
-        "tokens_measured": true,
-        "unaccounted_turns": 0,
+        "usage_completeness": "complete",
+        "usage_provenance": [{"source": "output", "strategy": "live"}],
+        "vendor_amounts": [],
+        "unmeasured_cause": null,
+        "unmeasured_units": [],
         "estimated_cost_usd": 0.174,
         "cost_status": "estimated",
         "model_usage": [
@@ -3505,7 +3695,8 @@ When an issue has no running session, no pending retry, no budget hold, is not p
             "uncached_tokens": 25000,
             "estimated_cost_usd": 0.174,
             "cost_status": "estimated",
-            "unrated_classes": []
+            "unrated_classes": [],
+            "price_source": "embedded"
           }
         ],
         "self_review": null,
@@ -3535,7 +3726,12 @@ When an issue has no running session, no pending retry, no budget hold, is not p
       "uncached_tokens": 25000,
       "tokens_complete": true,
       "estimated_cost_usd": 0.174,
-      "cost_status": "estimated"
+      "cost_status": "estimated",
+      "unmeasured_cause": null,
+      "unmeasured_units": [],
+      "vendor_amounts": [],
+      "agent_priced_usd": null,
+      "agent_priced_models": []
     },
     "hops": [],
     "last_stage": {
@@ -3605,8 +3801,11 @@ When no live entry holds the issue but run history does, `status` is `"history"`
           "cache_write_tokens": 4000
         },
         "uncached_tokens": 31100,
-        "tokens_measured": true,
-        "unaccounted_turns": 0,
+        "usage_completeness": "complete",
+        "usage_provenance": [{"source": "output", "strategy": "live"}],
+        "vendor_amounts": [],
+        "unmeasured_cause": null,
+        "unmeasured_units": [],
         "estimated_cost_usd": 0.1923,
         "cost_status": "estimated",
         "chain_id": "7h2k9x4m1q8w3e5r6t0y2uiop1",
@@ -3633,7 +3832,8 @@ When no live entry holds the issue but run history does, `status` is `"history"`
             "uncached_tokens": 31100,
             "estimated_cost_usd": 0.1923,
             "cost_status": "estimated",
-            "unrated_classes": []
+            "unrated_classes": [],
+            "price_source": "embedded"
           }
         ],
         "stage_chain": ["specify", "implement"],
@@ -3661,7 +3861,12 @@ When no live entry holds the issue but run history does, `status` is `"history"`
       "uncached_tokens": 31100,
       "tokens_complete": true,
       "estimated_cost_usd": 0.1923,
-      "cost_status": "estimated"
+      "cost_status": "estimated",
+      "unmeasured_cause": null,
+      "unmeasured_units": [],
+      "vendor_amounts": [],
+      "agent_priced_usd": null,
+      "agent_priced_models": []
     },
     "hops": [
       {
@@ -3755,9 +3960,14 @@ Every `200` response carries `history`. It is `null` when the issue has no recor
 | `unmeasured_runs` | Runs whose agent reported no token usage. |
 | `tokens` | The five token members of a running row's `tokens`. Each is `null` when its sum is `0` and `tokens_complete` is `false`, so spend Sortie does not know never reads as zero. |
 | `uncached_tokens` | Integer or `null`. The issue's tokens without cache reads over all of its runs: for each run, `total_tokens` less `cache_read_tokens`, floored at zero, summed. This is the count [`agent.max_tokens`](/reference/workflow-config/#agent) is compared with. `null` under the rule of the members of `tokens`. |
-| `tokens_complete` | `true` when no run is unmeasured and no run has an unaccounted turn. When `false`, the figures in `tokens` and `uncached_tokens` are lower bounds. |
+| `tokens_complete` | `true` when every run's `usage_completeness` is `"complete"`. When `false`, the figures in `tokens` and `uncached_tokens` are lower bounds. |
 | `estimated_cost_usd` | Number or `null`. The sum of the costs recorded with the issue's runs, each priced under the rates in force when it finished. Unrounded. |
 | `cost_status` | `"estimated"`, `"partial"`, `"unpriced"`, or `"unmeasured"`, with the meaning of `issue_cost_status` in the [`GET /api/v1/state` field notes](#field-notes). |
+| `unmeasured_cause` | String or `null`. The `unmeasured_cause` the issue's unmeasured runs share, or `"mixed"` when they differ in cause or, for `"amounts_only"`, in the units they reported. `null` when no run is unmeasured. |
+| `unmeasured_units` | The units the unmeasured runs reported, ascending, when `unmeasured_cause` is `"amounts_only"`. `[]` otherwise. |
+| `vendor_amounts` | The amounts the issue's runs reported in units other than US dollars, summed per unit and never converted: one element per unit with `unit`, `amount`, and `lower_bound` (`true` when any summed amount is a lower bound). Ordered by `unit`. `[]` when there are none. |
+| `agent_priced_usd` | Number or `null`. The part of `estimated_cost_usd` priced from US-dollar amounts the agent reported, the model parts whose `price_source` is `"agent"`. `null` when no part was priced that way. |
+| `agent_priced_models` | The models of those parts, ascending and each listed once, `""` for a part that named no model. `[]` when there are none. |
 
 **`hops` members:**
 

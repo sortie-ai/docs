@@ -6,7 +6,7 @@ date: 2026-09-09
 weight: 146
 url: /reference/agent-client-protocol-gemini/
 ---
-[Gemini CLI](https://github.com/google-gemini/gemini-cli) has no dedicated Sortie adapter package, no registered kind, and no Gemini-specific handling beyond [token accounting](#token-accounting-reads-local-files-and-its-in-turn-signal-understates). It reaches Sortie through the generic [`agent-client-protocol`](/reference/adapter-agent-client-protocol/) kind: `agent.command` names the `gemini` binary together with `--acp`, the flag that puts it into protocol mode. Apart from token accounting, everything on this page is a property of this one runtime meeting the generic adapter.
+[Gemini CLI](https://github.com/google-gemini/gemini-cli) has no dedicated Sortie adapter package, no registered kind, and no Gemini-specific handling beyond [token accounting](#token-accounting-reads-local-files-and-its-in-turn-signal-understates), [usage limits](#usage-limits), and the system prompt Sortie hands a local [credential-verification](/reference/workflow-config/#credential-verification) session. It reaches Sortie through the generic [`agent-client-protocol`](/reference/adapter-agent-client-protocol/) kind: `agent.command` names the `gemini` binary together with `--acp`, the flag that puts it into protocol mode. Apart from those, everything on this page is a property of this one runtime meeting the generic adapter.
 
 Sample workflow: [`examples/WORKFLOW.agent-client-protocol.md`](https://github.com/sortie-ai/sortie/blob/main/examples/WORKFLOW.agent-client-protocol.md).
 
@@ -91,44 +91,65 @@ Each model's quota is one limit, labelled with the model identifier followed by 
 
 ## Limitations
 
-### Token accounting reads local files, and its in-turn signal understates
+### Token accounting reads the prompt result and the chat journal {#token-accounting-reads-local-files-and-its-in-turn-signal-understates}
 
-This runtime never sends the protocol's standard usage notification. Sortie measures it anyway, from two files the runtime itself writes on the machine that ran it: its OpenTelemetry output, checked first, and its own session transcript (the file under `~/.gemini/tmp/<project>/chats/`, or the same layout under `GEMINI_CLI_HOME`), read only once the first hasn't caught up within several seconds, with whichever of the two then shows the larger total winning. The transcript is written before a prompt result comes back, so it still holds a figure for a turn Sortie cancels before the telemetry batch lands.
+Sortie measures this runtime from what it reports without any switch: the `usage` member of each `session/prompt` result, and the chat journal the runtime writes on the machine that runs it. Sortie sets no telemetry variable and adds nothing to the launch for this. Both sources are read on a local launch and on an [SSH worker](/reference/adapter-agent-client-protocol/#ssh-remote-execution), where the journal is read on the worker host.
 
-Each telemetry record and each transcript message names its model, and the winning source's figure is kept per model. A record that names no model adds to no entry (see [the model label](/reference/prometheus-metrics/#the-model-label)).
-
-To get the first file at all, Sortie sets four environment variables on the launch: `GEMINI_TELEMETRY_ENABLED=true`, `GEMINI_TELEMETRY_TARGET=local`, `GEMINI_TELEMETRY_LOG_PROMPTS=false`, and `GEMINI_TELEMETRY_OUTFILE` pointing into a private directory it creates for the session and removes when the session ends. It appends those four to the environment it starts from, so they override any value already set there for the session's runtime, and nothing else on the machine sees them.
-
-A Sortie process killed rather than stopped can leave that directory behind. This combination is what makes Gemini CLI the one runtime on this kind whose local sessions are measured at all.
-
-Sortie sets those variables only on a launch it identifies as Gemini CLI. `agent.command` identifies it when the program or any argument is one of:
+The session is measured this way when the `initialize` handshake reports `gemini-cli` in `agentInfo.name`. When the handshake reports no name, `agent.command` decides, and it names the runtime when the program or any argument is one of:
 
 - The `gemini` executable, bare or as a path, in any letter case, optionally ending in `.cmd`, `.ps1`, `.exe`, or `.js`. A bare `gemini` that is the value of a preceding option flag, as in `--profile gemini`, does not count. A path does.
 - The `@google/gemini-cli` package, bare, followed by `@` and a version, or as a path element such as one under `node_modules`.
 
-A command line that names neither, such as a wrapper script called `run-agent.sh`, is identified by the handshake instead: when the runtime reports itself as `gemini-cli`, Sortie starts the command again with the four variables set. The reverse holds too: an `agent.command` that names `gemini` but starts another runtime is started again without them. The kind page describes the [restart](/reference/adapter-agent-client-protocol/#restart-to-settle-the-measurement-source) and the records it logs. The process a session runs on carries these variables only when its runtime is Gemini CLI, and never over SSH.
+On an SSH worker the words checked are those of the remote command. A handshake that names a different runtime than `agent.command` does decides the measurement, and the session logs `agent runtime differs from its configured command` at `Warn` with `configured_runtime`, `handshake_runtime`, and `usage_declaration`. The runtime starts once either way.
 
-[The kind page](/reference/adapter-agent-client-protocol/#token-accounting) carries the general conditions and the notice that tells you which way a session went. Two of those are settled before the session is created: a session over SSH is never measured, because both files live on the machine that ran the runtime, and the handshake has to name `gemini-cli` in `agentInfo.name`. Sortie refuses no build for its version.
+| Count | Prompt result `usage` | Chat journal record |
+|---|---|---|
+| Input | `inputTokens`, which already holds cache reads | `input` plus `tool` |
+| Output | `outputTokens` plus `thoughtTokens` | `output` plus `thoughts` |
+| Cache read | `cachedReadTokens` | `cached` |
+| Cache write | `cachedWriteTokens` | Always 0 |
+| Model | None | The record's `model` |
 
-A telemetry or transcript record counts only when it carries every counter Sortie maps (input, output, cached, and thoughts token counts), and a record missing one counts as no record. A session whose records cannot be mapped this way ends unmeasured or with unaccounted turns, and the notice, dashboard wording, and log lines that show it are the ones the kind page lists.
+The prompt result covers the turn alone. The runtime leaves out a counter that is zero, so an absent `thoughtTokens`, `cachedReadTokens`, or `cachedWriteTokens` reads as 0. An absent `inputTokens` or `outputTokens`, or any member that is null or not an integer, leaves the result without a figure. `totalTokens` is never read, because it leaves thought tokens out. A `_meta.quota` token count above zero on the result marks the turn as one that reached a model and adds nothing to the figure.
 
-The third plays out per turn, bounded by [`agent.read_timeout_ms`](/reference/adapter-agent-client-protocol/#agent-section): Sortie's own wait for a turn's figure runs up to about six seconds, because the runtime batches its telemetry on a five-second tick no configuration shortens and that six seconds is the tick itself plus a margin for the write to land, not six seconds on top of it.
+The chat journal is a JSON Lines file under `.gemini/tmp/<project>/chats/` in `GEMINI_CLI_HOME`, else in the home directory, as the runtime's host resolves it. Its name holds the session's start minute and the first 8 characters of the session ID, so Sortie finds it by the pattern `session-*-<first 8 characters>.jsonl` and counts a matched file only when its first line names the session's own `sessionId`. A session ID whose first 8 characters are not ASCII letters, digits, or `-` leaves the journal unread. Each `gemini` line that carries `tokens` is one completed model request, keyed by its `id`:
 
-At the default five-second `read_timeout_ms`, a turn whose telemetry hasn't caught up by then ends without a figure of its own, counted among the run's unaccounted turns rather than as a turn that spent nothing, while the source is kept for the next turn: the wait ended before the source itself answered, so nothing about the source's own standing changed. Raising `read_timeout_ms` to about six seconds or more is what lets a turn's own wait run the source to its natural conclusion instead, and only there can a turn that gets nothing back drop the source outright, under the rule the kind page states.
+- A repeated `id` counts once.
+- `$rewindTo` and `$patch` lines take nothing back, because a rewound or compressed request was still billed.
+- A line Sortie cannot decode, such as one a kill tore, is a reading of unknown size, never zero.
+- A journal larger than 64 MiB, or a line longer than 10 MiB, is a failed read.
 
-Nothing names the individual turn that went either way. The count of such turns joins the issue's when the turn ends: `used_tokens_complete` on the [`cost_budget` tool](/reference/agent-extensions/#cost_budget) then reads `false`, even while the session is still running. The token-ceiling log records carry the count as `unaccounted_turns` only for finished sessions, so the running session's turns join it once the session ends. The dashboard's session view lists such a turn as completed with no tokens and draws no bar for it in its [Tokens per turn](/reference/dashboard/#session-view) chart, and `sortie stats` reports no per-turn figures.
+The runtime appends a request's line only when the request completes, so the request still streaming when a turn is cancelled or the runtime is killed has no line.
 
-Resuming a saved session does not recount what an earlier run already measured: both files are read starting from the position they held when this session opened, not from the beginning of the runtime's own history.
+| How the turn ends | What Sortie records |
+|---|---|
+| The prompt result carries a figure | The result's figure. The journal splits it by the model that served each request; when the journal cannot be read, the figure is kept with no model. |
+| The prompt result carries no figure | The journal's requests that no earlier turn counted. |
+| Cancelled, or the runtime killed, after the turn reached a model | The journal's requests that no earlier turn counted, as a lower bound, because the request in flight is missing. |
+| The journal cannot be read and the result has no figure | Spend that occurred with the amount unknown, counted among the run's unaccounted turns. |
 
-Separately, the runtime attaches its own token counts to a completed turn's result on a vendor-namespaced field, which Sortie reads as a lower bound on that turn rather than as the spend it records. That field is incomplete in two ways: a turn Sortie cancels carries no such field at all, and even a turn that does carry it reports only input and output counts, never cached or thought tokens.
+Sortie cancels a turn that exceeds `agent.stall_timeout_ms` or `agent.turn_timeout_ms`, so a cancelled turn's lower bound is reachable in ordinary operation.
 
-Sortie cancels a turn that exceeds `agent.stall_timeout_ms` or `agent.turn_timeout_ms`, so the first gap is reachable in ordinary operation, not only at the edge of a run.
+The session's current model, from the `models.currentModelId` member of the `session/new` or `session/load` result, decides whether a turn's figure can be complete. When it is `auto`, begins with `auto-`, or is absent, every turn of the session is a lower bound, because the request that picks the model is in neither source. That covers a run whose `agent.command` pins no model, such as the sample's. A session on a concrete model, such as one `--model <id>` pins, reports complete figures.
+
+These model requests are in neither source and leave a turn that reads complete, so its figure understates the spend without saying so:
+
+- Web search and web fetch.
+- The runtime's loop check.
+- History compression.
+- Invalid streams.
+- Subagents.
+- Routing through a model definition with `tier: "auto"` under a name that does not begin with `auto`.
+
+Resuming a saved session does not recount what an earlier run measured: Sortie reads the journal when the continued session opens, and the requests already in it count as that session's history.
+
+What a lower bound means for a run's totals, its ceilings, and each surface is under [spend measurement](/concepts/spend-measurement/). The rules the kind applies to every runtime are under [token accounting](/reference/adapter-agent-client-protocol/#token-accounting) on the kind's page.
 
 ### Sessions are not closed through the protocol
 
 This runtime advertises no `sessionCapabilities` object at all in its `initialize` handshake. Sortie decides whether to send `session/close` from that capability being present, so against this runtime there is never a capability to select: a session here always ends through process termination, described in the [kind page's process shutdown section](/reference/adapter-agent-client-protocol/#process-shutdown), never through a protocol close call.
 
-The short-lived [credential-verification](/reference/workflow-config/#credential-verification) session a worker attempt opens before the working one, unless Sortie proved the same setup recently, ends the same way, and it is not exempt from what that costs: its own transcript lands in the same store described under [token accounting](#token-accounting-reads-local-files-and-its-in-turn-signal-understates), `~/.gemini/tmp/<project>/chats/` or the same layout under `GEMINI_CLI_HOME`, and nothing calls back to remove it.
+The short-lived [credential-verification](/reference/workflow-config/#credential-verification) session a worker attempt opens before the working one, unless Sortie proved the same setup recently, ends the same way, and it is not exempt from what that costs: its own chat journal lands in the store described under [token accounting](#token-accounting-reads-local-files-and-its-in-turn-signal-understates), `~/.gemini/tmp/<project>/chats/` or the same layout under `GEMINI_CLI_HOME`, and nothing calls back to remove it.
 
 ### A normal-looking stop reason does not mean the turn ended cleanly
 
