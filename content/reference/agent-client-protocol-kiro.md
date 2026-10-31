@@ -1,6 +1,6 @@
 ---
 title: "Kiro CLI on the Agent Client Protocol"
-description: "Reference for running Kiro CLI under Sortie in ACP mode: the launch command, which login delivers Sortie's tools, the single trust-and-posture switch, model pinning, and the runtime's limits on token accounting and session close."
+description: "Reference for running Kiro CLI under Sortie in ACP mode: the launch command, which login delivers Sortie's tools, the single trust-and-posture switch, model pinning, how a run's spend is recorded in credits, and the runtime's limits on token accounting and session close."
 author: Sortie AI
 date: 2026-09-09
 weight: 147
@@ -77,13 +77,33 @@ When each turn ends, Sortie asks Kiro CLI for the credits used against the accou
 
 Each usage entry that has a limit is one limit, labelled `Monthly` followed by the entry's display name and `limit`. The amount is reported in `credits`, used against the limit, and the share used is derived from it. The reset time is the start of the billing-cycle reset date, in UTC, because Kiro CLI states a date with no time. An entry without a limit is not reported, and the limits carry no status. The pulls stop for the session when Kiro CLI answers neither of the two usage requests it is asked.
 
+## Spend in credits
+
+Kiro CLI reports what a turn spent only in credits, the unit its vendor bills in, and Sortie records that amount with the run in the unit `credits`. Sortie reads each turn's credits from the report Kiro CLI sends as the turn completes, on the default engine and under `--agent-engine v3` alike, and holds them on the run as a whole rather than on a model. Local launches and launches on SSH worker hosts are recorded the same way.
+
+Sortie counts only a credit report that arrives during a turn. The reports of earlier turns that a continued session replays when it loads therefore add nothing, and neither do credits reported between turns, such as for a context compaction. A cancelled or failed turn reports no credits, so when such a turn reached the model, the run's credits are a lower bound. So are credits whose report carries an amount Sortie cannot read.
+
+Sortie never converts credits into tokens or US dollars. A Kiro CLI run therefore has no token figure and no dollar cost: it is recorded unmeasured, with `unmeasured_cause` set to `amounts_only` and `unmeasured_units` listing `credits`, and a token or cost total that includes it is a lower bound. [How Sortie measures spend](/concepts/spend-measurement/) explains provenance and lower bounds.
+
+| Surface | What a Kiro CLI run shows |
+|---|---|
+| [`GET /api/v1/runs`](/reference/http-api/#get-apiv1runs-run-history) | A `vendor_amounts` entry with `unit` `credits`, an empty `model`, the `amount`, and `lower_bound`. |
+| [`GET /api/v1/runs/issues`](/reference/http-api/#get-apiv1runsissues-run-history-by-issue) | The issue's credits over all of its runs in `totals.vendor_amounts`. |
+| [Dashboard session view](/reference/dashboard/#session-view) | For a finished run, the credits on the **Agent reported** row, and **Tokens** as "N/A", whose hover says the agent reports its spend only in credits. |
+| [Dashboard history](/reference/dashboard/#history) | The credits in the run's **Est. cost** cell, shortened to `cr`, with the full amount on hover. The column is shown only while a rate source is available: a price table is in force, which is the default, or [`token_rates`](/reference/workflow-config/#token_rates) holds an entry. |
+| [`sortie stats`](/reference/cli/#stats) | No credit amount. The run counts among the runs whose token and cost figures are skipped, and `--format json` sets `unmeasured_cause` to `amounts_only` with `credits` in `unmeasured_units`. |
+
+These credits are separate from the plan's credits under [usage limits](#usage-limits): the limit is the account's use against its plan, and the run's credits are what that run's own turns spent.
+
+No token or dollar ceiling counts credits, so `agent.max_tokens` and the dollar caps never reach a Kiro CLI run's spend. Which ceilings still bound such a run is set out in [How Sortie measures spend](/concepts/spend-measurement/), and what to configure in [how to control costs](/guides/control-costs/).
+
 ---
 
 ## Limitations
 
 ### Token accounting has no source on this route
 
-No per-turn token count reaches Sortie on this route, and Sortie ships no measurement source for this runtime, so every run over it is recorded unmeasured, as [the kind page](/reference/adapter-agent-client-protocol/#token-accounting) describes for a runtime it cannot measure. `agent.max_tokens` therefore never takes effect on this route, and `agent.turn_timeout_ms` and `agent.stall_timeout_ms` are what bound a turn instead. The runtime's own unit of account is credits rather than tokens, which is a cost reading, not a token count, and nothing converts one into the other.
+No per-turn token count reaches Sortie on this route: the prompt result carries no token usage, and the token counts in the runtime's own session file hold zero whatever the turn cost, so Sortie reads neither. A run is recorded with its [credits](#spend-in-credits) and no token figure. `agent.max_tokens` therefore never takes effect on this route, and `agent.turn_timeout_ms` and `agent.stall_timeout_ms` are what bound a turn instead.
 
 ### Sessions are not closed through the protocol
 

@@ -231,15 +231,16 @@ This is a warning rather than an error. Warnings leave `valid` true and the exit
 
 ### Session start
 
-Refuses unusable settings, validates the workspace path, resolves the launch target, checks the OpenCode version, and initializes adapter-owned session state. No turn subprocess is started, but the version query below does start and exit a subprocess of its own.
+Refuses unusable settings, validates the workspace path, resolves the launch target, checks the OpenCode version, and initializes adapter-owned session state. No turn subprocess is started, but the version query below does start and exit a subprocess of its own, and so does the session export a continued session reads.
 
 1. Refuses the settings listed under [settings refused at session start](#settings-refused-at-session-start).
 2. Validates that the workspace path is a non-empty absolute path pointing to an existing directory.
 3. Resolves the configured command from `PATH`, defaulting to `opencode` when `agent.command` is empty. In SSH mode, resolves the local `ssh` binary instead and stores the remote command string for later use.
 4. Resolves the session's tool delivery from the generated MCP configuration, on a local launch and an SSH launch alike. On an SSH launch this starts Sortie's HTTP tool server and opens one short extra SSH connection to learn whether the worker host accepts the reverse forward. See [MCP](#mcp).
 5. Queries the resolved command's version, over SSH when the launch is remote, and refuses the session when it is unreadable or not a 2.x release; see [version check](#version-check).
-6. Builds the inline configuration document every turn of the session will carry, from the settings and the tool servers resolved in step 4.
-7. The session has no running process ID or subprocess yet, and takes the session ID saved from a previous run as its own when continuation is requested.
+6. When continuation is requested, reads the saved session's export, over SSH when the launch is remote, to fix the session's earlier spend as history; see [resumed sessions](#resumed-sessions). A failed read does not fail session start.
+7. Builds the inline configuration document every turn of the session will carry, from the settings and the tool servers resolved in step 4.
+8. The session has no running process ID or subprocess yet, and takes the session ID saved from a previous run as its own when continuation is requested.
 
 Session start performs no provider-auth probe.
 
@@ -269,7 +270,7 @@ Spawns one OpenCode subprocess, reads its stdout, and delivers normalized events
 7. Applies a startup timer set to the larger of `read_timeout_ms` and 60 seconds. A stdout line that fails to parse as a JSON envelope still resets the timer before the first accepted envelope arrives, but does not itself count as the runtime having responded; see [early exit report](/reference/errors/#early-exit-report).
 8. On the first JSON envelope with `sessionID`, adopts the session ID if unset or verifies it matches the resumed session. Emits `session_started` once per session.
 9. Maps JSON envelopes and tolerated plain-text lines into events.
-10. Once the subprocess has been reaped, gives stderr collection up to five seconds to finish, then gives whatever stdout is still in flight another five seconds to arrive, before recovering final token usage with `opencode session export --standalone --sanitize <sessionID>`.
+10. Once the subprocess has been reaped, gives stderr collection up to five seconds to finish, then gives whatever stdout is still in flight another five seconds to arrive, before settling token usage from the turn's step reports and the session export, `opencode session export --standalone --sanitize <sessionID>`; see [Token accounting](#token-accounting).
 11. The turn ends based on the terminal error envelope, cancellation state, startup timeout, or process exit status.
 
 A turn that instead ends by cancellation, a read timeout, or a stdout read error still attempts this export before reporting its outcome; see [Accumulation logic](#accumulation-logic) for the one ending that does not.
@@ -317,32 +318,59 @@ Two behaviours are the adapter's own. Every stdout line that fails to parse beco
 
 ## Token accounting
 
-The adapter does not trust `step_finish.part.tokens` as the final turn total. It recovers authoritative usage from a second subprocess once the turn's subprocess is gone, not only when the turn ran to completion; see [Accumulation logic](#accumulation-logic) for which endings recover a figure. Reported counts are cumulative over the whole session the orchestrator opened, across every turn of it, and never decrease.
+The adapter reads token usage from two sources, and Sortie's usage component settles each turn from them. The live source is the `tokens` object of each `step_finish` report on stdout: one report per model request, identified by the part's `id`. The records source is the session export, `opencode session export --standalone --sanitize <sessionID>`, which a second subprocess prints once the turn's subprocess is gone: one assistant message per finished request, with that request's tokens, model, and cost. Both sources count the same requests, so their figures are never added. Reported counts are cumulative over the whole session the orchestrator opened, across every turn of it, and never decrease.
 
-The adapter disables OpenCode's title agent by setting `agent.title.disable` to `true` in the `OPENCODE_CONFIG_CONTENT` document, so a turn makes no session-title request. That request is billed by the provider but recorded in no assistant message, so the per-message sum below would not have counted it. The session keeps OpenCode's default title. A remote turn carries the same document, so it makes no title request either.
+The adapter disables OpenCode's title agent by setting `agent.title.disable` to `true` in the `OPENCODE_CONFIG_CONTENT` document, so a turn makes no session-title request. That request is billed by the provider but recorded in no assistant message, so neither source would have counted it. The session keeps OpenCode's default title. A remote turn carries the same document, so it makes no title request either.
 
-For this kind's declaration beside every other kind's, see the [usage reporting table](/reference/workflow-config/#usage-reporting-by-agent-kind).
+For how provenance, completeness, and lower bounds work across every agent kind, see [spend measurement](/concepts/spend-measurement/). For this kind's declaration beside every other kind's, see the [usage reporting table](/reference/workflow-config/#usage-reporting-by-agent-kind).
 
 ### Accumulation logic
 
-1. Once the main `opencode run` subprocess has exited or been killed and waited for, the adapter launches a second subprocess to recover usage, when a session ID is known: `opencode session export --standalone --sanitize <sessionID>`, in the same workspace. This runs on every turn ending: normal completion, a non-zero exit, a stdout `error` envelope, cancellation, a read timeout, and a stdout read error. A session ID mismatch is the one ending that does not run it, because the work ran in a session other than the one the export would read.
+1. Once the main `opencode run` subprocess has exited or been killed and waited for, the adapter runs the session export when a session ID is known, in the same workspace. This runs on every turn ending: normal completion, a non-zero exit, a stdout `error` envelope, cancellation, a read timeout, and a stdout read error. A session ID mismatch is the one ending that does not run it, because the work ran in a session other than the one the export would read.
 2. A session ID, once learned, persists for the rest of the session: either from a resumed session's saved ID, or from the first JSON envelope, in this turn or an earlier one, that carries one. A read timeout recovers a figure only on a resumed session or a later turn, because it fires only before that turn's own first JSON envelope arrives, so it never recovers one on the first turn of a new session. Cancellation and a stdout read error on that same first turn recover a figure only if an envelope carrying the session ID had already arrived before the turn ended.
 3. The export subprocess runs with only `OPENCODE_DISABLE_AUTOUPDATE=true`. It never carries `OPENCODE_CONFIG_CONTENT`, so it never carries the tool policy or the tool servers either.
-4. The export subprocess timeout is `min(2 * read_timeout_ms, 30s)`, where an unset or non-positive `read_timeout_ms` counts as 30 seconds. With the workflow default `read_timeout_ms: 5000`, the export timeout is 10 seconds.
-5. The adapter reads the export JSON and sums **every** `assistant` message whose `finish` field is present and non-empty, not just the most recent message, provided the document's own `info.id` matches the current session. A message with an empty or absent `finish` is excluded regardless of its token counts. Each message carries `type`, `finish`, `tokens`, `model`, and `cost` at its own top level. When the run resumed an existing session, messages created before the run started are excluded, so a resumed session's earlier spend never lands in this run's total.
-6. From each remaining message it reads `tokens.input`, `tokens.output`, and the optional `tokens.reasoning`, `tokens.cache.read`, and `tokens.cache.write`. A message with no `tokens` object is skipped.
+4. `agent.read_timeout_ms` bounds the turn's whole read: the session's export and the export of every [subagent session](#subagent-sessions) the turn ran. With the workflow default of `5000`, that read has 5 seconds. An export that runs out of time counts as failed.
+5. The adapter refuses an export larger than 64 MiB, one that is not valid JSON, and one whose own `info.id` is not the current session. From an accepted export it takes **every** `assistant` message whose `finish` field is present and non-empty, not just the most recent message. A message with an empty or absent `finish` is excluded regardless of its token counts: OpenCode saves an assistant message with zero tokens before it calls the model, so a turn killed mid-request exports a placeholder, not a measurement. Each message carries `type`, `finish`, `tokens`, `model`, and `cost` at its own top level. On a [resumed session](#resumed-sessions), the messages the session held before the run are history and never count.
+6. From each step report and each message it reads `tokens.input`, `tokens.output`, `tokens.reasoning`, `tokens.cache.read`, and `tokens.cache.write`. Every one must be present and an integer. A count that is absent, null, or not an integer makes the report or message unknown, never zero, and so does a missing `tokens` object or a reading with no input and no output tokens.
 7. `input_tokens` is `input + cache.read + cache.write`; `output_tokens` is `output + reasoning`. `cache_read_tokens` and `cache_write_tokens` carry the two cache counts separately as disjoint subsets of input. `total_tokens` is computed as `input_tokens + output_tokens` rather than read from `tokens.total`, which counts cache and reasoning tokens on a different basis.
-8. If export setup fails, the subprocess exits non-zero, the JSON is malformed, or no message satisfies the session, creation-time, and `finish` conditions above, the adapter logs the warning `no assistant token usage found in opencode export`, emits no `token_usage` event, and leaves the previously reported snapshot in place rather than lowering it to zero.
 
-The adapter emits at most one `token_usage` event per turn, when the export recovers a figure. A genuine zero still counts as recovered, so that session is recorded as measured rather than unmeasured; only a session for which no export ever recovered a figure, for any of the reasons above, is recorded as unmeasured.
+How a turn settles depends on the step report that ends it, a `step_finish` whose `reason` is anything other than `tool-calls`:
 
-A turn that served model output counts toward `unaccounted_turns` when its export recovers no figure. It also counts when the turn did not run to its own finish, because it was stopped, failed, or cut short, even if the export returned a figure: that figure is not proven to cover the request in flight. A turn that finished and recovered a figure is covered.
+| The turn | Figure | Provenance | Per-model split |
+|---|---|---|---|
+| Ended by its final step report, with no stdout `error` envelope and every step report known | The sum of the turn's step reports, each request counted once at its largest reading; complete | `output`, read `live` | From the export, when its new messages add up to exactly that sum |
+| Has no final step report, or ended by an `error` envelope, cancellation, a stop, a kill, or a read failure, and the export holds messages the run has not counted | Those messages; complete only when the runtime ended the turn itself and every new message is known | `journal`, read `records` | By each message's model |
+| As above, but the export failed, timed out, or holds no new message | The sum of the turn's step reports, as a lower bound; no figure when the turn has no step report | `output`, read `live` | None |
+
+Some OpenCode 2.x releases print no `step_finish` for a turn's final text step, so on those releases the export settles every completed turn. An unknown step report keeps its turn from settling on step reports. An unknown export message stops the count at that message: the messages before it count, and the turn is a lower bound.
+
+A later turn whose export holds requests an earlier turn left uncounted counts them, so the run's total converges on the export's. A failed or empty export never lowers a figure the run has already reported. A failed export logs one DEBUG record, `opencode session export failed`, with the error and never the export's content; a failed subagent export adds `child_session_id`.
+
+The adapter emits at most one `token_usage` event per turn, when the turn produces a figure. A session is recorded as measured once any of its turns produces one, a lower bound included; a session no turn produced a figure for is recorded as unmeasured.
+
+A turn that served model output counts toward `unaccounted_turns` unless its figure is complete. That leaves out a turn that settled on a lower bound or produced no figure, and every turn the runtime did not end itself: one that was stopped, failed, or cut short. A later turn settled complete from the export takes in the turns before it that the runtime completed, and they stop counting, unless a stopped or failed turn came between. No later turn does this once a turn has run short of a subagent session's records, or once a resumed session's history was fixed at a turn's end.
+
+### Subagent sessions
+
+A turn that hands work to a subagent runs that work in a child session. The stream shows one `tool_use` for the call, with `state.input.agent` set and the child's session ID at `state.metadata.metadata.sessionID`, and no event from the child. The parent's export holds none of the child's messages, so at the end of the turn the adapter also exports every child session the turn named, once each, through the same command and under the same bound. Each child message counts once, in the turn that ran it, toward the run's total, `agent.max_tokens`, and the cost limits, and joins the per-model split under its own model. The `journal` source then appears in the turn's provenance beside the source that settled the parent's own figure.
+
+The turn is complete only when every subagent call completed, named its session, and had its export read with every message known. Otherwise the turn is a lower bound, and the child sessions that did read still count.
+
+### Resumed sessions
+
+When a session continues a saved OpenCode session, session start reads that session's export once, under the same `read_timeout_ms` bound. Every message it holds becomes history, matched by message ID whatever its creation time, so the session's earlier spend never lands in this run's total. A new session starts with no history and needs no read.
+
+When that read fails, the history is unknown rather than empty. A turn the final step report settles still counts its own requests, but no other turn can count from the export until a turn-end export is read; that read fixes the history after its turn settles, so those turns stand as lower bounds.
 
 ### Model tracking
 
-The main stdout stream does not supply a stable final model identifier. The adapter reconstructs the reported model only from the export payload, using `providerID + "/" + modelID` from the last counted assistant message, when both fields are present. Those fields are the message's own `model.providerID` and `model.id`.
+The main stdout stream does not supply a stable final model identifier, and the step reports name no model. The adapter reads the model from the export only: each counted message's `model.providerID` and `model.id`, joined as `providerID/modelID`. Each counted message adds to a per-model count under that key, and the turn's reported model is the one with the largest share of the tokens the turn split. A message whose payload lacks either value adds to no entry, so per-model attribution works only when the export includes both (see [the model label](/reference/prometheus-metrics/#the-model-label)).
 
-Each counted message also adds to a per-model count keyed `providerID/modelID`. A message whose payload lacks either value adds to no entry, so per-model attribution works only when the export includes both (see [the model label](/reference/prometheus-metrics/#the-model-label)). Sortie ignores the export payload's vendor cost field and derives estimates from the normalized token counters and the rates in force (`token_rates` over the [price table](/reference/workflow-config/#price_table)) instead.
+### Reported cost
+
+Sortie reads each counted message's `cost` as that request's amount in US dollars, under the message's model. It never reads the `cost` of a `step_finish` report or the export's session-level cost. The rates in force (`token_rates` over the [price table](/reference/workflow-config/#price_table)) price every model they list from the normalized token counters; a model they do not list is priced at its reported amount.
+
+A model's amount is a lower bound when a counted message's `cost` is absent, null, negative, or `0` beside tokens, as a free model reports it, when the turn's figure carries no per-model split, and when a subagent session ran on that model, because a child session's cost is never added to the parent's. A cost priced from a lower-bound amount is recorded as `partial`.
 
 ### API timing
 
@@ -442,7 +470,7 @@ One failure can surface as two stdout `error` envelopes: one carrying the action
 If reading stdout encounters an error while the turn is still active, the adapter:
 
 1. Stops reading and kills the process group.
-2. Recovers token usage from the session export, the same as any other turn ending; see [Accumulation logic](#accumulation-logic).
+2. Settles token usage from the step reports and the session export, the same as any other turn ending; see [Accumulation logic](#accumulation-logic).
 3. Re-emits collected stderr lines at WARN level.
 4. Emits `turn_failed` with message `stdout read error: <detail>` and reports an error of kind `port_exit` with the text `stdout scanner error`.
 
@@ -473,7 +501,7 @@ If a resumed turn emits a different `sessionID` from the one already stored, the
 
 ## SSH remote execution
 
-When the worker configuration includes `ssh_hosts`, the adapter launches the local `ssh` client and runs OpenCode on the remote host. The process model stays launch-per-turn: each turn is a separate SSH invocation that wraps one remote `opencode` subprocess, and the export recovery step uses a second SSH invocation.
+When the worker configuration includes `ssh_hosts`, the adapter launches the local `ssh` client and runs OpenCode on the remote host. The process model stays launch-per-turn: each turn is a separate SSH invocation that wraps one remote `opencode` subprocess, and each session export, the turn's own and any subagent session's, uses another SSH invocation.
 
 ### How it works
 
@@ -481,7 +509,8 @@ When the worker configuration includes `ssh_hosts`, the adapter launches the loc
 2. Each turn sends `OPENCODE_DISABLE_AUTOUPDATE` and the inline configuration document in `OPENCODE_CONFIG_CONTENT` to the remote shell on the SSH session's standard input, together with any variable [`worker.ssh_pass_env`](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent) names. The document carries the same members a local turn's does, the tool servers included; see [managed environment](#managed-environment) and [MCP](#mcp). A turn that delivers Sortie's tools also sets `SORTIE_TOOL_SERVER_BEARER` and any `SORTIE_MCP_HEADER_<n>` variables the same way.
 3. The remote shell enters the workspace, exports what the launch sent it, and only then runs the configured command with the turn's arguments, each step chained on the success of the one before it.
 4. Because every remote launch on this kind sends the managed variables, every remote host needs the standard `dd` utility. A host without it fails the launch with `sortie: dd is required on the remote host to receive environment variables` on standard error.
-5. The export recovery step uses the same SSH path with the export arguments described in [Token accounting](#token-accounting).
+5. Each session export uses the same SSH path with the export arguments described in [Token accounting](#token-accounting), so a remote turn is measured the same way as a local one.
+6. When Sortie stopped the turn, by cancellation, a timeout, or shutdown, the turn waits over a second SSH connection for the remote OpenCode process tree to exit before it runs the export, for at most one second plus `agent.stop_grace_ms` rounded up to whole seconds. That wait needs the `flock` utility on the remote host. Without it the export can run while the stopped process still holds OpenCode's session database, fail, and leave the turn's step reports as a lower bound; the next turn's export counts the rest.
 
 ### SSH options
 
@@ -556,9 +585,9 @@ Both come from shared validation, so a file that fails here fails a `codex` sess
 | Output format flag | `--output-format stream-json` | `--output-format json` | JSON-RPC notifications | `--format json` |
 | Session ID source | UUID generated by adapter | UUID generated by adapter | Thread ID from `thread/start` response | Discovered from the first JSON envelope, or resumed via `--session` |
 | Resume mechanism | `--resume <UUID>` | `--session-id <uuid>` on the first turn, `--resume <uuid>` after; never `--continue` | `thread/resume` or automatic within session | `--session <sessionID>` only |
-| Input token reporting | Per-request, from the result event's per-model breakdown | Recovered from the runtime's session-state journal after exit | From `thread/tokenUsage/updated`, baseline-subtracted | Recovered from `opencode session export --standalone --sanitize` |
-| Model reporting | From `assistant` events | From the session-state journal's `session.shutdown` record, after the subprocess exits | From the thread-open response, updated on reroute | Recovered from export `providerID/modelID` |
-| Token accounting source | Result event `modelUsage`, with top-level `usage` fallback | Session-state journal on disk, with stream output tokens as the in-turn estimate | `thread/tokenUsage/updated` notification | Separate export subprocess after main turn exit |
+| Input token reporting | Provisional per request from `assistant` events, settled per model by the `result` events' `model_usage_since_last_result` | Per model from `session.usage_checkpoint` stream lines, less the session's position before the turn | From `thread/tokenUsage/updated`, baseline-subtracted | From `step_finish` step reports, with `opencode session export --standalone --sanitize` settling a turn they do not cover |
+| Model reporting | From `assistant` events | From the `modelMetrics` keys of `session.usage_checkpoint` lines, or each journal record's own model | From the thread-open response, updated on reroute | Recovered from export `providerID/modelID` |
+| Token accounting source | `result` event `model_usage_since_last_result`, with the session journal on disk settling a turn it does not cover | `session.usage_checkpoint` stream lines, with the session-state journal on disk settling a turn they leave open | `thread/tokenUsage/updated` notification, with the thread's rollout file settling a turn it leaves unsettled | `step_finish` step reports on stdout, and an export subprocess after main turn exit for the per-model split, interrupted turns, and subagent sessions |
 | Permission control | `--permission-mode` or `--dangerously-skip-permissions` | `--autopilot` + `--no-ask-user` + explicit tool scoping | `approvalPolicy` and sandbox policy in JSON-RPC | `--dangerously-skip-permissions` plus a synthesized policy in the inline configuration document |
 | Sandbox enforcement | None at adapter level | None at adapter level | OS-level sandbox plus configurable policy | No adapter-level sandbox; permission policy only |
 | Sortie's tools | Derived config file on `--mcp-config`, an inline document over SSH | Derived config file on `--additional-mcp-config`, an inline document over SSH | Generated servers re-expressed as command-line overrides; on an SSH launch the same overrides ride the SSH session's standard input and name HTTP servers only | Generated servers re-expressed as an inline configuration document in the turn environment; on an SSH launch the document names Sortie's HTTP tool server and operator HTTP servers only (see [MCP](#mcp)) |

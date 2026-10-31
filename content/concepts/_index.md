@@ -11,6 +11,7 @@ Understand the design decisions and mental models behind Sortie.
   {{< card link="architecture" title="Architecture" subtitle="Single binary, poll-dispatch-reconcile loop, and adapter model." >}}
   {{< card link="adapter-model" title="Adapter Model" subtitle="How agent and tracker integrations stay disposable and testable." >}}
   {{< card link="persistence" title="Persistence" subtitle="What SQLite stores, what survives restarts, and why it matters." >}}
+  {{< card link="spend-measurement" title="Spend Measurement" subtitle="Where each run's token and cost figures come from, and which limits reach it." >}}
   {{< card link="orchestration" title="Orchestration" subtitle="The poll-dispatch-reconcile loop that manages all sessions." >}}
   {{< card link="stage-chains" title="Stage Chains" subtitle="How an issue moves from one agent step to the next by itself." >}}
   {{< card link="agent-communication" title="Agent Communication" subtitle="Two channels: MCP tools for data, the status file for control." >}}

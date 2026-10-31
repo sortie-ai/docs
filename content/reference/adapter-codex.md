@@ -224,25 +224,47 @@ Token counts do not travel on the turn-completion notification. They arrive on t
 
 ## Token accounting
 
-Reported token counts are cumulative over the whole session the orchestrator opened, across every turn of it, and never decrease. Unlike the Claude Code adapter, which derives its figures from the event stream and the turn's terminal event, the Codex adapter reads a dedicated `thread/tokenUsage/updated` notification. For this kind's declaration beside every other kind's, see the [usage reporting table](/reference/workflow-config/#usage-reporting-by-agent-kind).
+Reported token counts are cumulative over the whole session the orchestrator opened, across every turn of it, and never decrease. The figure has two sources. The live source is the app-server's `thread/tokenUsage/updated` notification, which arrives after each model request while the turn runs. The records source is the thread's rollout file, which Codex writes on the host that runs the app-server and which Sortie reads when it resumes a thread and when the live notifications leave a turn unsettled. For this kind's declaration beside every other kind's, see the [usage reporting table](/reference/workflow-config/#usage-reporting-by-agent-kind); for how a run's figure, its provenance, and a lower bound fit together across kinds, see [spend measurement](/concepts/spend-measurement/).
 
-### Accumulation logic
+### Live notifications
 
-1. `tokenUsage.total` is thread-cumulative, so a resumed thread reports spend the current run did not incur. The adapter subtracts a baseline to recover this run's own contribution. The baseline is zero for a thread the run starts, including when `thread/resume` fails and the adapter starts a new thread instead. When `thread/resume` succeeds, it is the thread figure the previous run ended with, which Sortie keeps with that run's history and looks up by issue and thread when it dispatches the continuation.
-2. When a resumed thread has no such figure, because the previous run recorded none or was recorded by a Sortie release that did not keep one, the first notification matching the running turn sets the baseline to `total` minus `last`. The turn is marked as one whose spend is not fully accounted for, unless that baseline comes out zero, because the subtraction cannot tell the restored figure from spend the turn had already made.
-3. Each notification for the running turn reports `total` minus the baseline as the run-cumulative snapshot, emitted as one `token_usage` event.
-4. A notification whose `turnId` belongs to another turn emits no event and changes no figure, so a foreign turn's spend never lands in this run's total. It still counts as a usage measurement for the session. After `thread/resume` the app-server replays the restored total once under an earlier turn's id, which is the usual source of such a notification.
-5. Every turn result carries the latest thread `total` the adapter holds, which is the handed-over figure until a notification arrives, as the figure the next run starts from. The app-server persists each total as it emits it and restores the last one persisted. A session holding no figure reports none.
-6. `input_tokens` comes from `inputTokens`, `output_tokens` from `outputTokens`, `cache_read_tokens` from `cachedInputTokens`, and `cache_write_tokens` from `cacheWriteInputTokens`. `inputTokens` already includes both cache counts, so they are disjoint subsets of input. A notification that omits `cacheWriteInputTokens` reports `cache_write_tokens` as `0`. `total_tokens` is computed as `input_tokens + output_tokens` rather than read from the notification's own `totalTokens`.
-7. A notification carrying no `tokenUsage` object emits no event and leaves the session's measurement state untouched. A session that never receives one is recorded as unmeasured rather than as having spent zero.
+1. The notification carries two breakdowns. `tokenUsage.total` is cumulative over the thread, every turn and every earlier run that resumed it included. `tokenUsage.last` is the request's own counts. The run's figure is `total` less the thread's history position, the total the thread held before the run's first request.
+2. A thread the run starts has a history position of zero, including when `thread/resume` fails and the adapter starts a new thread instead.
+3. After a successful `thread/resume`, the app-server repeats the thread's last persisted total once, under an earlier turn's id, before the first turn starts. That notification counts nothing: it sets the history position. When it never arrives, the first notification of the running turn sets the position to `total` minus `last`. A position derived this way that is not zero is an estimate, because the subtraction cannot tell the restored history from spend the turn had already made, so that turn is marked as one whose spend is not fully accounted for.
+4. Each notification of the running turn that adds input or output tokens emits one `token_usage` event carrying the run-cumulative snapshot. A notification that repeats a total unchanged emits nothing. A notification whose `turnId` names another turn counts nothing and emits no event.
+5. `input_tokens` comes from `inputTokens`, `output_tokens` from `outputTokens`, `cache_read_tokens` from `cachedInputTokens`, and `cache_write_tokens` from `cacheWriteInputTokens`. `inputTokens` already includes both cache counts, so they are disjoint subsets of input, and output already includes reasoning. `total_tokens` is computed as `input_tokens + output_tokens` rather than read from the notification's own `totalTokens`.
+6. A count that is absent or `null`, a negative count, or cache counts that add up to more than `inputTokens` make the notification no figure rather than zero. A notification carrying no `tokenUsage` object emits no event.
 
-A turn that served model output and ends with any status other than `completed`, or never reaches `turn/completed`, counts toward `unaccounted_turns`: the notifications received for it are not proven to cover the whole turn. A `completed` turn is covered, and its thread total takes in the spend of the turns before it.
+### Rollout file
+
+The app-server reports the thread's rollout file in the `thread/start` or `thread/resume` response. Sortie reads it under the runtime's home on the session's host: `CODEX_HOME`, or `~/.codex` when that variable is unset. It keeps only the part of the reported path below that home's `sessions` directory, so the reported path cannot lead the read outside the home; any other path leaves the session without a records source.
+
+Each `token_usage_record` line is one model request, identified by its `response_id`, and is served by the model the latest `turn_context` line names. Codex writes the record when the response completes, before the request's tool calls run, so the file holds a request whose process was killed before the app-server reported it.
+
+The file is read at session start of a resumed thread, to set the requests already in it aside as history, and at the end of a turn the live notifications left unsettled:
+
+- the turn was interrupted, whether Sortie cancelled it or not;
+- the turn never reached `turn/completed`: the process was killed or exited, its output closed or turned unreadable, or the `read_timeout_ms` bound after a cancelled turn's `turn/interrupt` expired;
+- the turn received no usable notification of its own;
+- the resumed thread's history could not be read at session start.
+
+A `completed` turn that the live notifications settled reads nothing. Each read is bounded by `read_timeout_ms` and is not cut short by the turn's cancellation, so a cancelled turn still reads the requests it completed. When the rollout file holds requests the run has not counted, they replace the turn's live figure, and the run's `usage_provenance` lists source `journal` with strategy `records`; a turn the live notifications settle adds source `output` with strategy `live`. A read that fails or finds no uncounted request leaves the live figure standing. A figure settled from the rollout file emits no `token_usage` event; the turn's terminal event carries it.
+
+### Completeness
+
+A turn is fully accounted for when it ends with `turn/completed` status `completed` or `failed`, one of the two sources settled its figure, and that figure rests on no estimated history position. Every other turn that served model output is unaccounted, and counts toward the `unaccounted_turns` the token-ceiling log records carry:
+
+- status `interrupted`, and every turn that never reaches `turn/completed`, even when the rollout file settled it, because neither source proves it covers the request in flight;
+- a turn whose figure rests on an estimated history position;
+- a `completed` or `failed` turn that neither source settled.
+
+A `completed` turn of the last kind is the only one a later turn clears: the next fully accounted turn of the same thread settles a thread total that holds it, unless the session's history position was estimated. A run with an unaccounted turn reads `lower_bound` as its `usage_completeness` in the [run history](/reference/http-api/#get-apiv1runs-run-history). A run in which no turn produced a figure from either source is recorded as unmeasured rather than as having spent zero.
 
 ### Model tracking
 
 The reported model comes from the `model` field of whichever response opened the session's thread (`thread/start` or `thread/resume`), read once at session start and reused for every `token_usage` event afterward rather than re-read per turn. It reflects the runtime's own report, not a mirror of the `codex.model` value the adapter requested. The field is empty when the response omits it; that is never treated as an error.
 
-The token notification carries no per-model split, so every token the adapter reports counts under the tracked model at that moment, as [the model label](/reference/prometheus-metrics/#the-model-label) describes.
+The token notification carries no per-model split, so every token the adapter reports from it counts under the tracked model at that moment, as [the model label](/reference/prometheus-metrics/#the-model-label) describes. A turn settled from the rollout file counts each request under the model of the `turn_context` line before it.
 
 A running turn can be moved to a different model by a `model/rerouted` notification. When its destination model is named, it replaces the tracked model for the rest of the session; a reroute with no named destination leaves the tracked model unchanged. Either way, the adapter emits a `notification` event describing the reroute, so stall detection still sees activity.
 
@@ -376,6 +398,8 @@ When the worker configuration includes `ssh_hosts`, the adapter launches the app
 2. Builds the SSH connection arguments listed under [SSH options](#ssh-options).
 3. All JSON-RPC communication flows over the SSH tunnel's stdin/stdout, including the API-key login described under [authentication](#authentication).
 
+Token accounting works the same over SSH. The live notifications arrive on the SSH session's standard output, and each rollout file read runs as one extra command over the session's SSH launch, where the remote shell resolves `CODEX_HOME`. A killed or interrupted remote turn therefore settles from the worker host's rollout file as a local one does.
+
 This kind declares no credential variable, so a remote launch carries none on its own account. It carries what [`worker.ssh_pass_env`](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent) names and nothing else.
 
 ### SSH options
@@ -471,8 +495,8 @@ Codex also reads its own MCP server list from configuration files of its own, en
 | Protocol | CLI flags + JSONL stdout | CLI flags + JSONL stdout | JSON-RPC 2.0 over stdin/stdout |
 | Session ID source | UUID generated by adapter | UUID generated by adapter | Thread ID from `thread/start` response |
 | Resume mechanism | `--resume <UUID>` (new subprocess) | `--session-id <uuid>` on the first turn, `--resume <uuid>` after; never `--continue` | `thread/resume` (JSON-RPC) or automatic within session |
-| Input token reporting | Per-request, from the result event's per-model breakdown | Recovered from the runtime's session-state journal after exit | From `thread/tokenUsage/updated`, baseline-subtracted |
-| Model reporting | From `assistant` events | From the session-state journal's `session.shutdown` record, after the subprocess exits | From the thread-open response, updated on reroute |
+| Input token reporting | Provisional per request from `assistant` events, settled by the `result` events' `model_usage_since_last_result`; the [session journal](/reference/adapter-claude-code/#session-journal) settles a turn they do not cover | Session totals from `session.usage_checkpoint` lines on the stream, less the session's position before the turn; the [session-state journal](/reference/adapter-copilot/#session-state-journal) settles a turn they leave open; see [usage checkpoints](/reference/adapter-copilot/#usage-checkpoints) | From `thread/tokenUsage/updated`, less the thread's history; from the rollout file when a turn ends unsettled |
+| Model reporting | From `assistant` events; each `model_usage_since_last_result` key counts as its own model | From the `modelMetrics` keys of each `session.usage_checkpoint`; a journal record names its own request's model | From the thread-open response, updated on reroute |
 | Permission mode | `--permission-mode` or `--dangerously-skip-permissions` | `--autopilot` + `--no-ask-user` + `--allow-all` | `approvalPolicy: "never"` (JSON-RPC param) |
 | Sandbox enforcement | None at adapter level | None at adapter level | Requested through `sandbox` on `thread/start` and `sandboxPolicy` on `turn/start`; enforcement is the app-server's |
 | Sortie's tools | Derived config file on `--mcp-config`, an inline document over SSH | Derived config file on `--additional-mcp-config`, an inline document over SSH | Generated servers re-expressed as `-c mcp_servers.<name>=...` overrides; over SSH they ride the session's standard input; see [MCP](#mcp) |

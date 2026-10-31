@@ -457,14 +457,14 @@ Dot-context, unknown-variable, and unknown-field warnings cover the body, the de
 
 - **Unreachable `mcp_config`** (`agent.mcp_config`). An agent kind's pass-through block sets `mcp_config` (`mock.mcp_config`, for example; the `agent:` section carries no such key) for a kind whose adapter delivers the generated MCP configuration to the agent process in no form at all, so the value cannot reach the agent. `mock` is one such built-in kind, and any custom adapter declaring the same disposition draws the warning too. `claude-code`, `copilot-cli`, `codex`, `opencode`, and `agent-client-protocol` each deliver the generated servers on a local launch and on an SSH launch, so the check never fires for them.
 - **No tool execution channel** (`agent.kind.no_tool_channel`). The agent kind delivers no channel for Sortie's tools even on a local launch, so the session can neither call them nor be told about them. It fires for every kind whose adapter declares that it never delivers the generated MCP configuration, `mock` being one such built-in kind, and for any adapter that declares no MCP disposition at all. It does not fire for a kind that delivers a channel, whether or not the session is dispatched to an SSH host. A session that loses its channel at run time, because the worker host refuses SSH port forwarding for example, is outside what validation reads; see [when a session runs without the tools](/reference/agent-extensions/#when-a-session-runs-without-the-tools).
-- **Token ceiling on a kind that reports no usage** (`agent.kind.no_usage_reporting`). `agent.max_tokens` is set against an agent kind whose declared usage reporting yields no figure for the sessions this configuration produces, so the per-issue token ceiling has nothing to count against. Budget those sessions by time instead, through `agent.turn_timeout_ms`.
-- **Money ceiling on a kind that reports no usage** (`agent.max_cost_usd.no_usage_reporting`). `agent.max_cost_usd` is set above `0` against an agent kind whose declared usage reporting yields no figure for the sessions this configuration produces, so there is nothing to price and the per-issue money ceiling can never be reached for that kind. Budget those sessions by time instead, through `agent.turn_timeout_ms`.
+- **Token ceiling on a kind that reports no usage** (`agent.kind.no_usage_reporting`). `agent.max_tokens` is set against an agent kind whose registration declares no token figure, so the per-issue token ceiling has nothing to count against. Budget those sessions by time instead, through `agent.turn_timeout_ms`.
+- **Money ceiling on a kind that reports no usage** (`agent.max_cost_usd.no_usage_reporting`). `agent.max_cost_usd` is set above `0` against an agent kind whose registration declares no token figure, so there is nothing to price and the per-issue money ceiling can never be reached for that kind. Budget those sessions by time instead, through `agent.turn_timeout_ms`.
 - **Money ceiling with no rate source** (`agent.max_cost_usd.no_rate_source`). `agent.max_cost_usd` is set above `0` while no price source is configured: `price_table.embedded` and `price_table.fetch` are off, and neither a `token_rates` entry nor a price table you supply is set. No run can be priced, so the ceiling holds no issue. The check reads configuration only, so `validate` and the running service agree. A model that the configured rates do not list draws no warning. See [`token_rates`](/reference/workflow-config/#token_rates) and [`price_table`](/reference/workflow-config/#price_table) for the sources.
-- **Instance spend ceiling on a kind that reports no usage** (`agent.max_daily_cost_usd.no_usage_reporting`, `agent.max_weekly_cost_usd.no_usage_reporting`, `agent.max_monthly_cost_usd.no_usage_reporting`). The named setting is above `0` against an agent kind whose declared usage reporting yields no figure for the sessions this configuration produces, so the ceiling counts none of that kind's spend.
+- **Instance spend ceiling on a kind that reports no usage** (`agent.max_daily_cost_usd.no_usage_reporting`, `agent.max_weekly_cost_usd.no_usage_reporting`, `agent.max_monthly_cost_usd.no_usage_reporting`). The named setting is above `0` against an agent kind whose registration declares no token figure, so the ceiling counts none of that kind's spend.
 - **Instance spend ceiling with no rate source** (`agent.max_daily_cost_usd.no_rate_source`, `agent.max_weekly_cost_usd.no_rate_source`, `agent.max_monthly_cost_usd.no_rate_source`). The named setting is above `0` while no price source is configured, on the same terms as `agent.max_cost_usd.no_rate_source`, so no run can be priced and the ceiling counts no spend.
-- **Rates priced for a kind that reports no usage** (`agent.kind.no_cost_estimate`). A [`token_rates`](/reference/workflow-config/#token_rates) entry prices an agent kind that reports no token usage for the sessions this configuration produces, so no cost can be estimated for it and the dashboard reads "not measured" for its cost. Remove the entry or move the workload to a kind that reports usage.
+- **Rates priced for a kind that reports no usage** (`agent.kind.no_cost_estimate`). A [`token_rates`](/reference/workflow-config/#token_rates) entry prices an agent kind whose registration declares no token figure, so the entry never prices a run of that kind. Remove the entry or move the workload to a kind that reports usage.
 
-Unlike the checks above them, the usage checks (`agent.kind.no_usage_reporting`, `agent.max_cost_usd.no_usage_reporting`, the instance spend ceiling variants, and `agent.kind.no_cost_estimate`) read [`worker.ssh_hosts`](/reference/workflow-config/#worker) and resolve the disposition for a remote launch when the pool is non-empty. `copilot-cli` reports usage on a local launch and none over SSH, so a workflow that adds a host pool draws these warnings where the same file without one drew none.
+The usage checks (`agent.kind.no_usage_reporting`, `agent.max_cost_usd.no_usage_reporting`, the instance spend ceiling variants, and `agent.kind.no_cost_estimate`) read only the agent kind's registration. They do not read [`worker.ssh_hosts`](/reference/workflow-config/#worker), the kind's pass-through block, or the runtime it launches, so a kind draws the same warnings on a local launch and on an SSH launch. Every built-in kind declares a token figure and never draws them. They fire only for a custom adapter whose registration declares amounts the agent reports and no token figure.
 
 Every check in this group runs for every agent kind the configuration can reach, including one named only by a [dispatch rule](/reference/workflow-config/#dispatch), and each kind reports its own warning.
 
@@ -664,7 +664,7 @@ For details on each check, see [GitHub adapter validate-time checks](/reference/
 
 ### `stats`
 
-Reports how past runs went and what they cost. Sortie appends one row to `run_history` each time an agent session finishes; `stats` reads that history back over a time range and aggregates it into run counts, the number of issues those runs belong to, success rate, duration percentiles, turns, token sums, and the estimated cost recorded with each run, that cost per UTC day or month in JSON, broken down by outcome, by coding agent, by dispatch rule, by prompt template, by model, by stage chain, by retry trigger, and by run origin, plus a funnel for each stage chain. The database is opened read-only, so the command is safe to run while the orchestrator is working, and it makes no network call. A running Sortie serves the same report over HTTP at [`GET /api/v1/stats`](/reference/http-api/#get-apiv1stats-run-statistics).
+Reports how past runs went and what they cost. Sortie appends one row to `run_history` each time an agent session finishes; `stats` reads that history back over a time range and aggregates it into run counts, the number of issues those runs belong to, success rate, duration percentiles, turns, token sums, and the estimated cost recorded with each run, that cost per UTC day or month in JSON, broken down by outcome, by coding agent, by dispatch rule, by prompt template, by model, by usage provenance, by stage chain, by retry trigger, and by run origin, plus a funnel for each stage chain. The database is opened read-only, so the command is safe to run while the orchestrator is working, and it makes no network call. A running Sortie serves the same report over HTTP at [`GET /api/v1/stats`](/reference/http-api/#get-apiv1stats-run-statistics).
 
 ```
 sortie stats [--format text|json] [--since value] [--until value] [workflow-path]
@@ -737,9 +737,9 @@ Which figures a report can carry depends on the database it reads, not on the ve
 | Tokens | `input_tokens`, `output_tokens`, `total_tokens`, `cache_read_tokens` | Token sums and every derived cost figure. `cache_write_tokens`, when present, adds the cache-write sum without changing the tier. |
 | Token measurement | `tokens_measured` | Which runs the coding agent could measure, and so which ones the token and cost figures cover |
 
-Further column groups sit outside the tier, and each supplies only the part of the report named here, so a database without one is still `full`. `configured_model`, `configured_effort`, and `reported_model` supply the [model breakdown](#model-breakdown). `chain_id`, `stage_target`, and `stage_result` supply the [stage chain breakdown](#stage-chain-breakdown). `trigger` and `reaction_kind` supply the [retry trigger breakdown](#retry-trigger-breakdown). The [run origin breakdown](#run-origin-breakdown) needs those and `first_after_hop`. The [stage funnels](#stage-funnels) need every column named so far and `agent_blocked`. Cost needs every column named so far and the recorded cost columns. The [skill calls](#skill-calls) need every column named so far and `skills`.
+Further column groups sit outside the tier, and each supplies only the part of the report named here, so a database without one is still `full`. `configured_model`, `configured_effort`, and `reported_model` supply the [model breakdown](#model-breakdown). `chain_id`, `stage_target`, and `stage_result` supply the [stage chain breakdown](#stage-chain-breakdown). `trigger` and `reaction_kind` supply the [retry trigger breakdown](#retry-trigger-breakdown). The [run origin breakdown](#run-origin-breakdown) needs those and `first_after_hop`. The [stage funnels](#stage-funnels) need every column named so far and `agent_blocked`. Cost needs every column named so far and the recorded cost columns. The [skill calls](#skill-calls) need every column named so far and `skills`. The [usage provenance breakdown](#usage-provenance-breakdown) needs the columns cost needs, `usage_completeness`, `usage_provenance`, and the `run_reported_amounts` table, but not `skills`.
 
-**`base`**: at least one group is missing. The report falls back to run counts, the outcome breakdown, the coding-agent breakdown, and durations. Turns, tokens, cost, the dispatch-rule breakdown, the prompt-template breakdown, the configured-model breakdown, the stage chain breakdown, the retry trigger breakdown, the run origin breakdown, the stage funnels, the skill calls, and the self-review section are all left out.
+**`base`**: at least one group is missing. The report falls back to run counts, the outcome breakdown, the coding-agent breakdown, and durations. Turns, tokens, cost, the dispatch-rule breakdown, the prompt-template breakdown, the configured-model breakdown, the usage provenance breakdown, the stage chain breakdown, the retry trigger breakdown, the run origin breakdown, the stage funnels, the skill calls, and the self-review section are all left out.
 
 The tier is all-or-nothing by design. A database carrying four of the five groups still reports `base`, and the report then drops the groups it does carry along with the ones it never recorded. The warning names both lists so the two are not confused:
 
@@ -747,7 +747,7 @@ The tier is all-or-nothing by design. A database carrying four of the five group
 warning: this database was written before sortie recorded dispatch-rule routing, tokens and cost, which runs the coding agent could measure, the model each run was configured with, stage chains, what started each run, the first run after each stage hop, which runs required action, the skill calls of each run. The report falls back to run counts and durations, so it also leaves out turns, self-review results, which this database does carry. Run sortie once with this workflow to get the full report.
 ```
 
-A degraded report is still a report: the warning goes to stderr in text mode and into `warnings` in JSON, and the exit code is `0`. In JSON, `by_rule`, `by_template`, `by_model`, `by_chain`, `chain_funnels`, `by_trigger`, and `by_origin` are empty arrays, `skill_calls` and `self_review` are `null`, and every figure the tier cannot supply is `null` rather than `0`. A null means the database never recorded that figure, not that the figure measured zero.
+A degraded report is still a report: the warning goes to stderr in text mode and into `warnings` in JSON, and the exit code is `0`. In JSON, `by_rule`, `by_template`, `by_model`, `by_chain`, `chain_funnels`, `by_trigger`, `by_origin`, and `by_provenance` are empty arrays, `skill_calls` and `self_review` are `null`, and every figure the tier cannot supply is `null` rather than `0`. A null means the database never recorded that figure, not that the figure measured zero.
 
 The remedy is to run the orchestrator once with this workflow. Startup applies the pending migrations, and runs recorded from then on carry the full set. `stats` cannot do this itself; its read-only connection cannot apply a migration.
 
@@ -799,6 +799,20 @@ The `by model` table (`by_model` in JSON) groups runs by the model they spent to
 
 On a `full` database written before Sortie recorded the model of each run, `by_model` is `[]`, never `null`, and the text report omits the table. The [schema tiers](#schema-tiers) warning names it. Running the orchestrator once applies the migration. Runs recorded before it stay under `<none>`. On a `base` database `by_model` is `[]` as well.
 
+#### Usage provenance breakdown
+
+The `by usage provenance` table (`by_provenance` in JSON) groups runs by where Sortie read each run's token figure. [Spend measurement](/concepts/spend-measurement/) describes the sources and what a lower bound means.
+
+| Group name | Runs it collects |
+|---|---|
+| `<unknown>` | Runs recorded before Sortie kept where a token figure came from. |
+| `<none>` | Runs that recorded provenance and no source, as a run without a token figure does. |
+| Any other name | Runs whose figure came from the sources named. Each source reads `source:strategy`, where `source` is `protocol`, `output`, or `journal` and `strategy` is `live` or `records`, and the sources are joined with `,`, live first, then by source and strategy, as in `output:live,journal:records`. |
+
+Every run in the range falls in exactly one group, so the groups' `runs` add up to `summary.runs`. The figures and sort order are those of every other non-outcome breakdown. The text table follows the model table and is omitted when `by_provenance` is empty.
+
+`by_provenance` is `[]` on a database that lacks a column the [schema tiers](#schema-tiers) section names for it. No warning names this breakdown, and running the orchestrator once adds the columns. On a `base` database `by_provenance` is `[]` as well.
+
 #### Stage chain breakdown
 
 The `by stage chain` table (`by_chain` in JSON) groups runs by stage chain: one pass of one issue through the [stage chains](/reference/workflow-config/#stage-chains) the workflow configures, retries included. Each chain is named by a generated 26-character identifier, the one `GET /api/v1/runs` returns as [`chain_id`](/reference/http-api/#get-apiv1runs-run-history).
@@ -826,7 +840,7 @@ by stage chain
   M2TQ6VXH4RKZ7BNWD3JCLP5YSA  owner/repo#61  specify               failed    1     1          100.0%        3m 50s  3m 50s  3m 50s  2.0    43,000        $0.21
 ```
 
-The table follows the model table and is omitted when no chain qualifies. When more than 20 chains qualify, a footnote names the total, and `--format json` carries every entry:
+The table follows the model table, or the usage provenance table when it is present, and is omitted when no chain qualifies. When more than 20 chains qualify, a footnote names the total, and `--format json` carries every entry:
 
 ```
 note: the breakdown by stage chain shows the 20 stage chains with the most runs; --format json lists all 37.
@@ -1001,10 +1015,12 @@ Each element of `buckets`:
 |---|---|---|
 | `start` | string | The first instant of the period, RFC 3339 in UTC. |
 | `runs` | integer | Runs that completed in the period. |
-| `cost_usd` | number or null | The sum of the recorded costs of the period's priced runs, rounded to nine decimals. `null` when none is priced. It is the whole spend only while `cost_unpriced_runs`, `cost_partial_runs`, and `tokens_unmeasured_runs` are all `0`. |
+| `cost_usd` | number or null | The sum of the recorded costs of the period's priced runs, rounded to nine decimals. `null` when none is priced. It is the whole spend only while `cost_lower_bound` is `false`. |
 | `tokens_unmeasured_runs` | integer | The period's runs counted as in `summary.tokens_unmeasured_runs`. |
 | `cost_unpriced_runs` | integer | The period's runs counted as in `summary.cost_unpriced_runs`. |
 | `cost_partial_runs` | integer | The period's runs counted as in `summary.cost_partial_runs`. |
+| `cost_lower_bound` | boolean | `true` when `cost_usd` is not `null` and any of `cost_unpriced_runs`, `cost_partial_runs`, and `tokens_unmeasured_runs` is above `0`. |
+| `agent_priced_usd` | number or null | The part of `cost_usd` priced from US dollar amounts the coding agent reported, as in `summary.agent_priced_usd`. `null` when no run of the period was priced that way. |
 
 The days and months are the periods that `agent.max_daily_cost_usd` and `agent.max_monthly_cost_usd` count, so a bucket compares directly with those two ceilings. `stats` has no weekly bucket, so `agent.max_weekly_cost_usd` has no matching bucket to compare against.
 
@@ -1012,7 +1028,9 @@ The days and months are the periods that `agent.max_daily_cost_usd` and `agent.m
 
 Both formats carry the same figures. Breakdown rows are sorted by descending run count, with ties broken by ascending name. A run that recorded no dispatch rule, prompt template, or model appears under the sentinel name `<none>`, which also covers an empty agent adapter. Rounding is fixed so repeated runs over the same data produce identical output: rates and shares to four decimals, mean turns to two, mean duration to one, and costs to cents in text and to nine decimals in JSON.
 
-The summary's duration and mean-turn figures cover **succeeded runs only**, so they describe the work that landed rather than the volume attempted. Token sums and cost figures cover **measured runs only**: a run whose coding agent reported no token usage records that fact and is left out of those figures instead of counting as a run that spent nothing.
+The summary's duration and mean-turn figures cover **succeeded runs only**, so they describe the work that landed rather than the volume attempted. Token sums and cost figures cover **measured runs only**: a run whose coding agent reported no token usage records that fact and is left out of those figures instead of counting as a run that spent nothing. A figure that leaves out such a run, or counts only part of a run's spend, is marked as a lower bound: `tokens_lower_bound` and `cost_lower_bound` in JSON, `(lower bound)` and the `LOWER BOUND` column in text. [Spend measurement](/concepts/spend-measurement/) explains how to read a lower bound.
+
+The report adds no amount the agent reported in its own unit, such as credits or premium requests, to a token or cost figure. A run that reported only such amounts has no token figure, and counts in `tokens_unmeasured_runs`. In JSON, `unmeasured_cause` reads `amounts_only` and `unmeasured_units` names the units when every unmeasured run of a figure reported only amounts in the same units.
 
 A run counts as succeeded when its status is exactly `succeeded`. Cost is the estimate Sortie recorded when each run finished, under the rates in force then, and is never priced again; a run that spent no tokens adds to no cost figure. See [control agent costs](/guides/control-costs/#monitor-spending) for where this fits among the other cost surfaces.
 
@@ -1029,59 +1047,82 @@ generated: 2026-08-09T07:51:43Z
 runs 9   issues 8   succeeded 7 (77.8%)
 duration (succeeded)    p50 2m 49s   p95 7m 12s   mean 3m 34s   samples 7
 turns (succeeded)       3.3
-tokens (measured runs)  input 502,900   output 96,000   total 598,900   cache read 126,380   cache write 18,200
-cost (measured runs)    $6.49   per succeeded run $0.93
+tokens                  input 502,900   output 96,000   total 598,900   cache read 126,380   cache write 18,200
+cost                    $6.49   per succeeded run $0.93
 
 by outcome
-  OUTCOME    RUNS  SHARE  P50     P95     MEAN    TURNS  TOTAL TOKENS  COST
-  succeeded  7     77.8%  2m 49s  7m 12s  3m 34s  3.3    408,900       $4.59
-  failed     2     22.2%  6m 0s   9m 40s  7m 50s  5.5    190,000       $1.90
+  OUTCOME    RUNS  SHARE  P50     P95     MEAN    TURNS  TOTAL TOKENS  COST   LOWER BOUND
+  succeeded  7     77.8%  2m 49s  7m 12s  3m 34s  3.3    408,900       $4.59  -
+  failed     2     22.2%  6m 0s   9m 40s  7m 50s  5.5    190,000       $1.90  -
 
 by coding agent
-  AGENT        RUNS  SUCCEEDED  SUCCESS RATE  P50     P95     MEAN    TURNS  TOTAL TOKENS  COST
-  claude-code  6     5          83.3%         2m 41s  9m 40s  4m 32s  3.3    388,400       $5.72
-  codex        3     2          66.7%         4m 10s  6m 0s   4m 30s  4.7    210,500       $0.77
+  AGENT        RUNS  SUCCEEDED  SUCCESS RATE  P50     P95     MEAN    TURNS  TOTAL TOKENS  COST   LOWER BOUND
+  claude-code  6     5          83.3%         2m 41s  9m 40s  4m 32s  3.3    388,400       $5.72  -
+  codex        3     2          66.7%         4m 10s  6m 0s   4m 30s  4.7    210,500       $0.77  -
 
 by dispatch rule
-  RULE     RUNS  SUCCEEDED  SUCCESS RATE  P50     P95     MEAN    TURNS  TOTAL TOKENS  COST
-  bugfix   4     4          100.0%        2m 30s  2m 49s  2m 35s  2.5    172,800       $2.54
-  <none>   3     2          66.7%         4m 10s  6m 0s   4m 30s  4.7    210,500       $0.77
-  feature  2     1          50.0%         7m 12s  9m 40s  8m 26s  5.0    215,600       $3.18
+  RULE     RUNS  SUCCEEDED  SUCCESS RATE  P50     P95     MEAN    TURNS  TOTAL TOKENS  COST   LOWER BOUND
+  bugfix   4     4          100.0%        2m 30s  2m 49s  2m 35s  2.5    172,800       $2.54  -
+  <none>   3     2          66.7%         4m 10s  6m 0s   4m 30s  4.7    210,500       $0.77  -
+  feature  2     1          50.0%         7m 12s  9m 40s  8m 26s  5.0    215,600       $3.18  -
 
 by prompt template
-  TEMPLATE           RUNS  SUCCEEDED  SUCCESS RATE  P50     P95     MEAN    TURNS  TOTAL TOKENS  COST
-  <none>             5     3          60.0%         6m 0s   9m 40s  6m 4s   4.8    426,100       $3.95
-  prompts/bugfix.md  4     4          100.0%        2m 30s  2m 49s  2m 35s  2.5    172,800       $2.54
+  TEMPLATE           RUNS  SUCCEEDED  SUCCESS RATE  P50     P95     MEAN    TURNS  TOTAL TOKENS  COST   LOWER BOUND
+  <none>             5     3          60.0%         6m 0s   9m 40s  6m 4s   4.8    426,100       $3.95  -
+  prompts/bugfix.md  4     4          100.0%        2m 30s  2m 49s  2m 35s  2.5    172,800       $2.54  -
 
 by model
-  MODEL              RUNS  SUCCEEDED  SUCCESS RATE  P50     P95     MEAN    TURNS  TOTAL TOKENS  COST
-  claude-sonnet-4-5  4     4          100.0%        2m 30s  2m 49s  2m 35s  2.5    172,800       $2.54
-  claude-opus-4-5    2     1          50.0%         7m 12s  9m 40s  8m 26s  5.0    215,600       $3.18
-  gpt-5-codex        2     2          100.0%        3m 20s  4m 10s  3m 45s  4.0    150,500       $0.55
-  <none>             1     0          0.0%          6m 0s   6m 0s   6m 0s   6.0    60,000        $0.22
+  MODEL              RUNS  SUCCEEDED  SUCCESS RATE  P50     P95     MEAN    TURNS  TOTAL TOKENS  COST   LOWER BOUND
+  claude-sonnet-4-5  4     4          100.0%        2m 30s  2m 49s  2m 35s  2.5    172,800       $2.54  -
+  claude-opus-4-5    2     1          50.0%         7m 12s  9m 40s  8m 26s  5.0    215,600       $3.18  -
+  gpt-5-codex        2     2          100.0%        3m 20s  4m 10s  3m 45s  4.0    150,500       $0.55  -
+  <none>             1     0          0.0%          6m 0s   6m 0s   6m 0s   6.0    60,000        $0.22  -
+
+by usage provenance
+  PROVENANCE   RUNS  SUCCEEDED  SUCCESS RATE  P50     P95     MEAN    TURNS  TOTAL TOKENS  COST   LOWER BOUND
+  output:live  9     7          77.8%         3m 20s  9m 40s  4m 31s  3.8    598,900       $6.49  -
 
 self review
   runs reviewed 6   iterate 1   pass 5   hit iteration cap 1   mean iterations 1.50
 ```
 
-The outcome table shows `SHARE`, a group's runs over total runs. Every other breakdown shows `SUCCEEDED` and `SUCCESS RATE`, a group's succeeded runs over its own. On the `base` tier the `TURNS`, `TOTAL TOKENS`, and `COST` columns are absent entirely, and the dispatch-rule, prompt-template, model, stage-chain, retry-trigger, run-origin, and self-review sections do not appear.
+The outcome table shows `SHARE`, a group's runs over total runs. Every other breakdown shows `SUCCEEDED` and `SUCCESS RATE`, a group's succeeded runs over its own. On the `base` tier the `TURNS`, `TOTAL TOKENS`, `COST`, and `LOWER BOUND` columns are absent entirely, the `turns`, `tokens`, and `cost` summary lines do not appear, and neither do the dispatch-rule, prompt-template, model, usage-provenance, stage-chain, retry-trigger, run-origin, and self-review sections.
 
 The `covering:` line is prose rather than a sentinel. It reads `every run on record` when neither bound was given, `<since> onward` with only `--since`, `the start of the record until <until>` with only `--until`, and `<since> until <until>` with both.
+
+When a summary figure is a lower bound, its label reads `tokens (lower bound)` or `cost (lower bound)`, and a lower-bound cost, the cost per succeeded run on that line included, is cut down to the cent rather than rounded, so it never reads above the spend it bounds. The `LOWER BOUND` column of every table names the figures of the row that are lower bounds, `tokens`, `cost`, or `tokens, cost`, and reads `-` when neither is, and a cost in such a row is cut down the same way:
+
+```
+tokens (lower bound)    input 4,900,000   output 940,000   total 5,840,000   cache read 50,000   cache write 10,000
+cost (lower bound)      $21.93   per succeeded run $4.38
+
+by coding agent
+  AGENT        RUNS  SUCCEEDED  SUCCESS RATE  P50     P95     MEAN    TURNS  TOTAL TOKENS  COST    LOWER BOUND
+  claude-code  5     3          60.0%         10m 0s  30m 0s  12m 0s  2.4    4,540,000     $21.53  tokens, cost
+  copilot      2     1          50.0%         2m 0s   5m 0s   3m 30s  1.0    -             -       -
+```
+
+A row with no measured run reads `-` in `TOTAL TOKENS`, `COST`, and `LOWER BOUND`, because it has no figure to bound.
 
 When no run in the range that spent tokens was priced, token counts are still reported and the cost line reads:
 
 ```
-cost (measured runs)    -   per succeeded run -
+cost                    -   per succeeded run -
 ```
 
-Four disclosure counters each add a footnote below the tables when they are not zero:
+Each disclosure counter adds a footnote below the tables when it is not zero, in this order:
 
 ```
-note: 2 of these runs took no measurable time. A run that a CI result closed out carries the same start and finish time.
+note: 1 of these runs took no measurable time. A run that a CI result closed out carries the same start and finish time.
 note: the duration figures skip 1 of these runs, whose recorded start and finish times were unusable.
-note: the token and cost figures skip 4 of these runs, because the coding agent behind them reported no token usage.
-note: the cost figures skip 3 of these runs, because Sortie had no price for the models they used when they were recorded.
+note: the token and cost figures skip 3 of these runs, because the coding agent behind them reported no token usage.
+note: the cost figures skip 1 of these runs, because Sortie had no price for the models they used when they were recorded.
+note: the token figures count only part of 1 of these runs, because some of their turns were not fully counted.
+note: the cost figures count only part of 1 of these runs, because part of their spend was not counted or had no price.
+note: the cost figures include $0.40 that the coding agent reported for models Sortie had no price for when the runs were recorded.
 ```
+
+The lines come from `zero_duration_runs`, `duration_excluded_runs`, `tokens_unmeasured_runs`, `cost_unpriced_runs`, `tokens_lower_bound_runs`, `cost_partial_runs`, and `agent_priced_usd` of `summary`, in that order. The last one appears whenever `agent_priced_usd` is not `null`, and its amount is rounded to the cent. The stage chain footnote follows them.
 
 A range that matches no runs is a success, not a failure. The header still prints, one of two lines follows, and the exit code is `0`:
 
@@ -1119,6 +1160,7 @@ Envelope:
 | `chain_funnels` | array of object | One funnel per stage chain definition of the workflow. Empty array when the workflow defines no stage chain, on the `base` tier, and on a `full` database that predates the configured-model, stage-chain, trigger, `first_after_hop`, or `agent_blocked` columns. See [stage funnels](#stage-funnels). |
 | `by_trigger` | array of object | Breakdown by retry trigger. Empty array on the `base` tier and on a `full` database that predates the configured-model, stage-chain, or trigger columns. See [retry trigger breakdown](#retry-trigger-breakdown). |
 | `by_origin` | array of object | Breakdown by run origin. Empty array on the `base` tier and on a `full` database that predates the configured-model, stage-chain, trigger, or `first_after_hop` columns. See [run origin breakdown](#run-origin-breakdown). |
+| `by_provenance` | array of object | Breakdown by usage provenance. Empty array on the `base` tier and on a `full` database that lacks the cost or provenance columns. See [usage provenance breakdown](#usage-provenance-breakdown). |
 | `skill_calls` | object or null | The skill calls of the runs in the range. `null` on the `base` tier and on a `full` database that predates the skill calls or a column recorded before them. See [skill calls](#skill-calls). |
 | `self_review` | object or null | Self-review aggregation. `null` on the `base` tier, meaning the results were not read, not that no review ran. |
 
@@ -1136,19 +1178,33 @@ Envelope:
 | `duration_seconds` | object | Duration figures over succeeded runs only. |
 | `mean_turns_succeeded` | number or null | Mean turns completed over succeeded runs. `null` on the `base` tier and when no run succeeded, never `0` in either case. |
 | `tokens` | object or null | Token sums over the measured runs in the range. `null` on the `base` tier and when no run in the range was measured. |
-| `cost_usd` | number or null | Estimated cost over every priced run in the range, not rounded to cents, so a total under one cent never reads as zero. A run recorded `partial` counts at its lower bound, so the figure is the whole spend only while `cost_unpriced_runs`, `cost_partial_runs`, and `tokens_unmeasured_runs` are all `0`. `null` on the `base` tier, on a database that records no cost, and when no run that spent tokens was priced, never `0` in those cases. |
+| `cost_usd` | number or null | Estimated cost over every priced run in the range, not rounded to cents, so a total under one cent never reads as zero. A run recorded `partial` counts at its lower bound, so the figure is the whole spend only while `cost_lower_bound` is `false`. `null` on the `base` tier, on a database that records no cost, and when no run that spent tokens was priced, never `0` in those cases. |
 | `cost_per_succeeded_run_usd` | number or null | `cost_usd` divided by the succeeded runs that were measured, not rounded to cents. `null` whenever `cost_usd` is `null`, and when no measured run succeeded. |
 | `zero_duration_runs` | integer | Runs that took no measurable time. A run that a CI result closed out carries the same start and finish time. |
 | `duration_excluded_runs` | integer | Runs left out of every duration figure because their stored timestamps could not be parsed or ran backwards. |
 | `cost_unpriced_runs` | integer | Measured runs that spent tokens and were recorded without a cost, left out of the cost figures: Sortie had no price for the models they used when they finished, they reported their spend only as a total, or they were recorded before Sortie stored costs and no start has priced them yet. It counts these runs whatever the workflow sets now. `0` on a database that records no cost. A `ci_failed` run records a CI verdict and no coding agent, so it is never counted here. |
 | `cost_partial_runs` | integer | Measured runs recorded `partial`, whose recorded cost is a lower bound that `cost_usd` includes: a token class the run spent had no rate, or the run has unaccounted turns. A run counts in at most one of `cost_unpriced_runs` and `cost_partial_runs`. `0` on the `base` tier and on a database that records no cost. A `ci_failed` run is never counted. |
 | `tokens_unmeasured_runs` | integer | Runs left out of the token and cost figures because the coding agent behind them reported no token usage. `0` on the `base` tier, where the distinction was never recorded. |
+| `tokens_lower_bound_runs` | integer | Measured runs that recorded unaccounted turns, so `tokens` counts only part of their spend. `0` on the `base` tier. |
+| `tokens_lower_bound` | boolean | `true` when `tokens` is not `null` and `tokens_unmeasured_runs` or `tokens_lower_bound_runs` is above `0`, so the token sums are lower bounds. `false` on the `base` tier. |
+| `cost_lower_bound` | boolean | `true` when `cost_usd` is not `null` and any of `cost_unpriced_runs`, `cost_partial_runs`, and `tokens_unmeasured_runs` is above `0`, so `cost_usd` is a lower bound. `false` on the `base` tier. |
+| `agent_priced_usd` | number or null | The part of `cost_usd` that Sortie priced from US dollar amounts the coding agent reported, for models it had no price for when the runs were recorded. Rounded to nine decimals and never above `cost_usd`. `null` when no run was priced that way, and on the `base` tier. |
+| `unmeasured_cause` | string or null | Why the runs counted in `tokens_unmeasured_runs` have no token figure, below. `null` when no run is unmeasured, and on the `base` tier. |
+| `unmeasured_units` | array of string | The units the unmeasured runs reported, ascending, when `unmeasured_cause` is `amounts_only`. `[]` otherwise, never `null`. |
 
-Each element of `by_status`, `by_adapter`, `by_rule`, `by_template`, `by_model`, `by_chain`, `by_trigger`, and `by_origin`:
+| `unmeasured_cause` | The unmeasured runs |
+|---|---|
+| `amounts_only` | Reported amounts, in US dollars or a unit of the agent's own, and no token figure. |
+| `ended_early` | Did not succeed and reported no usage. |
+| `no_usage` | Succeeded, and the agent sent no usage. |
+| `unknown` | Were recorded before Sortie kept where a token figure came from, so the other causes cannot be told apart. |
+| `mixed` | Differ in cause, or reported amounts in different units. |
+
+Each element of `by_status`, `by_adapter`, `by_rule`, `by_template`, `by_model`, `by_chain`, `by_trigger`, `by_origin`, and `by_provenance`:
 
 | Field | Type | Description |
 |---|---|---|
-| `name` | string | The group: an outcome, an agent adapter kind, a dispatch rule name, a template identifier, a model, a chain identifier, a retry trigger, or a run origin. A run that recorded none carries the sentinel `<none>`, except in `by_chain`, which leaves such a run out. In `by_trigger`, `<none>` is an empty recorded trigger and `<unknown>` a trigger never recorded. In `by_origin`, `<none>` is a recorded CI result and `<unknown>` a run whose trigger was never recorded. Runs keep the agent kind they were recorded under, so a removed kind stays a group of its own next to the kind that replaced it. |
+| `name` | string | The group: an outcome, an agent adapter kind, a dispatch rule name, a template identifier, a model, a chain identifier, a retry trigger, a run origin, or a usage provenance. A run that recorded none carries the sentinel `<none>`, except in `by_chain`, which leaves such a run out. In `by_trigger`, `<none>` is an empty recorded trigger and `<unknown>` a trigger never recorded. In `by_origin`, `<none>` is a recorded CI result and `<unknown>` a run whose trigger was never recorded. In `by_provenance`, `<none>` is a run that recorded no source and `<unknown>` a run recorded before Sortie kept provenance. Runs keep the agent kind they were recorded under, so a removed kind stays a group of its own next to the kind that replaced it. |
 | `runs` | integer | Runs in this group. |
 | `succeeded` | integer | Succeeded runs in this group. In `by_status` this is structural rather than informative: the `succeeded` row necessarily reports it equal to `runs`. |
 | `success_rate` | number | `succeeded` over this group's `runs`. |
@@ -1161,6 +1217,7 @@ Each element of `by_status`, `by_adapter`, `by_rule`, `by_template`, `by_model`,
 | `tokens_unmeasured_runs` | integer | This group's runs left out of the token and cost figures because the coding agent behind them reported no token usage. `0` on the `base` tier. |
 | `cost_unpriced_runs` | integer | This group's runs counted as in `summary.cost_unpriced_runs`. `0` on the `base` tier and on a database that records no cost. A `ci_failed` run is never counted. |
 | `cost_partial_runs` | integer | This group's runs counted as in `summary.cost_partial_runs`. `0` on the `base` tier and on a database that records no cost. A `ci_failed` run is never counted. |
+| `tokens_lower_bound_runs`, `tokens_lower_bound`, `cost_lower_bound`, `agent_priced_usd`, `unmeasured_cause`, `unmeasured_units` | as in `summary` | As in `summary`, over this group's runs. In `by_model` they cover the model's share of each run, so `agent_priced_usd` holds only the shares of that model priced from an agent-reported amount. |
 
 Each element of `by_chain` adds three fields after these:
 
@@ -1211,7 +1268,7 @@ Each element of `by_final_verdict`:
 | `verdict` | string | The final verdict. A run whose recorded verdict is empty is grouped under the literal `none`, which is distinct from the `<none>` group sentinel. |
 | `runs` | integer | Runs carrying this verdict. |
 
-A worked example, expanded for readability and trimmed to one row per breakdown. The command emits it as a single compact line:
+A worked example, expanded for readability and trimmed to one element per breakdown and one spend bucket. The command emits it as a single compact line:
 
 ```json
 {
@@ -1234,12 +1291,24 @@ A worked example, expanded for readability and trimmed to one row per breakdown.
     "mean_turns_succeeded": 3.29,
     "tokens": {"input": 502900, "output": 96000, "total": 598900, "cache_read": 126380, "cache_write": 18200, "uncached": 472520},
     "cost_usd": 6.49,
-    "cost_per_succeeded_run_usd": 0.93,
+    "cost_per_succeeded_run_usd": 0.927142857,
     "zero_duration_runs": 0,
     "duration_excluded_runs": 0,
     "cost_unpriced_runs": 0,
     "cost_partial_runs": 0,
-    "tokens_unmeasured_runs": 0
+    "tokens_unmeasured_runs": 0,
+    "tokens_lower_bound_runs": 0,
+    "tokens_lower_bound": false,
+    "cost_lower_bound": false,
+    "agent_priced_usd": null,
+    "unmeasured_cause": null,
+    "unmeasured_units": []
+  },
+  "spend": {
+    "period": "day",
+    "buckets": [
+      {"start": "2026-07-01T00:00:00Z", "runs": 0, "cost_usd": null, "tokens_unmeasured_runs": 0, "cost_unpriced_runs": 0, "cost_partial_runs": 0, "cost_lower_bound": false, "agent_priced_usd": null}
+    ]
   },
   "by_status": [
     {
@@ -1252,10 +1321,16 @@ A worked example, expanded for readability and trimmed to one row per breakdown.
       "mean_turns": 3.29,
       "tokens": {"input": 341900, "output": 67000, "total": 408900, "cache_read": 90380, "cache_write": 12100, "uncached": 318520},
       "cost_usd": 4.59,
-      "cost_per_succeeded_run_usd": 0.66,
+      "cost_per_succeeded_run_usd": 0.655714286,
       "tokens_unmeasured_runs": 0,
       "cost_unpriced_runs": 0,
-      "cost_partial_runs": 0
+      "cost_partial_runs": 0,
+      "tokens_lower_bound_runs": 0,
+      "tokens_lower_bound": false,
+      "cost_lower_bound": false,
+      "agent_priced_usd": null,
+      "unmeasured_cause": null,
+      "unmeasured_units": []
     }
   ],
   "by_adapter": [
@@ -1269,10 +1344,16 @@ A worked example, expanded for readability and trimmed to one row per breakdown.
       "mean_turns": 3.33,
       "tokens": {"input": 324500, "output": 63900, "total": 388400, "cache_read": 126380, "cache_write": 18200, "uncached": 262020},
       "cost_usd": 5.72,
-      "cost_per_succeeded_run_usd": 1.14,
+      "cost_per_succeeded_run_usd": 1.144,
       "tokens_unmeasured_runs": 0,
       "cost_unpriced_runs": 0,
-      "cost_partial_runs": 0
+      "cost_partial_runs": 0,
+      "tokens_lower_bound_runs": 0,
+      "tokens_lower_bound": false,
+      "cost_lower_bound": false,
+      "agent_priced_usd": null,
+      "unmeasured_cause": null,
+      "unmeasured_units": []
     }
   ],
   "by_rule": [
@@ -1286,10 +1367,16 @@ A worked example, expanded for readability and trimmed to one row per breakdown.
       "mean_turns": 2.5,
       "tokens": {"input": 145100, "output": 27700, "total": 172800, "cache_read": 56360, "cache_write": 8100, "uncached": 116440},
       "cost_usd": 2.54,
-      "cost_per_succeeded_run_usd": 0.64,
+      "cost_per_succeeded_run_usd": 0.635,
       "tokens_unmeasured_runs": 0,
       "cost_unpriced_runs": 0,
-      "cost_partial_runs": 0
+      "cost_partial_runs": 0,
+      "tokens_lower_bound_runs": 0,
+      "tokens_lower_bound": false,
+      "cost_lower_bound": false,
+      "agent_priced_usd": null,
+      "unmeasured_cause": null,
+      "unmeasured_units": []
     }
   ],
   "by_template": [
@@ -1303,10 +1390,16 @@ A worked example, expanded for readability and trimmed to one row per breakdown.
       "mean_turns": 2.5,
       "tokens": {"input": 145100, "output": 27700, "total": 172800, "cache_read": 56360, "cache_write": 8100, "uncached": 116440},
       "cost_usd": 2.54,
-      "cost_per_succeeded_run_usd": 0.64,
+      "cost_per_succeeded_run_usd": 0.635,
       "tokens_unmeasured_runs": 0,
       "cost_unpriced_runs": 0,
-      "cost_partial_runs": 0
+      "cost_partial_runs": 0,
+      "tokens_lower_bound_runs": 0,
+      "tokens_lower_bound": false,
+      "cost_lower_bound": false,
+      "agent_priced_usd": null,
+      "unmeasured_cause": null,
+      "unmeasured_units": []
     }
   ],
   "by_model": [
@@ -1320,16 +1413,45 @@ A worked example, expanded for readability and trimmed to one row per breakdown.
       "mean_turns": 2.5,
       "tokens": {"input": 145100, "output": 27700, "total": 172800, "cache_read": 56360, "cache_write": 8100, "uncached": 116440},
       "cost_usd": 2.54,
-      "cost_per_succeeded_run_usd": 0.64,
+      "cost_per_succeeded_run_usd": 0.635,
       "tokens_unmeasured_runs": 0,
       "cost_unpriced_runs": 0,
-      "cost_partial_runs": 0
+      "cost_partial_runs": 0,
+      "tokens_lower_bound_runs": 0,
+      "tokens_lower_bound": false,
+      "cost_lower_bound": false,
+      "agent_priced_usd": null,
+      "unmeasured_cause": null,
+      "unmeasured_units": []
     }
   ],
   "by_chain": [],
   "chain_funnels": [],
   "by_trigger": [],
   "by_origin": [],
+  "by_provenance": [
+    {
+      "name": "output:live",
+      "runs": 9,
+      "succeeded": 7,
+      "success_rate": 0.7778,
+      "share": 1,
+      "duration_seconds": {"p50": 200, "p95": 580, "mean": 271.3, "samples": 9},
+      "mean_turns": 3.78,
+      "tokens": {"input": 502900, "output": 96000, "total": 598900, "cache_read": 126380, "cache_write": 18200, "uncached": 472520},
+      "cost_usd": 6.49,
+      "cost_per_succeeded_run_usd": 0.927142857,
+      "tokens_unmeasured_runs": 0,
+      "cost_unpriced_runs": 0,
+      "cost_partial_runs": 0,
+      "tokens_lower_bound_runs": 0,
+      "tokens_lower_bound": false,
+      "cost_lower_bound": false,
+      "agent_priced_usd": null,
+      "unmeasured_cause": null,
+      "unmeasured_units": []
+    }
+  ],
   "skill_calls": {
     "unrecorded_runs": 1,
     "by_skill": [
