@@ -59,7 +59,7 @@ Sortie validates that referenced secrets resolve to non-empty values without pri
 
 So Sortie masks what it knows. Every value it learns is a credential is registered once, and from then on it reads `[redacted]` wherever it appears in the log, the run history, the retry list, or the dashboard.
 
-Sortie learns these values from its own environment and the `.env` file, where a variable counts as a credential when its name ends in a conventional suffix such as `_KEY`, `_TOKEN`, `_SECRET`, or `_PASSWORD`; from the resolved configuration, `tracker.api_key` and credential-named settings alike; from the user and password embedded in a URL such as `tracker.endpoint`; from every [notification](#outbound-notifications) endpoint URL, registered whole because the URL itself grants access; and from the environment and headers of the tool servers it hands an agent.
+Sortie learns these values from its own environment and the `.env` file, where a variable counts as a credential when its name ends in a conventional suffix such as `_KEY`, `_TOKEN`, `_SECRET`, or `_PASSWORD`; from the resolved configuration, `tracker.api_key` and credential-named settings alike; from the user and password embedded in a URL such as `tracker.endpoint`; from every [notification](#outbound-notifications) endpoint URL, registered whole because the URL itself grants access; from the environment and headers of the tool servers it hands an agent, and from the per-session bearer of its own HTTP tool server, which it forgets when the session ends.
 
 The limits follow from matching known values. A credential the agent reads from its own stored login, a secret kept under a variable name that follows no such convention, or a token that surfaces only in an encoded form passes through unchanged.
 
@@ -71,9 +71,13 @@ Hook scripts and agent sessions inherit the full environment of the Sortie proce
 
 A process's argument list is not a secret. Anything Sortie puts on a command line is readable by every other user of that host through the process table, so a credential travels in the environment, down a pipe, or in a `0o600` file, and never in an argument.
 
-That rule is what costs a remote `codex` session its Sortie tools: the runtime accepts no configuration path, the route left for the generated configuration is the remote command string, and that string is the local `ssh` process's own argument list. Sortie withholds the tools instead of publishing the tracker credential they carry, and withholds the prompt's tool advertisement with them.
+That rule shapes how a remote agent reaches Sortie's tools. The tools need the tracker credential, and the remote command string is the local `ssh` process's own argument list, so the credential cannot ride there. Sortie instead keeps the tool server on the orchestrator host, and the agent reaches it through a reverse SSH forward. What crosses to the worker host is the forwarded port number and a bearer token generated for the session, delivered on the SSH session's standard input. The tracker credential stays on the orchestrator host.
 
-A remote `opencode` or `agent-client-protocol` session reaches no tool either. See [delivery by agent kind](/reference/agent-extensions/#delivery-by-agent-kind).
+The forward opens a port on the worker host's loopback interface. Another user of that host can connect to it, but every request needs the bearer, a request with a non-loopback `Origin` header is refused, and the token stops working when the session ends. A user who can read the agent's environment on the worker host can read the token, which is the same trust the agent's own credentials already require.
+
+Some secrets still reach the worker host by design. A header value of an HTTP server in `mcp_config` is the operator's own and travels to the agent as an environment variable, never in an argument or a file. An `agent-client-protocol` runtime has no reference form, so it receives the bearer and those header values inside its session-creation request. A runtime that logs its requests can write them down; see [Kiro CLI](/reference/agent-client-protocol-kiro/) for one that does at its debug level.
+
+The worker host chooses whether the tunnel exists. If its `sshd` refuses remote forwarding, the session runs without Sortie's tools rather than falling back to a route that would expose the credential. See [delivery by agent kind](/reference/agent-extensions/#delivery-by-agent-kind).
 
 Sending work to a remote host bounds the inheritance rather than repeating it. `ssh` carries nothing of the orchestrator's environment across, so a remote agent starts with the build host's environment plus exactly what Sortie adds on purpose: the credential variable names its agent kind declares, and the names the operator lists in `worker.ssh_pass_env`, less the names the operator disallows.
 
@@ -161,9 +165,7 @@ Binding to `127.0.0.1` does not by itself keep a web page out. Your browser runs
 
 One boundary needs stating precisely, because it is easy to misread. Sortie launches your coding agent as a subprocess and passes its own process environment through to it unfiltered. That agent is a separate program with its own vendor relationship and its own telemetry posture. Claude Code, Codex, and the others each make their own decisions about what they report home and to whom.
 
-Sortie sets no environment variable that turns that reporting on or off, with one exception: a launch it identifies as Gemini CLI on the `agent-client-protocol` kind gets four `GEMINI_TELEMETRY_*` variables. They set the runtime's telemetry target to `local`, point its output at a private file in a directory Sortie creates for the session, and turn prompt logging off, so that Sortie can read the token counts from that file. They serve Sortie's own token accounting and name no remote destination.
-
-No other runtime, and no launch over SSH, receives them; the [Gemini CLI reference](/reference/agent-client-protocol-gemini/#token-accounting-reads-local-files-and-its-in-turn-signal-understates) lists them.
+Sortie sets no environment variable that turns that reporting on or off, on any runtime, locally or over SSH. Its own token accounting never depends on an agent's telemetry.
 
 The claim in this section is about Sortie's own network behavior; it says nothing about the program Sortie hands your workspace to. Consult that agent's own documentation for its posture.
 

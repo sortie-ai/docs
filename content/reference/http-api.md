@@ -106,7 +106,7 @@ The route accepts `GET` and `HEAD`. Sortie's HTTP server has no authentication, 
 
 ## GET /api/v1/state: System state
 
-Returns a full runtime snapshot: running sessions, retry queue, budget-exhausted and parked issues, pending pull request reactions, issues between stages, one entry per active issue in a stable order, the list of what needs a person, aggregate totals, rate limits, the workflow configuration in effect, which names the tracker kind and project, the health of Sortie's own checks, the Sortie version, and the time the process started.
+Returns a full runtime snapshot: running sessions, retry queue, budget-exhausted and parked issues, pending pull request reactions, issues between stages, the eligible issues the latest dispatch pass held back, one entry per active issue in a stable order, the list of what needs a person, aggregate totals, rate limits, the workflow configuration in effect, which names the tracker kind and project, the health of Sortie's own checks, the Sortie version, and the time the process started.
 
 ```sh
 curl http://localhost:7678/api/v1/state
@@ -126,6 +126,7 @@ curl http://localhost:7678/api/v1/state
     "parked": 1,
     "pending_reactions": 2,
     "between_stages": 1,
+    "held": 1,
     "attention": 4
   },
   "running": [
@@ -397,6 +398,7 @@ curl http://localhost:7678/api/v1/state
       },
       "agent_kind": "claude-code",
       "configured_model": "claude-sonnet-4-5",
+      "hold": null,
       "status_text": "Between stages: specify to implement",
       "status_text_full": "Moved from stage specify to stage implement, and Sortie added `stage-implement`; implement starts when a poll tick reads that label on the issue."
     }
@@ -508,6 +510,30 @@ curl http://localhost:7678/api/v1/state
       "pr_loop": {"ci_failure": {"result": "unrecorded", "continuations": 0}, "review_comments": {"result": "unrecorded", "continuations": 0}, "bot_review": {"result": "unrecorded", "continuations": 0}, "merge_conflicts": {"result": "unrecorded", "continuations": 0}, "auto_merge": {"result": "unrecorded", "continuations": 0}}
     }
   ],
+  "held": [
+    {
+      "issue_id": "vwx234",
+      "issue_identifier": "MT-656",
+      "issue_title": "Wire the export queue",
+      "issue_url": "https://tracker.example.com/browse/MT-656",
+      "issue_type": "Story",
+      "issue_labels": ["export"],
+      "state": "To Do",
+      "hold": {
+        "reason": "blocked_by",
+        "held_since": "2026-03-26T14:12:30Z",
+        "blockers": [
+          {"issue_id": "stu901", "issue_identifier": "MT-655", "state": "In Progress"}
+        ],
+        "slot": null,
+        "resets_at": null,
+        "reason_text": "Blocked by MT-655 (In Progress)",
+        "release_text": "Released when the blocker reaches a terminal state."
+      },
+      "status_text": "Blocked by MT-655 (In Progress)",
+      "status_text_full": "Blocked by MT-655 (In Progress). Sortie dispatches the issue once the blocker reaches a terminal state."
+    }
+  ],
   "attention": [
     {
       "id": "436a04996ce8317d45cdb082d7ee656a",
@@ -613,7 +639,29 @@ curl http://localhost:7678/api/v1/state
     "running_unreported": 0,
     "running_non_reporting": 0
   },
-  "rate_limits": {},
+  "rate_limits": {
+    "claude-code": {
+      "reported_at": "2026-03-26T14:02:00Z",
+      "windows": [
+        {
+          "label": "5-hour limit",
+          "used_percent": null,
+          "status": "allowed",
+          "resets_at": "2026-03-26T17:00:00Z",
+          "reported_at": "2026-03-26T14:02:00Z",
+          "amount": null
+        },
+        {
+          "label": "Weekly limit",
+          "used_percent": 82,
+          "status": "warning",
+          "resets_at": "2026-03-28T09:00:00Z",
+          "reported_at": "2026-03-26T11:40:00Z",
+          "amount": null
+        }
+      ]
+    }
+  },
   "active_estimated_cost_usd": 0.06372,
   "cost_unpriced_running": 0,
   "spend_ceiling": {
@@ -806,8 +854,8 @@ curl http://localhost:7678/api/v1/state
 | `skills` | The session's skill calls so far, in completion order, as the elements of `skills` on a [run](#get-apiv1runs-run-history) are. Omitted until the run has completed a skill call, and for an agent that reports none. |
 | `tool_time_percent` | Percentage of elapsed wall-clock time spent in tool execution. `null` when not yet computed. |
 | `api_time_percent` | Percentage of elapsed wall-clock time spent waiting on API calls. `null` when not yet computed. |
-| `usage_arrival` | When this session's token figures arrive, frozen at dispatch from the agent kind, its configuration, and whether the session runs over SSH. `"incremental"` (one figure per LLM API request, while the turn is still running), `"turn_end"` (at most one figure per turn, after the turn's work is over), `"none"` (no figure is ever produced), or `""` when the kind declares nothing. |
-| `usage_attribution` | What this session's token figures attribute to, frozen alongside `usage_arrival`. `"per_model"` (a figure names the model that produced it), `"session_total"` (figures are session-level totals with no model), `"none"` (there is no figure to attribute), or `""` when the kind declares nothing. |
+| `usage_arrival` | When this session's token figures arrive, derived at dispatch from the usage sources the session's agent kind attaches and frozen for the session. It follows the kind, not the launch, so a session on an SSH worker has the value the same kind has locally. `"incremental"` (one figure per LLM API request, while the turn is still running), `"turn_end"` (at most one figure per turn, after the turn's work is over), `"none"` (no figure is ever produced), or `""` when the kind is not registered. |
+| `usage_attribution` | What this session's token figures attribute to, derived and frozen alongside `usage_arrival`. `"per_model"` (a figure names the model that produced it), `"session_total"` (figures are session-level totals, not split by model), `"none"` (there is no figure to attribute), or `""` when the kind is not registered. Sessions of the `agent-client-protocol` kind report `"session_total"`, and their figures can still name a model. |
 | `tokens_awaited` | `true` only when the session has recorded no token figure and the moment its `usage_arrival` names for one has not passed. A session whose `usage_arrival` reports figures and whose `tokens_awaited` is `false` has recorded nothing and will record nothing. |
 | `tokens_pending` | `true` only when `usage_arrival` is `"turn_end"`, `tokens_measured` is `true`, and the turn whose figure is still to settle has not ended. The counts in `tokens` then exclude the turn in progress rather than being final. |
 | `api_requests_measured` | `true` exactly when `api_request_count` is non-null. It requires `usage_arrival` to be `"incremental"`, and then either a figure already counted or no turn yet begun. A `"turn_end"` session is never measured, because its counter settles at most once per turn rather than once per request; an `"incremental"` session with nothing counted is not measured either once its first turn has begun, whatever its agent kind declares. |
@@ -885,7 +933,7 @@ The dashboard shows both values. Completed runs keep all three; see [model and e
 | `state` | The tracker state of the issue. Omitted when empty or unread. Masked like the running row's. |
 | `due_at` | When the retry comes due, in UTC. Always present. A [request to run the retry now](#post-apiv1retriesidentifierrun-run-a-scheduled-retry-now) replaces a later value with the time Sortie takes the request. |
 | `dispatched_at` | When Sortie dispatched the first run of the pass the retry continues, in UTC. Always present; `null` when the pass cannot be dated. See [dispatch time and stage position](#dispatch-time-and-stage-position). |
-| `trigger` | The `sortie_retries_total` label of the schedule that created the retry: `error`, `continuation`, `timer`, `stall`, or `ci_fix`. See the [metrics reference](/reference/prometheus-metrics/#counters). Omitted for a review, bot review, merge conflict, or label command continuation, which `reaction_kind` names instead, and for a retry restored from a row stored by an earlier release until it next comes due. |
+| `trigger` | The `sortie_retries_total` label of the schedule that created the retry: `error`, `usage_limit`, `continuation`, `timer`, `stall`, or `ci_fix`. See the [metrics reference](/reference/prometheus-metrics/#counters). `usage_limit` is the retry of a run the agent provider refused because its usage limit is reached; `due_at` is the reset, or the end of the ordinary backoff when that is later. Omitted for a review, bot review, merge conflict, or label command continuation, which `reaction_kind` names instead, and for a retry restored from a row stored by an earlier release until it next comes due. |
 | `reaction_kind` | The reaction behind the retry: `ci`, `review`, `bot-review`, `merge`, `merge-conflict`, `label-review`, `label-fix`, or `merge-completion`. Omitted when the retry carries none. An `error` or `stall` retry of a run that a reaction dispatched carries that run's kind, and a `timer` row keeps the kind of the retry it replaced. |
 | `reaction_config_key` | The key under [`reactions`](/reference/reactions/) in `WORKFLOW.md` that configures `reaction_kind`: `ci_failure`, `review_comments`, `bot_review`, `auto_merge`, `merge_conflicts`, `label_commands` (for both `label-review` and `label-fix`), or `merge_completion`. Omitted whenever `reaction_kind` is. |
 | `rule_name` | Name of the [dispatch rule](/reference/workflow-config/#dispatch) of the run the retry follows, frozen with the retry. Omitted when no rule routed that run. If the configuration in force no longer reaches that rule when the retry fires, the retry dispatches on another one. |
@@ -1079,6 +1127,7 @@ The hop is stored in the database with its type, labels, and state, so a restart
 | `rule_name` | The rule the issue's next run dispatches on, which is `target_rule`. |
 | `agent_kind`, `configured_model` | The agent kind and `model` a dispatch of `rule_name` resolves to under the configuration as of the latest poll tick. Each omitted when the configuration no longer names a rule with a stage label under that name, and `configured_model` also when the rule sets none. |
 | `stage_position` | Always present. Where `rule_name` stands on its [stage chain](/reference/workflow-config/#stage-chains), or `null` when the rule is on no chain. See [dispatch time and stage position](#dispatch-time-and-stage-position). |
+| `hold` | Always present. The [hold object](#hold-object) the latest dispatch pass gave the issue, or `null` while the pass recorded no hold for it. A hop whose stage label no read has shown yet holds the issue with the reason `stage_hop_unconfirmed`. Every other member of the row is the same with or without `hold`. |
 
 **`active[]` entries:** Every issue that `running`, `retrying`, `budget_exhausted`, `parked`, `pending_reactions`, or `between_stages` holds, once per issue. A client that shows one line per issue reads this list and merges, chooses, and orders nothing itself. The list is always present, `[]` when no issue is active. The six lists above and `counts` are unchanged, and `counts` has no `active` member: the length of `active` is the number of active issues.
 
@@ -1099,6 +1148,52 @@ An entry takes its values from the one row that decides the issue's `status`, as
 The entries are ordered by the issue's place, then `issue_identifier`, then `issue_id`, each compared byte by byte. An issue's place is the earliest `dispatched_at` its rows carry when the issue enters the lists. An issue none of whose rows is dated is placed before every dated issue. The place does not change when the issue moves from one list to another, when a new pass begins while the issue is listed, or when a `dispatched_at` of `null` becomes a time. An issue that no list held and that then returns takes a new place. The order can therefore differ from the order of the entries' `dispatched_at` values.
 
 Sortie keeps the places in memory and serves them nowhere. A restart discards them, and each issue then takes its place from the earliest `dispatched_at` of its restored rows. A client that filters the list keeps the served order.
+
+**`held[]` entries:** Eligible issues in an active state that the latest dispatch pass held back instead of dispatching. A dispatch pass is one run of the dispatch loop of a poll tick. The list is always present, `[]` when the pass held nothing, and sorted by `issue_identifier`, then `issue_id`. `counts.held` equals its length.
+
+An issue is listed here only when no other list shows it: not while it is running, scheduled for a retry, held by a budget, parked, waiting on a pending reaction, or between stages. An issue between stages serves its hold on its `between_stages[]` entry. A held issue is not an active issue, so it is not an `active[]` entry and adds nothing to `counts.attention` or `attention[]`. The spend ceiling keeps its own `spend_ceiling_reached` attention items. [`GET /api/v1/{identifier}`](#get-apiv1identifier-issue-detail) serves a hold only as the `hold` of a `between_stages` entry: for an issue that only this list holds, it answers from run history, or `404` when the issue has none.
+
+Sortie keeps the list in memory only. It is empty until a poll tick has run the dispatch loop and after a restart. A tick that ends before the loop, because its dispatch preflight or its candidate fetch failed, leaves the previous list in place.
+
+| Field | Description |
+|---|---|
+| `issue_id`, `issue_identifier` | The tracker's internal issue ID and the human-readable key. Always present. |
+| `display_identifier`, `issue_title`, `issue_url`, `issue_type`, `state` | The qualified form of the key, the title, the tracker link, the issue type, and the tracker state, as the pass read the issue. Each omitted when empty. Masked like the running row's `issue_title`. |
+| `issue_labels` | The issue's labels as the pass read them. Always present; `[]` when the issue has none. Masked like the running row's. |
+| `hold` | The [hold object](#hold-object). Always present. |
+| `status_text`, `status_text_full` | The row's [status sentences](#status-sentences). `status_text` equals `hold.reason_text`. Always present. |
+
+#### Hold object
+
+The `hold` of a `held[]` entry and of a `between_stages[]` entry has these members.
+
+| Field | Type | Description |
+|---|---|---|
+| `reason` | string | Why the pass held the issue; one of the values below. A client that meets a value it does not know shows `reason_text` and `release_text`. |
+| `held_since` | string | When a dispatch pass first held the issue, in UTC. Never `null`. It does not change while later passes keep the issue held, whatever their reasons, nor across a tick that ends before the loop. It is new when a pass that runs the loop does not hold the issue and a later pass does, and after a restart. |
+| `blockers` | array or `null` | Non-null exactly for `blocked_by`: every blocker whose state is empty or not terminal, in the order the tracker returned them. Each has `issue_id`, `issue_identifier`, `display_identifier` (omitted when empty), and `state` (omitted when the tracker returned none; masked). |
+| `slot` | object or `null` | Non-null exactly for `agent_slots_full`. `scope` is `global` or `state`. `state` is the issue's tracker state as the pass read it, present exactly for scope `state`, and masked. `used` is the number of sessions running against the limit, and `limit` is the limit. |
+| `resets_at` | string or `null` | Non-null exactly for the spend reasons and `usage_limit`: when the holding window or usage limit resets, in UTC. |
+| `agent_kind` | string or absent | Present exactly for `usage_limit`: the agent kind whose new sessions the hold stops. |
+| `model_only` | boolean or absent | Present and `true` for a `usage_limit` hold that stops the agent kind on one configured model alone. Absent when the hold stops every model of the kind. |
+| `model` | string or absent | The configured model a `model_only` hold stops. Absent for a hold on every model and for the runtime's default model. |
+| `reason_text` | string | A short sentence that says why. It ends without a period. |
+| `release_text` | string | One sentence that says what releases the hold. It ends with a period. |
+
+| `reason` | The pass held the issue because |
+|---|---|
+| `blocked_by` | A blocker has a non-terminal state or none. |
+| `blockers_unresolved` | Reading the blockers failed, or an earlier failure ended blocker reads for the pass. |
+| `blockers_not_read` | The pass reads the blockers of a limited number of issues, in turn, and did not reach this one. |
+| `blockers_incomplete` | The tracker declared the blocker list incomplete. |
+| `agent_slots_full` | The global agent slot limit, `agent.max_concurrent_agents`, or the limit of the issue's state, `agent.max_concurrent_agents_by_state`, is taken. |
+| `ssh_hosts_full` | Every SSH host runs as many sessions as its per-host limit allows. |
+| `daily_spend_ceiling`, `weekly_spend_ceiling`, `monthly_spend_ceiling` | A spend window holds dispatch. |
+| `stage_hop_unconfirmed` | The read that should confirm the issue's stage move failed or did not show the hop's stage label. |
+| `usage_limit` | The agent provider refused a session because the account's usage limit is reached, and Sortie starts no session of the issue's agent kind (on that model alone, for a hold with `model_only`) until it resets. A dispatch from a poll tick stays held for one poll interval past `resets_at`, so the hold can still be listed with a `resets_at` in the past. The refused issue's own retry fires at the reset. |
+| `park_comments_unread` | A person released the issue's park, and the read of the comments the next run receives failed. The next poll reads them again. |
+
+A hold has one reason. While a spend window holds, an issue that a full capacity limit stops shows the spend reason, because a freed slot or host would not dispatch it. When a full global slot limit or no free SSH host stops the pass, the pass reads no blockers for the issues it has not reached, so an issue that also has an open blocker shows the capacity reason. A per-state slot limit that is full holds only the issues of that state, and the pass reads no blockers for them either.
 
 **`attention[]` entries:** Things that need a person. Sortie derives the list on each request from the rows above and the `health` block and stores it nowhere, so an item exists exactly while its cause holds and disappears on the first request after the cause clears. The list is always present, `[]` when nothing needs a person, and `counts.attention` is the number of items whose `acknowledged_at` is `null`. A person can [acknowledge an item](#post-apiv1attentionidacknowledge-acknowledge-an-attention-item) to record that it was seen. The item stays in the list, with `acknowledged_at` set, until its cause clears, and no longer counts. A client that shows the list needs no ordering, wording, or counting rules of its own: the order, the sentences, and the action come with each item.
 
@@ -1204,7 +1299,7 @@ The value is an object with one member for each key of `config.reactions`, named
 
 #### Status sentences
 
-Every row of `running`, `retrying`, `budget_exhausted`, `parked`, `pending_reactions`, and `between_stages` carries a pair of sentences that say in plain English what the issue is doing, what it waits on, or how it ended. Every entry of [`active`](#field-notes) carries the pair of its deciding row. The `poll` check of [`health`](#field-notes) carries one further sentence, `summary_text`, that follows the rules below. The per-issue response of [`GET /api/v1/{identifier}`](#get-apiv1identifier-issue-detail) carries the same pair on its rows and once for the issue, and every [`issue_outcome`](#issue-outcome) carries a pair too.
+Every row of `running`, `retrying`, `budget_exhausted`, `parked`, `pending_reactions`, `between_stages`, and `held` carries a pair of sentences that say in plain English what the issue is doing, what it waits on, or how it ended. Every entry of [`active`](#field-notes) carries the pair of its deciding row. The `poll` check of [`health`](#field-notes) carries one further sentence, `summary_text`, that follows the rules below. The per-issue response of [`GET /api/v1/{identifier}`](#get-apiv1identifier-issue-detail) carries the same pair on its rows and once for the issue, and every [`issue_outcome`](#issue-outcome) carries a pair too.
 
 | Field | Type | Description |
 |---|---|---|
@@ -1267,7 +1362,25 @@ It is `null` where Sortie cannot date the pass: a retry or hop stored without a 
 
 The windows are the current UTC calendar day, the current UTC week, which starts on Monday at 00:00 UTC, and the current UTC calendar month, not the browser's local day. See [how to control agent costs](/guides/control-costs/#cap-what-the-whole-instance-spends).
 
-**`rate_limits`:** Reserved for future use. Currently an empty object.
+**`rate_limits`:** The usage limits that agents report for the plan or account they run on, as an object keyed by agent kind. A kind has a member once it has reported a limit since Sortie started, and the object is empty until then. Sortie holds the limits in memory only, so a restart empties it. A kind that reports no limits never appears; see the agent's reference page for what it reports. Each member has these members:
+
+| Member | Value |
+|---|---|
+| `reported_at` | The newest report among every limit Sortie holds for the kind, reset or not, in RFC 3339 UTC. |
+| `windows` | Array of the kind's limits that have not reset, ordered by length with unstated lengths last, then by `label`. Empty when every limit the kind reported has reset. |
+
+Each element of `windows` has these members. A figure the agent did not report is `null`, never zero.
+
+| Member | Value |
+|---|---|
+| `label` | Display name written by Sortie, such as `5-hour limit`, `Weekly Opus limit`, or `Monthly premium request limit`. |
+| `used_percent` | Number or `null`. The share of the limit used, as a percentage. It can exceed 100 when the agent reports a use above the limit. Derived from `amount` when the agent reports an amount and no share. |
+| `status` | String or `null`. `"allowed"` under the limit, `"warning"` near it, `"exhausted"` used up until it resets. `null` when the agent reports none. |
+| `resets_at` | String or `null`. When the limit resets, in RFC 3339 UTC. A limit whose `resets_at` has passed is left out of `windows`. |
+| `reported_at` | When the agent reported this limit, in RFC 3339 UTC. |
+| `amount` | Object or `null`. The use in the vendor's own unit, never converted: `used` and `limit` as numbers and `unit`, the plural name of the unit, such as `credits`. `null` when the agent reports no amount. |
+
+The agent reference pages say which kinds report limits and how: [Claude Code](/reference/adapter-claude-code/#usage-limits), [Codex](/reference/adapter-codex/#usage-limits), [Copilot CLI](/reference/adapter-copilot/#usage-limits), [OpenCode](/reference/adapter-opencode/#usage-limits), and the [Agent Client Protocol](/reference/adapter-agent-client-protocol/#usage-limits) kind, which covers Gemini CLI and Kiro CLI. The dashboard shows these limits in the **Usage** section of [Overview](/reference/dashboard/#overview).
 
 **`config`:** The workflow configuration in effect, so a client can tell which stages, dispatch rules, and pull request reactions the workflow has without reading `WORKFLOW.md`. Present on this endpoint only; `GET /api/v1/{identifier}` carries no `config`. It holds no credential: no tracker endpoint, API key, or query filter, no agent command, hook, workspace path, or database path, no notification destination, and no agent settings block. The strings it does carry (state names, labels, SSH host names, bot usernames) are served as written.
 
@@ -1283,7 +1396,7 @@ Most members follow the last successful load of `WORKFLOW.md`; a reload that fai
 | `tracker.in_progress_state`, `tracker.handoff_state`, `tracker.no_change_state` | The state Sortie writes at dispatch, after a successful run, and after a successful run whose agent declared that nothing needed changing. Each omitted when unset. |
 | `polling.interval_ms` | The poll interval in milliseconds. |
 | `agent.kind` | The workflow-wide agent kind. It serves every issue that no dispatch rule and no `dispatch.default` selects. |
-| `agent.usage_arrival` | When sessions on the workflow-wide agent report token usage: `"incremental"`, `"turn_end"`, `"none"`, or `""` for a kind that declares nothing or is not registered. Resolved as a session resolves it at start, including the effect of SSH hosts; see [usage reporting by agent kind](/reference/workflow-config/#usage-reporting-by-agent-kind). |
+| `agent.usage_arrival` | When sessions on the workflow-wide agent report token usage: `"incremental"`, `"turn_end"`, or `"none"`. Derived from the usage sources the kind attaches, as a session derives it at start, so SSH hosts do not change it. `"none"` when sessions of the kind can carry no token figure, a kind that is not registered included; see [usage reporting by agent kind](/reference/workflow-config/#usage-reporting-by-agent-kind). |
 | `agent.max_turns` | The most turns a session runs: `agent.max_turns`, or `1` when it is below `1`. |
 | `agent.stall_timeout_ms` | Integer, or `null` when stall detection is off. |
 | `agent.max_retry_backoff_ms` | The cap on retry backoff in milliseconds. |
@@ -1300,7 +1413,7 @@ Most members follow the last successful load of `WORKFLOW.md`; a reload that fai
 | `dispatch.rules[].match` | Present only when `selected_by` is `"match"`. Holds each non-empty key of the rule's `match` block: `labels`, `issue_type`, `title`, `identifier`, and `assignee` as lists in the order written, and `priority` as `{"op": "<op>", "value": n}` for `eq`, `lt`, `lte`, `gt`, and `gte`, or `{"op": "in", "values": [...]}` for `in`. |
 | `dispatch.rules[].next` | The rule that follows this one in a [stage chain](/reference/workflow-config/#stage-chains). Omitted when the rule has none. |
 | `dispatch.rules[].agent_kind` | The agent kind dispatch resolves for the rule. |
-| `dispatch.rules[].usage_arrival` | The rule's usage-reporting arrival, resolved like `agent.usage_arrival` with the rule's settings block laid over its kind's block. One kind can report under one rule and report nothing under another. |
+| `dispatch.rules[].usage_arrival` | The rule's usage-reporting arrival, derived like `agent.usage_arrival` from the rule's agent kind. The rule's settings block does not change it, so rules that run the same kind report the same value. |
 | `dispatch.default` | `{"agent_kind", "usage_arrival"}` of the `dispatch.default` block when it names an agent or a template, otherwise `null`. A running or retry row whose `rule_name` is `default` ran on this selection. A row with no `rule_name` ran on the workflow-wide agent. A catch-all rule takes every issue that no stage rule and no earlier match rule takes, so while one is configured neither `dispatch.default` nor the workflow-wide agent selects an issue. |
 | `dispatch.chains` | Each stage chain the `next` links form, as rule names in `next` order, in the order of the rules that start them. A chain starts at a rule that carries `next` and that no `next` names, and ends at a rule without `next`. Chains that share a tail list it in each. `[]` when no rule carries `next`. |
 | `dispatch.max_consecutive_hops` | The value `dispatch.max_consecutive_hops` is written with, or `null` when the key is absent. |
@@ -1372,7 +1485,7 @@ Every parameter is optional. An empty value is the same as an absent one. Filter
 | `issue` | An issue identifier | Runs whose `issue_identifier` equals it. |
 | `issue_id` | A tracker issue ID | Runs whose `issue_id` equals it. |
 | `rule` | A dispatch rule name, or `<none>` | Runs whose `rule_name` equals it. `<none>` selects the runs that record no rule name, which the response serves without `rule_name`. |
-| `status` | A run status | Runs whose `status` equals it: one of `"succeeded"`, `"failed"`, `"cancelled"`, `"ci_failed"`, `"needs_person"`, or `"budget_stopped"`. |
+| `status` | A run status | Runs whose `status` equals it: one of `"succeeded"`, `"failed"`, `"cancelled"`, `"ci_failed"`, `"needs_person"`, `"budget_stopped"`, or `"usage_limited"`. |
 | `stage` | A dispatch rule name | Runs whose exit reached a stage hop decision that targeted that rule, whatever its result. |
 | `since` | An RFC 3339 timestamp | Runs completed at or after it. Any UTC offset is accepted. |
 | `until` | An RFC 3339 timestamp | Runs completed before it. When both bounds are given, `since` must be before `until`. |
@@ -1419,8 +1532,11 @@ Sortie checks every parameter before it reads anything. A parameter outside this
         "cache_write_tokens": 4000
       },
       "uncached_tokens": 31100,
-      "tokens_measured": true,
-      "unaccounted_turns": 0,
+      "usage_completeness": "complete",
+      "usage_provenance": [{"source": "output", "strategy": "live"}],
+      "vendor_amounts": [],
+      "unmeasured_cause": null,
+      "unmeasured_units": [],
       "estimated_cost_usd": 0.1923,
       "cost_status": "estimated",
       "model_usage": [
@@ -1436,7 +1552,8 @@ Sortie checks every parameter before it reads anything. A parameter outside this
           "uncached_tokens": 31100,
           "estimated_cost_usd": 0.1923,
           "cost_status": "estimated",
-          "unrated_classes": []
+          "unrated_classes": [],
+          "price_source": "embedded"
         }
       ],
       "chain_id": "3c8v5n2w7r1t4y6u9i0o8p2asd",
@@ -1490,8 +1607,8 @@ Runs are ordered by descending `run_id`, which is the order Sortie recorded them
 | `issue_title` | string | The issue title recorded with the run. Omitted when empty. Masked. |
 | `issue_url` | string | The tracker's web link to the issue. Omitted when empty. Masked. |
 | `attempt` | integer | One-based attempt number. |
-| `status` | string | Terminal outcome of the run: `"succeeded"`, `"failed"`, `"cancelled"`, `"ci_failed"`, `"needs_person"`, or `"budget_stopped"`. `"budget_stopped"` is a session the per-issue token or money ceiling cancelled while it was still running; `error` then carries the figures behind the stop: the tokens used and the ceiling, or `money ceiling reached: used $X of $Y`. |
-| `error` | string or `null` | The run's error message. `null` when the run recorded none. Masked. A withheld handoff, an agent error, and a worker stage error read as a plain sentence, such as `Sortie stopped the session before the agent finished turn 1.`, with any message the agent supplied kept after a colon; every other error is served as stored. |
+| `status` | string | Terminal outcome of the run: `"succeeded"`, `"failed"`, `"cancelled"`, `"ci_failed"`, `"needs_person"`, `"budget_stopped"`, or `"usage_limited"`. `"usage_limited"` is a run a provider usage limit refused before it produced output, with a reset time reported. `"budget_stopped"` is a session the per-issue token or money ceiling cancelled while it was still running; `error` then carries the figures behind the stop as a sentence: the tokens used and the ceiling, as in `Sortie stopped the run because the issue used 1.5M tokens, reaching its limit of 1M.`, or the estimated cost and the ceiling, as in `Sortie stopped the run because the issue's estimated cost, $12.40, reached its limit of $10.00.` |
+| `error` | string or `null` | The run's error message. `null` when the run recorded none. Masked. A withheld handoff, an agent error, a worker stage error, a failed CI check, a budget stop, and the reason Sortie cancelled the run (a stall, the issue reaching a final or inactive state, or shutdown) read as a plain sentence, such as `Sortie stopped the session before the agent finished turn 1.` or `The agent sent no event within the stall timeout, so Sortie stopped the run.`, with any message the agent supplied kept after a colon unless it only repeats the sentence; every other error is served as stored. |
 | `declared_outcome` | string or `null` | The status the agent ended the run on: `"blocked"`, `"needs-human-review"`, or `"no-change-needed"`. It states what the agent declared, and `status` stays the disposition Sortie recorded, so a `needs-human-review` run whose handoff Sortie withheld reads `"failed"` with its declaration. `null` when the run ended on no recognized status, and for a run recorded before Sortie stored it. Never `""`. |
 | `agent_text` | string or `null` | The agent's statement that came with the status in `declared_outcome`, after the cleanup described under [stop statement](/reference/agent-extensions/#stop-statement). `null` when the agent wrote none and whenever `declared_outcome` is `null`. Never `""`. Masked when Sortie serves it, so a value registered as a secret after the run is replaced too. |
 | `rule_name` | string | The [dispatch rule](/reference/workflow-config/#dispatch) that routed the run. Omitted when none did. |
@@ -1502,12 +1619,15 @@ Runs are ordered by descending `run_id`, which is the order Sortie recorded them
 | `started_at`, `completed_at` | string | Timestamps as recorded. |
 | `dispatched_at` | string or `null` | When Sortie dispatched the first run of the pass the run belongs to, as in [dispatch time and stage position](#dispatch-time-and-stage-position). `null` when the pass cannot be dated. |
 | `turns_completed` | integer | Agent turns the run completed. |
-| `tokens` | object | The five token members of a running row's `tokens`. Each member is `null` when `tokens_measured` is `false`. A measured zero is `0`. |
-| `uncached_tokens` | integer or `null` | The run's tokens without cache reads: `tokens.total_tokens` less `tokens.cache_read_tokens`, floored at zero, so cache writes stay in it. A sibling of `tokens`, not a member of it. `null` exactly when `tokens_measured` is `false`. |
-| `tokens_measured` | boolean | `false` when the agent reported no token usage for the run. |
-| `unaccounted_turns` | integer | Turns of the run that reached the model without a token figure proven to cover the whole turn: the agent ended the turn before reporting its final usage, the report could not be read, or the figure rests on an estimated starting point after a resume. A turn that ended normally is left out when a later turn of the same run and session reports the session's running total, which includes it, unless a turn between them was stopped or failed after producing output, or rests on an estimated starting point. When non-zero, the figures in `tokens` are lower bounds. |
-| `estimated_cost_usd` | number or `null` | The estimated USD cost recorded when the run finished, from `tokens` and the rates in force then for the run's models ([`token_rates`](/reference/workflow-config/#token_rates) entries over the [price table](/reference/workflow-config/#price_table)), unrounded. Never priced again, so a later edit of the rates does not change it. Non-`null` exactly when `cost_status` is `"estimated"` or `"partial"`. |
-| `cost_status` | string | The status recorded with the cost. `"unmeasured"` when `tokens_measured` is `false`. `"estimated"` when the run has no unaccounted turns and either spent no tokens or every token class it spent was priced. `"partial"` when the estimate is a lower bound: the run has unaccounted turns and was priced or spent no tokens, or a token class it spent had no rate. `"unpriced"` when the run spent tokens and no rate priced any of them when it finished, or the run reported its spend only as a total. |
+| `tokens` | object | The five token members of a running row's `tokens`. Each member is `null` when `usage_completeness` is `"unmeasured"`. A measured zero is `0`. |
+| `uncached_tokens` | integer or `null` | The run's tokens without cache reads: `tokens.total_tokens` less `tokens.cache_read_tokens`, floored at zero, so cache writes stay in it. A sibling of `tokens`, not a member of it. `null` exactly when `usage_completeness` is `"unmeasured"`. |
+| `usage_completeness` | string | How far the run's token figure reaches. `"complete"`: it covers every turn. `"lower_bound"`: a turn spent tokens that no source counted, so the figures in `tokens` are lower bounds. `"unmeasured"`: no token figure arrived, so the run's spend is unknown, not zero. Always present; a run recorded before Sortie kept provenance gets the value its recorded figures imply. [Spend measurement](/concepts/spend-measurement/) explains how each agent kind reaches these values. |
+| `usage_provenance` | array or `null` | The sources that settled the run's token figure, as objects with `source` and `strategy`. `source` is `"protocol"` (the agent protocol's own messages), `"output"` (the runtime's own output, in a format of its own), or `"journal"` (the runtime's session records on the host that ran it). `strategy` is `"live"` (read as the reports arrived) or `"records"` (read from the session records when the turn ended). `"live"` pairs come first, then the rest by `source` and `strategy`. `[]` when no source settled a figure. `null` for a run recorded before Sortie kept provenance. |
+| `vendor_amounts` | array or `null` | The amounts the agent reported for the run in a unit other than US dollars, never converted: another currency code, or a vendor unit such as `credits`. Each element holds `unit`, `model` (the model the source attributed the amount to, `""` when it named none), `amount`, and `lower_bound` (`true` when the run may have spent more in that unit). Ordered by `unit`, then `model`. `[]` when there are none. `null` for a run recorded before Sortie kept provenance. A US-dollar amount is not listed; it can price a model's part, which `price_source` `"agent"` marks. |
+| `unmeasured_cause` | string or `null` | Why the run has no token figure. `null` unless `usage_completeness` is `"unmeasured"`. `"amounts_only"`: the agent reported amounts, in any unit US dollars included, and no token figure. `"ended_early"`: the run did not succeed and ended without a usage report. `"no_usage"`: the run succeeded and its agent sent no usage. `"unknown"`: the run was recorded before Sortie kept provenance. |
+| `unmeasured_units` | array of string | The distinct units the run reported, ascending, `USD` included, when `unmeasured_cause` is `"amounts_only"`. `[]` otherwise. |
+| `estimated_cost_usd` | number or `null` | The estimated USD cost recorded when the run finished, from `tokens` and the rates in force then for the run's models ([`token_rates`](/reference/workflow-config/#token_rates) entries over the [price table](/reference/workflow-config/#price_table)), unrounded. A model's part that no rate prices takes the US-dollar amount the agent reported for that model instead. Never priced again, so a later edit of the rates does not change it. Non-`null` exactly when `cost_status` is `"estimated"` or `"partial"`. |
+| `cost_status` | string | The status recorded with the cost. `"unmeasured"` when `usage_completeness` is `"unmeasured"`. `"estimated"` when `usage_completeness` is `"complete"` and the run either spent no tokens or had every token class it spent priced. `"partial"` when the estimate is a lower bound: `usage_completeness` is `"lower_bound"` and the run was priced or spent no tokens, a token class it spent had no rate, a model's part was left unpriced beside a priced one, or an agent-reported amount that priced a part is itself a lower bound. `"unpriced"` when the run spent tokens and nothing priced any of them when it finished, or the run reported its spend only as a total. |
 | `model_usage` | array | The run's spend split by model, one element per model the run spent tokens on, ordered by `model`. Always present, never `null`. `[]` when the run recorded no per-model spend: an unmeasured run, a run that spent nothing, and a run that reported only a total with no split by token class. See [`model_usage` elements](#model_usage-elements). |
 | `chain_id` | string | The stage chain the run belongs to. Omitted when empty. |
 | `stage_previous`, `stage_previous_outcome` | string | The rule whose hop led to the run, and the outcome of the run that made it. Omitted when empty. |
@@ -1515,7 +1635,7 @@ Runs are ordered by descending `run_id`, which is the order Sortie recorded them
 | `stage_chain` | array of string or `null` | The stage chain the run's rule stands on, as the rule names of the chain in `next` order: the chain `stage_position.chain` serves for the run's `rule_name` and `stage_previous`. It follows the configuration in effect, so a reload that edits the chains changes it for runs recorded before the reload. Always present. `null` when the run has no `rule_name`, when its rule is on no chain, and when the server holds no workflow shape. Not masked. |
 | `self_review` | object or `null` | `null` when the run recorded no self-review or the record cannot be read. Otherwise `final_verdict` (`"none"` when the record holds no verdict; masked), `total_iterations`, and `cap_reached`. The per-iteration audit trail is not served. |
 | `origin_recorded` | boolean | `false` for a run recorded before Sortie stored its origin. The five origin members below are then `null`. |
-| `trigger` | string or `null` | What started the retry whose fire dispatched the run: `"error"`, `"continuation"`, `"stall"`, or `"ci_fix"`. A CI fix retry reads `"ci_fix"`, and a retry of a run a reaction dispatched keeps that run's `reaction_kind` with its own trigger. `""` for a dispatch from the poll tick, for a retry that a review, bot review, merge conflict, or label command reaction started, and for a recorded CI result. `null` when the retry was queued before Sortie stored what started it. |
+| `trigger` | string or `null` | What started the retry whose fire dispatched the run: `"error"`, `"usage_limit"`, `"continuation"`, `"stall"`, or `"ci_fix"`. `"usage_limit"` is a retry that waits for a provider usage limit to reset. A CI fix retry reads `"ci_fix"`, and a retry of a run a reaction dispatched keeps that run's `reaction_kind` with its own trigger. `""` for a dispatch from the poll tick, for a retry that a review, bot review, merge conflict, or label command reaction started, and for a recorded CI result. `null` when the retry was queued before Sortie stored what started it. |
 | `reaction_kind` | string or `null` | The reaction kind of the retry that dispatched the run, using the values of a retrying entry's `reaction_kind`. `""` when none. |
 | `reaction_config_key` | string or `null` | The key of the `reactions` section of `WORKFLOW.md` that `reaction_kind` is configured under. `""` when `reaction_kind` is empty. |
 | `session_id` | string or `null` | The agent session the run used. `""` when it started none. Not masked. |
@@ -1538,7 +1658,7 @@ A run whose agent ended it with a status carries both members, shown here as the
 
 #### `model_usage` elements
 
-Each element is one model's part of the run's spend. It carries no price source and no price table version.
+Each element is one model's part of the run's spend. It carries no price table version.
 
 | Field | Type | Description |
 |---|---|---|
@@ -1546,8 +1666,9 @@ Each element is one model's part of the run's spend. It carries no price source 
 | `tokens` | object | The five token members of a running row's `tokens`, for this model. No member is `null`, and `total_tokens` is `input_tokens` plus `output_tokens`. |
 | `uncached_tokens` | integer | `tokens.total_tokens` less `tokens.cache_read_tokens`, floored at zero. |
 | `estimated_cost_usd` | number or `null` | The USD cost recorded for this model's part, unrounded and never priced again. Non-`null` exactly when `cost_status` is `"estimated"` or `"partial"`. |
-| `cost_status` | string | `"estimated"`, `"partial"` when a token class the model spent has no rate, or `"unpriced"`. A part recorded without a price reads `"unpriced"` with a `null` cost. |
+| `cost_status` | string | `"estimated"`, `"partial"` when a token class the model spent has no rate or the agent-reported amount that priced the part is a lower bound, or `"unpriced"`. A part recorded without a price reads `"unpriced"` with a `null` cost. |
 | `unrated_classes` | array or `null` | The token classes whose missing rate left the part `"partial"` or `"unpriced"`, from `input`, `output`, `cache_read`, and `cache_write`, in that order. `[]` when the part names none. `null` when the part records no classes, because it has no recorded price or was priced before the classes were kept; `null` never means `[]`. |
+| `price_source` | string or `null` | What priced the part: `"operator"` (a [`token_rates`](/reference/workflow-config/#token_rates) entry or a [price table](/reference/workflow-config/#price_table) of your own), `"fetched"` (the shared price table Sortie downloads), `"embedded"` (the price table built into the binary), or `"agent"` (the US-dollar amount the agent reported for the model, used for a model no rate prices). `null` when the part has no recorded price, and for a part recorded before Sortie kept the source. |
 
 A `status` of `"ci_failed"` marks a recorded CI result rather than an agent session: it has no `agent_kind`, and each origin member and `dispatch_id` is `""`.
 
@@ -1623,7 +1744,7 @@ Every parameter is optional. An empty value is the same as an absent one. Filter
 |---|---|---|
 | `issue` | An issue key | Issues with a run whose `issue_identifier` or `display_identifier` equals it, so `MT-649` and the qualified form `owner/repo#9` both work. |
 | `rule` | A dispatch rule name, or `<none>` | Issues with a run whose `rule_name` equals it. `<none>` selects the runs that record no rule name. |
-| `status` | A run status | Issues with a run whose `status` equals it: one of `"succeeded"`, `"failed"`, `"cancelled"`, `"ci_failed"`, `"needs_person"`, or `"budget_stopped"`. |
+| `status` | A run status | Issues with a run whose `status` equals it: one of `"succeeded"`, `"failed"`, `"cancelled"`, `"ci_failed"`, `"needs_person"`, `"budget_stopped"`, or `"usage_limited"`. |
 | `stage` | A dispatch rule name | Issues with a run whose exit reached a stage hop decision that targeted that rule, whatever its result. |
 | `cursor` | A `next_cursor` value | Issues whose newest matching run was recorded before the run `cursor` names, and which have no matching run at or after it. An integer of at least `1`. |
 | `limit` | An integer from `1` to `50` | The page size, in issues. Default: `20`. |
@@ -1680,8 +1801,11 @@ Sortie checks every parameter before it reads anything. A parameter outside this
             "cache_write_tokens": 4000
           },
           "uncached_tokens": 31100,
-          "tokens_measured": true,
-          "unaccounted_turns": 0,
+          "usage_completeness": "complete",
+          "usage_provenance": [{"source": "output", "strategy": "live"}],
+          "vendor_amounts": [],
+          "unmeasured_cause": null,
+          "unmeasured_units": [],
           "estimated_cost_usd": 0.1923,
           "cost_status": "estimated",
           "model_usage": [
@@ -1697,7 +1821,8 @@ Sortie checks every parameter before it reads anything. A parameter outside this
               "uncached_tokens": 31100,
               "estimated_cost_usd": 0.1923,
               "cost_status": "estimated",
-              "unrated_classes": []
+              "unrated_classes": [],
+              "price_source": "embedded"
             }
           ],
           "self_review": null,
@@ -1739,7 +1864,12 @@ Sortie checks every parameter before it reads anything. A parameter outside this
         "uncached_tokens": 31100,
         "tokens_complete": true,
         "estimated_cost_usd": 0.1923,
-        "cost_status": "estimated"
+        "cost_status": "estimated",
+        "unmeasured_cause": null,
+        "unmeasured_units": [],
+        "vendor_amounts": [],
+        "agent_priced_usd": null,
+        "agent_priced_models": []
       }
     }
   ],
@@ -1899,7 +2029,7 @@ If the events of a finished run cannot be written, its run history record is sto
 
 ## GET /api/v1/stats: Run statistics
 
-Returns the report that [`sortie stats --format json`](/reference/cli/#stats) prints: run and issue counts, success rate, duration percentiles, token sums, and estimated cost over the runs completed in a range, with that cost per UTC day or month and breakdowns by outcome, coding agent, dispatch rule, prompt template, model, stage chain, retry trigger, and run origin, with the skill calls of the runs, and a funnel for each stage chain. The [stage funnels](/reference/cli/#stage-funnels) hold the passes running, queued for a retry, or held by a budget at the time of the request. The route and the command share one aggregation, so for one database and absolute bounds the two bodies differ only in `generated_at`, apart from the dispatch-rule difference [described below](#pricing-and-reload).
+Returns the report that [`sortie stats --format json`](/reference/cli/#stats) prints: run and issue counts, success rate, duration percentiles, token sums, and estimated cost over the runs completed in a range, with that cost per UTC day or month and breakdowns by outcome, coding agent, dispatch rule, prompt template, model, usage provenance, stage chain, retry trigger, and run origin, with the skill calls of the runs, and a funnel for each stage chain. The [stage funnels](/reference/cli/#stage-funnels) hold the passes running, queued for a retry, or held by a budget at the time of the request. The route and the command share one aggregation, so for one database and absolute bounds the two bodies differ only in `generated_at`, apart from the dispatch-rule difference [described below](#pricing-and-reload).
 
 ```sh
 curl 'http://localhost:7678/api/v1/stats?since=24h'
@@ -1928,7 +2058,7 @@ Sortie checks every parameter before it reads anything, so a malformed request n
 
 ### Response
 
-The body is compact JSON with the shape of the command's `--format json` output. [Output formats](/reference/cli/#output-formats) in the CLI reference defines every field, including `summary.issues`, `spend`, `by_model`, `by_trigger`, and `by_origin`. The example is for a workflow that defines no stage chain, so `by_chain` and `chain_funnels` are `[]`, and it lists one group in each breakdown that is not split by outcome or trigger. `summary` also holds `failed`, `stopped`, and `cancelled`, the runs by outcome, which add up to `runs` with `succeeded`. Every `tokens` object carries `uncached`, `total` less `cache_read`, so `uncached` plus `cache_read` equals `total`.
+The body is compact JSON with the shape of the command's `--format json` output. [Output formats](/reference/cli/#output-formats) in the CLI reference defines every field, including `summary.issues`, `spend`, `by_model`, `by_trigger`, `by_origin`, and `by_provenance`. The example is for a workflow that defines no stage chain, so `by_chain` and `chain_funnels` are `[]`, and it lists one group in each breakdown that is not split by outcome, trigger, or usage provenance. `summary` also holds `failed`, `stopped`, and `cancelled`, the runs by outcome, which add up to `runs` with `succeeded`. Every `tokens` object carries `uncached`, `total` less `cache_read`, so `uncached` plus `cache_read` equals `total`.
 
 ```json
 {
@@ -1956,13 +2086,19 @@ The body is compact JSON with the shape of the command's `--format json` output.
     "duration_excluded_runs": 1,
     "cost_unpriced_runs": 1,
     "cost_partial_runs": 1,
-    "tokens_unmeasured_runs": 1
+    "tokens_unmeasured_runs": 1,
+    "tokens_lower_bound_runs": 0,
+    "tokens_lower_bound": true,
+    "cost_lower_bound": true,
+    "agent_priced_usd": null,
+    "unmeasured_cause": "ended_early",
+    "unmeasured_units": []
   },
   "spend": {
     "period": "day",
     "buckets": [
-      {"start": "2026-02-23T00:00:00Z", "runs": 2, "cost_usd": 7.27, "tokens_unmeasured_runs": 1, "cost_unpriced_runs": 0, "cost_partial_runs": 0},
-      {"start": "2026-02-24T00:00:00Z", "runs": 4, "cost_usd": 12.25, "tokens_unmeasured_runs": 0, "cost_unpriced_runs": 1, "cost_partial_runs": 1}
+      {"start": "2026-02-23T00:00:00Z", "runs": 2, "cost_usd": 7.27, "tokens_unmeasured_runs": 1, "cost_unpriced_runs": 0, "cost_partial_runs": 0, "cost_lower_bound": true, "agent_priced_usd": null},
+      {"start": "2026-02-24T00:00:00Z", "runs": 4, "cost_usd": 12.25, "tokens_unmeasured_runs": 0, "cost_unpriced_runs": 1, "cost_partial_runs": 1, "cost_lower_bound": true, "agent_priced_usd": null}
     ]
   },
   "by_status": [
@@ -1979,7 +2115,13 @@ The body is compact JSON with the shape of the command's `--format json` output.
       "cost_per_succeeded_run_usd": 5.956666667,
       "tokens_unmeasured_runs": 0,
       "cost_unpriced_runs": 0,
-      "cost_partial_runs": 0
+      "cost_partial_runs": 0,
+      "tokens_lower_bound_runs": 0,
+      "tokens_lower_bound": false,
+      "cost_lower_bound": false,
+      "agent_priced_usd": null,
+      "unmeasured_cause": null,
+      "unmeasured_units": []
     },
     {
       "name": "failed",
@@ -1994,7 +2136,13 @@ The body is compact JSON with the shape of the command's `--format json` output.
       "cost_per_succeeded_run_usd": null,
       "tokens_unmeasured_runs": 0,
       "cost_unpriced_runs": 0,
-      "cost_partial_runs": 0
+      "cost_partial_runs": 0,
+      "tokens_lower_bound_runs": 0,
+      "tokens_lower_bound": false,
+      "cost_lower_bound": false,
+      "agent_priced_usd": null,
+      "unmeasured_cause": null,
+      "unmeasured_units": []
     },
     {
       "name": "cancelled",
@@ -2009,7 +2157,13 @@ The body is compact JSON with the shape of the command's `--format json` output.
       "cost_per_succeeded_run_usd": null,
       "tokens_unmeasured_runs": 0,
       "cost_unpriced_runs": 1,
-      "cost_partial_runs": 0
+      "cost_partial_runs": 0,
+      "tokens_lower_bound_runs": 0,
+      "tokens_lower_bound": false,
+      "cost_lower_bound": false,
+      "agent_priced_usd": null,
+      "unmeasured_cause": null,
+      "unmeasured_units": []
     }
   ],
   "by_adapter": [
@@ -2026,7 +2180,13 @@ The body is compact JSON with the shape of the command's `--format json` output.
       "cost_per_succeeded_run_usd": 6.506666667,
       "tokens_unmeasured_runs": 1,
       "cost_unpriced_runs": 1,
-      "cost_partial_runs": 1
+      "cost_partial_runs": 1,
+      "tokens_lower_bound_runs": 0,
+      "tokens_lower_bound": true,
+      "cost_lower_bound": true,
+      "agent_priced_usd": null,
+      "unmeasured_cause": "ended_early",
+      "unmeasured_units": []
     }
   ],
   "by_rule": [
@@ -2043,7 +2203,13 @@ The body is compact JSON with the shape of the command's `--format json` output.
       "cost_per_succeeded_run_usd": 6.506666667,
       "tokens_unmeasured_runs": 1,
       "cost_unpriced_runs": 1,
-      "cost_partial_runs": 1
+      "cost_partial_runs": 1,
+      "tokens_lower_bound_runs": 0,
+      "tokens_lower_bound": true,
+      "cost_lower_bound": true,
+      "agent_priced_usd": null,
+      "unmeasured_cause": "ended_early",
+      "unmeasured_units": []
     }
   ],
   "by_template": [
@@ -2060,7 +2226,13 @@ The body is compact JSON with the shape of the command's `--format json` output.
       "cost_per_succeeded_run_usd": 6.506666667,
       "tokens_unmeasured_runs": 1,
       "cost_unpriced_runs": 1,
-      "cost_partial_runs": 1
+      "cost_partial_runs": 1,
+      "tokens_lower_bound_runs": 0,
+      "tokens_lower_bound": true,
+      "cost_lower_bound": true,
+      "agent_priced_usd": null,
+      "unmeasured_cause": "ended_early",
+      "unmeasured_units": []
     }
   ],
   "by_model": [
@@ -2077,7 +2249,13 @@ The body is compact JSON with the shape of the command's `--format json` output.
       "cost_per_succeeded_run_usd": 6.506666667,
       "tokens_unmeasured_runs": 1,
       "cost_unpriced_runs": 1,
-      "cost_partial_runs": 1
+      "cost_partial_runs": 1,
+      "tokens_lower_bound_runs": 0,
+      "tokens_lower_bound": true,
+      "cost_lower_bound": true,
+      "agent_priced_usd": null,
+      "unmeasured_cause": "ended_early",
+      "unmeasured_units": []
     }
   ],
   "by_chain": [],
@@ -2096,7 +2274,13 @@ The body is compact JSON with the shape of the command's `--format json` output.
       "cost_per_succeeded_run_usd": 3.76,
       "tokens_unmeasured_runs": 1,
       "cost_unpriced_runs": 0,
-      "cost_partial_runs": 1
+      "cost_partial_runs": 1,
+      "tokens_lower_bound_runs": 0,
+      "tokens_lower_bound": true,
+      "cost_lower_bound": true,
+      "agent_priced_usd": null,
+      "unmeasured_cause": "ended_early",
+      "unmeasured_units": []
     },
     {
       "name": "<none>",
@@ -2111,7 +2295,13 @@ The body is compact JSON with the shape of the command's `--format json` output.
       "cost_per_succeeded_run_usd": null,
       "tokens_unmeasured_runs": 0,
       "cost_unpriced_runs": 1,
-      "cost_partial_runs": 0
+      "cost_partial_runs": 0,
+      "tokens_lower_bound_runs": 0,
+      "tokens_lower_bound": false,
+      "cost_lower_bound": false,
+      "agent_priced_usd": null,
+      "unmeasured_cause": null,
+      "unmeasured_units": []
     },
     {
       "name": "ci_fix",
@@ -2126,7 +2316,13 @@ The body is compact JSON with the shape of the command's `--format json` output.
       "cost_per_succeeded_run_usd": 12,
       "tokens_unmeasured_runs": 0,
       "cost_unpriced_runs": 0,
-      "cost_partial_runs": 0
+      "cost_partial_runs": 0,
+      "tokens_lower_bound_runs": 0,
+      "tokens_lower_bound": false,
+      "cost_lower_bound": false,
+      "agent_priced_usd": null,
+      "unmeasured_cause": null,
+      "unmeasured_units": []
     }
   ],
   "by_origin": [
@@ -2143,9 +2339,60 @@ The body is compact JSON with the shape of the command's `--format json` output.
       "cost_per_succeeded_run_usd": 6.506666667,
       "tokens_unmeasured_runs": 1,
       "cost_unpriced_runs": 1,
-      "cost_partial_runs": 1
+      "cost_partial_runs": 1,
+      "tokens_lower_bound_runs": 0,
+      "tokens_lower_bound": true,
+      "cost_lower_bound": true,
+      "agent_priced_usd": null,
+      "unmeasured_cause": "ended_early",
+      "unmeasured_units": []
     }
   ],
+  "by_provenance": [
+    {
+      "name": "output:live",
+      "runs": 5,
+      "succeeded": 3,
+      "success_rate": 0.6,
+      "share": 0.8333,
+      "duration_seconds": {"p50": 1200, "p95": 1800, "mean": 1200, "samples": 3},
+      "mean_turns": 4,
+      "tokens": {"input": 3900000, "output": 760000, "total": 4660000, "cache_read": 50000, "cache_write": 10000, "uncached": 4610000},
+      "cost_usd": 19.52,
+      "cost_per_succeeded_run_usd": 6.506666667,
+      "tokens_unmeasured_runs": 0,
+      "cost_unpriced_runs": 1,
+      "cost_partial_runs": 1,
+      "tokens_lower_bound_runs": 0,
+      "tokens_lower_bound": false,
+      "cost_lower_bound": true,
+      "agent_priced_usd": null,
+      "unmeasured_cause": null,
+      "unmeasured_units": []
+    },
+    {
+      "name": "<none>",
+      "runs": 1,
+      "succeeded": 0,
+      "success_rate": 0,
+      "share": 0.1667,
+      "duration_seconds": {"p50": 300, "p95": 300, "mean": 300, "samples": 1},
+      "mean_turns": 1,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_per_succeeded_run_usd": null,
+      "tokens_unmeasured_runs": 1,
+      "cost_unpriced_runs": 0,
+      "cost_partial_runs": 0,
+      "tokens_lower_bound_runs": 0,
+      "tokens_lower_bound": false,
+      "cost_lower_bound": false,
+      "agent_priced_usd": null,
+      "unmeasured_cause": "ended_early",
+      "unmeasured_units": []
+    }
+  ],
+  "skill_calls": {"unrecorded_runs": 0, "by_skill": []},
   "self_review": {
     "runs_with_metadata": 0,
     "by_final_verdict": [],
@@ -2518,8 +2765,11 @@ Every `200` response carries `history`. The running and finished examples show i
           "cache_write_tokens": 2000
         },
         "uncached_tokens": 25000,
-        "tokens_measured": true,
-        "unaccounted_turns": 0,
+        "usage_completeness": "complete",
+        "usage_provenance": [{"source": "output", "strategy": "live"}],
+        "vendor_amounts": [],
+        "unmeasured_cause": null,
+        "unmeasured_units": [],
         "estimated_cost_usd": 0.174,
         "cost_status": "estimated",
         "self_review": null,
@@ -2543,7 +2793,8 @@ Every `200` response carries `history`. The running and finished examples show i
             "uncached_tokens": 25000,
             "estimated_cost_usd": 0.174,
             "cost_status": "estimated",
-            "unrated_classes": []
+            "unrated_classes": [],
+            "price_source": "embedded"
           }
         ],
         "stage_chain": null,
@@ -2576,8 +2827,11 @@ Every `200` response carries `history`. The running and finished examples show i
           "cache_write_tokens": 3000
         },
         "uncached_tokens": 30000,
-        "tokens_measured": true,
-        "unaccounted_turns": 0,
+        "usage_completeness": "complete",
+        "usage_provenance": [{"source": "output", "strategy": "live"}],
+        "vendor_amounts": [],
+        "unmeasured_cause": null,
+        "unmeasured_units": [],
         "estimated_cost_usd": 0.261,
         "cost_status": "estimated",
         "self_review": null,
@@ -2601,7 +2855,8 @@ Every `200` response carries `history`. The running and finished examples show i
             "uncached_tokens": 30000,
             "estimated_cost_usd": 0.261,
             "cost_status": "estimated",
-            "unrated_classes": []
+            "unrated_classes": [],
+            "price_source": "embedded"
           }
         ],
         "stage_chain": null,
@@ -2623,7 +2878,12 @@ Every `200` response carries `history`. The running and finished examples show i
       "uncached_tokens": 55000,
       "tokens_complete": true,
       "estimated_cost_usd": 0.435,
-      "cost_status": "estimated"
+      "cost_status": "estimated",
+      "unmeasured_cause": null,
+      "unmeasured_units": [],
+      "vendor_amounts": [],
+      "agent_priced_usd": null,
+      "agent_priced_models": []
     },
     "hops": [],
     "last_stage": null,
@@ -2726,8 +2986,11 @@ When an issue is in the retry queue rather than actively running, `status` is `"
           "cache_write_tokens": 2000
         },
         "uncached_tokens": 25000,
-        "tokens_measured": true,
-        "unaccounted_turns": 0,
+        "usage_completeness": "complete",
+        "usage_provenance": [{"source": "output", "strategy": "live"}],
+        "vendor_amounts": [],
+        "unmeasured_cause": null,
+        "unmeasured_units": [],
         "estimated_cost_usd": 0.174,
         "cost_status": "estimated",
         "model_usage": [
@@ -2743,7 +3006,8 @@ When an issue is in the retry queue rather than actively running, `status` is `"
             "uncached_tokens": 25000,
             "estimated_cost_usd": 0.174,
             "cost_status": "estimated",
-            "unrated_classes": []
+            "unrated_classes": [],
+            "price_source": "embedded"
           }
         ],
         "self_review": null,
@@ -2784,8 +3048,11 @@ When an issue is in the retry queue rather than actively running, `status` is `"
           "cache_write_tokens": 2000
         },
         "uncached_tokens": 25000,
-        "tokens_measured": true,
-        "unaccounted_turns": 0,
+        "usage_completeness": "complete",
+        "usage_provenance": [{"source": "output", "strategy": "live"}],
+        "vendor_amounts": [],
+        "unmeasured_cause": null,
+        "unmeasured_units": [],
         "estimated_cost_usd": 0.174,
         "cost_status": "estimated",
         "model_usage": [
@@ -2801,7 +3068,8 @@ When an issue is in the retry queue rather than actively running, `status` is `"
             "uncached_tokens": 25000,
             "estimated_cost_usd": 0.174,
             "cost_status": "estimated",
-            "unrated_classes": []
+            "unrated_classes": [],
+            "price_source": "embedded"
           }
         ],
         "self_review": null,
@@ -2831,7 +3099,12 @@ When an issue is in the retry queue rather than actively running, `status` is `"
       "uncached_tokens": 50000,
       "tokens_complete": true,
       "estimated_cost_usd": 0.348,
-      "cost_status": "estimated"
+      "cost_status": "estimated",
+      "unmeasured_cause": null,
+      "unmeasured_units": [],
+      "vendor_amounts": [],
+      "agent_priced_usd": null,
+      "agent_priced_models": []
     },
     "hops": [],
     "last_stage": {
@@ -2931,8 +3204,11 @@ When an issue has neither a running session nor a pending retry, but is held out
           "cache_write_tokens": 2000
         },
         "uncached_tokens": 25000,
-        "tokens_measured": true,
-        "unaccounted_turns": 0,
+        "usage_completeness": "complete",
+        "usage_provenance": [{"source": "output", "strategy": "live"}],
+        "vendor_amounts": [],
+        "unmeasured_cause": null,
+        "unmeasured_units": [],
         "estimated_cost_usd": 0.174,
         "cost_status": "estimated",
         "model_usage": [
@@ -2948,7 +3224,8 @@ When an issue has neither a running session nor a pending retry, but is held out
             "uncached_tokens": 25000,
             "estimated_cost_usd": 0.174,
             "cost_status": "estimated",
-            "unrated_classes": []
+            "unrated_classes": [],
+            "price_source": "embedded"
           }
         ],
         "self_review": null,
@@ -2978,7 +3255,12 @@ When an issue has neither a running session nor a pending retry, but is held out
       "uncached_tokens": 25000,
       "tokens_complete": true,
       "estimated_cost_usd": 0.174,
-      "cost_status": "estimated"
+      "cost_status": "estimated",
+      "unmeasured_cause": null,
+      "unmeasured_units": [],
+      "vendor_amounts": [],
+      "agent_priced_usd": null,
+      "agent_priced_models": []
     },
     "hops": [],
     "last_stage": {
@@ -3072,8 +3354,11 @@ When an issue has no running session, no pending retry, and no budget hold, but 
           "cache_write_tokens": 2000
         },
         "uncached_tokens": 25000,
-        "tokens_measured": true,
-        "unaccounted_turns": 0,
+        "usage_completeness": "complete",
+        "usage_provenance": [{"source": "output", "strategy": "live"}],
+        "vendor_amounts": [],
+        "unmeasured_cause": null,
+        "unmeasured_units": [],
         "estimated_cost_usd": 0.174,
         "cost_status": "estimated",
         "model_usage": [
@@ -3089,7 +3374,8 @@ When an issue has no running session, no pending retry, and no budget hold, but 
             "uncached_tokens": 25000,
             "estimated_cost_usd": 0.174,
             "cost_status": "estimated",
-            "unrated_classes": []
+            "unrated_classes": [],
+            "price_source": "embedded"
           }
         ],
         "self_review": null,
@@ -3119,7 +3405,12 @@ When an issue has no running session, no pending retry, and no budget hold, but 
       "uncached_tokens": 25000,
       "tokens_complete": true,
       "estimated_cost_usd": 0.174,
-      "cost_status": "estimated"
+      "cost_status": "estimated",
+      "unmeasured_cause": null,
+      "unmeasured_units": [],
+      "vendor_amounts": [],
+      "agent_priced_usd": null,
+      "agent_priced_models": []
     },
     "hops": [],
     "last_stage": null,
@@ -3230,8 +3521,11 @@ When an issue has no running session, no pending retry, no budget hold, and is n
           "cache_write_tokens": 2000
         },
         "uncached_tokens": 25000,
-        "tokens_measured": true,
-        "unaccounted_turns": 0,
+        "usage_completeness": "complete",
+        "usage_provenance": [{"source": "output", "strategy": "live"}],
+        "vendor_amounts": [],
+        "unmeasured_cause": null,
+        "unmeasured_units": [],
         "estimated_cost_usd": 0.174,
         "cost_status": "estimated",
         "model_usage": [
@@ -3247,7 +3541,8 @@ When an issue has no running session, no pending retry, no budget hold, and is n
             "uncached_tokens": 25000,
             "estimated_cost_usd": 0.174,
             "cost_status": "estimated",
-            "unrated_classes": []
+            "unrated_classes": [],
+            "price_source": "embedded"
           }
         ],
         "self_review": null,
@@ -3277,7 +3572,12 @@ When an issue has no running session, no pending retry, no budget hold, and is n
       "uncached_tokens": 25000,
       "tokens_complete": true,
       "estimated_cost_usd": 0.174,
-      "cost_status": "estimated"
+      "cost_status": "estimated",
+      "unmeasured_cause": null,
+      "unmeasured_units": [],
+      "vendor_amounts": [],
+      "agent_priced_usd": null,
+      "agent_priced_models": []
     },
     "hops": [],
     "last_stage": null,
@@ -3339,6 +3639,7 @@ When an issue has no running session, no pending retry, no budget hold, is not p
     },
     "agent_kind": "claude-code",
     "configured_model": "claude-sonnet-4-5",
+    "hold": null,
     "status_text": "Between stages: specify to implement",
     "status_text_full": "Moved from stage specify to stage implement, and Sortie added `stage-implement`; implement starts when a poll tick reads that label on the issue."
   },
@@ -3374,8 +3675,11 @@ When an issue has no running session, no pending retry, no budget hold, is not p
           "cache_write_tokens": 2000
         },
         "uncached_tokens": 25000,
-        "tokens_measured": true,
-        "unaccounted_turns": 0,
+        "usage_completeness": "complete",
+        "usage_provenance": [{"source": "output", "strategy": "live"}],
+        "vendor_amounts": [],
+        "unmeasured_cause": null,
+        "unmeasured_units": [],
         "estimated_cost_usd": 0.174,
         "cost_status": "estimated",
         "model_usage": [
@@ -3391,7 +3695,8 @@ When an issue has no running session, no pending retry, no budget hold, is not p
             "uncached_tokens": 25000,
             "estimated_cost_usd": 0.174,
             "cost_status": "estimated",
-            "unrated_classes": []
+            "unrated_classes": [],
+            "price_source": "embedded"
           }
         ],
         "self_review": null,
@@ -3421,7 +3726,12 @@ When an issue has no running session, no pending retry, no budget hold, is not p
       "uncached_tokens": 25000,
       "tokens_complete": true,
       "estimated_cost_usd": 0.174,
-      "cost_status": "estimated"
+      "cost_status": "estimated",
+      "unmeasured_cause": null,
+      "unmeasured_units": [],
+      "vendor_amounts": [],
+      "agent_priced_usd": null,
+      "agent_priced_models": []
     },
     "hops": [],
     "last_stage": {
@@ -3491,8 +3801,11 @@ When no live entry holds the issue but run history does, `status` is `"history"`
           "cache_write_tokens": 4000
         },
         "uncached_tokens": 31100,
-        "tokens_measured": true,
-        "unaccounted_turns": 0,
+        "usage_completeness": "complete",
+        "usage_provenance": [{"source": "output", "strategy": "live"}],
+        "vendor_amounts": [],
+        "unmeasured_cause": null,
+        "unmeasured_units": [],
         "estimated_cost_usd": 0.1923,
         "cost_status": "estimated",
         "chain_id": "7h2k9x4m1q8w3e5r6t0y2uiop1",
@@ -3519,7 +3832,8 @@ When no live entry holds the issue but run history does, `status` is `"history"`
             "uncached_tokens": 31100,
             "estimated_cost_usd": 0.1923,
             "cost_status": "estimated",
-            "unrated_classes": []
+            "unrated_classes": [],
+            "price_source": "embedded"
           }
         ],
         "stage_chain": ["specify", "implement"],
@@ -3547,7 +3861,12 @@ When no live entry holds the issue but run history does, `status` is `"history"`
       "uncached_tokens": 31100,
       "tokens_complete": true,
       "estimated_cost_usd": 0.1923,
-      "cost_status": "estimated"
+      "cost_status": "estimated",
+      "unmeasured_cause": null,
+      "unmeasured_units": [],
+      "vendor_amounts": [],
+      "agent_priced_usd": null,
+      "agent_priced_models": []
     },
     "hops": [
       {
@@ -3587,12 +3906,14 @@ When no live entry holds the issue but run history does, `status` is `"history"`
 | `budget_exhausted` | Full budget-exhausted entry (same shape as entries in the `budget_exhausted` array on `/api/v1/state`), or `null`. |
 | `parked` | Full parked entry (same shape as entries in the `parked` array on `/api/v1/state`), or `null`. Always present. Populated whenever the issue is parked, whatever `status` reads. |
 | `pending_reactions` | The issue's rows in the record shape and order of the `pending_reactions` array on `/api/v1/state`, `[]` when it has none. Always present, whatever `status` reads. |
-| `between_stages` | Full between-stages entry (same shape as entries in the `between_stages` array on `/api/v1/state`), or `null`. Always present. Populated whenever the issue is between stages, whatever `status` reads. |
+| `between_stages` | Full between-stages entry (same shape as entries in the `between_stages` array on `/api/v1/state`, `hold` included), or `null`. Always present. Populated whenever the issue is between stages, whatever `status` reads. |
 | `recent_events` | The newest 50 agent events of one run, oldest first, in the event shape of [`GET /api/v1/runs/{dispatch_id}/events`](#get-apiv1runsdispatch_idevents-run-events). The run is the one `running.dispatch_id` names while the issue runs, and otherwise the issue's newest recorded run with a non-empty `dispatch_id`, so a recorded CI result is passed over. Always present; `[]` when the issue has no such run or Sortie kept no events for it. |
 | `last_error` | The `error` of the issue's retry entry, or `null` when it has none, worded as the retry's `error` is. After a reschedule this is the reschedule reason. |
 | `pr_loop` | What each configured pull request reaction recorded in the pass of the entry that decides `status`; see [pull request reaction history](#pull-request-reaction-history). Always present. |
 | `tracked` | Reserved for future use. Currently an empty object. It is not the tracker project, which `config.tracker.project` of [`GET /api/v1/state`](#get-apiv1state-system-state) serves. |
 | `history` | `null` when the issue has no recorded run, otherwise an object. See [History member](#history-member). |
+
+The route does not read the `held` list of `GET /api/v1/state`. An issue that only that list shows has no live entry here, so the route answers it from run history with `status` `"history"`, or with `404` and `issue_not_found` when the issue has no recorded run.
 
 ### Next outcomes
 
@@ -3639,9 +3960,14 @@ Every `200` response carries `history`. It is `null` when the issue has no recor
 | `unmeasured_runs` | Runs whose agent reported no token usage. |
 | `tokens` | The five token members of a running row's `tokens`. Each is `null` when its sum is `0` and `tokens_complete` is `false`, so spend Sortie does not know never reads as zero. |
 | `uncached_tokens` | Integer or `null`. The issue's tokens without cache reads over all of its runs: for each run, `total_tokens` less `cache_read_tokens`, floored at zero, summed. This is the count [`agent.max_tokens`](/reference/workflow-config/#agent) is compared with. `null` under the rule of the members of `tokens`. |
-| `tokens_complete` | `true` when no run is unmeasured and no run has an unaccounted turn. When `false`, the figures in `tokens` and `uncached_tokens` are lower bounds. |
+| `tokens_complete` | `true` when every run's `usage_completeness` is `"complete"`. When `false`, the figures in `tokens` and `uncached_tokens` are lower bounds. |
 | `estimated_cost_usd` | Number or `null`. The sum of the costs recorded with the issue's runs, each priced under the rates in force when it finished. Unrounded. |
 | `cost_status` | `"estimated"`, `"partial"`, `"unpriced"`, or `"unmeasured"`, with the meaning of `issue_cost_status` in the [`GET /api/v1/state` field notes](#field-notes). |
+| `unmeasured_cause` | String or `null`. The `unmeasured_cause` the issue's unmeasured runs share, or `"mixed"` when they differ in cause or, for `"amounts_only"`, in the units they reported. `null` when no run is unmeasured. |
+| `unmeasured_units` | The units the unmeasured runs reported, ascending, when `unmeasured_cause` is `"amounts_only"`. `[]` otherwise. |
+| `vendor_amounts` | The amounts the issue's runs reported in units other than US dollars, summed per unit and never converted: one element per unit with `unit`, `amount`, and `lower_bound` (`true` when any summed amount is a lower bound). Ordered by `unit`. `[]` when there are none. |
+| `agent_priced_usd` | Number or `null`. The part of `estimated_cost_usd` priced from US-dollar amounts the agent reported, the model parts whose `price_source` is `"agent"`. `null` when no part was priced that way. |
+| `agent_priced_models` | The models of those parts, ascending and each listed once, `""` for a part that named no model. `[]` when there are none. |
 
 **`hops` members:**
 

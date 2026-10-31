@@ -162,17 +162,28 @@ time=2026-03-26T14:30:03.500+00:00 level=INFO msg="turn started" issue_id=abc123
 time=2026-03-26T14:31:45.800+00:00 level=INFO msg="turn completed" issue_id=abc123 issue_identifier=MT-649 turn_number=1 max_turns=5
 ```
 
-`agent credential verified` is [credential verification](/reference/workflow-config/#credential-verification), a short-lived session Sortie opens for itself before every worker attempt, on every agent kind, to prove the credential actually works before spending a real turn on it; `duration_ms` is how long that check took. Each issue then gets a working session with one or more turns. `turn_number` and `max_turns` show where the agent is in its work budget.
+`agent credential verified` is [credential verification](/reference/workflow-config/#credential-verification), a short-lived session Sortie opens for itself before a worker attempt, on every agent kind, to prove the credential actually works before spending a real turn on it; `duration_ms` is how long that check took. When Sortie already proved the same agent setup within the last 15 minutes, the attempt logs `agent credential verification skipped` with a `proven_at` time instead, and starts its working session without the check. A `WARN` line `credential verification did not reach the model, retrying with the full agent context` means the runtime rejected a switch that drops its instructions and tools; the check repeats once with the full context and its result stands. Each issue then gets a working session with one or more turns. `turn_number` and `max_turns` show where the agent is in its work budget.
 
-When the session's kind and launch mode deliver no tool channel, one more line lands between `agent session started` and `turn started`. Sortie says so once, on the first turn, and leaves the tool advertisement out of the prompt:
+When the session's kind delivers no tool channel, one more line lands between `agent session started` and `turn started`. Sortie says so once, on the first turn, and leaves the tool advertisement out of the prompt:
 
 ```
 time=2026-03-26T14:30:03.420+00:00 level=INFO msg="agent session started" issue_id=abc123 issue_identifier=MT-649 session_id=session-abc-001
-time=2026-03-26T14:30:03.425+00:00 level=INFO msg="no tool execution channel for this session, withholding tool advertisement" issue_id=abc123 issue_identifier=MT-649 session_id=session-abc-001 agent_kind=codex remote=true
+time=2026-03-26T14:30:03.425+00:00 level=INFO msg="no tool execution channel for this session, withholding tool advertisement" issue_id=abc123 issue_identifier=MT-649 session_id=session-abc-001 agent_kind=mock
 time=2026-03-26T14:30:03.500+00:00 level=INFO msg="turn started" issue_id=abc123 issue_identifier=MT-649 turn_number=1 max_turns=5
 ```
 
-This is the line to look for when an agent never mentions Sortie's tools. `remote=true` means the session was dispatched to an SSH host, which is the whole reason on a `codex`, `opencode` or `agent-client-protocol` session. Nothing is failing: the agent was deliberately not told about tools it could not call. See [delivery by agent kind](/reference/agent-extensions/#delivery-by-agent-kind).
+This is the line to look for when an agent never mentions Sortie's tools. Nothing is failing: the agent was deliberately not told about tools it could not call. The built-in `mock` kind and a custom adapter that declares no tool channel produce it, and so does a session whose gap was already known when the session started; for that, look for the `declared tool server gap for session` line below. See [delivery by agent kind](/reference/agent-extensions/#delivery-by-agent-kind).
+
+A session on an SSH host reaches Sortie's tools through a reverse forward, and the tool server logs its own outcome with `component=tool-relay`. These records carry no issue fields, so match them to a session by time:
+
+```
+time=2026-03-26T14:30:03.380+00:00 level=INFO msg="delivered tool server to session" component=tool-relay
+time=2026-03-26T14:30:03.380+00:00 level=WARN msg="declared tool server gap for session" component=tool-relay reason=forward_refused
+```
+
+`delivered tool server to session` means the runtime connected to the tool server. `declared tool server gap for session` means it did not, and `reason` says why: the host refused the forward, the runtime accepts no HTTP server, or no runtime connected in time. The session continues without Sortie's tools and emits a notification, `this session started with a declared capability gap in: tool servers`. The `no tool execution channel` line above follows only when the gap was known before the first prompt: a tool server that did not start or a refused forward on any kind, and for `codex` and `agent-client-protocol` also a runtime without HTTP support or one that never connected, since their session start waits for the connection. A kind that starts one process per turn learns `no_connection` only when its first turn completes, after the prompt went out with the tool advertisement, so that case logs the gap and emits the notification but no `no tool execution channel` line. The reasons are listed in [when a session runs without the tools](/reference/agent-extensions/#when-a-session-runs-without-the-tools); the fix for a refused forward is in [let remote agents use Sortie's tools](/guides/scale-agents-with-ssh/#let-remote-agents-use-sorties-tools).
+
+Further `WARN` lines belong to tool delivery. `withheld tool servers from remote session` lists, in `servers`, the `mcp_config` servers an SSH session left out because they run as a local program. `tool server env value left on the command line` names a `server` and a `variable` whose value Codex could not receive through its environment; the value is never logged.
 
 An agent runtime can also change its own session id after the session has already started. Sortie logs it the moment it happens:
 
@@ -184,27 +195,31 @@ The `session_id` field on this line, like on every other line for the run, still
 
 Copilot CLI's adapter is one example: it captures the session id from each turn's own result and reports it back as that turn's session id, so a runtime-side change can reach Sortie this way.
 
-On the `agent-client-protocol` kind, Sortie can start the runtime a second time before the session begins, to find out which runtime `agent.command` really starts. It logs why at `Info`, on the credential check and on the working session alike:
+On the `agent-client-protocol` kind, the runtime's handshake decides how the session's token usage is read. Sortie logs the name and version the runtime reported once the session id is known:
 
 ```
-time=2026-03-26T14:30:03.300+00:00 level=INFO msg="agent relaunched so its token usage can be measured: agent.command does not name the runtime it starts" component=clientprotocol-adapter name=gemini-cli
+time=2026-03-26T14:30:03.430+00:00 level=INFO msg="agent implementation" component=clientprotocol-adapter session_id=session-abc-001 name=gemini-cli version=0.12.0
 ```
 
-This line means `agent.command` hides the runtime, as a wrapper script does, and Sortie found Gemini CLI behind it and started it again with token measurement switched on. Nothing is failing. To skip the extra start, name the runtime in `agent.command`; the [Gemini CLI reference](/reference/agent-client-protocol-gemini/#token-accounting-reads-local-files-and-its-in-turn-signal-understates) lists what counts as naming it.
-
-The other message, `agent relaunched without usage settings meant for another runtime`, means the command line names Gemini CLI but the runtime that answered is another one. Sortie started it again without Gemini's telemetry settings, and that session reports no token usage. See [restart to settle the measurement source](/reference/adapter-agent-client-protocol/#restart-to-settle-the-measurement-source).
-
-A session's agent kind can declare that it reports no token usage at all and then have its runtime send a usage figure anyway, contradicting its own declaration. Sortie discards the figure and logs it once per run, on the first occurrence:
+When `agent.command` names one runtime and the handshake reports another, Sortie measures the session as the runtime that answered and warns, on the credential check and on the working session alike:
 
 ```
-time=2026-03-26T14:32:10.100+00:00 level=WARN msg="token usage discarded: agent kind declares this session reports none" issue_id=abc123 issue_identifier=MT-649 session_id=session-abc-003 agent_kind=acme
+time=2026-03-26T14:30:03.300+00:00 level=WARN msg="agent runtime differs from its configured command" component=clientprotocol-adapter configured_runtime=gemini-cli handshake_runtime=acme-agent usage_declaration=default
 ```
 
-None of Sortie's built-in agent kinds can produce this line today: each one's own code never sends a usage figure once its declared arrival is `none`. Seeing it means a [custom adapter](/guides/write-custom-agent-adapter/#surface-capabilities-and-budgeting) is running whose code doesn't yet honor its own declaration that this session reports no usage.
+`configured_runtime` is the runtime the command line names, `handshake_runtime` the name the runtime gave, and `usage_declaration` the measurement source the session runs under: the handshake's runtime when Sortie ships a source for it, `default` otherwise. A session under `default` reads the protocol's standard usage fields, and its figure is a lower bound. A command that names no runtime, such as a wrapper script, logs no warning: the handshake alone picks the source. See [token accounting on that kind](/reference/adapter-agent-client-protocol/#token-accounting).
+
+An agent kind that attaches no source that counts tokens has the usage arrival `none`. When its runtime sends a usage figure anyway, Sortie discards the figure and logs it once per run, on the first occurrence:
+
+```
+time=2026-03-26T14:32:10.100+00:00 level=WARN msg="token usage discarded: agent kind attaches no source that counts tokens" issue_id=abc123 issue_identifier=MT-649 session_id=session-abc-003 agent_kind=acme
+```
+
+Every built-in agent kind attaches a source that counts tokens, so none of them produces this line. Seeing it means a [custom adapter](/guides/write-custom-agent-adapter/#surface-capabilities-and-budgeting) is running that sends usage figures without attaching a source that counts them.
 
 What happens to the figure is covered under [usage reporting by agent kind](/reference/workflow-config/#usage-reporting-by-agent-kind): nothing changes for this session's numbers, because they already read as a kind that reports nothing.
 
-The action is on the adapter, not on your workflow configuration: fix it to stop sending a figure it declared it never would, or drop the `none` declaration if it genuinely can report usage.
+The action is on the adapter, not on your workflow configuration: stop it sending figures, or attach a source that counts tokens if it genuinely can report usage.
 
 ### Tool calls
 
@@ -343,9 +358,9 @@ A session whose coding agent reported no token usage at all is recorded as unmea
 time=2026-03-26T14:35:22.000+00:00 level=WARN msg="token budget cannot be fully evaluated, allowing dispatch" issue_id=abc123 issue_identifier=MT-649 used_tokens=31000 budget_tokens=50000 unmeasured_sessions=2 unaccounted_turns=0
 ```
 
-Two counts say what the sum leaves out, and the record carries both every time. `unmeasured_sessions` is how many of the issue's recorded sessions carry no spend figure. `unaccounted_turns` is how many turns reached the model without a figure that covered them, which a session can accumulate even when every one of its figures arrived.
+Two counts say what the sum leaves out, and the record carries both every time. `unmeasured_sessions` is how many of the issue's recorded sessions carry no token figure. `unaccounted_turns` is how many turns reached the model without a figure that covered them, which a session can accumulate even when every one of its figures arrived.
 
-Either count above `0` makes `used_tokens` a lower bound rather than the whole story. The ceiling message above takes precedence: an issue whose measured total already reaches the ceiling is blocked and logs that instead.
+Either count above `0` makes `used_tokens` a [lower bound](/concepts/spend-measurement/) rather than the whole story. The ceiling message above takes precedence: an issue whose measured total already reaches the ceiling is blocked and logs that instead.
 
 If Sortie can't read the token total at all, it fails open rather than blocking a retry on a persistence error:
 
@@ -374,11 +389,11 @@ Read `session_tokens` against `issue_tokens_completed` to see who spent the budg
 Four more records surround the check, all WARN, all gated on `agent.max_tokens` being set. Two fire at dispatch and describe what the ceiling can bound for the session about to start:
 
 ```
-time=2026-03-26T14:38:02.000+00:00 level=WARN msg="token ceiling cannot bound this run" issue_id=abc123 issue_identifier=MT-649 agent_kind=copilot-cli usage_arrival=none budget_tokens=50000
+time=2026-03-26T14:38:02.000+00:00 level=WARN msg="token ceiling cannot bound this run" issue_id=abc123 issue_identifier=MT-649 agent_kind=acme usage_arrival=none budget_tokens=50000
 time=2026-03-26T14:39:14.000+00:00 level=WARN msg="prior token spend unknown, token ceiling bounds this session only" issue_id=def456 issue_identifier=MT-702 error="database is locked" budget_tokens=50000
 ```
 
-The first means the agent kind never reports a usage figure, so nothing will ever reach the ceiling; `agent.turn_timeout_ms` is the remaining cap. The second means the read of the issue's completed spend failed, so that session starts from a baseline of zero: it still stops at the full budget, but earlier sessions are not counted against it. One dispatch emits at most one of the two, which is why the two lines above are two different issues.
+The first means the agent kind attaches no source that counts tokens, so nothing will ever reach the ceiling; `agent.turn_timeout_ms` is the remaining cap. Every built-in kind attaches one, so only a custom adapter draws it. The second means the read of the issue's completed spend failed, so that session starts from a baseline of zero: it still stops at the full budget, but earlier sessions are not counted against it. One dispatch emits at most one of the two, which is why the two lines above are two different issues.
 
 The third fires later, when the read that would confirm a stop fails:
 
@@ -394,7 +409,7 @@ The fourth fires once, at the end of a run that reported nothing although its ag
 time=2026-03-26T14:52:18.000+00:00 level=WARN msg="run reported no token usage, token ceiling could not bound it" issue_id=abc123 issue_identifier=MT-649 session_id=session-abc-004 agent_kind=agent-client-protocol usage_arrival=turn_end budget_tokens=50000
 ```
 
-This is the after-the-fact counterpart of the first record. Nothing warned at dispatch, because the kind declares that figures arrive; the runtime behind it then produced none, and the ceiling bounded nothing. `agent-client-protocol` is where you are most likely to meet it: a local session there is declared reporting before its runtime has said anything, and it delivers a figure only for a runtime Sortie ships a measurement source for. See [token accounting on that kind](/reference/adapter-agent-client-protocol/#token-accounting) for which way a given session went.
+This is the after-the-fact counterpart of the first record. Nothing warned at dispatch, because the kind attaches a source that counts tokens; the runtime behind it then produced no figure, and the ceiling bounded nothing. `agent-client-protocol` is where you are most likely to meet it: a runtime Sortie ships no source for is read from the protocol's standard usage fields, and a runtime that fills none of them leaves the run unmeasured. See [token accounting on that kind](/reference/adapter-agent-client-protocol/#token-accounting) for which way a given session went.
 
 ### Token warning threshold
 
@@ -528,6 +543,12 @@ Find runs that crossed the token warning threshold:
 
 ```bash
 grep 'token warning threshold reached' sortie.log
+```
+
+Find dispatches allowed on a spend figure that is only a lower bound, and runs whose usage the ceiling never saw:
+
+```bash
+grep -e 'cannot be fully evaluated' -e 'token ceiling could not bound it' -e 'token ceiling cannot bound this run' sortie.log
 ```
 
 Watch changes in the poll summary in real time:

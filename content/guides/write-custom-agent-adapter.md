@@ -51,15 +51,15 @@ The orchestrator reacts to a normalized event vocabulary, not to your CLI's nati
 | `tool_result` | `EventToolResult` | A tool call completed. Carries `ToolName`, `ToolDurationMS`, and `ToolError`, plus `ToolKind` and `ToolArgument` for a shell, read, edit, or skill call. See [Report tool calls](#report-tool-calls). |
 | `malformed` | `EventMalformed` | An unparseable line from the agent. |
 
-The data flows like this. `StartSession` receives `StartSessionParams` (the workspace path, an `AgentConfig`, the kind's resolved `Settings` block, an optional `ResumeSessionID` with the optional `ResumeUsage` and `ResumeUsageByModel` that go with it, SSH fields, and an MCP config path) and returns a `Session` whose `Internal any` field carries your adapter state opaquely.
+The data flows like this. `StartSession` receives `StartSessionParams` (the workspace path, an `AgentConfig`, the kind's resolved `Settings` block, an optional `ResumeSessionID`, SSH fields, and an MCP config path) and returns a `Session` whose `Internal any` field carries your adapter state opaquely.
 
-`RunTurn` receives that `Session` plus `RunTurnParams` (the rendered `Prompt`, the `Issue`, and the `OnEvent` callback) and returns a `TurnResult` (`SessionID`, `ExitReason`, `Usage`, `UsageMeasured`, `SpendUnaccounted`, `SpendCoverable`, `CoversSession`, `ResumeUsage`, `ResumeUsageByModel`). `FinalizeTurn` writes the three spend fields from the turn's evidence; see [Surface capabilities and budgeting](#surface-capabilities-and-budgeting).
+`RunTurn` receives that `Session` plus `RunTurnParams` (the rendered `Prompt`, the `Issue`, and the `OnEvent` callback) and returns a `TurnResult` (`SessionID`, `ExitReason`, `Usage`, `UsageMeasured`, `SpendUnaccounted`, `SpendCoverable`, `CoversSession`, `UsageProvenance`, `ReportedAmounts`). `FinalizeTurn` writes the last five from the turn's evidence; see [Surface capabilities and budgeting](#surface-capabilities-and-budgeting).
 
 The orchestrator copies `SessionID` and token deltas out of the events and the result; it never reads `Session.Internal`. A non-empty `SessionID`, whether from a `session_started` event or from `TurnResult`, replaces whatever session id the orchestrator has accepted so far, for this run's dispatch record, its exit result, and what a continuation retry resumes under.
 
 Report the id your runtime would continue the session under as of the end of that turn, never one it has already moved past: Copilot CLI's adapter, for example, captures the session id off a turn's own result and returns it as that turn's `TurnResult.SessionID`, so a runtime-assigned change reaches the orchestrator without any extra event.
 
-Set `UsageMeasured` only once the runtime has reported a usage figure for the session: a `false` value with zero `Usage` records the spend as unknown rather than as nothing, which is what keeps a token budget from silently treating an unmeasurable agent as free.
+Report `UsageMeasured`, which your `GetUsage` hook and `agentcore.TurnMeta` carry, as true only once the runtime has reported a usage figure for the session: a `false` value with zero `Usage` records the spend as unknown rather than as nothing, which is what keeps a token budget from silently treating an unmeasurable agent as free.
 
 **Verify:** you can state, for your agent, which `AgentEventType` values its output maps to and when each one fires during a turn.
 
@@ -102,25 +102,42 @@ Generic naming applies everywhere in core, but this package is where the kind st
 
 ### Register the adapter
 
-Registration runs from `init()` and binds your kind string to a constructor that takes no arguments. Use `RegisterWithMeta` so you can declare that the agent needs a launch command, what your adapter does with the MCP configuration Sortie generates for its own tools, when your runtime's token figures arrive and what they attribute to, and whether any of your own pass-through keys stops the agent resuming a session.
+Registration runs from `init()` and binds your kind string to a constructor that takes no arguments. Use `RegisterWithMeta` so you can declare that the agent needs a launch command, what your adapter does with the MCP configuration Sortie generates for its own tools, which usage sources every session of your kind attaches, and whether any of your own pass-through keys stops the agent resuming a session.
 
 ```go {filename="acme.go"}
 package acme
 
 import (
+	"github.com/sortie-ai/sortie/internal/agent/usage"
 	"github.com/sortie-ai/sortie/internal/domain"
 	"github.com/sortie-ai/sortie/internal/registry"
 )
 
+var usageSources = usage.Sources{
+	Live: usage.Source{
+		Category: usage.SourceOutput,
+		Strategy: usage.StrategyLive,
+		Spend: usage.SpendDeclaration{
+			Shape:             usage.SpendPerTurn,
+			ReasoningInOutput: true,
+			ServedModel:       true,
+			DuringTurn:        true,
+		},
+	},
+}
+
 func init() {
 	registry.Agents.RegisterWithMeta("acme", NewACMEAdapter, registry.AgentMeta{
-		RequiresCommand:  true,
-		DefaultCommand:   "acme-cli",
-		MCPInjection:     registry.MCPInjectionUnsupported,
-		UsageArrival:     registry.UsageArrivalIncremental,
-		UsageAttribution: registry.UsageAttributionPerModel,
-		CredentialEnv:    registry.DeclareCredentialEnv("ACME_API_KEY"),
-		EffortForwarding: registry.EffortNotForwarded,
+		RequiresCommand:     true,
+		DefaultCommand:      "acme-cli",
+		MCPDialect:           registry.MCPDialectNone,
+		MCPDialectNoneReason: "acme-cli has no MCP support",
+		UsageSources:        usageSources,
+		CredentialEnv:       registry.DeclareCredentialEnv("ACME_API_KEY"),
+		EffortForwarding:    registry.EffortNotForwarded,
+		VerificationContext: registry.DeclareVerificationContext(),
+		UsageLimitRecognition:         registry.UsageLimitNotRecognized,
+		UsageLimitNotRecognizedReason: "the adapter does not classify a usage-limit refusal",
 	})
 }
 
@@ -153,51 +170,78 @@ If it does not, declare `registry.EffortNotForwarded` and read the key nowhere i
 
 Leaving the field unset, a forwarding kind without that test, and a not-forwarded package that reads the key each fail the completeness test in `cmd/sortie`.
 
-`MCPInjection` declares what your adapter does with the MCP configuration the worker generates for Sortie's own tools. Three values name a delivery, and the zero value names an adapter that has declared nothing:
+`UsageLimitRecognition` declares whether your adapter returns `domain.ErrUsageLimit` for a provider's usage-limit refusal, the error whose reported reset the retry waits for (see [retry behavior](/reference/errors/#retry-behavior)); declare `registry.UsageLimitNotRecognized` with a reason in `UsageLimitNotRecognizedReason` until it does.
 
-| Value | Meaning | Sortie's tools reach the session |
+`VerificationContext` declares which parts of the agent's context your runtime's credential-verification request still carries, because it offers no switch that drops them. The components are `registry.VerificationKeepsSomeTools` or `registry.VerificationKeepsAllTools` (declare at most one), `registry.VerificationKeepsProjectInstructions`, `registry.VerificationKeepsUserInstructions`, and `registry.VerificationKeepsSystemPrompt`. `registry.DeclareVerificationContext()` with no arguments says the request keeps nothing, which is a different statement from leaving the field unset. Leaving it unset fails a completeness test that walks every registered kind. The example declares that nothing is kept, which is true only for a runtime whose every context component a launch can drop. Declare what your request still carries, and handle the matching switches as described in [resolve the launch target and start the session](#resolve-the-launch-target-and-start-the-session). `fakemodel.AssertConformance` proves the declaration on the wire: every component it does not keep must be absent from the verification request, and `Binding.UserInstructions` must name the runtime's user-level instruction file when user instructions are dropped.
+
+`MCPDialect` declares the configuration syntax your runtime reads for the tool servers Sortie generates. The shared tool delivery renders Sortie's own tool server and the operator's `mcp_config` servers in that syntax, so your adapter never parses `.sortie/mcp.json` itself. Pick the value that names the syntax your runtime parses:
+
+| Value | Syntax the shared delivery renders | Delivered in |
 |---|---|---|
-| `MCPInjectionSupported` | Your adapter hands the generated file's path to the runtime. | Local and SSH |
-| `MCPInjectionTranslated` | Your runtime accepts no config path, so your adapter re-expresses the declared servers in the form it does parse. | Local only |
-| `MCPInjectionUnsupported` | Your adapter never delivers the configuration to the agent process. | Never |
+| `MCPDialectMCPServersJSON` | An `{"mcpServers": {...}}` document, header values as `${VAR}` references. | `Delivery.Document` |
+| `MCPDialectMCPServersJSONAlwaysLoad` | The same document, with Sortie's own member marked `alwaysLoad`. | `Delivery.Document` |
+| `MCPDialectMCPServersTOML` | One `-c mcp_servers.<name>=<inline table>` argument pair per server, header and stdio environment values by variable name. | `Delivery.Args` and `Delivery.Env` |
+| `MCPDialectMCPMemberJSON` | The `mcp` member of the runtime's inline JSON configuration, header values as `{env:VAR}` references. | `Delivery.Document` |
+| `MCPDialectACPSession` | One Agent Client Protocol `McpServer` object per server, for the session-creation request. | `Delivery.Entries` |
+| `MCPDialectNone` | Nothing. Your adapter never delivers the configuration to the agent process. Set `MCPDialectNoneReason` to say why. | None |
 
-Declare the truth about what your adapter does today, not what the CLI could theoretically be made to do. The declaration is load-bearing in both directions: it decides whether the runtime is pointed at the tool sidecar *and* whether Sortie writes the first-turn tool advertisement, so a session is never told about a tool it cannot call.
+Declare the truth about what your adapter does today, not what the CLI could theoretically be made to do. The declaration is load-bearing in both directions: it decides whether the runtime is pointed at the tool server *and* whether Sortie writes the first-turn tool advertisement, so a session is never told about a tool it cannot call.
 
-Leaving the field at its zero value, `MCPInjectionUndeclared`, delivers no channel either, so an undeclared adapter silently gets no tools and no advertisement. Declare it explicitly: start at `MCPInjectionUnsupported` and change the value when you wire delivery up. [`sortie validate`](/reference/cli/#validate) reports any kind with no channel as an `agent.kind.no_tool_channel` warning, which is how an operator finds out.
+Leaving the field at its zero value, `MCPDialectUndeclared`, delivers no channel either, and a completeness test over every registered kind fails it. Declare the field explicitly: start at `MCPDialectNone` and change the value when you wire delivery up, as [deliver Sortie's tools](#deliver-sorties-tools) describes. [`sortie validate`](/reference/cli/#validate) reports any kind with no channel as an `agent.kind.no_tool_channel` warning, which is how an operator finds out.
 
-`UsageArrival` and `UsageAttribution` declare when your runtime's token figures reach the orchestrator and what they describe. Every consumer of usage data reads the declaration instead of branching on your kind string: `sortie validate`, the **Usage reporting** line of the dashboard's Workflow screen, and the `usage_arrival` and `usage_attribution` fields on each running entry in the [JSON API](/reference/http-api/#get-apiv1state-system-state).
+`UsageSources` declares where your runtime reports usage and what each report counts. The shared usage component reads that declaration, so describe the reports as the runtime writes them and let the component do the arithmetic:
 
-| `UsageArrival` | Paired `UsageAttribution` | What your adapter does |
+- `Live` is required: the runtime's own output (`usage.SourceOutput`) or its protocol messages (`usage.SourceProtocol`), read as they arrive (`usage.StrategyLive`). Its `Spend` must declare a token shape or at least one amount.
+- `Records` is optional: the runtime's own session records on its host, one entry per model request (`usage.SourceJournal`, `usage.StrategyRecords`, `Shape: usage.SpendPerRequest`). The component reads them when a turn ends to settle what the live source left open, such as a turn that was stopped before the runtime reported its final usage.
+
+Pick the `Spend.Shape` from what one live report covers:
+
+| `Shape` | One report counts |
+|---|---|
+| `usage.SpendPerTurn` | The turn's own requests, and no other turn's. |
+| `usage.SpendPerRequest` | One model request, named by `Identity`. |
+| `usage.SpendProcessCumulative` | Everything since the runtime's process started. |
+| `usage.SpendSessionCumulative` | Everything the runtime's session spent, across its processes and every earlier run that resumed it. See [wire session continuity](#wire-session-continuity). |
+
+Then set the flags that describe the counts: `CacheInInput` when cache reads and writes sit inside the input count, `ReasoningInOutput` when reasoning tokens sit inside the output count, `ServedModel` when each report names the model that served it, `DuringTurn` when the runtime reports after each model request while the turn runs, and `LowerBound` when the runtime may spend more than it reports. Declare `Amounts` for a cost the runtime reports beside or instead of tokens: `Unit: domain.UnitUSD` for a US dollar figure, a vendor unit's plural display name for anything else, or `Currency: true` when each report names its own unit, each with an `AmountShape`.
+
+`RegisterWithMeta` panics on a declaration that fails `usage.Sources.Check`, so a kind whose runtime reports neither a token count nor an amount cannot be registered.
+
+You do not declare when figures arrive or what they name. `AgentMeta.UsageDisposition()` derives that pair from your sources, and every consumer of usage data reads it instead of branching on your kind string: `sortie validate`, the **Usage reporting** line of the dashboard's Workflow screen, and the `usage_arrival` and `usage_attribution` fields on each running entry in the [JSON API](/reference/http-api/#get-apiv1state-system-state).
+
+| Your sources | Arrival | Attribution |
 |---|---|---|
-| `UsageArrivalIncremental` | `UsageAttributionPerModel` or `UsageAttributionSessionTotal` | Emits one `token_usage` event per model API request, while the turn's work is still in flight. |
-| `UsageArrivalTurnEnd` | `UsageAttributionPerModel` or `UsageAttributionSessionTotal` | Emits at most one `token_usage` event per turn, and only after the turn's work is over. |
-| `UsageArrivalNone` | `UsageAttributionNone` | Never emits one. Every turn is unmeasured, token budgets are inert, and `agent.turn_timeout_ms` is the budget that remains. |
+| A live token shape with `DuringTurn` | `incremental` | `per_model` when the live source, or a records source that counts tokens, sets `ServedModel`; otherwise `session_total` |
+| A live token shape without `DuringTurn`, or token counts in the records only | `turn_end` | The same rule |
+| No source that counts tokens, such as a live source declaring amounts only | `none` | `none` |
 
-`UsageArrivalNone` is enforced, not merely documented: the orchestrator discards a figure your runtime sends under this declaration rather than trusting it, exactly as the [usage reporting reference](/reference/workflow-config/#usage-reporting-by-agent-kind) describes for every kind.
+The example declares an `incremental`, `per_model` kind. A `none` session is enforced, not merely documented: the orchestrator discards a token figure such a session sends rather than trusting it, exactly as the [usage reporting reference](/reference/workflow-config/#usage-reporting-by-agent-kind) describes for every kind.
 
 Nothing about that failure reaches your adapter's own return values or errors, so catch it yourself: drive a real turn through your fake runtime and check it with `agenttest.AssertUsageReporting` (see [Test the adapter](#test-the-adapter)), the same way the built-in `claude-code` and `copilot-cli` packages do.
 
 A Warn log Sortie emits once per run, naming your kind (see [monitor with logs](/guides/monitor-with-logs/#agent-session)), is what's left to catch a runtime shape none of your own tests drove.
 
-A kind declaring `UsageArrivalTurnEnd` reports through `agentcore.TurnEndUsage` instead of emitting the event or calling `agentcore.FinalizeTurn` yourself. Construct it with `agentcore.NewTurnEndUsage()` exactly once, directly in `StartSession`'s own method body outside every function literal, and store the pointer on your session state; return its `Snapshot()` from `GetUsage`.
+Count every session through a `usage.Ledger`, built in `StartSession` from the sources you registered:
 
-When the figure is due on every ending of a turn, read it in the `SettleUsage` hook instead and settle it with `state.usage.Settle`. The skeleton calls `SettleUsage` once per started turn, after the subprocess is reaped, and `Finalize` then gets `nil` for `recovered`.
+```go {filename="acme.go"}
+ledger, err := usage.NewLedger(usageSources.Live, usageSources.Records)
+if err != nil {
+	return domain.Session{}, &domain.AgentError{Kind: domain.ErrResponseError, Message: "usage ledger refused the kind's sources", Err: err}
+}
+if params.ResumeSessionID == "" {
+	ledger.SessionCreated()
+}
+```
 
-When the figure arrives in the stream instead, in `OnFinalize`, build an `*agentcore.RecoveredUsage{Run, ByModel, Model}` (`ByModel` is nil when your source names no model per count) when this turn settled a figure, or leave it `nil` when it settled nothing, and call `state.usage.Finalize(emit, logger, ev, sessionID, apiDurationMS, recovered, *spend)` in place of `agentcore.FinalizeTurn`: it emits the one `token_usage` event when `recovered` is non-nil, latches the run's measured verdict, and then calls `FinalizeTurn` itself for the turn's terminal event.
+Call `SessionCreated()` once, before the first turn, when the runtime creates the session this run counts. For a session the run resumes, call `ledger.Boundary(read)` instead with a read of your records source, which fixes the requests already recorded as history. A kind without a records source makes neither call on a resumed session. Feed each live report to the ledger as it arrives, `ObserveRequest` for a per-request or `DuringTurn` report and `ObserveCumulative` for a session-cumulative one, and settle the turn once in the `SettleUsage` hook with `agentcore.SettleSpend`, as [structured output](#structured-output) shows.
 
-`TestUsageDeclarationContractInvariant` in `agentcore` enforces this shape: it fails a `turn_end` package that calls `agentcore.FinalizeTurn` directly, references `domain.EventTokenUsage` directly, or constructs `agentcore.NewTurnEndUsage()` anywhere but that one place. Copilot CLI and OpenCode are the worked examples of the `SettleUsage` path: both recover their figure from a read that only completes after the subprocess exits, settle it there, and pass `nil` to `Finalize`.
+When the kind settles its figure only after the turn's work is over (a `turn_end` arrival), report it through `agentcore.TurnEndUsage` instead of emitting `token_usage` yourself. Construct it with `agentcore.NewTurnEndUsage()` exactly once, directly in `StartSession`'s own method body outside every function literal, and store the pointer on your session state. `GetUsage` returns its `Snapshot()`, `ByModel()` and `Measured()`. In `SettleUsage`, pass the figure `agentcore.SettleSpend` returns to `state.usage.Settle(emit, recovered)`, which emits the turn's one `token_usage` event, and end the turn in `OnFinalize` with `state.usage.Finalize(emit, logger, ev, sessionID, apiDurationMS, nil, *spend)` in place of `agentcore.FinalizeTurn`.
 
-The two fields move together: `UsageArrivalNone` pairs with `UsageAttributionNone` and with nothing else. Choose `UsageAttributionPerModel` when a usage-bearing event names the model that produced the figure, and `UsageAttributionSessionTotal` when none of them does. Leaving either field at its zero value declares nothing, which the dashboard renders as `not declared`; declare both explicitly.
+`TestUsageDeclarationContractInvariant` in `agentcore` enforces this shape: it fails a package that constructs `agentcore.NewTurnEndUsage()` and also calls `agentcore.FinalizeTurn` directly, references `domain.EventTokenUsage` directly, or constructs it anywhere but that one place. OpenCode and Copilot CLI are the worked examples: both settle in `SettleUsage` and pass `nil` to `Finalize`.
 
-Declare against the code path that always runs, not against a path your runtime only sometimes feeds. If your authoritative figure only settles after the turn's work is over, such as a post-exit read or an export subprocess, declare `UsageArrivalTurnEnd` and report solely through `agentcore.TurnEndUsage`: a `turn_end` package may not also emit an interim `token_usage` event from data glimpsed mid-turn, so there is no streamed fallback to design in. Read your own emission code before writing the literal, not the CLI's documentation.
+Declare against the code path that always runs, not against a path your runtime only sometimes feeds. A live source declared `DuringTurn` must report while the turn is still working, because `agenttest.AssertUsageReporting` fails an `incremental` kind whose turn settles one figure after its last tool result, and a `turn_end` kind that reports a figure while still working or reports more than one. Read your own parser before writing the declaration, not the CLI's documentation. For what complete figures, provenance and lower bounds mean to the operator reading them, see [spend measurement](/concepts/spend-measurement/).
 
-Add `UsageSessionRules` when a pass-through setting or the launch mode narrows the pair for part of your configuration space. Each rule pairs a condition on the resolved pass-through and a remote flag with the pair in force when it matches; the first match wins, and your declared pair holds when none does.
-
-The built-in `copilot-cli` kind is the worked example: it recovers its authoritative figure from an on-disk journal the adapter never reads over SSH, so one rule narrows a remote session to `UsageArrivalNone` and `UsageAttributionNone`. Leave at least one combination matching no rule, so your declared pair stays reachable.
-
-Your condition reads the map and nothing else: it performs no I/O, keeps no reference to the map, and never writes to it.
-
-[`sortie validate`](/reference/cli/#validate) turns a `none` declaration into operator-facing warnings, `agent.kind.no_usage_reporting` when a workflow also sets `agent.max_tokens` and `agent.kind.no_cost_estimate` when it prices your kind in `token_rates`, so an operator learns the setting is inert instead of waiting for a ceiling that never arrives.
+[`sortie validate`](/reference/cli/#validate) turns a `none` disposition into operator-facing warnings, `agent.kind.no_usage_reporting` when a workflow also sets `agent.max_tokens`, a `no_usage_reporting` warning on each money ceiling it sets, such as `agent.max_cost_usd.no_usage_reporting`, and `agent.kind.no_cost_estimate` when it prices your kind in `token_rates`, so an operator learns the setting is inert instead of waiting for a ceiling that never arrives.
 
 `SessionResumeBlockedBy` is optional and reports which of *your* pass-through keys, under the pass-through Sortie hands it, stops your runtime continuing a session across separate agent launches. Return the operator-visible key name; return the empty string when the configuration resumes normally. Leave the field out entirely when your runtime has no such key at all. That is the safe answer, and it is what the built-in Codex, Copilot CLI, OpenCode, Agent Client Protocol and mock kinds do.
 
@@ -216,14 +260,6 @@ With it declared, [`sortie validate`](/reference/cli/#validate) and startup pref
 
 Read the value with the same helper and default your own settings parser uses, so the verdict cannot disagree with the launch your adapter would actually build, and do not modify the map you are handed.
 
-`MCPInjectionTranslated` is `local only` for a reason worth knowing before you pick it, and the reason is not the one people expect.
-
-Per-turn arguments do cross an SSH launch: `sshutil.BuildSSHLaunch` shell-quotes each one onto the remote command string, and the remote agent receives them. That string is itself an argument of the local `ssh` process, so anything you put in it, per-turn arguments included, lands on an argument list every other user of the orchestrator host can read.
-
-`LaunchTarget.Args`, the initial-argument slot a translating adapter would otherwise use, is empty in SSH mode for the same reason it has nothing to hold: the local command is `ssh`, not your agent. An adapter that translates onto the command line therefore delivers nothing on a remote launch.
-
-`SSHOptions` does give you a second route, the launch's standard input, which carries environment variables without exposing them; whether your runtime can read the translated form from there is a question about that runtime, and none of the built-in translating kinds delivers it that way today.
-
 **Verify:** a one-line test confirms the kind resolves.
 
 ```go {filename="acme_test.go"}
@@ -234,6 +270,20 @@ func TestRegistered(t *testing.T) {
 	}
 }
 ```
+
+### Deliver Sortie's tools
+
+Skip this step while your kind declares `MCPDialectNone`. Once you declare a dialect, the shared tool delivery in `agentcore` does the rest, and your adapter only places its output.
+
+1. In `StartSession`, call `agentcore.ResolveToolDelivery(ctx, params, target, dialect, logger)`. It loads the generated configuration, drops disabled servers, renders the result once to prove it renders, and returns a `*agentcore.ToolSession`. Close the session on every later error path; `Close` is idempotent. On a remote launch it also starts Sortie's HTTP tool server and settles the SSH reverse forward before your runtime launches.
+2. On a local launch, call `tools.Delivery(sshutil.ForwardOutcome{})` and place the field your dialect fills, as the table above lists. Add `tools.LocalEnv()` to the runtime's environment so header references resolve.
+3. On a remote launch the rendering depends on the remote port `sshd` allocates, so it cannot be known at build time. Set `opts.Forward = tools.Forward(place)` on the `SSHOptions` you hand to `sshutil.BuildSSHLaunch`, where `place` is an `agentcore.PlaceFunc` that turns a `mcpconfig.Delivery` into the `sshutil.LatePreamble` carrying it (trailing arguments and environment entries), and read the launch's stderr through `launch.WatchStderr`. A fork-per-turn adapter instead sets `Tools` and `ToolPlacement` on `ForkPerTurnHooks`, and the skeleton does all of this.
+4. Set `NoToolChannel: tools.NoToolChannel()` on the `Session` you return, and route events through `tools.Emit(emit, nil)`. The first adds the gap to the worker's decision about the advertisement, and the second emits the once-per-session gap notice. The skeleton wraps `emit` for you.
+5. A persistent-process adapter calls `tools.AwaitConnection(ctx)` after it has told the runtime about the servers, so a runtime that never connects is declared a gap within `read_timeout_ms`.
+
+Per-turn arguments cross an SSH launch, but the remote command string is itself an argument of the local `ssh` process, readable by every other user of the orchestrator host. Never put a credential in it. A late preamble travels on the launch's standard input instead.
+
+**Verify:** call `agenttest.AssertMCPInjection(t, dialect, mcpConfigPath, surface)` with the launch surface your adapter produced for a local session. It fails a surface that carries a disabled server, a header value outside its reference, or a stdio environment value on an argument list.
 
 ### Define the passthrough config
 
@@ -313,9 +363,15 @@ Store the returned target in your session state and pass a pointer to it into `N
 
 When your runtime lets an environment variable outrank the reasoning level you deliver, as Claude Code does with `CLAUDE_CODE_EFFORT_LEVEL`, set `target.WithheldEnv` to that variable's name right after `ResolveLaunchTarget` returns, whenever the level is set. A local launch then runs without the variable, and a remote launch neither carries it nor lets the remote shell pass it on.
 
-Before your working session's first turn, `agentcore.VerifyCredential` opens a session of its own, through the same adapter and with the same `Settings` block as the working session, with `params.CredentialVerification` set, sends one fixed request through it, and closes it again; see [credential verification](/reference/workflow-config/#credential-verification) for the mechanism. That request is the credential check every adapter gets.
+Before your working session's first turn, unless the orchestrator holds a fresh proof of the same agent setup, `agentcore.VerifyCredential` opens a session of its own, through the same adapter and with the same `Settings` block as the working session, with `params.CredentialVerification` set, sends one fixed request through it, and closes it again; see [credential verification](/reference/workflow-config/#credential-verification) for the mechanism. That request is the credential check every adapter gets.
 
-Add a guard of your own only for a runtime that would block on an interactive login when no credential is present, because a blocked request never fails and so never reports anything. Gate the guard on `params.CredentialVerification` rather than on local-versus-SSH, so it runs identically in both modes, and let a working session (`params.CredentialVerification` false) skip it entirely, because its own verification session already proved the credential moments before. Guard only the wait your runtime would block on, and leave acceptance to the shared request.
+The request should carry only what proving the credential needs. In a verification session, drop every context component your runtime can drop with a switch that qualifies: it applies to that one launch, persists nothing past the session, cannot change the credential, model, provider, or endpoint, and appears in the runtime's own help text, configuration reference, or published schema. Put each such switch behind `params.ReducedVerificationContext()`, not behind `params.CredentialVerification` alone. Hand a runtime that can replace its system prompt `agentcore.VerificationSystemPrompt`. Do not pass a setting of your kind whose only effect is prompt text or tool visibility, and pass every other setting unchanged.
+
+A runtime build can reject a switch it predates. When the first verification session never reaches the model, because the turn ends with the early exit report or `StartSession` fails with `port_exit` or `response_error`, `VerifyCredential` logs a warning and runs one more session with `params.VerificationFullContext` set. Under that flag `ReducedVerificationContext()` reports false, so a session that gates its switches on it applies none of them. No code beyond that gate is needed.
+
+Map a structured credential refusal from the runtime to `domain.ErrCredentialUnverified` on a working turn as well as at session start, because a skipped check leaves a credential revoked in the meantime to surface on a working turn. A start-time refusal returns `agentcore.CredentialRefusedError`. A turn that reports through `agentcore.TurnEvidence` sets `TerminalErrorKind` to `domain.ErrCredentialUnverified` and `TerminalMessage` to `agentcore.CredentialRefusedMessage` of the runtime's text. A runtime that states a refusal only on standard error or by exiting keeps the kind it reports.
+
+Add a guard of your own only for a runtime that would block on an interactive login when no credential is present, because a blocked request never fails and so never reports anything. Gate the guard on `params.CredentialVerification` rather than on local-versus-SSH, so it runs identically in both modes, and let a working session (`params.CredentialVerification` false) skip it entirely, because the verification step has already proved the credential. Guard only the wait your runtime would block on, and leave acceptance to the shared request.
 
 When the guard finds the credential absent, return a `*domain.AgentError` whose `Kind` is `domain.ErrCredentialUnverified`. When the guarded command exits on its own, return `agentcore.ExitedEarly(target, result).Report(stderr)`, the shared [early exit report](/reference/errors/#early-exit-report), so the runtime's own exit status and standard error reach the operator instead of a guess about the credential; the OpenCode adapter's version probe returns it the same way.
 
@@ -371,7 +427,7 @@ This is the decision that shapes the whole adapter. Read your research note and 
 
 #### Structured output
 
-When the CLI emits JSONL (Claude Code and OpenCode do, in addition to Codex), `ParseLine` decodes each line into native events, drives an `agentcore.RunUsage` to produce `EventTokenUsage`, drives a `ToolTracker` to produce `EventToolResult`, and returns the terminal result line for `OnFinalize` to consume. This sketch follows the Claude Code adapter, an incremental kind; a kind declaring `UsageArrivalTurnEnd`, such as OpenCode, never touches `RunUsage` from `ParseLine` at all. See [Register the adapter](#register-the-adapter) for its pattern.
+When the CLI emits JSONL (Claude Code and OpenCode do, in addition to Codex), `ParseLine` decodes each line into native events, hands each usage report to the session's `usage.Ledger`, drives a `ToolTracker` to produce `EventToolResult`, and returns the terminal result line for `OnFinalize` to consume. The `SettleUsage` hook then settles the turn's spend once, after the process is reaped. This sketch follows the Claude Code adapter and the `incremental` declaration registered above; a `turn_end` kind such as OpenCode emits no `token_usage` event from `ParseLine` and reports through `agentcore.TurnEndUsage` instead, as [Register the adapter](#register-the-adapter) describes.
 
 ```go
 ParseLine: func(line []byte, emit func(domain.AgentEvent), pid string, spend *agentcore.TurnSpend) (any, error) {
@@ -382,12 +438,12 @@ ParseLine: func(line []byte, emit func(domain.AgentEvent), pid string, spend *ag
 	switch event.Type {
 	case "assistant":
 		spend.MarkModelReached()
-		if usage, id, ok := parseAssistantUsage(event); ok {
-			_, seen := state.turnMessages[id]
-			state.turnMessages[id] = agentcore.MaxUsage(state.turnMessages[id], usage)
-			snapshot := state.acc.SetTurnProvisional(sumTurnMessages(state.turnMessages))
-			if !seen {
-				emit(domain.AgentEvent{Type: domain.EventTokenUsage, Usage: snapshot, UsageByModel: state.acc.ByModel(), Model: state.lastModel})
+		if reading, ok := requestReading(event); ok {
+			provisional, isNew := state.ledger.ObserveRequest(reading)
+			snapshot := state.acc.SetTurnProvisional(provisional)
+			if isNew {
+				state.usageMeasured = true
+				emit(domain.AgentEvent{Type: domain.EventTokenUsage, Usage: snapshot, UsageByModel: state.acc.ByModel(), Model: reading.Model})
 			}
 		}
 	case "tool_use":
@@ -404,25 +460,38 @@ ParseLine: func(line []byte, emit func(domain.AgentEvent), pid string, spend *ag
 			})
 		}
 	case "result":
-		state.spent = agentcore.AddUsage(state.spent, authoritativeUsage(event))
-		state.acc.SetRunCumulative(state.spent) // settles the run's total, superseding every provisional figure
-		spend.MarkSettled()                      // the result's figure covers the whole turn
+		state.turnReplied = true
+		state.turnReading = resultReading(event) // the turn's own counts, split by model
 		captured := event
 		return &captured, nil // terminal line: handed to OnFinalize as lastParsed
 	}
 	return nil, nil
-}
+},
+SettleUsage: func(ctx context.Context, _ func(domain.AgentEvent), spend *agentcore.TurnSpend, _ bool) {
+	end := usage.TurnEnd{Replied: state.turnReplied, ModelReached: spend.ModelReached()}
+	recovered := agentcore.SettleSpend(ctx, state.ledger, end, state.turnReading,
+		noRecords, agentcore.ReadTimeout(state.agentConfig), spend)
+	if recovered != nil {
+		state.acc.SetRunCumulative(recovered.Run, recovered.ByModel)
+		state.usageMeasured = true
+	}
+},
+GetUsage: func() (domain.TokenUsage, map[string]domain.TokenUsage, bool) {
+	return state.acc.Snapshot(), state.acc.ByModel(), state.usageMeasured
+},
 ```
 
-`state.acc` is an `agentcore.RunUsage`, constructed once with `agentcore.NewRunUsage()` in `StartSession` and never reset between turns; `GetUsage` returns its `Snapshot()`. `SetTurnProvisional` replaces the turn's in-flight contribution and returns the raised run-cumulative snapshot to emit; gate the emission on a message id's first sighting, since a streaming CLI can repeat one id across several deltas of the same API request.
+`requestReading` and `resultReading` are your own parsers. Each returns a `usage.SpendReading` holding the counts exactly as the runtime reported them: `Input`, `Output`, `CacheRead` and `CacheWrite` as pointers, `Model` for the model that served the request, and `Identity` for the request's id. `resultReading` returns a `*usage.SpendReading` that is nil when the result line carries no usage, and a runtime that splits the turn by model puts one entry per model in `ByModel`. A nil count is unknown, never zero, so leave a count nil when the report lacks it: a reading missing a count settles nothing, and the turn is reported as not covered rather than as free. The ledger applies your `CacheInInput` and `ReasoningInOutput` declarations, so `InputTokens` comes out including cache reads and writes and `TotalTokens` as input plus output. `noRecords` is a function returning an empty `usage.RecordsRead`; `SettleSpend` calls it only when the ledger needs the records, which a kind without a records source never does. With a records source, pass a function that reads them within the context it receives.
 
-`SetRunCumulative` replaces the run's settled total with the figure you pass and drops the turn's provisional contribution, superseding whatever the provisional figures already reported. This sketch assumes each terminal event reports only that process's own spend, so the adapter keeps a running sum (`state.spent`) across turns and settles it. A runtime whose terminal event reports a session-wide figure needs the baseline described under [wire session continuity](#wire-session-continuity) instead. Register tool starts with `ToolTracker.Begin(id, call)` and close them with `End(id)`, which returns the call and its duration. See [Report tool calls](#report-tool-calls) for how to build the call.
+`ObserveRequest` keeps the largest reading per request id and returns the turn's sum and whether the id is new; gate the emission on a request id's first sighting, since a streaming CLI can repeat one id across several deltas of the same API request. `state.acc` is an `agentcore.RunUsage`, constructed once with `agentcore.NewRunUsage()` in `StartSession` and never reset between turns: `SetTurnProvisional` replaces the turn's in-flight contribution and returns the raised run-cumulative snapshot to emit, and `SetRunCumulative` replaces the settled total with the figure the ledger settled, dropping the provisional contribution.
 
-Reset the per-turn state, message ids and tool tracker included, at the top of each `RunTurn`; `RunUsage` is the one field that survives across turns. Return the terminal event reference so the next step can read its status.
+`SettleSpend` settles the turn from the result's reading and marks the turn's `TurnSpend` from the settlement: whether the figure covers the whole turn, whether it is a session total, whether it rests on an estimate, and the provenance and amounts the turn carries. A turn with no result line, or one cancelled before it, is not settled, so a turn that reached the model is reported as not covered. Register tool starts with `ToolTracker.Begin(id, call)` and close them with `End(id)`, which returns the call and its duration. See [Report tool calls](#report-tool-calls) for how to build the call.
+
+Reset the per-turn state, message ids, `turnReplied`, `turnReading` and the tool tracker included, at the top of each `RunTurn`; the ledger and `RunUsage` are the fields that survive across turns. Return the terminal event reference so the next step can read its status.
 
 Set `FirstEventTimeout` for a runtime that can hang before it writes its first line, valued with `agentcore.ReadTimeout` or `agentcore.FirstResponseTimeout` from the agent config. A turn that gets no accepted line within it ends as `response_timeout`. When `ParseLine` sees a stream that is not this turn's, such as a session id that does not match, return `agentcore.EndTurn(kind, message)`: the skeleton ends the turn with that kind and message and passes it no further lines.
 
-Populate every counter the runtime exposes. `InputTokens` includes prompt-cache reads and writes, while `CacheReadTokens` and `CacheWriteTokens` preserve those disjoint subsets for pricing. Set a missing cache counter to zero, and compute `TotalTokens` as input plus output. Use `agentcore.MaxUsage`, `AddUsage`, and `SubtractUsage` instead of local arithmetic so a newly added counter is not dropped by one adapter's fold. A contract test fails an adapter that sums token fields by hand.
+Keep token arithmetic out of the adapter: the ledger normalizes, sums and subtracts every reading. Where you still combine `domain.TokenUsage` values yourself, use `agentcore.MaxUsage`, `AddUsage`, and `SubtractUsage` so a newly added counter is not dropped by one adapter's fold. A contract test fails an adapter that sums token fields by hand.
 
 #### Report tool calls
 
@@ -453,13 +522,30 @@ Do not put a command line, a title, or a protocol item type in `ToolName`, and d
 
 #### Unstructured output
 
-When the CLI emits a plain transcript with no event stream and no token reporting, `ParseLine` strips ANSI, captures the text into an `EventNotification` for observability, and reports no usage. There is no terminal line on stdout, so `ParseLine` always returns `(nil, nil)` and the outcome is decided later from the exit status and stderr.
+When the CLI emits a plain transcript with no event stream, `ParseLine` strips ANSI, captures the text into an `EventNotification` for observability, and reads usage from the transcript line that reports it. The registration must still declare a live source that counts tokens or a reported amount: `RegisterWithMeta` panics otherwise, and a records source cannot stand in for the live one, so a CLI whose output never reports a token count or a cost cannot be registered as a kind. This sketch assumes the transcript reports each turn's token counts on a closing summary line, declared as a live output source that counts the turn and reports only once the work is over, which derives a `turn_end`, `session_total` kind:
+
+```go {filename="acme.go"}
+var usageSources = usage.Sources{
+	Live: usage.Source{
+		Category: usage.SourceOutput,
+		Strategy: usage.StrategyLive,
+		Spend:    usage.SpendDeclaration{Shape: usage.SpendPerTurn, ReasoningInOutput: true},
+	},
+}
+```
+
+There is no terminal line on stdout, so `ParseLine` always returns `(nil, nil)` and the outcome is decided later from the exit status and stderr.
 
 ```go
-ParseLine: func(line []byte, emit func(domain.AgentEvent), pid string, _ *agentcore.TurnSpend) (any, error) {
+ParseLine: func(line []byte, emit func(domain.AgentEvent), pid string, spend *agentcore.TurnSpend) (any, error) {
 	text := agentcore.SanitizeLine(string(line))
+	if reading, ok := summaryReading(text); ok {
+		state.turnReading = &reading
+		return nil, nil
+	}
 	if strings.TrimSpace(text) != "" {
 		state.work.ObserveAssistantOutput()
+		spend.MarkModelReached()
 	}
 	if text != "" {
 		emit(domain.AgentEvent{
@@ -470,20 +556,28 @@ ParseLine: func(line []byte, emit func(domain.AgentEvent), pid string, _ *agentc
 	}
 	return nil, nil
 },
-GetUsage: func() domain.TokenUsage { return domain.TokenUsage{} },
+SettleUsage: func(ctx context.Context, emit func(domain.AgentEvent), spend *agentcore.TurnSpend, _ bool) {
+	end := usage.TurnEnd{Replied: state.turnReading != nil, ModelReached: spend.ModelReached()}
+	recovered := agentcore.SettleSpend(ctx, state.ledger, end, state.turnReading,
+		noRecords, agentcore.ReadTimeout(state.agentConfig), spend)
+	state.usage.Settle(emit, recovered)
+},
+GetUsage: func() (domain.TokenUsage, map[string]domain.TokenUsage, bool) {
+	return state.usage.Snapshot(), state.usage.ByModel(), state.usage.Measured()
+},
 ```
 
 Truncate captured text with `redact.Truncate`, which masks every credential Sortie knows before it cuts, so a long line does not bloat the event and a token the runtime echoes does not reach the log. `agentcore.EmitNotification(emit, text)` is the helper for the simpler case where you do not need to attach the PID.
 
-`GetUsage` returns the zero `TokenUsage`, which is how the orchestrator learns this agent has no token data. `state.work` is the per-turn work observer covered under [classify the outcome](#classify-the-outcome-and-pick-the-right-error-kind); a transcript line that is not blank is the only work signal this runtime offers, so that is the one signal the adapter declares and the one it records here.
+`summaryReading` is your own parser for the summary line, and `state.turnReading` is reset at the top of each `RunTurn`. `state.ledger` and `state.usage` are the `usage.Ledger` and `agentcore.TurnEndUsage` built in `StartSession` as [Register the adapter](#register-the-adapter) describes, so `OnFinalize` ends the turn with `state.usage.Finalize`. A turn that ends without its summary line settles nothing: `GetUsage` keeps `measured` false until a figure arrives, which records the spend as unknown rather than as nothing, and a turn that printed output is reported as not covered. `state.work` is the per-turn work observer covered under [classify the outcome](#classify-the-outcome-and-pick-the-right-error-kind); a transcript line that is not blank is the only work signal this runtime offers, so that is the one signal the adapter declares and the one it records here.
 
-In both modes, `GetSessionID` returns your current session id and `GetUsage` returns the token snapshot; the skeleton calls them when it builds the `TurnResult` on the cancellation paths. `EmitSessionStartID` is the one optional hook: leave it `nil` if you emit `session_started` from inside `ParseLine` (Claude Code does this on its init line), or set it to a closure returning the session id to emit `session_started` before the scan loop (Copilot CLI does this).
+In both modes, `GetSessionID` returns your current session id and `GetUsage` returns the token snapshot, its split by model and whether the session is measured; the skeleton calls them when it builds the `TurnResult` on the cancellation paths. `EmitSessionStartID` is the one optional hook: leave it `nil` if you emit `session_started` from inside `ParseLine` (Claude Code does this on its init line), or set it to a closure returning the session id to emit `session_started` before the scan loop (Copilot CLI does this).
 
 **Verify:** `parse_test.go` decodes `testdata/` fixtures into the expected events for a structured agent, or asserts ANSI stripping and stderr classification for an unstructured one.
 
 ### Classify the outcome and pick the right error kind
 
-`OnFinalize` reports what it observed; it does not decide the turn. It receives `emit`, `lastParsed` (the last non-nil value `ParseLine` returned), `exitCode`, `waitErr`, `stderrLines`, `earlyExit`, and `spend` (the turn's `*agentcore.TurnSpend`, which `ParseLine` marked), fills in an `agentcore.TurnEvidence`, and returns `agentcore.FinalizeTurn(emit, logger, ev, meta, *spend)`. `FinalizeTurn` applies the disposition rule every adapter shares, emits the terminal event, and builds the paired `(domain.TurnResult, *domain.AgentError)`. A kind declaring `UsageArrivalTurnEnd` returns `state.usage.Finalize(...)` instead, described under [Register the adapter](#register-the-adapter); it wraps this same call.
+`OnFinalize` reports what it observed; it does not decide the turn. It receives `emit`, `lastParsed` (the last non-nil value `ParseLine` returned), `exitCode`, `waitErr`, `stderrLines`, `earlyExit`, and `spend` (the turn's `*agentcore.TurnSpend`, which `ParseLine` and `SettleUsage` marked), fills in an `agentcore.TurnEvidence`, and returns `agentcore.FinalizeTurn(emit, logger, ev, meta, *spend)`. `FinalizeTurn` applies the disposition rule every adapter shares, emits the terminal event, and builds the paired `(domain.TurnResult, *domain.AgentError)`. A kind that reports through `agentcore.TurnEndUsage` returns `state.usage.Finalize(...)` instead, described under [Register the adapter](#register-the-adapter); it wraps this same call.
 
 That indirection is enforced, not advisory. Constructing a `domain.AgentEvent` or a `domain.AgentError` for your own turn outcome, or calling `agentcore.EmitTurnCompleted`, `EmitTurnFailed`, or `EmitTurnCancelled` directly, breaks the shared decision; a test in `agentcore` walks every adapter package and fails on it. `OnFinalize` must not call `EmitWarnLines` either: the skeleton does that for you when `FinalizeTurn` returns a non-nil error.
 
@@ -530,8 +624,7 @@ OnFinalize: func(emit func(domain.AgentEvent), _ any, exitCode int, waitErr erro
 		state.resumeRequested = true
 	}
 
-	return agentcore.FinalizeTurn(emit, state.logger(), ev,
-		agentcore.TurnMeta{SessionID: state.sessionID}, *spend)
+	return state.usage.Finalize(emit, state.logger(), ev, state.sessionID, 0, nil, *spend)
 },
 ```
 
@@ -546,7 +639,7 @@ The error kind is a control-flow decision, not a label. The orchestrator reads i
 
 Only the first row comes from evidence the adapter sets itself. The others are what the shared rule assigns to a zero exit with work, to an exit before any output, and to a non-zero exit after output, and every adapter gets them for free.
 
-Such an adapter's working turns read no authentication signal of their own at all, exit 0 with empty output included: a rejected credential on a working turn lands in the shared early-exit row above, carrying the runtime's own stderr, because by the time a working turn runs, the [credential-verification step](/reference/workflow-config/#credential-verification) has already proved the credential once.
+Such an adapter's working turns read no authentication signal of their own at all, exit 0 with empty output included: a rejected credential on a working turn lands in the shared early-exit row above, carrying the runtime's own stderr, because by the time a working turn runs, the [credential-verification step](/reference/workflow-config/#credential-verification) has already proved the credential, either in this run or within the last 15 minutes.
 
 The one failure kind shown here, `ErrPortExit`, is retryable. Other kinds are not: `ErrAgentNotFound`, `ErrInvalidWorkspaceCwd`, `ErrTurnInputRequired`, and `ErrTurnCancelled` are non-retryable, so the orchestrator releases the claim instead of scheduling another attempt. Choose the kind that reflects what the orchestrator should do next, and confirm its retry semantics in the [agent errors reference](/reference/errors/#agent-errors).
 
@@ -560,47 +653,44 @@ A session-id-based resume fits a CLI that owns an addressable identifier. Claude
 
 A cwd-scoped resume fits a CLI whose headless session id is not enumerable. Such a CLI cannot name its session, so the adapter adds a bare flag that continues the most recent conversation in the workspace directory, and sets it only after a turn the runtime itself reported complete (the `resumeRequested` field in the `OnFinalize` sketch above flips to true). Pick based on what your CLI exposes; both are valid.
 
-A runtime whose own usage counter is cumulative over its session, earlier runs included, reports more than the run spent when a later run resumes that session. Settle such a counter with `agentcore.ResumeBaseline` rather than a baseline of your own:
+A runtime whose own usage counter is cumulative over its session, earlier runs included, reports more than the run spent when a later run resumes that session. Declare it as such and let the ledger separate the run from the session's history, rather than keeping a baseline of your own:
 
-1. In `StartSession`, build it with `agentcore.NewResumeBaseline(resume, resumeByModel)`. Pass a zero `TokenUsage` and a nil map for a session the run creates, including one a failed resume falls back to, and `params.ResumeUsage` and `params.ResumeUsageByModel` for one it resumes. A nil `resume` gives an unknown baseline. The baseline uses the per-model map only when it sums to `resume` in every class.
-2. On each reading of the counter, call `Observe(reading, readingByModel, own)` and report `Run()` as the run-cumulative figure, and its per-model split as the figure's `UsageByModel`. Pass a nil `readingByModel` when the runtime reports no split. `own` is the part of the reading the runtime attributes to the current request or turn, or nil. A reading of all zeros has no effect. When the baseline is unknown, or a reading falls below the previous one, the baseline is estimated as the reading less `own`, the run's total so far is kept, and `Observe` returns `estimated` as true.
-3. Call `spend.MarkEstimated()` on a turn whose reading was estimated, because `own` may not cover everything the reading added, such as calls a sub-agent made. `Observe` returns `estimated` as false when the re-derived baseline is zero in every counted component, since nothing was lost.
-4. Report `Resume()`, the latest reading and nil while the baseline is unknown, as `TurnResult.ResumeUsage` on every turn, and its second result, the reading's split by model, as `TurnResult.ResumeUsageByModel`. The orchestrator keeps the figures of the working session's last turn with the run's history and hands them to the next run that resumes the session as `StartSessionParams.ResumeUsage` and `StartSessionParams.ResumeUsageByModel`. A turn that ends without a usable reading must report nil, not the figure of an earlier turn, because the runtime may have saved calls that figure omits. The credential-verification session receives no `ResumeUsage` and its figure is not kept.
+1. Declare the live source with `Shape: usage.SpendSessionCumulative`. Hand each reading to `state.ledger.ObserveCumulative(reading, inTurn)`, with `inTurn` true when the runtime attributes the reading to the turn in flight, and set the reading's `Own` to the part the runtime attributes to the request that produced it, when it does.
+2. Give the ledger the session's history position. A session the run creates has none: call `ledger.SessionCreated()`. When the runtime repeats the session's last figure once, outside any turn, before a resumed session's first turn, declare `Replay: usage.ReplayLastFigure`, and the ledger takes that reading as the history. Otherwise attach a records source, and the `ledger.Boundary(read)` call on a resumed session fixes the history at the total of the records it reads.
+3. Settle each turn through `agentcore.SettleSpend` as usual. When the history is still unknown, or a reading falls below the previous one, the ledger estimates the history as the reading less `Own`, keeps the run's total so far, and marks the turn estimated, which flags it `SpendUnaccounted` unless the estimate came out zero.
 
-A run that resumes a session whose previous run kept no figure, or kept one before Sortie recorded it, starts with an unknown baseline, so that one turn is estimated and flagged.
-
-**Verify:** a test asserts that turn two of a resumed session includes your continuation flag and turn one does not. For a session-cumulative counter, it also asserts that a resumed session started with `ResumeUsage` reports only what its own turns added.
+**Verify:** a test asserts that turn two of a resumed session includes your continuation flag and turn one does not. For a session-cumulative counter, `fakemodel.AssertConformance` runs a session continuation and expects the resumed session's figure to equal what the fake model served that session, not the session's lifetime total.
 
 ### Surface capabilities and budgeting
 
 Make the agent's capabilities and limitations visible to operators, because they change how a workflow must be configured.
 
-Token-usage emission is optional. If the CLI reports tokens while a turn is still in flight, drive an `agentcore.RunUsage` and emit `EventTokenUsage` as figures arrive. If your authoritative figure only settles after the turn's work is over, report it through `agentcore.TurnEndUsage` instead, covered under [Register the adapter](#register-the-adapter).
+Declare every usage report your runtime writes, as [Register the adapter](#register-the-adapter) describes; the declaration, not your code, decides what each Sortie surface tells the operator. A token figure that arrives while the turn is still working goes out as `EventTokenUsage` through `agentcore.RunUsage`, and one that settles only after the turn's work is over goes out through `agentcore.TurnEndUsage`.
 
 If the runtime reports usage split by model, carry the split through as `AgentEvent.UsageByModel` instead of summing it into one total under one model name. Each entry is the run-cumulative count of one model, in the same input, output, cache-read, and cache-write classes and the same scope as `Usage`, and together the entries cover at most `Usage` class by class. The orchestrator credits each named model its share of what the event adds, which is what splits `sortie_tokens_total` by model. Report model names as the runtime spells them, because they also label metrics and run history; mapping them to price table or `token_rates` keys is not the adapter's job. A runtime that names no model per count leaves `UsageByModel` nil and the whole sample counts under the event's `Model`.
 
-If the CLI reports no tokens at all, leave `TurnResult.Usage` at the zero value, emit no `EventTokenUsage`, and the agent is budgeted by time only, through `agent.turn_timeout_ms`. Token budgets are then inert, and `agent.turn_timeout_ms` is the time-based budget that remains.
+If the runtime reports a cost but no token count, declare the live source with `Amounts` and no `Shape`. Such a kind carries no token figure: its arrival is `none`, `GetUsage` reports measured false, token budgets are inert, and `agent.turn_timeout_ms` is the time-based budget that remains. The amounts it reports still settle with each turn, each in its own unit. A runtime that reports neither cannot be registered.
 
 A third case cuts across both: the turn reached the model and you cannot prove your figures covered it. That happens when no figure came back for the turn at all, when one came back that fell short of the turn, and when the turn ended before the runtime reported its final usage, whether it was stopped, crashed, lost its connection, or paused for a person's answer.
 
-You do not set `TurnResult.SpendUnaccounted`, `SpendCoverable`, or `CoversSession`. `agentcore.FinalizeTurn` writes all three from the turn's `agentcore.TurnSpend`, and `TestUsageDeclarationContractInvariant` fails an adapter package that assigns one of them. You supply the evidence. The skeleton creates one `TurnSpend` per `RunTurn` call and hands it to `ParseLine` and `OnFinalize`; a persistent-subprocess adapter declares its own at the top of each turn. Mark it as the turn unfolds, and pass it to `FinalizeTurn` or `TurnEndUsage.Finalize`:
+You do not set `TurnResult.SpendUnaccounted`, `SpendCoverable`, or `CoversSession`. `agentcore.FinalizeTurn` writes all three from the turn's `agentcore.TurnSpend`, together with `UsageProvenance` and `ReportedAmounts`, and `TestUsageDeclarationContractInvariant` fails an adapter package that assigns one of the three. You supply the evidence. The skeleton creates one `TurnSpend` per `RunTurn` call and hands it to `ParseLine`, `SettleUsage` and `OnFinalize`; a persistent-subprocess adapter declares its own at the top of each turn. Mark `MarkModelReached()` yourself as the turn unfolds, and let `agentcore.SettleSpend` mark the rest from the ledger's settlement. Then pass the `TurnSpend` to `FinalizeTurn` or `TurnEndUsage.Finalize`:
 
-- `MarkModelReached()` when the runtime served the turn output: a message or delta, a reasoning item, a tool call, a sub-agent task event, or a usage figure of this turn. A request-start announcement, the user's own or a replayed message, and session setup are not output. A sub-agent event's own token count proves output was served and never feeds your figure.
-- `MarkSettled()` when you hold a figure the runtime reported as covering the whole turn. Mark it only when the runtime's completion signal for the turn implies that, so a turn cut short is never settled.
+- `MarkModelReached()`, yours to call, when the runtime served the turn output: a message or delta, a reasoning item, a tool call, a sub-agent task event, or a usage figure of this turn. A request-start announcement, the user's own or a replayed message, and session setup are not output. A sub-agent event's own token count proves output was served and never feeds your figure.
+- `MarkSettled()` when the settled figure covers the whole turn, which takes a turn that ended with the runtime's reply, was not cancelled, and has a live source declaring no `LowerBound`.
 - `MarkSessionTotal()` as well when that figure is the runtime's running session total, which holds what every earlier completed turn of the session spent, read or not.
-- `MarkEstimated()` when the figure rests on an estimated resume baseline, as described under [Wire session continuity](#wire-session-continuity).
+- `MarkEstimated()` when the figure rests on an estimated history position, as described under [Wire session continuity](#wire-session-continuity).
 
 A turn is flagged `SpendUnaccounted` when it is estimated, or when it was served output and never settled. It does not latch, so a later turn your figures do cover reports `false` again, which is what separates it from `UsageMeasured`. A flag does not change `Usage`: report whatever partial figure you hold, since a turn that produced nothing contributes no number and emits no `token_usage` event while a turn whose figure fell short reports and emits it as any measured turn does.
 
 The orchestrator sums the flags across the run and stores the count. A completed turn that was flagged for lack of a figure stops counting when a later turn of the same session settles with a session total, because that total includes it. A stopped or failed turn keeps counting, and so does one with an estimated baseline. The stored count is what turns `used_tokens_complete` false on the `cost_budget` tool and adds `unaccounted_turns` to the token-ceiling log records.
 
-**Verify:** the conformance suite in `internal/agent/agenttest/fakemodel` interrupts a turn once the fake model has served output and expects `SpendUnaccounted` true, and expects it false when the interrupt comes before any output.
+**Verify:** set `Binding.Spend` and call `fakemodel.AssertConformance`. The suite cancels a turn once the fake model has served output and kills the runtime mid-turn, locally and, when the binding sets `SSH`, over SSH, and expects `SpendUnaccounted` true, with the figure settled from your records source when you declared one; it expects `SpendUnaccounted` false when the interrupt comes before any output, and checks a resumed session's figure as described under [Wire session continuity](#wire-session-continuity).
 
 Tool permissions are surfaced through the passthrough config. Every run is unattended, so the default has to be a posture the runtime can carry through a turn without stopping to ask, and a pass-through value that reopens the interactive path is refused through the shared configuration-diagnostic channel rather than accepted.
 
 Claude Code is the worked example: with no `permission_mode` it passes `--dangerously-skip-permissions`, and `sortie validate` refuses any value other than `bypassPermissions` with a `claude-code.permission_mode.interactive` error, because a mode that asks for approval leaves an unattended run waiting on someone who is not there. Expose only the flags your CLI actually has, and declare a diagnostic for each one that could let the agent stop and wait.
 
-State these capabilities and limitations in three places so operators find them: the `UsageArrival` and `UsageAttribution` declaration on registration, which is the one every Sortie surface reads; the adapter package doc comment; and the agent's docs-site reference page. An operator who reads "this agent reports no token usage; budget it with `turn_timeout_ms`" before they deploy avoids a confusing first run.
+State these capabilities and limitations in three places so operators find them: the `UsageSources` declaration on registration, which is the one every Sortie surface reads; the adapter package doc comment; and the agent's docs-site reference page. An operator who reads "this agent reports its cost in credits, not tokens; budget it with `turn_timeout_ms`" before they deploy avoids a confusing first run.
 
 **Verify:** the package doc comment names the token-usage support and the tool-permission model, and `sortie validate` accepts a WORKFLOW.md with your `agent` block and extension block.
 
@@ -610,7 +700,7 @@ Write unit tests with the project's conventions: table-driven, `t.Parallel()` at
 
 - `command_test.go` asserts `buildArgs` output across config permutations (model set or not, trust modes, resume on or off).
 - `parse_test.go` asserts parsing and classification: JSONL decode against `testdata/` fixtures for a structured agent, ANSI stripping and stderr classification for an unstructured one.
-- `acme_test.go` starts two sessions from one adapter with different `Settings` blocks and asserts each keeps its own, and covers session and turn behavior against a fake `acme-cli`, built with `agenttest.FakeRuntime`, and proves your registered usage-reporting declaration with `agenttest.AssertUsageReporting` against the events and result a real turn produced. For an arrival of `UsageArrivalNone`, that call fails unless the turn emitted no `token_usage` event, no event carrying a non-zero usage figure, and a result with `UsageMeasured` false.
+- `acme_test.go` starts two sessions from one adapter with different `Settings` blocks and asserts each keeps its own, and covers session and turn behavior against a fake `acme-cli`, built with `agenttest.FakeRuntime`, and proves the disposition your registered `UsageSources` derive with `agenttest.AssertUsageReporting` against the events and result a real turn produced. `TestEveryAgentKindHasUsageReportingCoverage`, in `cmd/sortie`, fails the build for a registered kind with no test file in its own package calling it. For sources that count no tokens, that call fails unless the turn emitted no `token_usage` event, no event carrying a non-zero usage figure, and a result with `UsageMeasured` false.
 - A test calling `credentialtest.AssertCredentialVerification` (`internal/agent/agenttest/credentialtest`) against your adapter, with cases driving it through `agentcore.VerifyCredential`. This one is not optional once you register a kind: `TestEveryAgentKindHasCredentialVerificationCoverage`, in `cmd/sortie`, fails the whole build for every kind `registry.Agents` lists that has no test file anywhere in its own package calling that function, your new kind included. Give it at least one case wanting `WantVerified` and one wanting `WantUnverified`, and add a `WantSSHConnectionFailed` case too if your kind's registration sets `RequiresCommand`.
 
 ```go {filename="command_test.go"}
@@ -773,11 +863,11 @@ These steps need repository access an outside contributor does not have. Make th
 
 **Deciding the turn disposition yourself.** Report evidence through `TurnEvidence` and let `FinalizeTurn` decide. Emitting a terminal event or building a `domain.AgentError` for your own outcome fails the conformance test in `agentcore` and re-forks a rule every other adapter shares.
 
-**Emitting your own `token_usage` event, or calling `agentcore.FinalizeTurn` directly, from a package declaring `UsageArrivalTurnEnd`.** Route through `agentcore.TurnEndUsage.Finalize` instead, covered under [Register the adapter](#register-the-adapter); `TestUsageDeclarationContractInvariant` catches this, a separate check from the `TestDispositionContractInvariant` that catches a hand-rolled turn outcome.
+**Emitting your own `token_usage` event, or calling `agentcore.FinalizeTurn` directly, from a package that constructs `agentcore.TurnEndUsage`.** Route through `agentcore.TurnEndUsage.Finalize` instead, covered under [Register the adapter](#register-the-adapter); `TestUsageDeclarationContractInvariant` catches this, a separate check from the `TestDispositionContractInvariant` that catches a hand-rolled turn outcome.
 
 **Copying another adapter's turn loop or helpers instead of adding a skeleton hook.** A private copy drifts from the skeleton's timeout, stop, and usage handling. Add the missing capability to `agentcore.ForkPerTurnHooks` so every kind gets it.
 
-**Inventing a structured stream or fabricating token usage where the CLI provides neither.** If there is no token data, `GetUsage` returns the zero `TokenUsage` and you emit no `token_usage` event. Do not synthesize numbers.
+**Inventing a structured stream or fabricating token usage where the CLI provides neither.** If there is no token data, `GetUsage` returns a zero figure with `measured` false and you emit no `token_usage` event. Do not synthesize numbers.
 
 **Weakening the workspace validation that `ResolveLaunchTarget` performs, or setting `cmd.Dir` directly instead of routing through `LaunchTarget.BindWorkspace`.** Path containment and `cwd` validation are security boundaries, and they are re-checked immediately before every subprocess launch, not just once at session start.
 

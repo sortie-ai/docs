@@ -45,7 +45,7 @@ The agent binary isn't installed or isn't on `PATH`.
 level=WARN msg="worker run failed, scheduling retry" error="agent session start: agent: credential_unverified: the agent runtime did not complete a credential verification request: Not logged in · Please run /login" next_attempt=1 delay_ms=10000
 ```
 
-Workers never reach a real turn. Before it starts work on an issue, Sortie opens a short-lived session of its own and sends one request through the configured agent, to confirm the credential actually works; see [credential verification](/reference/workflow-config/#credential-verification). What that gives you is the failure happening immediately, before any real work starts, under a name that says it is a credential problem (`credential_unverified`) rather than a puzzling stall or a working session that quietly fails partway through its first turn.
+Workers never reach a real turn. Before it starts work on an issue, Sortie opens a short-lived session of its own and sends one request through the configured agent, to confirm the credential actually works; see [credential verification](/reference/workflow-config/#credential-verification). Sortie skips that session while it holds a proof of the same agent setup from the last 15 minutes, so a credential that fails right after a good run is refused on the first working turn instead, with the same error kind. What that gives you is the failure happening immediately, before any real work starts, under a name that says it is a credential problem (`credential_unverified`) rather than a puzzling stall or a working session that quietly fails partway through its first turn.
 
 The message ends with what the agent itself reported, here Claude Code's answer to a missing `ANTHROPIC_API_KEY`, but it does not name the variable that is missing or wrong. The steps below find it.
 
@@ -67,7 +67,7 @@ The message ends with what the agent itself reported, here Claude Code's answer 
 
 5. On `copilot-cli`, a rejected credential can instead fail with `port_exit` and the CLI's own message, because that CLI refuses a credential by printing a message and exiting. That case is [agent exits before it responds](#agent-exits-before-it-responds); the fixes above still apply.
 
-No `agent credential verified` line precedes an error like this one; that line only appears once the check has actually passed. If you do see `agent credential verified` followed by a failure, the credential itself is fine and the problem is in the working turn instead: see [agent exits without producing output](#agent-exits-without-producing-output) or [a turn runs long and gets cut off](#a-turn-runs-long-and-gets-cut-off).
+No `agent credential verified` line precedes an error raised by the check; that line only appears once the check has actually passed. If you do see `agent credential verified` followed by a failure, the credential itself is fine and the problem is in the working turn instead: see [agent exits without producing output](#agent-exits-without-producing-output) or [a turn runs long and gets cut off](#a-turn-runs-long-and-gets-cut-off).
 
 ## A remote agent authenticates as the wrong account
 
@@ -100,7 +100,7 @@ level=WARN msg="agent stderr" line="sortie: dd is required on the remote host to
 
 Sortie delivers environment variables to a remote agent on the SSH session's standard input, and the remote shell reads them with `dd`. A host without `dd` on `PATH` fails the launch, and Sortie retries it, so the same line repeats until the utility is there.
 
-Every remote `opencode` launch carries variables whatever your configuration says, because the adapter sends settings of its own. Other kinds carry them whenever their credential variables are set in Sortie's environment or `worker.ssh_pass_env` names something.
+Every remote `opencode` launch carries variables whatever your configuration says, because the adapter sends settings of its own. So does every launch that delivers Sortie's tools, because the tool server's bearer travels the same way. Other launches carry variables whenever the kind's credential variables are set in Sortie's environment or `worker.ssh_pass_env` names something.
 
 1. Check each host:
 
@@ -109,6 +109,25 @@ Every remote `opencode` launch carries variables whatever your configuration say
     ```
 
 2. Install it where it is missing. It ships with coreutils and with busybox, so most base images have it; distroless and scratch-based images often do not.
+
+## A remote agent runs without Sortie's tools
+
+The agent on an SSH host never mentions `tracker_api` or the other tools, and the log has this line:
+
+```
+level=WARN msg="declared tool server gap for session" component=tool-relay reason=forward_refused
+```
+
+The session works, but without Sortie's tools. `reason` names the cause.
+
+1. For `forward_refused`, the host's `sshd` refused the reverse forward Sortie requests. `forward_unconfirmed` means `ssh` reported neither an allocated port nor a refusal, and the same check applies. Run the hand check from [let remote agents use Sortie's tools](/guides/scale-agents-with-ssh/#let-remote-agents-use-sorties-tools). With OpenSSH, set `AllowTcpForwarding yes` or `remote` for the SSH user, or add `port-forwarding` beside `restrict` on the key in `authorized_keys`.
+2. For `relay_unavailable`, the tool server process did not start on the orchestrator host. The log line carries an `error` or an `exit_code`. Run `sortie mcp-server --help` as the user running Sortie to confirm the binary starts.
+3. For `runtime_without_http`, the runtime accepts no HTTP MCP servers, so it cannot use a tool server that lives on another host.
+4. For `no_connection`, the runtime started but never connected within `read_timeout_ms`. The runtime may have dropped the declared server; for Kiro CLI, see [which login delivers Sortie's tools](/reference/agent-client-protocol-kiro/#which-login-delivers-sorties-tools).
+
+Each remote session start also opens one short extra SSH connection to learn whether the host accepts the forward. A host that limits new connections per user or per source address sees that extra connection for every session start.
+
+Every reason, and what Sortie does in each case, is in [when a session runs without the tools](/reference/agent-extensions/#when-a-session-runs-without-the-tools).
 
 ## Agent exits before it responds
 
@@ -364,6 +383,14 @@ level=INFO msg="tick completed" candidates=0 dispatched=0 ... running=0 retrying
 
 Sortie is polling but finds nothing to dispatch. At the default log level this line appears only when its counters change, so an idle Sortie does not repeat it every poll. Run with `--log-level debug` to see every tick.
 
+First check whether Sortie holds the issue back on purpose. Open **Overview** and read the **Not dispatched** block, or list the held issues from the state endpoint:
+
+```bash
+curl -s localhost:7678/api/v1/state | jq '.held[] | {issue_identifier, why: .hold.reason_text, release: .hold.release_text}'
+```
+
+An issue listed there is eligible. Its entry says what holds it and what releases it, so the capacity, blocker, and spend ceiling steps below only explain the cause and the remedy. The list is empty after a restart until a poll tick has run. An issue that is not listed is either not a candidate, which the other steps below check, or already tracked elsewhere, such as running, retrying, parked, or between stages.
+
 1. **State names must match exactly.** Verify `tracker.active_states` matches your tracker (case-sensitive). `"To Do"` and `"to do"` are different states.
 
 2. **An open issue carries no state label (GitHub, Gitea, GitLab).** Sortie dispatches an open issue only when it carries a label from `tracker.active_states`. It logs `skipped open issues without a state label` at INFO with the number it left alone, and logs again only when that number changes. A label from `active_states` that the tracker does not have draws the warning `configured active label missing from tracker labels` at the first poll. An open issue that also carries a `terminal_states` label reads as terminal, because terminal labels outrank active ones.
@@ -376,11 +403,11 @@ Sortie is polling but finds nothing to dispatch. At the default log level this l
 
     Each candidate gets a `would_dispatch` or `skip_reason` field in the log.
 
-4. **Concurrency cap reached.** If `running` equals `agent.max_concurrent_agents`, new issues wait. Increase the cap or wait for running agents to finish.
+4. **Concurrency cap reached.** If `running` equals `agent.max_concurrent_agents`, new issues wait, and **Not dispatched** shows them as "No free agent slot: 3 of 3 running". A limit from `agent.max_concurrent_agents_by_state` reads "No free agent slot for In Progress: 2 of 2 running" and holds only issues in that state. With [SSH hosts](/guides/scale-agents-with-ssh/) configured, "No free SSH host" means every host runs as many sessions as `max_concurrent_agents_per_host` allows. Increase the cap or wait for a running agent to finish.
 
 5. **Query filter too narrow.** A typo in `tracker.query_filter` returns zero results. Use `--dry-run --log-level debug` to see the full query.
 
-6. **A blocker hasn't cleared, or its list couldn't be read.** An issue held for this reason carries a `skip_reason` in dry-run output: `blocked_by` means a listed blocker hasn't reached a terminal state yet. `blockers_unresolved` and `blockers_not_read` mean Sortie couldn't read the blocker list this poll (a failed read, or the per-poll read budget was already spent on other candidates) and will retry on a later poll. This applies to GitHub and Gitea, which read dependencies separately from the candidate list. See [candidate eligibility](/reference/state-machine/#candidate-eligibility) for the full gate, and `sortie_candidate_holds_total` on the [Prometheus metrics reference](/reference/prometheus-metrics/#counters) to watch this over time instead of one poll at a time.
+6. **A blocker hasn't cleared, or its list couldn't be read.** **Not dispatched** reads "Blocked by PROJ-12 (In Review)" while a blocker is open, and "Blockers not read: a tracker request failed", "Blockers not read on this poll", or "Blocker list incomplete" when Sortie could not check them. Dry-run output carries the same cause as a `skip_reason`: `blocked_by` means a listed blocker hasn't reached a terminal state yet. `blockers_unresolved` and `blockers_not_read` mean Sortie couldn't read the blocker list this poll (a failed read, or the per-poll read budget was already spent on other candidates) and will retry on a later poll. This applies to GitHub and Gitea, which read dependencies separately from the candidate list. See [candidate eligibility](/reference/state-machine/#candidate-eligibility) for the full gate, and `sortie_candidate_holds_total` on the [Prometheus metrics reference](/reference/prometheus-metrics/#counters) to watch this over time instead of one poll at a time.
 
 7. **A per-issue budget ceiling was reached.** An issue held by `agent.max_sessions`, `agent.max_tokens`, or `agent.max_cost_usd` stays in its active tracker state and is skipped on every poll. Check `GET /api/v1/{identifier}` for `status: "budget_exhausted"`, the budget item under **Needs attention** on the dashboard's [Overview](/reference/dashboard/#attention-items), or grep your logs for `blocking re-dispatch`. Sortie also posts one comment on the issue naming the ceiling that stopped it, and that comment counts the issue's sessions a ceiling stopped in flight, if any. See [how to control agent costs](/guides/control-costs/).
 
@@ -390,7 +417,17 @@ Sortie is polling but finds nothing to dispatch. At the default log level this l
 
 10. **The running configuration is not the file you edited.** A reload that fails validation keeps the previous configuration in force. Sortie logs the failure and reports it in the `health` block of the state endpoint: `curl -s localhost:7678/api/v1/state | jq '.health.workflow'` prints the error, the time of the last successful load, and how many loads have failed since. A `status` of `fail` means the process still runs the older file; `/readyz` keeps passing in that case. Run `sortie validate` on the file, fix the error it reports, and the next reload clears the failure. To see what the process applies instead, run `curl -s localhost:7678/api/v1/state | jq '.config.tracker.active_states, [.config.dispatch.rules[].name]'`. See the [HTTP API reference](/reference/http-api/#get-apiv1state-system-state) for every `health` and `config` member.
 
-11. **The instance spend ceiling was reached.** With `agent.max_daily_cost_usd`, `agent.max_weekly_cost_usd`, or `agent.max_monthly_cost_usd` set, Sortie starts no agent session for any issue once the estimated cost of the UTC day, the UTC week (which starts on Monday at 00:00 UTC), or the UTC month reaches that window's ceiling, and scheduled retries wait with their attempt numbers kept. Check the "Daily spend ceiling reached", "Weekly spend ceiling reached", or "Monthly spend ceiling reached" item under **Needs attention** on the dashboard, `curl -s localhost:7678/api/v1/state | jq '.spend_ceiling'` for `holds_dispatch` and `resets_at`, or grep your logs for `spend ceiling reached`. Dispatch stays held until every window that has reached its ceiling clears, either because the window resets or because you raise or remove its ceiling. See [how to control agent costs](/guides/control-costs/#cap-what-the-whole-instance-spends).
+11. **The instance spend ceiling was reached.** With `agent.max_daily_cost_usd`, `agent.max_weekly_cost_usd`, or `agent.max_monthly_cost_usd` set, Sortie starts no agent session for any issue once the estimated cost of the UTC day, the UTC week (which starts on Monday at 00:00 UTC), or the UTC month reaches that window's ceiling, and scheduled retries wait with their attempt numbers kept. Every eligible issue shows under **Not dispatched** with the reason "Daily spend ceiling reached", "Weekly spend ceiling reached", or "Monthly spend ceiling reached" and the time left until the window resets. Check the item of the same name under **Needs attention** on the dashboard, `curl -s localhost:7678/api/v1/state | jq '.spend_ceiling'` for `holds_dispatch` and `resets_at`, or grep your logs for `spend ceiling reached`. Dispatch stays held until every window that has reached its ceiling clears, either because the window resets or because you raise or remove its ceiling. See [how to control agent costs](/guides/control-costs/#cap-what-the-whole-instance-spends).
+
+12. **An agent provider's usage limit is reached.** Only `claude-code` and `codex` produce this hold; on any other agent kind a refused session takes the ordinary retry backoff and no issue is held. When the provider refuses a session and reports when the limit resets, **Not dispatched** shows every issue routed to that kind with the reason "Usage limit reached for" the kind and the time left until the reset. A limit on one configured model reads "Usage limit reached for" that model "on" the kind, and issues routed to other agents or models keep dispatching. To confirm, list the entries with `usage_limit` as the reason:
+
+    ```bash
+    curl -s localhost:7678/api/v1/state | jq '.held[] | select(.hold.reason == "usage_limit") | {issue_identifier, agent_kind: .hold.agent_kind, resets_at: .hold.resets_at}'
+    ```
+
+    The issue whose session the provider refused is not in that list; it waits in the retry queue. Nothing in `WORKFLOW.md` lifts the hold. Wait for `resets_at`, or route the issues to another agent kind with a [dispatch rule](/guides/configure-dispatch-rules/). How the wait works is in [wait for a provider usage limit](/guides/configure-retry-behavior/#wait-for-a-provider-usage-limit); the fields are in the [hold object](/reference/http-api/#hold-object).
+
+13. **Sortie could not read the comments since a park.** After a person releases a parked issue, the next run receives the comments posted since the park. When the read of those comments fails, **Not dispatched** reads "Waiting to read the comments since the park", `hold.reason` is `park_comments_unread`, and the log carries `park release comment read failed, holding issue`. The issue is no longer parked. The next poll reads the comments again and dispatches the issue once the read succeeds; a read that keeps failing points at the tracker connection; see [Tracker returns 401 or 403](#tracker-returns-401-or-403).
 
 ## Sortie won't start at all
 

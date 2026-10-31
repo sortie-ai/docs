@@ -104,7 +104,11 @@ When Claude Code does not recognize the `--effort` value, it runs at the model's
 
 ### Sortie's own tools and the `mcp_config` field
 
-Sortie generates one MCP server configuration per session, declaring a `sortie-tools` stdio server that exposes Sortie's own tools to the agent. That generated file, not the raw `claude-code.mcp_config` value, is what the adapter passes to `--mcp-config`, on a local launch and over SSH alike.
+Sortie generates one MCP server configuration per session, declaring a `sortie-tools` stdio server that exposes Sortie's own tools to the agent. The adapter never passes the raw `claude-code.mcp_config` value to `--mcp-config`. It passes the generated servers in one of two forms.
+
+On a local launch the adapter writes a derived file, `.sortie/claude-mcp.json`, and passes its path. Both forms mark the `sortie-tools` member `alwaysLoad` and name each operator HTTP header value by an environment variable, `${SORTIE_MCP_HEADER_<n>}`, instead of holding the value; Sortie sets those variables in the runtime's environment. The derived file keeps the `env` block, so it carries the same secrets as the generated one.
+
+On an SSH launch no file is passed, because a host path names nothing on the worker host. The adapter passes the servers as an inline JSON document on `--mcp-config`. In it, `sortie-tools` is an HTTP server at the address of the launch's reverse forward, with an `Authorization` header that refers to `${SORTIE_TOOL_SERVER_BEARER}`. Operator HTTP servers appear with their URLs, and operator stdio servers are left out. See [delivery over SSH](/reference/agent-extensions/#delivery-over-ssh).
 
 When `claude-code.mcp_config` names an operator-supplied file, Sortie reads it, parses its `mcpServers` object, and inserts the `sortie-tools` entry into it before writing the merged result. A relative path resolves against the directory containing `WORKFLOW.md`. If the operator's file already defines a server named `sortie-tools`, generation fails with a name-collision error rather than silently overwriting it. If the file is missing, unreadable, or not valid JSON, generation fails with the underlying error.
 
@@ -114,7 +118,9 @@ The adapter passes `--session-id <uuid>` on the first turn of a session it opene
 
 `session_persistence: false` passes `--no-session-persistence`, and Claude Code then writes no session file for `--resume` to read. Sortie refuses that configuration before any run starts, as the `agent.kind.session_resume` error under [validate-time checks](#validate-time-checks).
 
-The [credential-verification session](/reference/workflow-config/#credential-verification) every worker attempt opens before its working session always carries `--no-session-persistence` on top of whatever `claude-code.session_persistence` says, along with `--tools ""` and `--strict-mcp-config`, so that one extra session asks for no tools, reaches no MCP server, and writes no session file for the CLI to keep. It leaves no leftover conversation behind for this reason, unlike a kind whose runtime has no such flag and instead deletes the conversation explicitly.
+The [credential-verification session](/reference/workflow-config/#credential-verification) a worker attempt opens before its working session always carries `--no-session-persistence` on top of whatever `claude-code.session_persistence` says, along with `--tools ""` and `--strict-mcp-config`, so that one extra session asks for no tools, reaches no MCP server, and writes no session file for the CLI to keep. It leaves no leftover conversation behind for this reason, unlike a kind whose runtime has no such flag and instead deletes the conversation explicitly.
+
+The same session also carries `--safe-mode`, which leaves out the instruction files, plugins, skills, hooks, and MCP servers, and `--system-prompt` with a short fixed prompt in place of Claude Code's own. It does not send `claude-code.system_prompt`. The login, the model, and the `env` block of Claude Code's own settings still apply, so the request reaches the endpoint the working session uses. A Claude Code build that rejects one of these flags and exits before it responds is checked once more without them, after a warning in the log.
 
 The refusal is unconditional. It does not depend on `agent.max_turns`, on the configured reactions, on the retry budgets, or on `tracker.handoff_state`. A single-turn budget does not avoid the conflict either: Sortie hands an issue its earlier session back on a continuation, including one still queued when Sortie restarts, and on the retry after a stall while Sortie keeps running, so the first turn of such a dispatch is already a resumed turn.
 
@@ -232,35 +238,40 @@ Two mappings carry consequences a user can act on. A tool call the runtime denie
 
 ## Token accounting
 
-Reported token counts are cumulative over the whole session the orchestrator opened, across every turn of it, and never decrease. The `result` event at the end of each turn carries the authoritative figure for that turn; `assistant` events supply a provisional running estimate while the turn is still in flight. For this kind's declaration beside every other kind's, see the [usage reporting table](/reference/workflow-config/#usage-reporting-by-agent-kind).
+Reported token counts are cumulative over the whole session the orchestrator opened, across every turn of it, and never decrease. Streamed `assistant` events supply a provisional figure while a turn runs. When the turn's process exits, the turn's `result` events settle its figure, and Claude Code's [session journal](#session-journal) settles a turn they do not cover. A run's `usage_provenance` names the stream as source `output` with strategy `live`, and the journal as source `journal` with strategy `records`. For this kind's declaration beside every other kind's, see the [usage reporting table](/reference/workflow-config/#usage-reporting-by-agent-kind); for what provenance, completeness, and a lower bound mean across kinds, see [spend measurement](/concepts/spend-measurement/).
 
 ### Accumulation logic
 
 1. Each `assistant` event carrying a `usage` object contributes a provisional per-message figure, keyed by the message id. Claude Code repeats one message id across every streamed event of the same model request and grows the usage object as the response generates, so the adapter keeps the largest value seen per id rather than summing the repeats.
 2. A `token_usage` event is emitted the first time a message id is seen, and not again for that id, so the count matches API requests rather than stream events.
-3. On the `result` event, the per-model `modelUsage` breakdown is summed across every model entry and settles the turn's contribution to the run's total, replacing the provisional one. The adapter keeps each `modelUsage` key, sub-agent models included, as a per-model count of its own (see [the model label](/reference/prometheus-metrics/#the-model-label)). What the sum means depends on the Claude Code release; see [Continuing a session](#continuing-a-session). The reported snapshot is raised against the highest snapshot already reported, so settling never lowers a figure the turn already published. The top-level `usage` object is used only when `modelUsage` is absent or empty. `modelUsage` is preferred because the top-level figure excludes sub-agent activity while the breakdown includes it. See [how to use sub-agents](/guides/use-subagents-with-sortie/#account-for-sub-agent-costs).
-4. In both shapes, `input_tokens` is the sum of the plain input count, cache-read tokens, and cache-creation tokens. `cache_read_tokens` and `cache_write_tokens` carry the two cache counts separately as disjoint subsets of input. `total_tokens` is computed as `input_tokens + output_tokens` rather than read from any vendor total.
+3. When the process exits, the `model_usage_since_last_result` member of the turn's `result` events settles the turn's contribution to the run's total, replacing the provisional one. The member is a per-model figure for the requests the process made since its previous `result`, sub-agent requests included. A process can emit more than one `result`, for example when a background sub-agent finishes after the main reply, and the adapter combines the members of every `result` of the turn; an empty member adds nothing. The adapter keeps each model key, sub-agent models included, as a per-model count of its own (see [the model label](/reference/prometheus-metrics/#the-model-label)). The reported snapshot is raised against the highest snapshot already reported, so settling never lowers a figure the turn already published.
+4. The adapter does not read the `result` event's top-level `usage`, `modelUsage`, or `total_cost_usd`. The top-level `usage` leaves out sub-agent requests, and the other two span every process of the session, earlier runs included. See [how to use sub-agents](/guides/use-subagents-with-sortie/#account-for-sub-agent-costs).
+5. A `result` member that is absent or not an object, or a model entry missing a count, leaves the turn to the session journal.
+6. `input_tokens` is the sum of the plain input count, cache-read tokens, and cache-creation tokens. `cache_read_tokens` and `cache_write_tokens` carry the two cache counts separately as disjoint subsets of input. `total_tokens` is computed as `input_tokens + output_tokens` rather than read from any vendor total.
+
+### Reported amount
+
+Each model entry of `model_usage_since_last_result` also carries `costUSD`, the US-dollar cost of that model's requests since the previous `result`. The adapter records it per model as an amount the agent reported, beside the token counts, and adds each turn's amount to the run's. A `costUSD` of `0` beside tokens, an entry without `costUSD`, and a turn the session journal settles add no amount for that model and mark its amount as a lower bound for the rest of the session; the journal carries no cost. How Sortie prices a run from this amount when its price table does not list the model is under [spend measurement](/concepts/spend-measurement/).
+
+### Session journal
+
+Claude Code writes one line to its session journal for each model request it completes. The journal lives under Claude Code's home on the host that ran the session, `$CLAUDE_CONFIG_DIR` when set and non-empty and `~/.claude` otherwise, at `projects/<dir>/<session-id>.jsonl`. A sub-agent writes its own journal at `projects/<dir>/<session-id>/subagents/agent-<id>.jsonl`, and the adapter reads the sub-agent journals that a `task_started` stream event or the session journal names. `<dir>` is derived from the working directory the latest `system/init` event reports, or from the workspace path before the first one.
+
+The adapter reads the journal when a continued session starts and when a turn ends that the stream did not settle. [`agent.read_timeout_ms`](#agent-section) bounds each read. A missing session journal fails the read, and a missing sub-agent journal adds nothing. Any other failed read logs `session journal read failed` at debug level. A failed read counts nothing, and the turn keeps the figure it streamed.
 
 ### Continuing a session
 
-Every turn is a new `claude` process, and a run can resume a session that earlier runs used. What the `result` event's `modelUsage` covers depends on the process that wrote it, which the adapter reads from `claude_code_version` on the `system/init` event on every turn.
+Every turn is a new `claude` process, and a run can resume a session that earlier runs used. A resumed process replays no earlier message, and `model_usage_since_last_result` counts only that process's own requests, so the run's total counts only what the run added, whatever Claude Code release runs it.
 
-| Claude Code release | What `modelUsage` covers | What the adapter does |
-|---|---|---|
-| 2.1.277 and later, or a version string that is not valid semver | The whole session: every earlier turn and every earlier run on it | Treats the sum as a reading of the session's counter and subtracts the starting point, so the run's total counts only what the run added |
-| Earlier than 2.1.277, or no version on `system/init` | Only that process's own spend | Adds each result's sum to the run's total |
+When a continued session starts, the adapter reads the session journal and treats every request it already holds as history that no later read counts. When that read fails, or finds no session journal, the adapter reads the journal again at each turn end until a read completes. Turns the stream settles in the meantime still count exactly.
 
-Both columns report the same run total for a session the run created. Older releases are not refused. The per-model counts follow the same rule as the total: a model's count on 2.1.277 and later is read against the starting point for that model, and on earlier releases each result's count is added.
+### Interrupted turns
 
-The starting point is zero for a session the run created. For a session the run resumes, it is the session figure the previous run ended with, which Sortie keeps with that run's history and looks up by issue and session when it dispatches the continuation. Only the working session's last turn supplies it, never the [credential-verification](/reference/workflow-config/#credential-verification) session.
+A turn that reached the model and ends without a `result`, because the process was stopped, cancelled, killed, or crashed, or exited without one, settles from the session journal: the requests the journal holds that the run has not counted yet take the place of their provisional figures. The run's figure keeps, per token count, the larger of the journal's and the streamed one, because a reported figure never decreases. When the journal holds nothing uncounted, the streamed figure stands.
 
-A turn that ends without a `result` event reports no session figure, because a stopped process saves the calls it completed and a killed one saves nothing, and the adapter cannot tell which. On 2.1.277 and later, a `result` with no `modelUsage` entry, or only zeros, as an `error_during_execution` result can carry, settles nothing and reports no session figure either.
+A request still in flight when the process ends has no journal line, and a kill right after a request completes can lose that request's line, so a turn settled this way is never complete. Its spend counts as unaccounted: the run's `usage_completeness` reads `lower_bound`, and `used_tokens_complete` on the [`cost_budget` tool](/reference/agent-extensions/#cost_budget) reads `false`. A turn whose `result` arrived but whose member could not be read also settles from the journal, and is complete when every journal line reads.
 
-On 2.1.277 and later, when the starting point is unknown, the adapter estimates it as the first reading less that result's own top-level `usage`, and marks the turn as one whose spend is not fully accounted for, because calls made by sub-agents cannot be separated from the restored figure. This applies to the first turn of a continuation in two cases: the previous run's last turn reported no session figure, or the previous run was recorded by a Sortie release that did not keep one. It also happens when a reading falls below the one before it, which the adapter treats as the counter starting over; the run's total so far is kept. The turn counts toward `unaccounted_turns`, and `used_tokens_complete` on the [`cost_budget` tool](/reference/agent-extensions/#cost_budget) reads `false`. A continuation whose previous run ended its last turn with a `result` is exact and unflagged, and so is an estimate whose starting point comes out zero because the result's own usage covers the whole reading.
-
-A turn that produced model output and then ends without a usable `result` counts toward `unaccounted_turns` too: the process was stopped or crashed, the connection dropped, or the result carries no usage, as an `error_during_execution` result can. The figure that would have covered the turn never arrived, so the usage published while the turn streamed stays a lower bound.
-
-A turn that ended cleanly without a `result`, with the process exiting `0` after a message or tool call from the agent, stops counting once a later turn of the same session reports a session total: on 2.1.277 and later with session persistence on, that total includes what the earlier turn spent, sub-agent calls among it. A stopped, cancelled, or crashed turn keeps counting, and so does a turn that ended in an error result.
+A turn whose process exited `0` after a message or tool call from the agent, with no `result`, stops counting as unaccounted when a later turn of the same session settles from the journal with every request of the session counted. A stopped, cancelled, killed, or crashed turn keeps counting, and so does a turn that ended in an error result.
 
 ### Model tracking
 
@@ -274,6 +285,24 @@ The adapter measures wall-clock time between events to estimate per-request API 
 - The timer stops when the next `assistant` event with usage data arrives.
 - The `token_usage` event reports this measured duration as how long the API request took.
 - If per-request timing is available, the turn-level `duration_api_ms` from the `result` event is not re-emitted to avoid double-counting.
+
+---
+
+## Usage limits
+
+The adapter reports the plan limits of a Claude subscription from the stream, with no request of its own. Every `rate_limit_event` the CLI emits names one limit, and the adapter reports it to the dashboard and to the `rate_limits` member of [`GET /api/v1/state`](/reference/http-api/#get-apiv1state-system-state). A session on an API key sends no `rate_limit_event`, so it reports no limits.
+
+| `rateLimitType` | Label |
+|---|---|
+| `five_hour` | `5-hour limit` |
+| `seven_day`, `seven_day_overage_included` | `Weekly limit` |
+| `seven_day_opus` | `Weekly Opus limit` |
+| `seven_day_sonnet` | `Weekly Sonnet limit` |
+| `overage` | `Extra usage limit` |
+
+A `rate_limit_event` that names no type reports the limit as `Usage limit`. The event's `status` maps to the window status: `allowed` is `allowed`, `allowed_warning` is `warning`, and `rejected` is `exhausted`. The event's `utilization`, a fraction that can exceed 1, becomes the share used. An `allowed` event carries no `utilization`, so such a limit shows its status and its reset time and no share until the CLI warns. The reset time is the event's `resetsAt`.
+
+A newer report of a limit replaces the older one, and a limit the stream stops mentioning stays until its reset time passes. How a limit that is reached ends a turn is under [turn outcome](#turn-outcome).
 
 ---
 
@@ -360,10 +389,11 @@ When the worker configuration includes `ssh_hosts`, the adapter launches Claude 
 2. Each turn builds an SSH command that wraps the remote Claude Code invocation.
 3. The remote shell enters the workspace, exports the [environment variables the launch carries](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent), unsets `CLAUDE_CODE_EFFORT_LEVEL` when `claude-code.effort` is set, and only then runs the configured command with that turn's arguments. Each step is chained on the success of the one before it, so the agent never starts in the wrong directory or without the variables it was to receive. The workspace path and each argument are individually single-quoted; the agent command is inserted as configured, unquoted, so a multi-token or env-prefixed command (e.g. `FOO=bar claude`) still runs as intended.
 4. This kind declares `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY`, and `CLAUDE_CODE_OAUTH_TOKEN` as its credential variables, so a remote launch carries whichever of them Sortie's own environment sets. A carried value overrides whatever the host holds under the same name.
+5. The [session journal](#session-journal) is read on the worker host, one SSH process per file, and the remote shell resolves `$CLAUDE_CONFIG_DIR` or `~/.claude` there. Token accounting, interrupted and continued turns included, follows the same rules as for a local session.
 
 ### SSH options
 
-The adapter uses these SSH options:
+The adapter uses these SSH options. A launch that delivers Sortie's tools adds a reverse forward and the options that go with it; see [delivery over SSH](/reference/agent-extensions/#delivery-over-ssh).
 
 | Option | Value | Purpose |
 |---|---|---|
@@ -391,7 +421,7 @@ The adapter runs no credential preflight and reads no credential variable for it
 
 The kind does declare three names, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY`, and `CLAUDE_CODE_OAUTH_TOKEN`, and they serve one purpose: a remote launch carries whichever of them Sortie's own environment sets, so a build host needs no copy of its own. A local launch inherits all three with everything else, and the declaration changes nothing there.
 
-A credential the CLI rejects therefore never surfaces as a session that refuses to start: it surfaces on the [credential-verification session](/reference/workflow-config/#credential-verification) every worker attempt opens first, as `credential_unverified` before any working turn, rather than on the working session itself.
+A credential the CLI rejects therefore never surfaces as a session that refuses to start: it surfaces on the [credential-verification session](/reference/workflow-config/#credential-verification) a worker attempt opens first, as `credential_unverified` before any working turn, rather than on the working session itself. When Sortie skips that session because it proved the same setup recently, a credential revoked in between surfaces on the first working turn instead: an assistant event that reports `authentication_failed` ends the turn as `credential_unverified` with Claude Code's own text.
 
 ---
 

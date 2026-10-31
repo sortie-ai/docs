@@ -8,7 +8,7 @@ url: /reference/adapter-copilot/
 ---
 The Copilot CLI adapter connects Sortie to the [GitHub Copilot CLI](https://docs.github.com/en/copilot/using-github-copilot/using-github-copilot-in-the-command-line) via subprocess management. It launches the `copilot` binary with `--output-format json`, reads newline-delimited JSON from stdout, and normalizes events into Sortie's own event vocabulary. Registered under kind `"copilot-cli"`.
 
-Each turn spawns an independent subprocess. Session start runs a version canary before a session is created, local-mode only; whether the credential actually works is settled separately, by the [credential-verification step](/reference/workflow-config/#credential-verification) every kind runs before its first working turn.
+Each turn spawns an independent subprocess. Session start runs a version canary before a session is created, local-mode only; whether the credential actually works is settled separately, by the [credential-verification step](/reference/workflow-config/#credential-verification) every kind runs before its first working turn, unless Sortie proved the same setup recently.
 
 Copilot CLI 1.0.51 or later is required: this adapter assigns its own session identifier with `--session-id`, a flag older releases reject. See [session identity](#session-identity).
 
@@ -99,11 +99,15 @@ Every invocation also includes `--autopilot` and `--no-ask-user`, which are alwa
 
 ### Sortie's own tools and the `mcp_config` field
 
-Sortie generates one MCP server configuration per session, declaring a `sortie-tools` stdio server that exposes Sortie's own tools to the agent. When that generated file exists, the adapter passes it to `--additional-mcp-config` as `@<path>`, regardless of whether `copilot-cli.mcp_config` is also set, on a local launch and over SSH alike.
+Sortie generates one MCP server configuration per session, declaring a `sortie-tools` stdio server that exposes Sortie's own tools to the agent. When that generated file exists, the adapter passes the generated servers to `--additional-mcp-config`, regardless of whether `copilot-cli.mcp_config` is also set.
+
+On a local launch the adapter writes a derived file, `.sortie/copilot-mcp.json`, and passes it as `@<path>`. The derived file names each operator HTTP header value by an environment variable, `${SORTIE_MCP_HEADER_<n>}`, instead of holding the value; Sortie sets those variables in the runtime's environment. The file keeps the generated file's `env` block, which carries every `SORTIE_`-prefixed variable of Sortie's environment, so treat it as holding the same secrets.
+
+On an SSH launch no file is passed, because a host path names nothing on the worker host. The adapter passes the servers as an inline JSON document. In it, `sortie-tools` is an HTTP server at the address of the launch's reverse forward, with an `Authorization` header that refers to `${SORTIE_TOOL_SERVER_BEARER}`. Operator HTTP servers appear with their URLs, and operator stdio servers are left out. See [delivery over SSH](/reference/agent-extensions/#delivery-over-ssh).
 
 When `copilot-cli.mcp_config` names an operator-supplied file, Sortie reads it, inserts the `sortie-tools` entry into its `mcpServers` object, and writes the merged result. This is the same merge the Claude Code adapter performs, since both read from the orchestrator-generated config. A relative path resolves against the directory containing `WORKFLOW.md`. A server already named `sortie-tools` in the operator's file fails generation with a name-collision error rather than being silently overwritten.
 
-Only when no generated configuration was merged does the adapter fall back to forwarding `copilot-cli.mcp_config` directly to `--additional-mcp-config`. In that fallback path the adapter also decides how to present the value to the flag: a value starting with `{` is passed through as inline JSON, a value already starting with `@` is passed through unchanged, and any other value is treated as a file path and prefixed with `@`, matching the flag's own file-vs-inline convention.
+Only when no generated configuration was merged, and only on a local launch, does the adapter fall back to forwarding `copilot-cli.mcp_config` directly to `--additional-mcp-config`. In that fallback path the adapter also decides how to present the value to the flag: a value starting with `{` is passed through as inline JSON, a value already starting with `@` is passed through unchanged, and any other value is treated as a file path and prefixed with `@`, matching the flag's own file-vs-inline convention.
 
 ### Runtime-denied permission requests
 
@@ -135,9 +139,10 @@ Validates the workspace path, resolves the agent binary, runs a canary check, an
 2. Resolves the `command` from `PATH`. In SSH mode, resolves the local `ssh` binary instead; the agent command resolves on the remote host.
 3. **Canary check (local mode only):** runs `copilot --version` with a 5-second timeout. Any non-zero exit or timeout fails the session with `agent_not_found`, except that a session whose own context ends before the canary process starts running ends as `turn_cancelled`; the adapter does not read the version it printed, so this check confirms only that a working binary is present, not that it is new enough for `--session-id` (see [session identity](#session-identity)) or that any credential works.
 4. Mints a fresh v4 UUID as the session identifier, unless a session ID saved from a previous run was supplied for a continuation session, in which case that value is used instead.
-5. The session then records the workspace path, resolved binary, session ID, and SSH configuration for later turns to use.
+5. For a continuation session, reads the session's usage records from the session-state journal, on the runtime's host, to fix the session's starting point. A failed read leaves it unknown and does not fail the session start; see [accumulation logic](#accumulation-logic).
+6. The session then records the workspace path, resolved binary, session ID, and SSH configuration for later turns to use.
 
-No credential check runs here. Whether the environment or an authenticated `gh` actually lets Copilot CLI answer is settled once, before the working session's first turn, by the [credential-verification step](/reference/workflow-config/#credential-verification); see [authentication](#authentication).
+No credential check runs here. Whether the environment or an authenticated `gh` actually lets Copilot CLI answer is settled before the working session's first turn, by the [credential-verification step](/reference/workflow-config/#credential-verification); see [authentication](#authentication).
 
 **Errors:**
 
@@ -165,7 +170,8 @@ Spawns a Copilot CLI subprocess, reads JSONL events from stdout, and delivers th
 8. Parses each line as JSON.
 9. Collects the exit status as soon as the subprocess exits, independent of output reading, then gives stdout and stderr reading a fixed five seconds each to finish before classifying the turn.
 10. Captures session ID from the `result` event for subsequent turns.
-11. Ends the turn, recording the session ID, exit reason, and cumulative token usage.
+11. Settles the turn's spend from its last usage checkpoint, reading the session-state journal when the checkpoint cannot settle it; see [token accounting](#token-accounting).
+12. Ends the turn, recording the session ID, exit reason, and cumulative token usage.
 
 ### Session stop
 
@@ -203,35 +209,80 @@ Most of the stream is informational. It reaches the orchestrator as `notificatio
 
 ## Token accounting
 
-**Key difference from Claude Code:** Copilot CLI's JSONL stream carries no token counts at all. The `result` event's `usage` object carries premium requests, durations, and code-change stats but no token breakdown. Every figure, and the model that produced it, comes from the runtime's own session-state journal on disk, read once when the turn ends, after the subprocess has exited or been stopped.
+**Key difference from Claude Code:** Copilot CLI's `result` event carries no token counts. Its `usage` object holds premium requests, durations, and code-change stats, and the adapter reads only the API duration from it (see [API timing](#api-timing)). The adapter reads the figures from the `session.usage_checkpoint` lines on the JSONL stream, and the runtime's own session-state journal on disk. The checkpoint settles an ordinary turn; the journal settles a turn the checkpoints leave open.
 
-Reported counts are cumulative over the whole session the orchestrator opened, across every turn of it, and never decrease. For this kind's declaration beside every other kind's, see the [usage reporting table](/reference/workflow-config/#usage-reporting-by-agent-kind).
+The figure reaches the orchestrator once per turn, when the turn ends, split by served model, and the declaration is the same on a local launch and over SSH. Reported counts are cumulative over the run and never decrease. For this kind's declaration beside every other kind's, see the [usage reporting table](/reference/workflow-config/#usage-reporting-by-agent-kind); for what a run records about the source of its figure, what a lower bound means, and which ceilings reach a run, see [spend measurement](/concepts/spend-measurement/).
+
+### Usage checkpoints
+
+The runtime writes a `session.usage_checkpoint` line after each prompt or autopilot continuation, not after each model request. The adapter reads `inputTokens`, `outputTokens`, `cacheReadTokens`, and `cacheWriteTokens` under `data.accountingSnapshot.modelMetrics.<model>.usage`. These are totals over the whole session, across every process that resumed it, so a turn's spend is its last checkpoint less the session's position before the turn.
+
+`input_tokens` includes the cache-read and cache-write counts, which `cache_read_tokens` and `cache_write_tokens` carry separately as disjoint subsets of input. Reasoning tokens sit inside `output_tokens`. `total_tokens` is `input_tokens + output_tokens`. A count that is absent, null, or not a JSON integer makes the reading unknown rather than zero.
+
+A turn settled by its checkpoint is recorded with the usage provenance `output` / `live`.
 
 ### Session-state journal
 
-The runtime writes one journal per session at `<COPILOT_HOME>/session-state/<session id>/events.jsonl`, falling back to `~/.copilot/session-state/...` when `COPILOT_HOME` is unset. The last line whose `type` is `session.shutdown` holds the session's authoritative totals, taken from its `data.modelMetrics` map summed across every model entry, or from `data.tokenDetails` when `modelMetrics` is absent or empty. Each `modelMetrics` key is also kept as a per-model count of its own (see [the model label](/reference/prometheus-metrics/#the-model-label)).
+The runtime writes one journal per session at `<COPILOT_HOME>/session-state/<session id>/events.jsonl`, falling back to `~/.copilot/session-state/...` when `COPILOT_HOME` is unset or empty. On an SSH launch the remote shell resolves that location on the worker host. The adapter reads only the `session.usage_record` lines, one per model request, each carrying the same token counts under `data.usage`, the model that served the request, and an identifier that makes each request count once.
 
-`input_tokens` is the sum of plain input, cache-read, and cache-write counts. `cache_read_tokens` and `cache_write_tokens` carry the two cache counts separately as disjoint subsets of input. `total_tokens` is computed as `input_tokens + output_tokens`.
+The adapter reads the journal at these points:
+
+- At the start of a resumed session, where the total of every usage record is the session's starting point. See [accumulation logic](#accumulation-logic).
+- At the end of a turn the checkpoints leave unsettled: a turn that ends without a `result` event carrying `exitCode: 0`, one for which the runtime wrote `abort`, one with no checkpoint, one that starts from an unknown position, and every turn after an interrupted one, until the records have caught up with what it left uncounted.
+
+Each read is bounded by `read_timeout_ms` and runs locally or through the session's SSH launch. A read fails on a missing file, a session ID that fails the path-segment check, a journal above 64 MB or a line above 10 MB, an SSH connection failure, or the timeout. A failed read logs `copilot journal read failed` at debug level and leaves the starting point or the turn's records unknown, never zero; a later turn reads again.
+
+Under a custom model provider the runtime writes no `session.usage_checkpoint` line, so the journal settles every turn. A turn settled from the journal is recorded with the usage provenance `journal` / `records`.
 
 ### Accumulation logic
 
-1. At session start the adapter fixes the baseline. It is zero for a session the run creates, and the session figure the previous run ended with for a session the run resumes, which Sortie keeps with that run's history and looks up by issue and session when it dispatches the continuation. With no such figure, a local launch with a valid session ID reads the journal's newest `session.shutdown` record once: a missing journal or one with no such record gives a zero baseline, and any other failure leaves the baseline unknown. None of these outcomes fails the session start.
-2. Once the subprocess has exited or been stopped, on every ending of a started turn (cancellation, a stdout read error, an SSH connection failure, exit `127`, or an ordinary exit), the adapter reads the journal's newest `session.shutdown` record and compares it with the last figure it holds for the session. The journal is cumulative across every invocation that resumed the same session, so the difference from the baseline is the run's own contribution, and the model behind it comes from the same record (see [Model tracking](#model-tracking)). A record equal to the last figure means the turn wrote none: it reports no figure and emits no `token_usage` event, so a turn that saved nothing adds nothing to the run.
-3. The read is skipped in SSH mode, and when the session ID is unknown or fails a path-segment check. It is abandoned mid-read, rather than skipped, when the journal exceeds 64 MB or a line in it exceeds 10 MB. A skipped or failed read abandons nothing: the turn reports no figure and the next turn reads again.
-4. When the baseline is unknown, the first record read becomes the starting point. That turn reports no figure and is marked as one whose spend is not fully accounted for, because its own contribution cannot be separated from what the session already held.
-5. A turn whose read is skipped, fails, or finds no `session.shutdown` record yet reports no figure, and counts toward `unaccounted_turns` when the CLI had streamed model output for it. So does a turn that ends without a `result` event. A cancelled or failed local turn reports the figure the runtime had recorded by then, if any. Over SSH the read never runs, so every turn that streamed output counts, and the session stays unmeasured. A run in which no turn ever recovers one is recorded as unmeasured; the run-cumulative total a turn recovers only rises, so it stands even when a later turn's read produces nothing further.
+1. At session start the adapter fixes the session's starting point. It is zero for a session the run creates. For a session the run resumes, it is the total of the journal's usage records, because a resumed process's counter starts from that total, which also holds the records a killed process wrote and no checkpoint reported. A failed read leaves the starting point unknown and does not fail the session start.
+2. A turn that ends with a `result` event carrying `exitCode: 0`, no `abort`, and a checkpoint reports the checkpoint's growth over the session's position. That figure is complete.
+3. Any other turn reads the journal. A turn that ended without a `result` event carrying `exitCode: 0`, or with `abort`, takes the records in place of its checkpoint: the figure is the records' growth over what the run already counted, and the turn counts toward `unaccounted_turns` even when the read succeeds, because a request in flight when the turn ended leaves no record. A turn that ended normally with no checkpoint, such as every turn under a custom model provider, takes the records' growth as a complete figure. A turn whose read fails or holds nothing new reports no figure and emits no `token_usage` event, and counts toward `unaccounted_turns` when the runtime had streamed model output or started a tool.
+4. When the starting point is unknown, the first checkpoint becomes it. That turn reports no figure and counts toward `unaccounted_turns`, because its own share cannot be separated from what the session already held. Later turns report their own growth, and no figure the run reports claims to cover the whole session.
+5. A turn that reports no figure adds nothing and lowers nothing: the run total is the sum of what every turn settled. A run in which no turn ever settles a figure is recorded as unmeasured.
 
-The kind's [declared usage reporting](/reference/workflow-config/#usage-reporting-by-agent-kind) is built on the journal read, which is the source that always runs on a local launch. Over SSH it does not run, and the declaration for a remote session is that nothing is reported: the dashboard reads "not measured" for that session's tokens and cost, and [`sortie validate`](/reference/cli/#validate) warns when such a workflow also sets `agent.max_tokens` or prices this kind in `token_rates`.
+Sortie cancels a turn with `SIGTERM` to the process group, then `SIGKILL` once `stop_grace_ms` elapses; see [process shutdown](#process-shutdown). The runtime does not always write its journal in the grace period. When it does write `abort`, it follows it with a final checkpoint that omits the request in flight and a `result` event carrying `exitCode: 0`; the adapter reads `abort` as a cancelled turn, so the journal settles it in place of that checkpoint. Under a custom model provider the runtime writes the whole journal when the turn ends and exits within milliseconds of `SIGTERM`, so a turn cancelled mid-request can leave no journal at all. After `SIGKILL` the journal can lack the records of completed requests too. Either way the turn reports what the records hold, possibly nothing, and the run's figure is a lower bound.
 
 ### Model tracking
 
-The model name comes from the same session-state journal record that supplies the token totals, not from the stdout stream. Between the current `session.shutdown` record and the one before it, the adapter compares each `modelMetrics` entry's combined input and output tokens and names the key with the largest growth, breaking a tie by whichever name sorts first; a model with zero or negative growth since the previous record is not a candidate.
+Each `modelMetrics` key of a checkpoint names a model that served requests, and the turn's growth is attributed to those keys. A model switch on resume adds a key, and a sub-agent's requests count under the model that served the sub-agent. A journal record names the model of its own request. The adapter never reports the configured `copilot-cli.model` value, which names the model requested rather than the model that served.
 
-A record with no `modelMetrics` map, or whose entries show no growth over the previous one, names no model. The adapter does not fall back to the configured `copilot-cli.model` value in that case, since that field names the model requested rather than the model the runtime actually used.
+### Premium requests and AI credits
+
+The same `modelMetrics.<model>` entry carries the model's premium requests (`requests.cost`) and AI credits (`totalNanoAiu`, in billionths), totals over the session like the token counts. The adapter records each as the growth over the session's history, per model, in its own unit: `premium requests`, and `AI credits` as the reported number divided by 10^9. The checkpoint's top-level `totalPremiumRequests` and `totalNanoAiu` and the `result` event's `usage.premiumRequests` are not read.
+
+A turn the journal settles takes both amounts from its records. A record's premium requests are its `cost` when `initiator` is `user`, 0 when it is `agent` or `sub-agent`, and unknown for any other or absent initiator, which leaves the run's premium requests a lower bound. Its AI credits are `copilotUsage.totalNanoAiu` divided by 10^9 whatever the initiator. An amount that is absent, null, not a number, or negative reads unknown rather than zero.
+
+Neither amount is added to a token count, converted to the other, or converted to US dollars. The run's estimated cost comes from its token counts and [`token_rates`](/reference/workflow-config/#token_rates), and no token or money ceiling counts premium requests or AI credits. The run keeps both amounts with its history, served as `vendor_amounts` by the [run history API](/reference/http-api/#get-apiv1runs-run-history).
+
+### Why a run exceeds the session journal
+
+A run's reported usage can exceed what the session journal holds for the working session. The difference is the credential-verification request. The check runs in a Copilot session of its own, and the journal of that session is deleted with it when the check ends, so the working session's journal never held it. Sortie counts the request in the run's usage, its premium requests and AI credits, and its cost estimate because the model call is billed like any other, and adds it to every figure the working session reports.
+
+The extra amount is one request from a fresh session: input that is nearly all cache write with no cache read, because a new session writes its whole prompt to cache, and the few output tokens of the one-sentence answer. Its size is the size of the verification prompt, which depends on the CLI version and the model. The request is small because the check sends only the built-in system prompt and one tool; see [authentication](#authentication).
+
+A run adds at most one such request. A run whose log shows `agent credential verification skipped` adds none, and its usage equals the journal's growth over the run. A run that performed the check, local or over SSH, exceeds the journal by exactly that request.
 
 ### API timing
 
 The `result` event carries `usage.totalApiDurationMs`, which the adapter attaches to the turn completion or failure event. Unlike the Claude Code adapter, there is no per-request API latency tracking between individual events.
+
+---
+
+## Usage limits
+
+When each turn ends, the adapter reads the monthly quotas of the signed-in GitHub account. A turn that was cancelled or timed out reads nothing. A failed read reports nothing and leaves the limits already reported in place. A session started with `COPILOT_PROVIDER_BASE_URL` set reads nothing for the rest of the session, because a custom provider spends no Copilot quota.
+
+The adapter takes the first of `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, and `GITHUB_TOKEN` that is set in the agent's environment and sends a request to `api.github.com` with it. Sortie's own host sends the request, including when the agent runs on an SSH worker. The token goes only into the request's authorization header; Sortie does not store or log it. When no variable is set, or GitHub answers `401`, `403`, or `404`, the adapter instead starts a one-shot headless server of the CLI (`--headless --no-auto-update --stdio`) and asks it for the account quota, so the answer comes from the CLI's own sign-in. On an SSH worker that server runs on the worker host. Any other status from GitHub is a failed read.
+
+| Quota | Label |
+|---|---|
+| Premium requests | `Monthly premium request limit` |
+| Chat | `Monthly chat limit` |
+| Completions | `Monthly completion limit` |
+
+A quota the account has without a limit is not reported. The share used is 100 less the percentage of the quota that remains, and the reset time is the quota reset date GitHub states. The quotas carry no status.
 
 ---
 
@@ -341,9 +392,13 @@ When the worker configuration includes `ssh_hosts`, the adapter launches Copilot
 3. The remote shell enters the workspace, exports the [environment variables the launch carries](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent), and only then runs the configured command with that turn's arguments, each step chained on the success of the one before it. The workspace path and each argument are individually single-quoted; the agent command is inserted as configured, unquoted.
 4. The carried set includes this kind's own credential variables, `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, and `GITHUB_TOKEN`. See [authentication](#authentication) for what that overrides on the host.
 
+### Usage measurement over SSH
+
+A remote session is measured the same way as a local one. The usage checkpoints arrive on the SSH session's standard output, and every session-state journal read, at the start of a resumed session and at the end of an unsettled turn, runs on the worker host through the session's own SSH launch, where the remote shell resolves `COPILOT_HOME`. The session's `usage_arrival` is `turn_end` and its `usage_attribution` is `per_model` on either launch, so `agent.max_tokens` and the money ceilings bound a remote run as they bound a local one. An SSH connection failure during a read is a failed read: it leaves the turn's figure unknown, never zero; see [session-state journal](#session-state-journal).
+
 ### SSH options
 
-The adapter uses these SSH options:
+The adapter uses these SSH options. A launch that delivers Sortie's tools adds a reverse forward and the options that go with it; see [delivery over SSH](/reference/agent-extensions/#delivery-over-ssh).
 
 | Option | Value | Purpose |
 |---|---|---|
@@ -367,11 +422,11 @@ SSH exit code `255` indicates a connection failure (refused, timeout, unreachabl
 
 Sortie does not manage Copilot CLI credentials and runs no preflight of its own: the adapter spawns the subprocess with the full parent process environment, and the Copilot CLI resolves its own credential from it. Which source it reads, and in what order, is the CLI's own to document.
 
-Whether that resolves to a working credential is settled once, before the working session's first turn, by the [credential-verification step](/reference/workflow-config/#credential-verification) every agent kind runs: it opens a session of its own, sends one fixed request, and reports `credential_unverified` if the CLI cannot answer it.
+Whether that resolves to a working credential is settled before the working session's first turn, by the [credential-verification step](/reference/workflow-config/#credential-verification) every agent kind runs unless Sortie proved the same setup recently: it opens a session of its own, sends one fixed request, and reports `credential_unverified` if the CLI cannot answer it.
 
 A CLI that rejects the credential by printing a message and exiting before it writes to stdout is reported as the [early exit report](/reference/errors/#early-exit-report) instead, `port_exit`, carrying that message. The step exercises the credential rather than checking for its presence, so whichever source the CLI actually resolves, an environment variable or a stored login, passes or fails on the same footing.
 
-That verification session carries the same switches as the working session it precedes, with three exceptions: `--max-autopilot-continues 0` in place of the configured ceiling, `--disable-builtin-mcps` in place of any MCP configuration, and no tool server. Once the check completes, session stop deletes that session's own conversation through a one-shot `copilot --server --stdio` process, sending it a `session.delete` request; a failed delete is only logged, never retried, and never fails the run.
+That verification session carries the same switches as the working session it precedes, with these exceptions: `--max-autopilot-continues 0` in place of the configured ceiling, `--disable-builtin-mcps` in place of any MCP configuration, no tool server, `--available-tools view` in place of `copilot-cli.available_tools`, no `--excluded-tools`, and `--no-custom-instructions` whatever `copilot-cli.no_custom_instructions` says. The request therefore carries the built-in system prompt and one read-only tool, and none of the custom instructions or other tool descriptions the working session sends. A CLI build that rejects one of these switches and exits before it responds is checked once more without `--available-tools view` and `--no-custom-instructions`, with the operator's own tool and instruction settings, after a warning in the log. Once the check completes, session stop deletes that session's own conversation through a one-shot `copilot --server --stdio` process, sending it a `session.delete` request; a failed delete is only logged, never retried, and never fails the run.
 
 A remote session receives the tokens directly instead of running any check locally. This kind declares `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, and `GITHUB_TOKEN` as its credential variables, so a remote launch carries whichever of them Sortie's own environment sets into the agent's environment on the build host.
 
@@ -394,8 +449,8 @@ Neither Sortie nor the credential-verification step inspects a token's type or s
 | Output format flag | `--output-format stream-json` | `--output-format json` |
 | Session ID at start | UUID generated by adapter | UUID generated by adapter |
 | Resume flag | `--resume <UUID>` | `--session-id <uuid>` on the first turn of a session this run created, `--resume <uuid>` on every later turn; `--continue` is never used |
-| Input token reporting | Per-request, from the result event's per-model breakdown | Recovered from the runtime's session-state journal when the turn ends; unavailable in SSH mode |
-| Model reporting | From `assistant` events | From the session-state journal's `session.shutdown` record, read when the turn ends |
+| Input token reporting | Provisional per request from `assistant` events, settled by the `result` events' `model_usage_since_last_result`; the [session journal](/reference/adapter-claude-code/#session-journal) settles a turn they do not cover | From the last `session.usage_checkpoint` of the turn, or the session-state journal's usage records when the checkpoint cannot settle it, once per turn, locally and over SSH |
+| Model reporting | From `assistant` events | From the served-model keys of the checkpoint, or each journal record's own model |
 | Permission mode | `--permission-mode` or `--dangerously-skip-permissions` | `--autopilot` + `--no-ask-user`, plus `--allow-all` unless `allowed_tools` is set |
 | Tool error detail | Error text with XML/ANSI stripping | Boolean `success` flag only |
 | Authentication | `ANTHROPIC_API_KEY` (+ Bedrock, Vertex) | `COPILOT_GITHUB_TOKEN` / `GH_TOKEN` / `GITHUB_TOKEN` / `gh auth` |

@@ -157,6 +157,32 @@ Comments: {{ .issue.comments | toJSON }}
 {{ end }}
 ```
 
+## Hand the agent a person's answer after a park
+
+When an agent writes `blocked`, or its runs keep showing no evidence of work, Sortie parks the issue until a person acts. The person releases it by removing the parking label or moving the issue to another state. The next run then needs to know why the agent stopped and what the person said. Sortie sets `.park` on the first turn of that run, and it is `nil` on every other run, so the block below costs nothing when no park occurred:
+
+```jinja
+{{ if .park }}
+## You were parked and a person released the issue
+
+{{ if .park.statement }}You stopped earlier: {{ .park.statement }}{{ end }}
+
+{{ if .park.comments }}
+Comments written since then:
+
+{{ range .park.comments }}### {{ .author }} ({{ .created_at }})
+{{ .body }}
+{{ end }}
+{{ else }}
+Nobody commented. Re-read the issue before you continue.
+{{ end }}
+{{ end }}
+```
+
+Inside `range`, the dot is a comment, as in the comments section above. When Sortie posted the stop statement as a tracker comment, that comment is in `.park.comments` as well, so the statement can print twice. Drop the `.park.statement` line if you want it only once.
+
+On this run `.issue.comments` holds every comment of the issue, not only the new ones, and the run continues the agent's earlier session where the agent supports it. Leave the first-run instructions in place, because a run that cannot resume starts without the earlier conversation. See [`.park`](/reference/workflow-config/#park) for every field and the rules for which comments count.
+
 ## Use the built-in functions
 
 Sortie ships three functions beyond Go's template builtins:

@@ -71,6 +71,9 @@ extra wiring:
 - run: sortie --version
 ```
 
+To run a coding agent on a task from a workflow event, use the Sortie GitHub
+Action. See [Run Sortie in GitHub Actions](/guides/run-sortie-in-github-actions/).
+
 ## Install Script (Windows)
 
 The recommended method for Windows. The script detects your architecture,

@@ -163,38 +163,103 @@ The complete normative spec lives in [agent-to-orchestrator-protocol.md](https:/
 
 ## Execution channel
 
-Sortie delivers tools to agents via an MCP stdio server running as a sidecar process. Whether a given session reaches it depends on the agent kind and on where the session runs.
+Sortie delivers tools to agents through an MCP server named `sortie-tools`, which is the `sortie mcp-server` subcommand. Whether a given session reaches it depends on the agent kind and on where the session runs.
 
-Before each agent session, the worker generates `.sortie/mcp.json` inside the workspace directory. This file declares the `sortie-tools` MCP server entry with the absolute path to the `sortie` binary, the workflow path, and session environment variables. What each adapter does with it differs; see [delivery by agent kind](#delivery-by-agent-kind).
+Before each agent session, the worker generates `.sortie/mcp.json` inside the workspace directory. This file declares the `sortie-tools` MCP server entry with the absolute path to the `sortie` binary, the workflow path, and session environment variables. Sortie reads it for every session, and what each adapter hands the runtime differs; see [delivery by agent kind](#delivery-by-agent-kind).
 
-The agent runtime spawns `sortie mcp-server` as its own child process. The orchestrator worker does not manage the MCP server lifecycle. Any MCP-compatible agent can call tools without adapter-specific integration.
+The server reaches a runtime in one of these shapes:
 
-Session context (issue ID, workspace path, database path, credentials) flows to the MCP server via the `env` block in `.sortie/mcp.json`. Credentials (`SORTIE_*` variables from the orchestrator process) are explicitly included in this block. They do not rely on process inheritance. See [MCP server environment](/reference/environment/#mcp-server-environment) for the full variable table.
+| Shape | Who starts the server | Used for |
+|---|---|---|
+| stdio | The agent runtime spawns `sortie mcp-server` as its own child process. | A local launch of every kind that delivers tools, except an `agent-client-protocol` runtime that advertises HTTP MCP support. |
+| HTTP | Sortie starts `sortie mcp-server --http` on the orchestrator host, one server per session, and the runtime connects to it over a loopback port. | Every SSH launch, and a local `agent-client-protocol` launch whose runtime advertises HTTP MCP support. |
+
+Session context (issue ID, workspace path, database path, credentials) flows to the MCP server via the `env` block in `.sortie/mcp.json`. Credentials (`SORTIE_*` variables from the orchestrator process) are explicitly included in this block. They do not rely on process inheritance. An HTTP server is a child of the orchestrator rather than of the runtime, so it starts with the orchestrator's environment overlaid with that block. See [MCP server environment](/reference/environment/#mcp-server-environment) for the full variable table.
 
 If the agent block belonging to the session's own agent kind specifies `mcp_config`, Sortie merges the file it names with the `sortie-tools` entry. The operator's config must not use the reserved server name `sortie-tools`. The merge happens before the session starts, so an unreadable path or a config declaring `sortie-tools` fails the attempt whether or not the adapter goes on to forward the result.
+
+A server in the merged configuration whose `enabled` field is `false` reaches no agent kind.
 
 Sortie also appends tool documentation to the first-turn prompt for discoverability alongside MCP `tools/list`. That advertisement is written only for a session that has a channel; a session without one is told nothing about tools. If the agent calls an unrecognized tool name, the MCP server returns an error response and continues the session. It does not stall or crash.
 
 ### Delivery by agent kind
 
-The worker writes `.sortie/mcp.json` for every agent kind. Getting its servers to the runtime is the adapter's part, and there are three outcomes.
+The worker writes `.sortie/mcp.json` for every agent kind. Getting its servers to the runtime is the adapter's part. Every kind that delivers tools reaches them on a local launch and on an SSH launch.
 
-| Agent kind | Session reaches the tools | How the servers are delivered |
+| Agent kind | Local launch | SSH launch |
 |---|---|---|
-| `claude-code` | Local and SSH | The generated file's path on `--mcp-config`. See [Claude Code adapter reference](/reference/adapter-claude-code/#sorties-own-tools-and-the-mcp_config-field). |
-| `copilot-cli` | Local and SSH | The generated file's path on `--additional-mcp-config` as `@<path>`. See [Copilot CLI adapter reference](/reference/adapter-copilot/#sorties-own-tools-and-the-mcp_config-field). |
-| `codex` | Local launch only | The runtime accepts no config path, so the generated servers are re-expressed as configuration overrides on the app-server command line. See [Codex adapter reference](/reference/adapter-codex/#mcp). |
-| `opencode` | Local launch only | The runtime accepts no config path, so the generated servers are re-expressed as the runtime's own configuration document, delivered in the turn's environment. See [OpenCode adapter reference](/reference/adapter-opencode/#mcp). |
-| `agent-client-protocol` | Local launch only, and only for a server the runtime's own handshake supports | The runtime accepts no config path, so the generated servers are re-expressed on `session/new`. An HTTP server is withheld when the handshake does not advertise HTTP MCP support. See [Agent Client Protocol adapter reference](/reference/adapter-agent-client-protocol/#mcp). |
-| `mock` | Never | The simulated session launches no process, so there is nothing to deliver to. |
+| `claude-code` | A file derived from the generated one, `.sortie/claude-mcp.json`, on `--mcp-config`. See [Claude Code adapter reference](/reference/adapter-claude-code/#sorties-own-tools-and-the-mcp_config-field). | The same servers as an inline JSON document on `--mcp-config`. |
+| `copilot-cli` | A derived file, `.sortie/copilot-mcp.json`, on `--additional-mcp-config` as `@<path>`. See [Copilot CLI adapter reference](/reference/adapter-copilot/#sorties-own-tools-and-the-mcp_config-field). | The same servers as an inline JSON document on `--additional-mcp-config`. |
+| `codex` | The runtime accepts no config path, so the servers are re-expressed as configuration overrides on the app-server command line. See [Codex adapter reference](/reference/adapter-codex/#mcp). | The same overrides, sent on the SSH session's standard input instead of the command line. |
+| `opencode` | The runtime accepts no config path, so the servers are re-expressed as the `mcp` member of the runtime's inline configuration document, delivered in the turn's environment. See [OpenCode adapter reference](/reference/adapter-opencode/#mcp). | The same document, sent on the SSH session's standard input. |
+| `agent-client-protocol` | The servers are declared on `session/new`. A runtime that advertises HTTP MCP support gets Sortie's server over HTTP; any other runtime gets the stdio entries and no HTTP server. See [Agent Client Protocol adapter reference](/reference/adapter-agent-client-protocol/#mcp). | The servers are declared on `session/new` over HTTP. A runtime that does not advertise HTTP MCP support gets none. |
+| `mock` | None. The simulated session launches no process, so there is nothing to deliver to. | None. |
 
-The three `local launch only` kinds withhold delivery on an SSH launch deliberately. For `codex` the route left is the local `ssh` command line, which would put the configuration's credential values on an argument list any other user of the orchestrator host can read. Each of the three carries the generated servers on a local launch and on no other. A remote `codex`, `opencode`, or `agent-client-protocol` session reaches no tool, and its first-turn prompt names none.
+On an SSH launch only HTTP servers are delivered. Sortie's own server reaches the runtime over the reverse forward described under [delivery over SSH](#delivery-over-ssh). A server from `mcp_config` that runs as a local program (stdio) is withheld, because the program would have to run on the worker host. An HTTP server from `mcp_config` is delivered with its URL and headers.
+
+A header value from `mcp_config` reaches `claude-code`, `copilot-cli`, `codex`, and `opencode` by reference. The configuration names an environment variable, `SORTIE_MCP_HEADER_<n>` with `<n>` numbered from 1 in byte order of server name and then header name, and Sortie sets that variable in the runtime's environment. The value never appears in a command line or in a configuration file. The `agent-client-protocol` kind has no reference form, so it carries the value inside the `session/new` request.
 
 A session that reaches no tools receives no advertisement either, whichever row it falls in. That is what keeps the prompt and the channel consistent: Sortie does not name a tool it cannot deliver.
 
 For a kind whose adapter delivers the configuration in no form at all, an `mcp_config` value in that kind's own block cannot reach the agent. The worker still reads that file and merges its servers into the generated copy, so an unreadable path or a file declaring a `sortie-tools` server still fails the attempt, and what the merge produces goes nowhere.
 
 [`sortie validate`](/reference/cli/#validate) reports that combination as an `agent.mcp_config` warning naming the kind. Separately, it reports any kind with no channel as an `agent.kind.no_tool_channel` warning. Both leave the configuration valid, and the run proceeds.
+
+### Delivery over SSH
+
+An SSH launch keeps the server on the orchestrator host. This keeps the tracker credential and the rest of the `env` block there, so none of it is sent to the worker host.
+
+1. Sortie starts `sortie mcp-server --http` for the session. The server listens on a loopback port of the orchestrator host and announces it on its standard output.
+2. The `ssh` command that launches the agent adds `-R 127.0.0.1:0:127.0.0.1:<port>`. The worker host's `sshd` allocates a free loopback port and forwards connections on it to the server. Each launch gets its own remote port, so concurrent sessions on one worker host do not collide.
+3. The runtime connects to `http://127.0.0.1:<remote port>/mcp`. Every request carries `Authorization: Bearer <token>`. The token is 32 random bytes, hex encoded, generated for the session. It reaches the runtime in `SORTIE_TOOL_SERVER_BEARER`, set through the SSH session's standard input, so it appears in no argument list. The `agent-client-protocol` kind has no such reference form and sends the token as the `Authorization` header of the server declaration in `session/new`.
+4. The server rejects a request for another path, a request whose `Origin` header names a non-loopback host, and a request without the bearer.
+5. The server exits when the session ends.
+
+Because a forward is part of the launch's own SSH connection, the `claude-code`, `copilot-cli`, and `opencode` kinds, which start one process per turn, open a new forward on every turn. The server lives for the whole session.
+
+Each remote session start also opens one short extra SSH connection that runs `true` with the same forward, to learn whether the worker host accepts it before the agent launches. A forward the worker host refuses therefore declares its gap before the first prompt.
+
+A launch with a forward needs the standard `dd` utility on the worker host, for every kind. The worker host's `sshd` must accept remote port forwarding for the session; with OpenSSH, `AllowTcpForwarding` set to `yes` or `remote`, and no `restrict` option on the key unless it is paired with `port-forwarding`. The forward opens a port on the worker host's loopback interface only. Another user of that host can reach the port but cannot use it without the bearer.
+
+SSH options added to a launch that carries a forward:
+
+| Option | Value | Purpose |
+|---|---|---|
+| `ExitOnForwardFailure` | `no` | A refused forward does not end the launch. The session starts and declares a gap. |
+| `LogLevel` | `INFO` | Keeps the `Allocated port` line that reports the remote port visible, whatever `ssh_config` sets. |
+| `-R` | `127.0.0.1:0:127.0.0.1:<port>` | The reverse forward. Remote port `0` lets `sshd` choose. |
+
+Every remote launch sets `ControlPath=none`, so a forward always belongs to the launch's own connection and never to a multiplexing master from `ssh_config`. [Remote agent shutdown](/reference/workflow-config/#remote-agent-shutdown) gives the other reason.
+
+### When a session runs without the tools
+
+Sortie declares a gap when a session does not reach its own tool server. A gap is final for the session, only the first reason is recorded, and it never fails the session. Sortie logs the reason, and withholds the first-turn tool advertisement when it knows the gap before the prompt is written:
+
+```
+level=WARN msg="declared tool server gap for session" component=tool-relay reason=forward_refused
+```
+
+The session also emits one `notification` event per session: `this session started with a declared capability gap in: tool servers`. On the `agent-client-protocol` kind the same notice lists every capability then in the gap state, tool servers first. When it fires depends on whether the tool-server outcome is settled at the first `session_started` event:
+
+| Case | Notice and advertisement |
+|---|---|
+| `codex` and `agent-client-protocol` | Session start waits for the runtime's first connection (`agent.read_timeout_ms`), so every outcome is settled. The notice follows the first `session_started` event and the advertisement is withheld on a gap. |
+| Any kind, tool server not started or forward refused or unconfirmed | Settled before the first prompt. The notice follows the first `session_started` event and the advertisement is withheld. |
+| A kind that starts one process per turn, forward allocated | Unsettled until the runtime connects. The notice is deferred to just before the first terminal event of the session. It is emitted only if a gap exists by then, which for `no_connection` means the first turn completed without a connection. The advertisement has already gone out. |
+| Local launch with no relay | Settled at once. A withheld HTTP server alone (a runtime without HTTP support) emits the notice and keeps the advertisement. |
+
+| `reason` | Meaning |
+|---|---|
+| `relay_unavailable` | The server process did not start, exited before announcing its port, or exited during the session. |
+| `forward_refused` | The worker host refused the reverse forward. |
+| `forward_unconfirmed` | `ssh` reported neither an allocated port nor a refusal. |
+| `runtime_without_http` | The runtime does not accept HTTP MCP servers. |
+| `accept_refused` | The server refused the runtime's first authorized request because its `Accept` header named neither `application/json` nor `text/event-stream`. |
+| `no_connection` | No runtime connected before the deadline. `codex` and `agent-client-protocol` wait [`agent.read_timeout_ms`](/reference/workflow-config/#agent) (default `5000`) at session start; a kind that starts one process per turn declares it when the first turn completes without a connection. |
+
+A successful connection logs `delivered tool server to session` at `INFO`.
+
+A server from `mcp_config` that Sortie leaves out of an SSH session logs `withheld tool servers from remote session` at `WARN` with the server names in `servers`, and the session emits the same notice. A refused forward leaves `mcp_config` HTTP servers in place. If the server process itself does not start, an SSH session carries none of them.
 
 ---
 
