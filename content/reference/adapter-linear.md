@@ -162,11 +162,32 @@ The nested `inverseRelations` connection is capped at the first 25 nodes and is 
 | Template field | Linear source | Normalization |
 |---|---|---|
 | `.id` | `comment.id` | String, as-is. |
-| `.author` | `comment.user.displayName` | Fallback to `user.name`, then `botActor.name`, else empty string. |
+| `.author` | `comment.user.displayName` | Fallback to `user.name`, then `botActor.name`, else empty string. A comment from an external person carries no name, so `.author` is empty for it unless a bot actor is also present. |
 | `.body` | `comment.body` | Markdown pass-through. |
 | `.created_at` | `comment.createdAt` | ISO-8601 timestamp string, as-is. |
 
 Linear returns comments newest-first. The adapter re-sorts them ascending by creation time before returning.
+
+### Comment feed
+
+With the [comment feed](/reference/workflow-config/#comment_feed) on, the adapter reports who wrote each comment so the feed can decide whether to deliver it. The rules of the feed itself are on the linked page; this section covers what is specific to Linear.
+
+The identity that `include_authors` and `exclude_authors` match is the Linear ID of the account that wrote the comment, never a display name. The adapter takes the first shape the comment carries:
+
+| Comment carries | Identity | Treated as |
+|---|---|---|
+| `user` with `app: true` | `user.id` | Bot |
+| `user` and `botActor` | `user.id` | App acting for a person |
+| `user` only | `user.id` | Person |
+| `externalUser` | `externalUser.id` | External person (a comment relayed by an integration) |
+| `botActor` only | `botActor.id` | Bot |
+| None of these | Empty | Unidentified |
+
+With `authors: members`, a person is a member: commenting on a Linear issue already requires workspace access, so Sortie makes no access lookup and no extra request per author. Bots, apps, external persons and comments with no identifiable author are delivered only when their identity is in `include_authors`. The identity to list is the `id` of the `user`, `externalUser` or `botActor` object that Linear's API returns on the comment.
+
+A comment Sortie posts to the issue is never delivered to the agent. Sortie recognizes it by the comment ID Linear returns when the comment is created.
+
+The first read of a run lists every comment on the issue, 50 per page, oldest first. Later reads list only comments whose `updatedAt` is at or after the newest update time the previous read saw, minus 30 seconds. The margin covers a comment that Linear stamped before it was committed. The filter runs on Linear's side, and it also catches an edit, because an edit moves `updatedAt`. A comment read twice because of the margin reaches the agent once, unless its text changed.
 
 Sortie writes a comment as Markdown and sends the body to Linear as given. A comment that carries the agent's [stop statement](/reference/agent-extensions/#stop-statement) is written the same way.
 
@@ -241,6 +262,8 @@ When a connection reports `hasNextPage: true` but an empty or absent `endCursor`
 ## Rate limiting
 
 Linear meters both a request budget and a query-complexity budget, and scales the request budget with the size of the workspace. The current quotas are Linear's to publish, and the adapter reads the remaining allowance from the response headers rather than assuming a figure.
+
+With the [comment feed](/reference/workflow-config/#comment_feed) on, each turn adds one comment read: one request per page of 50 comments. On a quiet issue that is one request returning few or no comments, because later reads ask only for comments updated since the previous read. The first read of a long issue costs one request per 50 comments. A first turn whose dispatch already read the comments reuses that read and makes none. Linear needs no access lookup for `members`, so these reads are the whole cost. They count under the `fetch_comments` operation of `sortie_tracker_requests_total` (see the [metrics reference](/reference/prometheus-metrics/)). With `comment_feed.enabled: false` the adapter makes none of them.
 
 Sortie does not throttle client-side. When the remaining allowance reaches zero the adapter logs a `rate limit exhausted` warning. A throttled response classifies as `tracker_api_error`; the orchestrator does not retry it with backoff, it logs the failure and waits for the next poll interval. Poll cadence is the control: raise `polling.interval_ms` or narrow `query_filter`.
 

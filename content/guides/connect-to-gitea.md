@@ -23,7 +23,7 @@ Create an access token in Gitea, name it (`sortie` works), and grant the three s
 
 - `write:issue` covers every issue operation: reading issues, posting comments, and reading, creating, and applying labels. On Gitea a write scope implies its read, so this one scope carries the whole tracker surface.
 - `read:user` backs the credential check Sortie runs at startup against `GET /user`, which also identifies the automation account.
-- `read:repository` backs the repository preflight against `GET /repos/{owner}/{repo}`.
+- `read:repository` backs the repository preflight against `GET /repos/{owner}/{repo}`. It also lets Sortie read the repository's assignee list, which decides whose issue comments reach the agent by default. Without it Sortie delivers no issue comments, and you must list authors in `include_authors` or set `authors: all` to get them. See [Steer agents with issue comments](/guides/steer-agents-with-issue-comments/) and the [Gitea adapter reference](/reference/adapter-gitea/).
 
 Those three scopes cover the tracker surface. To enable [pull-request reactions](#react-to-pull-requests) with auto-merge or branch cleanup, also grant `write:repository`; it is Gitea's one coarse scope covering both the merge and the branch-delete routes, and the token's user needs write access to the repository on top of it. A write scope implies its read on Gitea, so the complete set for an auto-merge deployment is `write:issue`, `read:user`, and `write:repository`, with `read:repository` subsumed by its write counterpart.
 

@@ -93,7 +93,7 @@ Gitea also accepts an `?access_token=<key>` query parameter, but the adapter nev
 
 ### Scopes
 
-The minimal verified scope set is `write:issue`, `read:user`, and `read:repository`. A write scope implies its read, so `write:issue` covers every issue, comment, and label operation; `read:user` covers the credential and identity check; `read:repository` covers the project check. Auto-merge and branch cleanup additionally require the `write:repository` scope, and the token's user needs repository write access; see [token scope for merge and branch operations](#token-scope-for-merge-and-branch-operations).
+The minimal verified scope set is `write:issue`, `read:user`, and `read:repository`. A write scope implies its read, so `write:issue` covers every issue, comment, and label operation; `read:user` covers the credential and identity check; `read:repository` covers the project check. The [issue comment feed](/reference/workflow-config/#comment_feed) needs nothing beyond these when its `authors` value is `members`: the member check reads the repository's assignee list, which `read:repository` or `write:repository` allows. See [comment authors and the feed](#comment-authors-and-the-feed). Auto-merge and branch cleanup additionally require the `write:repository` scope, and the token's user needs repository write access; see [token scope for merge and branch operations](#token-scope-for-merge-and-branch-operations).
 
 ### Fixed headers
 
@@ -219,7 +219,21 @@ The adapter normalizes Gitea issue responses to [issue object](/reference/workfl
 | `.body` | `body` | Markdown pass-through. |
 | `.created_at` | `created_at` | RFC 3339 string, as-is. |
 
-Comments arrive oldest-first from Gitea and need no client-side re-sort.
+Comments arrive oldest-first from Gitea and need no client-side re-sort. The issue comment feed also reads each comment's `updated_at` to detect an edit, and treats the author's login as the author identity.
+
+### Comment authors and the feed
+
+The [issue comment feed](/reference/workflow-config/#comment_feed) hands the agent the issue comments its conversation has not been given. This section covers what is specific to Gitea; the feed's keys and delivery rules are in the [`comment_feed` reference](/reference/workflow-config/#comment_feed).
+
+**Author identity.** A comment's author is the account login. The `include_authors` and `exclude_authors` lists match that login. A comment whose author is a bot is delivered only when the login is listed in `include_authors`. Gitea reports a bot account with the user type `Bot`. Forgejo and older Gitea send no type, so a bot there is not recognized as one: it goes through the assignee-list check like any account, and `exclude_authors` is the way to keep it out.
+
+**Who counts as a member.** With `authors: members`, Sortie asks Gitea whether the commenter appears in the repository's assignee list (`GET /repos/{owner}/{repo}/assignees`). The list holds the accounts with write access or above and the owner of a user-owned repository. On an organization repository it also holds members of the repository's teams that can read issues or pull requests, so a team member without write access counts as a member there. A site administrator who holds no collaboration or team on the repository is absent from the list. The login is matched whole, ignoring letter case.
+
+**Token access.** The member check uses the tracker token and needs `read:repository` or `write:repository` on a scoped token. When Gitea answers the list request with 401 or 403, for example for a scoped token without repository read, Sortie logs one error per process, makes no further lookup for the rest of that run, and does not deliver each comment that needs one. The next run asks again, so a fixed token takes effect without a restart. Any other failure, including a 404 for a repository the token cannot see, withholds the affected comments for that turn and logs a warning `issue comments withheld after author lookup failed`; the lookup is tried again on the next turn. `include_authors` or `authors: all` delivers comments without the lookup. [How to connect Sortie to Gitea](/guides/connect-to-gitea/#create-an-access-token) covers token creation.
+
+**Remembered answers.** A grant holds for the life of the process, so an account whose access is revoked still counts until Sortie restarts. A refusal holds for that one comment, so the author's next comment is checked again.
+
+**Comments Sortie posted.** Gitea returns the numeric id of a comment Sortie posts, and Sortie never delivers a comment with a recorded id back to the agent.
 
 ### Blocker extraction
 
@@ -260,13 +274,15 @@ List routes take `page` (1-based) and `limit`. The page-size parameter is `limit
 
 The server clamps `limit` to the instance's `MAX_RESPONSE_ITEMS` (default 50), so the adapter iterates by the `Link` header rather than assuming a page size; an operator who lowers the cap in `app.ini` does not break pagination. An absent `Link` header is the normal end-of-results signal.
 
-The per-issue comments route is the exception: it is unpaginated and returns the complete comment list in one response. There are no cursors, so the missing-end-cursor guard does not apply.
+The per-issue comments route is the exception: it is unpaginated and returns the complete comment list in one response, with or without a `since` filter. There are no cursors, so the missing-end-cursor guard does not apply. The assignee list read for the member check is also one unpaginated array.
 
 ---
 
 ## Rate limiting
 
 Gitea ships no built-in API rate limiting. There is no `/rate_limit` endpoint, no `x-ratelimit-*` response headers, and no `ETag` header, so there is no conditional-request cache. The budget is the self-hosted instance's capacity, and poll cadence is the only pressure control.
+
+With the [issue comment feed](/reference/workflow-config/#comment_feed) on, each turn makes at most one comment request. A run's first read has no filter and returns the whole comment list. Later reads send a `since` filter set to the newest `updated_at` seen, truncated to the whole second, so the comments updated in that second come back again and are not delivered twice. A first turn whose dispatch already read the comments makes no read of its own. With `authors: members`, the first comment from each author costs one assignee-list request until that author is granted, and each further comment from an author who was refused costs one more. With the feed off, the adapter makes none of these requests.
 
 A reverse proxy in front of the instance may inject HTTP 429. The adapter maps 429 to `tracker_api_error` and honors a `Retry-After` header when present, but expects never to see one from Gitea itself.
 

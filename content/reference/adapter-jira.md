@@ -305,6 +305,21 @@ Each comment maps to the object fields documented under [`.issue.comments`](/ref
 | `.body` | `body` | v3: ADF JSON flattened to text. v2: raw string in wiki markup, preserved verbatim. |
 | `.created_at` | `created` | ISO-8601 timestamp string, as-is. |
 
+`.author` is always the display name. The [comment feed](/reference/workflow-config/#comment_feed) does not match on it.
+
+#### Author identity for the comment feed
+
+The feed matches `include_authors` and `exclude_authors` against a separate identity, and uses the author's kind to decide who counts as a member. Both come from the comment's author object:
+
+| Deployment | Identity to list | Kind |
+|---|---|---|
+| Jira Cloud (v3) | The account ID, such as `5b10ac8d82e05b22cc7d4ef5` | From the account type: `atlassian` is a person, `app` is a bot, `customer` is an external account. |
+| Jira Server / Data Center (v2) | The user name | Always a person, because Data Center sends no account type. Service-desk customers and automation users read as people too. |
+
+A comment whose author object is missing has no identity. `members` never delivers it; `authors: all` does.
+
+With `authors: members` (the default), the feed delivers the comments of every author the adapter reads as a person. Jira checks no further access, because commenting already requires access to the project; a project that lets many users comment widens `members` to match. Comments from Cloud apps and service-desk customers are delivered only when their account ID is listed in `include_authors`. On Data Center, list the user name of an automation or customer account in `exclude_authors` to keep its comments out. The rules for the keys are in the [`comment_feed` reference](/reference/workflow-config/#comment_feed).
+
 ### v2 wiki-markup bodies
 
 When `api_version: "2"`, `.issue.description` and comment `.body` carry Jira wiki markup exactly as Jira returns it. The adapter reads these as raw JSON strings; it does not strip, translate, or flatten markup tokens. As a result, prompt templates and dispatched agents receive wiki markup (for example `h2. Heading`, `*bold text*`, `{code:java}...{code}`) rather than clean prose. This is expected behavior for v2 deployments. The adapter does not request `expand=renderedBody` and does not parse rendered HTML.
@@ -441,6 +456,15 @@ The comment endpoint uses offset-based pagination for both v3 and v2.
 
 Pagination stops when `startAt + len(comments) >= total` or the response returns zero comments.
 
+#### Reads for the comment feed
+
+With the [comment feed](/reference/workflow-config/#comment_feed) on, a turn reads the issue's comments through the same endpoint. The first read of an issue is the full read above. Later reads change two things:
+
+- They order the pages newest first (`orderBy=-created`) and stop after the first page that holds a comment the previous read returned. When nothing is new, that is the first page, one request.
+- They compare comments by content, because Jira has no filter by update time. A new comment, or an edit to a comment on the pages the read reaches, is seen. An edit to a comment older than every comment the read reaches is not seen.
+
+The read does not use the issue's `updated` field to decide whether to read, because Sortie's own writes move it.
+
 ---
 
 ## Error mapping
@@ -494,6 +518,8 @@ Atlassian meters the API per tenant, and the current quotas are Atlassian's to p
 
 What decides how much Sortie spends is the poll interval and the page size: each poll reads one page of candidates, and each candidate that reaches dispatch costs a further read. With the default poll interval and page size, a project with a few hundred open issues stays well inside a normal tenant's budget; a short interval across many projects does not.
 
+With the [comment feed](/reference/workflow-config/#comment_feed) on, each turn adds one comment read: one request per page of 50 comments, so one request in the common case where nothing or little is new, and a request per 50 comments on the first read of a long issue. A first turn whose dispatch already read the comments reuses that read and makes none. Jira needs no access lookup for `members`, so the comment reads are the whole cost. They count under `fetch_comments` in the [metrics](#metrics). Set `comment_feed.enabled: false` to remove them.
+
 Sortie does not throttle client-side. A throttled request fails as `tracker_api_error` and Sortie waits for the next poll. Raise `polling.interval_ms` or narrow `query_filter`.
 
 ## Network configuration
@@ -524,6 +550,8 @@ When the HTTP server is disabled, metrics calls are no-ops. See [Prometheus metr
 ## Jira permissions
 
 The credential needs read access to the configured project for polling, and write access on top of that if the workflow transitions issues, posts comments, or adds and removes labels. Removing a label is the same issue edit as adding one and needs no further permission. Which scope or permission grants each of those differs between Cloud and Data Center, and both are Atlassian's to document; see [external references](#external-references).
+
+The comment feed adds no permission. It reads comments with the same read access to the project that polling needs, and it makes no access lookup for the authors it delivers.
 
 A credential that can read but not write does not fail at startup. It fails at the moment of the write: a transition returns `tracker_auth_error`, and so does a comment or a label. A failed comment or label is not fatal to the run, so a read-only credential produces a run that works and stays silent on the issue, which is the shape this misconfiguration usually takes.
 
@@ -599,6 +627,7 @@ tracker:
 - [Error reference](/reference/errors/#tracker-errors): all tracker error kinds with retry behavior and operator actions
 - [Environment variables reference](/reference/environment/): `$VAR` expansion modes and agent passthrough variables
 - [Prometheus metrics reference](/reference/prometheus-metrics/): `sortie_tracker_requests_total` and related counters
+- [How to steer agents with issue comments](/guides/steer-agents-with-issue-comments/): commenting on a Jira issue while the agent works, and choosing whose comments reach it
 - [How to write a prompt template](/guides/write-prompt-template/): using `.issue` fields (populated by this adapter) in templates
 - [Agent extensions reference](/reference/agent-extensions/): `tracker_api` tool that agents use to call back into the tracker
 - [How to use the file adapter for local testing](/guides/use-file-adapter-for-testing/): test prompts and hooks without Jira API credentials

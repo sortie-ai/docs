@@ -1191,7 +1191,7 @@ The `hold` of a `held[]` entry and of a `between_stages[]` entry has these membe
 | `daily_spend_ceiling`, `weekly_spend_ceiling`, `monthly_spend_ceiling` | A spend window holds dispatch. |
 | `stage_hop_unconfirmed` | The read that should confirm the issue's stage move failed or did not show the hop's stage label. |
 | `usage_limit` | The agent provider refused a session because the account's usage limit is reached, and Sortie starts no session of the issue's agent kind (on that model alone, for a hold with `model_only`) until it resets. A dispatch from a poll tick stays held for one poll interval past `resets_at`, so the hold can still be listed with a `resets_at` in the past. The refused issue's own retry fires at the reset. |
-| `park_comments_unread` | A person released the issue's park, and the read of the comments the next run receives failed. The next poll reads them again. |
+| `park_comments_unread` | A person released the issue's park, and the read of the comments the next run receives failed, or the read of the record of comments Sortie posted failed. The next poll reads them again. |
 
 A hold has one reason. While a spend window holds, an issue that a full capacity limit stops shows the spend reason, because a freed slot or host would not dispatch it. When a full global slot limit or no free SSH host stops the pass, the pass reads no blockers for the issues it has not reached, so an issue that also has an open blocker shows the capacity reason. A per-state slot limit that is full holds only the issues of that state, and the pass reads no blockers for them either.
 

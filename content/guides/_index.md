@@ -43,6 +43,7 @@ Step-by-step instructions for configuring, operating, and extending Sortie.
   {{< card link="configure-ci-feedback" title="CI Feedback" subtitle="Detect CI failures and retry automatically." >}}
   {{< card link="triage-reactions-before-dispatch" title="Triage Reactions" subtitle="Run your own script on a reaction and close it, escalate it, or hand it to the agent." >}}
   {{< card link="configure-review-feedback" title="Review Feedback" subtitle="Route PR review comments back to the agent as continuation context." >}}
+  {{< card link="steer-agents-with-issue-comments" title="Steer Agents With Comments" subtitle="Answer or redirect a working agent by commenting on its issue, and choose whose comments it reads." >}}
 {{< /cards >}}
 
 ## Observability

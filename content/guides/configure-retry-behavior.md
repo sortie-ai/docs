@@ -97,7 +97,14 @@ Release a parked issue with any one of three gestures:
 2. Remove the parking label, but only once Sortie has confirmed, on a later fetch, that the label actually reached the tracker. A label you see missing before that confirmation happened releases nothing.
 3. Let a later run for the same issue produce a work-observed verdict; the park lifts on its own.
 
-After the first two gestures, answer in an issue comment before you release it. The next run starts with the agent's earlier session where the agent supports it, and your prompt template can show the agent its own stop statement and your comments through `.park`. See [hand the agent a person's answer after a park](/guides/write-prompt-template/#hand-the-agent-a-persons-answer-after-a-park). The third gesture involves no person, so it hands nothing over.
+After the first two gestures, answer in an issue comment before you release the issue. Sortie reads the issue's comments when it starts the next run, so a comment written first is in that run's first prompt. The next run continues the agent's earlier session where the agent supports it, and a prompt template can show the agent its own stop statement through `.park`. The third gesture involves no person, so it hands nothing over.
+
+How your answer reaches the run depends on the [comment feed](/reference/workflow-config/#comment_feed):
+
+- **Feed on (the default).** Your answer is an issue comment the agent's conversation has not been given yet, so the run receives it if its author is one the feed delivers, which by default means a person with write access to the project. A template that never mentions comments still shows it, through the block Sortie appends. A template that renders `.park.comments` places it where you chose. See [place issue comments in your prompt](/guides/write-prompt-template/#place-issue-comments-in-your-prompt) and [hand the agent a person's answer after a park](/guides/write-prompt-template/#hand-the-agent-a-persons-answer-after-a-park).
+- **Feed off.** `.park.comments` holds the comments written since the parked run sent its last prompt, without the ones Sortie posted, and a template that renders it shows them to the agent. `.issue.comments` holds every comment of the issue on that run, and the agent can read the issue with its tracker tool, but Sortie places nothing in the prompt for a template that renders neither.
+
+The order matters little with the feed on: a comment written after the release is not lost, and reaches the agent at the start of a later turn or in the next run. With the feed off, a comment written after Sortie read the comments for the run is not in `.park.comments`.
 
 To find out which issues are parked right now, read the `parked` list of `GET /api/v1/state`, or ask for one issue with `GET /api/v1/{identifier}`, which answers with `status` `parked`. Each entry gives the title, link, reason, and parking label, plus the dispatch rule, agent, and model of the run that led to the park, so you can tell which stage got stuck. See the [HTTP API reference](/reference/http-api/#get-apiv1state-system-state).
 

@@ -157,6 +157,90 @@ Comments: {{ .issue.comments | toJSON }}
 {{ end }}
 ```
 
+`.issue.comments` is the list the tracker returned for the run. Most runs start without it, so it is `nil` there. To show the agent the comments it has not been given yet on every turn, use the `comment_feed` variable instead; see [place issue comments in your prompt](#place-issue-comments-in-your-prompt). Rendering `.issue.comments` as well makes the same comments appear twice.
+
+## Place issue comments in your prompt
+
+A template that never mentions comments still gets them. When a person comments on the issue, Sortie hands the agent the comments it has not been given yet at the start of its next turn, in a block it appends to the end of the prompt. This section is optional: read it to choose where the comments appear, how they look, or to keep them out of the prompt. For whose comments count and how to turn the feed off, see [steer agents with issue comments](/guides/steer-agents-with-issue-comments/).
+
+### Put the comments where you want them
+
+The `comment_feed` variable holds two lists. `.comment_feed.new` holds the comments the agent has not been given. `.comment_feed.earlier` holds the comments an earlier agent session on this issue was given, and it is filled only when the run starts a new session that does not carry the earlier conversation. Each element has `id`, `author`, `body`, `created_at`, and `replacing`. Both lists are empty, never `nil`, on a turn with nothing to deliver, so `{{ range }}` and `{{ if }}` need no guard.
+
+```jinja
+---
+tracker:
+  kind: github
+  api_key: $SORTIE_GITHUB_TOKEN
+  project: myorg/myrepo
+  active_states: [backlog, in-progress, review]
+  terminal_states: [done]
+
+agent:
+  kind: claude-code
+  command: claude
+---
+
+Fix {{ .issue.identifier }}: {{ .issue.title }}
+
+{{ if .comment_feed.earlier }}
+## Comments from earlier sessions
+
+{{ range .comment_feed.earlier }}### {{ .author }}, {{ .created_at }}
+<issue_comment>{{ .body | toJSON }}</issue_comment>
+{{ end }}
+{{ end }}
+{{ if .comment_feed.new }}
+## New comments
+
+Answer these before you continue.
+
+{{ range .comment_feed.new }}### {{ .author }}, {{ .created_at }}{{ if .replacing }} (edited, replaces the text you were given before){{ end }}
+<issue_comment>{{ .body | toJSON }}</issue_comment>
+{{ end }}
+{{ end }}
+```
+
+Piping the body through `toJSON` quotes it as a single string, so a comment's line breaks and markup cannot pass as headings or another author's section of your prompt. Quoting does not stop a model from following what the text says; who may comment matters more than how the comment is framed, as [issue comments reach the agent unasked](/concepts/security/#issue-comments-reach-the-agent-unasked) explains. Sortie's own block quotes the same way.
+
+When a person edits a comment the agent already has, the comment is delivered once more in full with `.replacing` set to `true`. Use it to tell the agent that the new text supersedes the old.
+
+Sortie decides that your template placed the comments by rendering it twice, once without the comments and once with them. When the two prompts differ, Sortie sends yours unchanged and appends nothing. When they are identical, or the prompt is blank, or Sortie substituted a built-in prompt for your output, the block is appended. Either way every comment counts as given.
+
+### Leave the comments out on purpose
+
+To keep comment text out of the prompt, render something else in its place, such as a pointer to the agent's tracker tool:
+
+```jinja
+---
+tracker:
+  kind: github
+  api_key: $SORTIE_GITHUB_TOKEN
+  project: myorg/myrepo
+  active_states: [backlog, in-progress, review]
+  terminal_states: [done]
+
+agent:
+  kind: claude-code
+  command: claude
+---
+
+Fix {{ .issue.identifier }}: {{ .issue.title }}
+
+{{ if or .comment_feed.new .comment_feed.earlier }}A person commented on the issue. Read the comments with your tracker tool before you continue.{{ end }}
+```
+
+The prompt differs whenever a comment is pending, so Sortie sends it unchanged. Every pending comment counts as given, and Sortie does not deliver it again. Test both lists, as the example does: a template that tests only `.comment_feed.new` renders the same text when only earlier comments are pending, and Sortie appends the block. Setting `enabled: false` in the `comment_feed` block is the other way to keep comments out; it also stops the extra comment reads.
+
+### Avoid the placement traps
+
+- **Rendering one list.** The comments of the list you leave out count as given and are never shown. A template that renders only `.comment_feed.new` hides the earlier comments from a new session for good. Render both.
+- **Rendering `.issue.comments`.** Sortie does not count it as placing the feed. A template that renders it and neither `comment_feed` list receives the block as well, so the comments appear twice. Use the `comment_feed` lists to show comments.
+- **Rendering on some turns only.** A template that shows the comments only while `.run.is_continuation` is false places them on those turns. On the other turns the two prompts are identical and Sortie appends the block.
+- **Rendering `.park.comments` and the lists.** On the first turn after a park release `.park.comments` holds the same pending comments, so a template that renders both prints them twice. Pick one; see the next section.
+
+For the block's exact layout and the rules for which comments are delivered, see the [`comment_feed` reference](/reference/workflow-config/#comment_feed).
+
 ## Hand the agent a person's answer after a park
 
 When an agent writes `blocked`, or its runs keep showing no evidence of work, Sortie parks the issue until a person acts. The person releases it by removing the parking label or moving the issue to another state. The next run then needs to know why the agent stopped and what the person said. Sortie sets `.park` on the first turn of that run, and it is `nil` on every other run, so the block below costs nothing when no park occurred:
@@ -179,9 +263,16 @@ Nobody commented. Re-read the issue before you continue.
 {{ end }}
 ```
 
-Inside `range`, the dot is a comment, as in the comments section above. When Sortie posted the stop statement as a tracker comment, that comment is in `.park.comments` as well, so the statement can print twice. Drop the `.park.statement` line if you want it only once.
+Inside `range`, the dot is a comment, as in the comments section above. Sortie never lists a comment it posted in `.park.comments`, so when it posted the stop statement as a tracker comment, the statement still prints once, through `.park.statement`.
 
-On this run `.issue.comments` holds every comment of the issue, not only the new ones, and the run continues the agent's earlier session where the agent supports it. Leave the first-run instructions in place, because a run that cannot resume starts without the earlier conversation. See [`.park`](/reference/workflow-config/#park) for every field and the rules for which comments count.
+What the list holds depends on the issue comment feed:
+
+- **Feed on (the default).** `.park.comments` holds the comments the agent has not been given, from the authors the feed delivers, which by default are people with write access to the project. In a new session the comments earlier sessions were given come first. A template that renders the list places those comments itself, so Sortie appends no block for them. A template without the park block still delivers the answer, through the appended block, though without the stop statement. "Nobody commented" also shows when the only new comments come from authors the feed does not deliver.
+- **Feed off.** `.park.comments` holds every comment written since the parked run sent its last prompt, whoever wrote it.
+
+Render `.park.comments` or the `comment_feed` lists, not both, or the person's reply prints twice. Its elements carry no `replacing` field.
+
+On this run `.issue.comments` holds every comment of the issue, including the ones the agent already saw, and the run continues the agent's earlier session where the agent supports it. Render `.park.comments` rather than `.issue.comments` for the answer. Leave the first-run instructions in place, because a run that cannot resume starts without the earlier conversation. See [`.park`](/reference/workflow-config/#park) for every field and the rules for which comments count.
 
 ## Use the built-in functions
 
@@ -291,7 +382,7 @@ The `-` trims whitespace on that side of the tag. For most prompts, the extra ne
 
 ## Complete example
 
-```jinja {hl_lines=[7,13,16,25,32,38,44,52]}
+```jinja {hl_lines=[7,13,16,25,32,38,44,54]}
 {{/* Production prompt for Jira + Claude Code workflow */}}
 You are a senior engineer. Your work is tracked by Sortie.
 
@@ -335,12 +426,14 @@ Review workspace state and continue. Do not restart from scratch.
 
 A previous attempt failed. Diagnose before changing code.
 {{ end }}
-{{ if .issue.comments }}
+{{ if or .comment_feed.earlier .comment_feed.new }}
 
 ## Feedback
 
-{{ range .issue.comments }}### {{ .author }}
-{{ .body }}
+{{ range .comment_feed.earlier }}### {{ .author }}
+{{ .body | toJSON }}
+{{ end }}{{ range .comment_feed.new }}### {{ .author }}{{ if .replacing }} (edited){{ end }}
+{{ .body | toJSON }}
 {{ end }}
 {{ end }}
 {{ if .issue.blocked_by }}
