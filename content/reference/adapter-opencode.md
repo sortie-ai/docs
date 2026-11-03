@@ -238,9 +238,9 @@ Refuses unusable settings, validates the workspace path, resolves the launch tar
 3. Resolves the configured command from `PATH`, defaulting to `opencode` when `agent.command` is empty. In SSH mode, resolves the local `ssh` binary instead and stores the remote command string for later use.
 4. Resolves the session's tool delivery from the generated MCP configuration, on a local launch and an SSH launch alike. On an SSH launch this starts Sortie's HTTP tool server and opens one short extra SSH connection to learn whether the worker host accepts the reverse forward. See [MCP](#mcp).
 5. Queries the resolved command's version, over SSH when the launch is remote, and refuses the session when it is unreadable or not a 2.x release; see [version check](#version-check).
-6. When continuation is requested, reads the saved session's export, over SSH when the launch is remote, to fix the session's earlier spend as history; see [resumed sessions](#resumed-sessions). A failed read does not fail session start.
+6. When continuation is requested, reads the saved session's export, over SSH when the launch is remote. An export that names the session confirms it, and the session continues it with its earlier spend fixed as history. Any other outcome starts a new session instead; see [resumed sessions](#resumed-sessions). A lost SSH connection during the read or an ended session start fails the start; nothing else about the read does.
 7. Builds the inline configuration document every turn of the session will carry, from the settings and the tool servers resolved in step 4.
-8. The session has no running process ID or subprocess yet, and takes the session ID saved from a previous run as its own when continuation is requested.
+8. The session has no running process ID or subprocess yet. It takes the session ID saved from a previous run as its own only when step 6 confirmed that session; otherwise it has no ID until the first turn's first JSON envelope names one.
 
 Session start performs no provider-auth probe.
 
@@ -263,7 +263,7 @@ Spawns one OpenCode subprocess, reads its stdout, and delivers normalized events
 
 1. Builds the managed environment and the per-turn argument list.
 2. Adds `run --format json --standalone` to every invocation and delivers the prompt on the subprocess's standard input. `--standalone` keeps the launch from joining a shared background service another client started.
-3. Adds `--session <id>` when the session already has an OpenCode session ID.
+3. Adds `--session <id>` when the session already has an OpenCode session ID. A saved ID the start did not confirm is never passed, so the runtime is never asked to continue a session it does not hold.
 4. Launches the subprocess locally or through SSH, with the full parent process environment plus the [managed environment](#managed-environment), which includes `OPENCODE_CONFIG_CONTENT` on every turn. On a local launch, `PWD` in that environment names the same verified workspace path the subprocess's own working directory is set to, so the subprocess lands in the workspace.
 5. Isolates the subprocess in its own process group before start, then arms a graceful process-group signal for cancellation, bounded by `stop_grace_ms`.
 6. Reads stdout and stderr concurrently while waiting for the subprocess to exit.
@@ -358,9 +358,17 @@ The turn is complete only when every subagent call completed, named its session,
 
 ### Resumed sessions
 
-When a session continues a saved OpenCode session, session start reads that session's export once, under the same `read_timeout_ms` bound. Every message it holds becomes history, matched by message ID whatever its creation time, so the session's earlier spend never lands in this run's total. A new session starts with no history and needs no read.
+When a session is asked to continue a saved OpenCode session, session start reads that session's export once, under the same `read_timeout_ms` bound, before any turn runs. OpenCode answers `opencode run --session <id>` for an ID it does not hold by silently creating an empty session under that ID and exiting `0`, with nothing in the output marking the replacement. The export is how the adapter tells the cases apart.
 
-When that read fails, the history is unknown rather than empty. A turn the final step report settles still counts its own requests, but no other turn can count from the export until a turn-end export is read; that read fixes the history after its turn settles, so those turns stand as lower bounds.
+An export that names the saved session confirms it. The session continues it, and every message the export holds becomes history, matched by message ID whatever its creation time, so the session's earlier spend never lands in this run's total.
+
+Any other outcome starts a new session. The session carries no saved ID, the first turn runs without `--session`, and the ID OpenCode reports in its first JSON envelope becomes the session's ID. The new session has no history to subtract. Sortie logs one warning at WARN level:
+
+```text
+session resume not continued, starting new session
+```
+
+The record carries `resume_id`, the saved ID that was not continued, and `resume_verdict`, which is `replaced` when the export exited non-zero, as it does for a deleted or never-created session, or named a different session, and `unknown` when the read timed out, exceeded the size limit, or did not decode. When the read failed rather than finished, the record also carries `error`. A new session does not receive the earlier session's conversation, so its first prompt carries the issue comments the earlier sessions were given as well; see [the comment feed](/reference/workflow-config/#comment_feed).
 
 ### Model tracking
 
@@ -492,7 +500,8 @@ OpenCode continuation is flag-based. The adapter persists the OpenCode session I
 |---|---|---|
 | Fresh session before first JSON envelope | Empty | _(no `--session` flag)_ |
 | Subsequent turn in the same worker session | Known | `--session <sessionID>` |
-| Continuation after worker restart | The session ID saved from a previous run | `--session <sessionID>` |
+| Continuation after worker restart, saved session confirmed by the start | The session ID saved from a previous run | `--session <sessionID>` |
+| Continuation after worker restart, saved session not confirmed | Empty; the first envelope supplies a new ID | _(no `--session` flag)_ |
 
 
 If a resumed turn emits a different `sessionID` from the one already stored, the adapter aborts the turn with `response_error`, stops the subprocess gracefully, and emits `turn_failed`. `session_started` is emitted only once per session, on the first accepted JSON envelope.
@@ -583,7 +592,7 @@ Both come from shared validation, so a file that fails here fails a `codex` sess
 | Subprocess model | New process per turn | New process per turn | Persistent process across turns | New process per turn, plus a usage-recovery subprocess after each turn |
 | Protocol | CLI flags + JSONL stdout | CLI flags + JSONL stdout | JSON-RPC 2.0 over stdin/stdout | CLI flags + newline-delimited stdout envelopes |
 | Output format flag | `--output-format stream-json` | `--output-format json` | JSON-RPC notifications | `--format json` |
-| Session ID source | UUID generated by adapter | UUID generated by adapter | Thread ID from `thread/start` response | Discovered from the first JSON envelope, or resumed via `--session` |
+| Session ID source | UUID generated by adapter | UUID generated by adapter | Thread ID from `thread/start` response | Discovered from the first JSON envelope, or resumed via `--session` once the start's export confirms the saved session |
 | Resume mechanism | `--resume <UUID>` | `--session-id <uuid>` on the first turn, `--resume <uuid>` after; never `--continue` | `thread/resume` or automatic within session | `--session <sessionID>` only |
 | Input token reporting | Provisional per request from `assistant` events, settled per model by the `result` events' `model_usage_since_last_result` | Per model from `session.usage_checkpoint` stream lines, less the session's position before the turn | From `thread/tokenUsage/updated`, baseline-subtracted | From `step_finish` step reports, with `opencode session export --standalone --sanitize` settling a turn they do not cover |
 | Model reporting | From `assistant` events | From the `modelMetrics` keys of `session.usage_checkpoint` lines, or each journal record's own model | From the thread-open response, updated on reroute | Recovered from export `providerID/modelID` |
