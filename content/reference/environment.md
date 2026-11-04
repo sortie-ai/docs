@@ -274,9 +274,9 @@ That inheritance belongs to a local launch. An agent Sortie starts on a remote h
 | `CLOUD_ML_REGION` | `claude-code` adapter (Google Vertex AI) | GCP region. Required when `CLAUDE_CODE_USE_VERTEX=1`. |
 | `ANTHROPIC_BASE_URL` | `claude-code` adapter (proxy) | Override the Anthropic API base URL. Use for LiteLLM, custom gateways, or corporate proxies. |
 | `CLAUDE_CODE_EFFORT_LEVEL` | `claude-code` adapter (optional) | Sets Claude Code's effort level. Ignored while [`claude-code.effort`](/reference/adapter-claude-code/#reasoning-effort) is set: Sortie then withholds it from every launch, local and remote. It keeps its effect while `effort` is unset. |
-| `COPILOT_GITHUB_TOKEN` | `copilot-cli` adapter | GitHub token dedicated to Copilot CLI. Highest priority among the three token variables the CLI checks. |
-| `GH_TOKEN` | `copilot-cli` adapter | GitHub token shared with the `gh` CLI. Second priority for Copilot CLI authentication. Also used by many GitHub tooling integrations. |
-| `GITHUB_TOKEN` | `copilot-cli` adapter | GitHub token common in CI environments. Third priority for Copilot CLI authentication. |
+| `COPILOT_GITHUB_TOKEN` | `copilot-cli` adapter; Copilot CLI on `agent-client-protocol` | GitHub token dedicated to Copilot CLI. Highest priority among the three token variables the CLI checks. |
+| `GH_TOKEN` | `copilot-cli` adapter; Copilot CLI on `agent-client-protocol` | GitHub token shared with the `gh` CLI. Second priority for Copilot CLI authentication. Also used by many GitHub tooling integrations. |
+| `GITHUB_TOKEN` | `copilot-cli` adapter; Copilot CLI on `agent-client-protocol` | GitHub token common in CI environments. Third priority for Copilot CLI authentication. |
 | `COPILOT_HOME` | `copilot-cli` adapter (optional) | Root directory the Copilot CLI writes its per-session state under. Default: `~/.copilot`. Sortie reads it too: the adapter resolves `<COPILOT_HOME>/session-state/<session id>/events.jsonl`, the [session-state journal](/reference/adapter-copilot/#session-state-journal) that settles a turn the [usage checkpoints](/reference/adapter-copilot/#usage-checkpoints) on the event stream leave open. An empty or unset value resolves to the default. On a remote launch the remote shell resolves the variable on the worker host; see [usage measurement over SSH](/reference/adapter-copilot/#usage-measurement-over-ssh). |
 | `CODEX_API_KEY` | `codex` adapter | OpenAI API key. Sortie reads it from its own environment and signs the app-server in with it over the adapter's protocol channel, on a local launch and a remote one alike, when the runtime reports no account of its own. A local subprocess also inherits the variable; a remote one never receives it. With the variable unset, the adapter falls back to whatever credentials the runtime already holds where it runs, such as `~/.codex/auth.json`. |
 
@@ -309,11 +309,11 @@ In local mode the adapter injects only the managed `OPENCODE_*` values above; ev
 
 A remote session receives `OPENCODE_DISABLE_AUTOUPDATE` and `OPENCODE_CONFIG_CONTENT`, plus the [tool delivery variables](#tool-delivery-variables) when it delivers tools, and nothing else of Sortie's own. The adapter strips nothing there and leaves the remote host's own variables, `OPENCODE_PERMISSION` included, as they are. The provider credentials your model selection needs must already exist on the remote host, or be named under [`worker.ssh_pass_env`](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent).
 
-**For `agent-client-protocol`, Sortie manages no credential at all.** This kind names no default runtime, so there is no fixed variable to preflight or document here: whichever binary `agent.command` names reads its own credential from the inherited environment, exactly like every other agent adapter's subprocess.
+**For `agent-client-protocol`, Sortie manages no credential at all.** This kind names no default runtime, so there is no fixed variable to preflight or document here: whichever binary `agent.command` names reads its own credential from the inherited environment, exactly like every other agent adapter's subprocess. The [`agent-client-protocol.env`](/reference/adapter-agent-client-protocol/#env) setting adds variables to that environment on a local launch and on an SSH launch; a name it sets replaces the inherited variable of the same name.
 
 It still runs the [credential-verification step](/reference/workflow-config/#credential-verification) like every other kind, and a runtime that answers its handshake with a protocol-level authentication error there fails the run with `credential_unverified` before any work starts.
 
-See the [Agent Client Protocol adapter reference](/reference/adapter-agent-client-protocol/) for the kind itself, and [Gemini CLI](/reference/agent-client-protocol-gemini/) or [Kiro CLI](/reference/agent-client-protocol-kiro/) on that route for what each of those two runtimes actually reads.
+See the [Agent Client Protocol adapter reference](/reference/adapter-agent-client-protocol/) for the kind itself, and [Gemini CLI](/reference/agent-client-protocol-gemini/), [Kiro CLI](/reference/agent-client-protocol-kiro/), [Copilot CLI](/reference/agent-client-protocol-copilot/), or [OpenCode](/reference/agent-client-protocol-opencode/) on that route for what each runtime actually reads.
 
 ### Variables carried to a remote agent
 
@@ -325,7 +325,7 @@ Every agent kind declares the environment variables its runtime reads as the cre
 | `copilot-cli` | `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN` |
 | `codex` | None. The login travels as a protocol message instead, so `CODEX_API_KEY` never reaches the remote agent's environment. |
 | `opencode` | None. Provider credentials are OpenCode's own to resolve. Sortie's managed `OPENCODE_DISABLE_AUTOUPDATE` and `OPENCODE_CONFIG_CONTENT` do reach a remote session, on the same delivery path but under neither worker field's control. |
-| `agent-client-protocol` | None. The kind names no default runtime, so it has no fixed credential to declare. |
+| `agent-client-protocol` | None. The kind names no default runtime, so it has no fixed credential to declare. The entries of [`agent-client-protocol.env`](/reference/adapter-agent-client-protocol/#env) are carried, and `worker.ssh_pass_env` carries any other name. |
 
 A variable carried this way overrides the value or login the remote host already holds. If Sortie's own environment sets one of these names for an unrelated purpose, `GITHUB_TOKEN` for the tracker while your `copilot-cli` hosts sign in on their own, name it under [`worker.ssh_disallow_pass_env`](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent) to keep the host's login in effect.
 

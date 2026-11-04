@@ -27,12 +27,14 @@ Comprehensive reference for every CLI flag, configuration field, API endpoint, a
 
 {{< cards >}}
   {{< card link="adapter-claude-code" title="Claude Code" subtitle="Configuration, JSONL events, token accounting, including SSH." >}}
-  {{< card link="adapter-copilot" title="Copilot CLI" subtitle="Configuration, session lifecycle, and output parsing, including SSH." >}}
+  {{< card link="adapter-copilot" title="Copilot CLI" subtitle="Deprecated. Configuration, session lifecycle, and output parsing, including SSH." >}}
   {{< card link="adapter-codex" title="Codex" subtitle="Configuration, JSON-RPC protocol, persistent subprocess, including SSH." >}}
-  {{< card link="adapter-opencode" title="OpenCode" subtitle="Configuration, session lifecycle, and output parsing, including SSH." >}}
+  {{< card link="adapter-opencode" title="OpenCode" subtitle="Deprecated. Configuration, session lifecycle, and output parsing, including SSH." >}}
   {{< card link="adapter-agent-client-protocol" title="Agent Client Protocol" subtitle="The generic, runtime-neutral kind: configuration, session lifecycle, and transport-level limits." >}}
   {{< card link="agent-client-protocol-gemini" title="Gemini CLI (Agent Client Protocol)" subtitle="Installation, credentials, launch switches, and runtime limitations on that route." >}}
   {{< card link="agent-client-protocol-kiro" title="Kiro CLI (Agent Client Protocol)" subtitle="Installation, the login that delivers Sortie's tools, the trust switch, and runtime limitations." >}}
+  {{< card link="agent-client-protocol-copilot" title="Copilot CLI (Agent Client Protocol)" subtitle="The launch command, the credential, spend and limits, tool servers, and how this route compares with the Copilot CLI adapter." >}}
+  {{< card link="agent-client-protocol-opencode" title="OpenCode (Agent Client Protocol)" subtitle="The launch command, OpenCode's own configuration, spend and limits, and how this route compares with the OpenCode adapter." >}}
 {{< /cards >}}
 
 ## Tracker adapters

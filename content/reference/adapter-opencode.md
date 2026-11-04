@@ -6,6 +6,10 @@ date: 2026-04-26
 weight: 130
 url: /reference/adapter-opencode/
 ---
+{{< callout type="warning" >}}
+**The `opencode` kind is deprecated.** OpenCode runs through the Agent Client Protocol (ACP) as well, with the `agent-client-protocol` kind launching `opencode acp`. This kind starts `opencode run` for each turn, and that stream records no outcome for a cancelled turn and no end for a question put to a person. The ACP route holds one session open and reports both, spend and tool delivery measure alike on the two, and the move ends the `opencode` series in run history. See [How to run OpenCode in ACP mode](/guides/run-opencode-in-acp-mode/) to convert a workflow and [OpenCode on the Agent Client Protocol](/reference/agent-client-protocol-opencode/) for the route.
+{{< /callout >}}
+
 The OpenCode adapter connects Sortie to the [OpenCode CLI](https://opencode.ai/docs/cli/) via subprocess management. It runs OpenCode 2.x, published on npm as `@opencode/cli`, and checks at the start of every session that `agent.command` reports a 2.x version; see [version check](#version-check). It launches `opencode run --format json`, reads newline-delimited stdout envelopes, reads the runtime's permission warnings from stderr, and normalizes the stream into Sortie's own event vocabulary. Registered under kind `"opencode"`.
 
 Each turn spawns a fresh subprocess. The adapter emits activity-visible events so the orchestrator stall watchdog can observe progress. Session start does run a version query (see [version check](#version-check)), but that query checks no credential and performs no authentication preflight. The CLI accepts no MCP configuration path, so on a local launch the adapter translates the generated configuration into OpenCode's own form and delivers it in the turn's environment; see [MCP](#mcp).
@@ -388,7 +392,7 @@ The adapter does not emit per-request API timing and does not report how long an
 
 ## Usage limits
 
-When each turn ends, the adapter runs `opencode api experimental.usage.limits` and reports the limits of the signed-in OpenCode console subscription. The command answers from OpenCode's own sign-in, uses OpenCode's background service, and starts it when it is not running. It runs on the host that runs the agent, the worker host for an SSH worker, and Sortie's host contacts no other host for it. A turn that was cancelled or timed out runs nothing. A failed command reports nothing and leaves the limits already reported in place.
+When each turn ends, the adapter runs `opencode api --standalone experimental.usage.limits` and reports the limits of the signed-in OpenCode console subscription. The command answers from OpenCode's own sign-in. `--standalone` keeps the call off OpenCode's shared background service, which would otherwise start and outlive the call. It runs on the host that runs the agent, the worker host for an SSH worker, and Sortie's host contacts no other host for it. A turn that was cancelled or timed out runs nothing. A failed command reports nothing and leaves the limits already reported in place.
 
 | Console limit | Label |
 |---|---|
@@ -623,6 +627,8 @@ Both come from shared validation, so a file that fails here fails a `codex` sess
 - [Environment variables reference](/reference/environment/): runtime environment behavior and configuration overrides
 - [Error reference](/reference/errors/#agent-errors): all agent error kinds with retry behavior
 - [How to control agent costs](/guides/control-costs/): orchestrator-level cost caps that matter most for OpenCode
+- [How to run OpenCode in ACP mode](/guides/run-opencode-in-acp-mode/): convert a workflow that names this kind to the protocol route
+- [OpenCode on the Agent Client Protocol](/reference/agent-client-protocol-opencode/): the protocol route and what it delivers
 - [How to scale agents with SSH](/guides/scale-agents-with-ssh/): remote execution setup and host pool configuration
 - [How to write a prompt template](/guides/write-prompt-template/): template variables, conditionals, and built-in functions
 - [State machine reference](/reference/state-machine/): orchestration states, turn lifecycle, and stall detection

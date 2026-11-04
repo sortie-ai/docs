@@ -574,7 +574,7 @@ Coding agent adapter, concurrency, timeouts, and retry behavior. These fields co
 
 | Field                            | Type    | Default         | Description                                                                           |
 | -------------------------------- | ------- | --------------- | ------------------------------------------------------------------------------------- |
-| `kind`                           | string  | `claude-code`   | Agent adapter identifier. Built-in adapters: `claude-code`, `copilot-cli`, `codex`, `opencode`, `agent-client-protocol` (a generic kind driving any runtime that speaks the [Agent Client Protocol](/reference/adapter-agent-client-protocol/), named by `command`), and `mock`, which simulates a session for local testing and launches no process. |
+| `kind`                           | string  | `claude-code`   | Agent adapter identifier. Built-in adapters: `claude-code`, `copilot-cli` (deprecated; see [Run Copilot CLI in ACP mode](/guides/run-copilot-cli-in-acp-mode/)), `codex`, `opencode` (deprecated; see [Run OpenCode in ACP mode](/guides/run-opencode-in-acp-mode/)), `agent-client-protocol` (a generic kind driving any runtime that speaks the [Agent Client Protocol](/reference/adapter-agent-client-protocol/), named by `command`), and `mock`, which simulates a session for local testing and launches no process. |
 | `command`                        | string or list of strings | the kind's default command | Command that launches the agent, read for the default kind only: `dispatch.default.agent` when set, otherwise `agent.kind`. It applies to kinds that run a local subprocess (`claude-code`, `copilot-cli`, `codex`, `opencode`, `agent-client-protocol`). Every one of them except `agent-client-protocol` has a default command (`claude`, `copilot`, `codex app-server`, `opencode`), so `command` can be left out; `agent-client-protocol` has none and requires it, and it also carries the flag or subcommand that puts the named binary into protocol mode. A kind that a [`dispatch` rule](#dispatch) selects, and that is not the default kind, never reads this field and launches its own default command. Adapters that do not start a local process ignore this field. Written as a string, the value is split on whitespace into an argument vector on a local launch and run without a shell, so shell syntax is not interpreted and `~` and `$VAR` are not expanded. When [`worker.ssh_hosts`](#worker) sends the agent to a remote host, the string reaches the remote shell unsplit, so shell syntax in it is interpreted there. Sortie waits for the agent it starts and talks to it, so a string ending in `&` detaches the agent and the session cannot work. Written as a list, element zero is the program and each later element is one argument, passed exactly as written: a local launch neither splits nor expands it, and over SSH each element reaches the remote shell as one word. Use the list form when the program path or an argument contains a space. A list must not be empty, and every element must be a non-empty string. [`SORTIE_AGENT_COMMAND`](/reference/environment/#agent-variables) sets the string form and replaces a list written in the file. |
 | `max_turns`                      | integer | `20`            | Maximum turns per worker session. The worker re-checks tracker state after each turn. |
 | `max_sessions`                   | integer | `0` (unlimited) | Maximum completed sessions per issue before the orchestrator stops retrying. Must be non-negative. The separate `max_consecutive_absences` governs the consecutive-absence ceiling below. A run that a provider usage limit refused is not counted when the provider reported a future reset time and the run's usage report shows no output tokens. Every other refused run counts, including one refused with no reset time and one with no usage report. Reaching this ceiling also posts one comment on the issue naming the session budget and `agent.max_sessions` as the setting that raises it. |
@@ -858,7 +858,7 @@ dispatch:
 
 The block an attempt runs with is the top-level block of the rule's kind with the rule's block laid over it, one level deep:
 
-- A key the rule writes replaces the inherited value whole, whatever its type. A map or a list is replaced, never merged or appended: `codex.turn_sandbox_policy`, `opencode.allowed_tools`, and `opencode.denied_tools` are the keys that hold one.
+- A key the rule writes replaces the inherited value whole, whatever its type. A map or a list is replaced, never merged or appended: `codex.turn_sandbox_policy`, `opencode.allowed_tools`, `opencode.denied_tools`, `agent-client-protocol.env`, and `agent-client-protocol.config_options` are the keys that hold one.
 - A key the rule writes as `null` removes the inherited key, so the adapter sees it as never written and applies its own default. For `model` and `effort` that is the runtime's own default.
 - Every key the rule does not write is inherited.
 - A kind with no top-level block inherits nothing; the rule's block is the whole block.
@@ -1664,7 +1664,7 @@ Any other string is the level, delivered exactly as written: Sortie does not tri
 
 A set level reaches every turn of every session, credential verification included. A [dispatch rule's settings block](#rule-settings-blocks) can set or clear it for the issues the rule selects. A non-string value fails construction and, offline, is reported by [`sortie validate`](/reference/cli/#validate) under the check `<kind>.effort.wrong_type`.
 
-The `claude-code`, `codex`, `copilot-cli`, and `opencode` kinds forward the level. The `agent-client-protocol` and `mock` kinds pass none: a workflow that reaches either with `effort` set in its block draws the `agent.effort.not_forwarded` warning from `sortie validate` and in the run log. For `agent-client-protocol`, write the runtime's own reasoning option in [`agent.command`](#agent) instead. Each kind's adapter reference states the flag or field the level rides on.
+The `claude-code`, `codex`, `copilot-cli`, `opencode`, and `agent-client-protocol` kinds forward the level. The `agent-client-protocol` kind sets it once when each session opens, on the session's reasoning option, and a name the session does not offer runs at the runtime's current level with a warning in the run log; see [`effort`](/reference/adapter-agent-client-protocol/#effort). The `mock` kind passes none: a workflow that reaches it with `effort` set in its block draws the `agent.effort.not_forwarded` warning from `sortie validate` and in the run log. Each kind's adapter reference states the flag or field the level rides on.
 
 A kind that `dispatch.default.agent` or a `dispatch.rules[i].agent` names, and that differs from the top-level `agent.kind`, must carry its own top-level block in the front matter, unless every selector of that kind is a rule that carries the kind's block in its own settings block.
 
@@ -1708,6 +1708,8 @@ claude-code:
 ```
 
 ### `copilot-cli`
+
+This kind is deprecated: Copilot CLI also runs through the `agent-client-protocol` kind, and [Run Copilot CLI in ACP mode](/guides/run-copilot-cli-in-acp-mode/) converts a workflow.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -1778,6 +1780,8 @@ codex:
 
 ### `opencode`
 
+This kind is deprecated: OpenCode also runs through the `agent-client-protocol` kind, and [Run OpenCode in ACP mode](/guides/run-opencode-in-acp-mode/) converts a workflow.
+
 The adapter runs OpenCode 2.x. It queries the version `agent.command` reports at the start of each session and refuses one it cannot read or one that is not 2.x; see the [version check](/reference/adapter-opencode/#version-check) for every refusal and [settings refused at session start](/reference/adapter-opencode/#settings-refused-at-session-start) for the configuration it rejects.
 
 | Field | Type | Default | Description |
@@ -1817,14 +1821,25 @@ opencode:
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `mcp_config` | string | _(none)_ | Path to an MCP server configuration file, resolved relative to the WORKFLOW.md directory when not absolute. Its servers are merged into the copy Sortie generates for its own tool server; the original is never modified, and a file already declaring `sortie-tools` fails the attempt. Over SSH only the HTTP servers in the file are delivered; see [delivery by agent kind](/reference/agent-extensions/#delivery-by-agent-kind). |
+| `model` | string | _(none)_ | The model a usage-limit refusal is attributed to, for the reset time it reports. It does not select the runtime's model, which `agent.command` or the runtime's own configuration does. A value that is not a string reads as absent. |
+| `env` | map of string to string | _(none)_ | Environment variables set for the runtime on every launch, local and over SSH. Values are taken as written: no `$VAR` reference resolves. A rule's value replaces the map whole. See [`env`](/reference/adapter-agent-client-protocol/#env). |
+| `permissions` | string | `deny-all` | `deny-all` refuses each permission request. `approve-all` approves, once, a request that offers exactly one once-only allowing option. Any other string is refused. See [`permissions`](/reference/adapter-agent-client-protocol/#permissions). |
+| `effort` | string | _(none)_ | The runtime's own reasoning level name, set when each session opens on the session's reasoning option. A non-string value is refused. See [`effort`](/reference/adapter-agent-client-protocol/#effort). |
+| `config_options` | map of string to string | _(none)_ | Values for the runtime's own session options, keyed by option id, set when each session opens before `effort`. A rule's value replaces the map whole. A value that does not take effect draws a warning and the session runs. See [`config_options`](/reference/adapter-agent-client-protocol/#config_options). |
 
-This kind names no default runtime and has no other pass-through fields: every runtime-specific setting, such as a model flag, a reasoning option, or a trust switch, is part of `agent.command` itself rather than a field in this block. An `effort` key here has no effect and draws `agent.effort.not_forwarded`. Because it has no default command, a [`dispatch` rule](#dispatch) can route to it only when it is also the default kind.
+This kind names no default runtime. Every other runtime-specific setting, such as a model flag or a trust switch, is part of `agent.command` itself or of the runtime's own configuration rather than a field in this block. A `variant` key has no effect and draws `agent-client-protocol.variant.not_read`; write the level as `effort`. Because it has no default command, a [`dispatch` rule](#dispatch) can route to it only when it is also the default kind.
 
 The adapter re-expresses the generated MCP configuration's servers on `session/new`. A runtime that accepts HTTP MCP servers reaches Sortie's tools over SSH too; any other runtime reaches none there. See the [Agent Client Protocol adapter reference](/reference/adapter-agent-client-protocol/) for the full lifecycle, the transport-level limits every runtime on this kind shares, and [MCP](/reference/adapter-agent-client-protocol/#mcp) for the delivery detail.
 
 ```yaml
+agent:
+  kind: agent-client-protocol
+  command: opencode acp
+
 agent-client-protocol:
-  mcp_config: ./mcp-servers.json
+  permissions: approve-all
+  env:
+    OPENCODE_DISABLE_AUTOUPDATE: "true"
 ```
 
 ### `file` (file-based tracker)

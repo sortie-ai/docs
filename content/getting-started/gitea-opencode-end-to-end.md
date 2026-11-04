@@ -6,9 +6,11 @@ author: Sortie AI
 date: 2026-07-16
 weight: 110
 ---
-In this tutorial, we will connect Sortie to Gitea and the OpenCode CLI, then watch the full unattended cycle: Gitea offers a `backlog` issue, Sortie clones your repository, OpenCode writes and commits code, Sortie pushes a branch, and Gitea moves the issue to a review state. This builds on the [Gitea integration tutorial](/getting-started/gitea-integration/) and adds three pieces: the OpenCode CLI adapter, workspace hooks for git operations, and a prompt template.
+In this tutorial, we will connect Sortie to Gitea and the OpenCode CLI, then watch the full unattended cycle: Gitea offers a `backlog` issue, Sortie clones your repository, OpenCode writes and commits code, Sortie pushes a branch, and Gitea moves the issue to a review state. This builds on the [Gitea integration tutorial](/getting-started/gitea-integration/) and adds three pieces: OpenCode as the agent, run in ACP mode, workspace hooks for git operations, and a prompt template.
 
 The agent is the same one the [Jira + OpenCode tutorial](/getting-started/jira-opencode-end-to-end/) drives; only the tracker changed, from Jira to Gitea.
+
+If you already have a Sortie configuration for OpenCode that you want to update, see [how to run OpenCode in ACP mode](/guides/run-opencode-in-acp-mode/) instead.
 
 The pairing is deliberate. Gitea is self-hosted, and OpenCode can run against a model you serve yourself, so the whole loop lives on infrastructure you control: a self-hosted tracker, the Sortie orchestrator, the OpenCode agent, and a local model backend, with no cloud model provider in the path. That is the stack the community asked for when they requested the Gitea adapter.
 
@@ -21,13 +23,15 @@ The pairing is deliberate. Gitea is self-hosted, and OpenCode can run against a 
     opencode --version
     ```
 
-    You should see a version string. Sortie resolves `opencode` from `PATH` at session start and reads this same version, so this confirms the binary it will launch. The version must start with `2`; the [OpenCode adapter reference](/reference/adapter-opencode/#version-check) lists what Sortie does with any other. OpenCode 2.x is published on npm as `@opencode/cli`. To install it, follow the [OpenCode CLI docs](https://opencode.ai/docs/cli/).
+    You should see a version string. Sortie resolves `opencode` from `PATH` when a session starts, so this confirms the binary it will launch. OpenCode is published on npm as `@opencode/cli`. To install it, follow the [OpenCode CLI docs](https://opencode.ai/docs/cli/).
 
-- A locally served, OpenAI-compatible model, exposed to OpenCode as a custom provider in your `opencode.json`. OpenCode reads provider configuration from its own config, and a custom provider carries a `baseURL` pointing at your local endpoint. The [OpenCode configuration docs](https://opencode.ai/docs/config/) cover the provider schema. This tutorial calls that provider `local` and selects it through `opencode.model`. List what OpenCode has configured with:
+- A locally served, OpenAI-compatible model. OpenCode reaches it through a custom provider whose `baseURL` points at your local endpoint, and the workflow below declares that provider. This tutorial calls it `local`, assumes the server listens on `http://localhost:8000/v1`, and names the model `your-model`. Replace both with your own. Confirm the server answers and lists the model:
 
     ```bash
-    opencode providers list
+    curl http://localhost:8000/v1/models
     ```
+
+    You should see a JSON list that includes your model's id. The workflow must use that id exactly.
 
 - A Gitea repository you can push to. The integration tutorial created `sortie/adapter-lab` on your local instance. A Gitea access token works as an HTTP password, so set the clone URL once and confirm you can reach it:
 
@@ -67,7 +71,7 @@ mkdir sortie-gitea-opencode-e2e && cd sortie-gitea-opencode-e2e
 
 Create `WORKFLOW.md` with the full configuration:
 
-```jinja {filename="WORKFLOW.md",hl_lines=["33-42"]}
+```jinja {filename="WORKFLOW.md",hl_lines=["33-57"]}
 ---
 tracker:
   kind: gitea
@@ -101,15 +105,30 @@ hooks:
   timeout_ms: 120000
 
 agent:
-  kind: opencode
-  command: opencode
+  kind: agent-client-protocol
+  command: opencode acp
   max_turns: 3
   turn_timeout_ms: 3600000
   max_concurrent_agents: 1
 
-opencode:
+agent-client-protocol:
   model: local/your-model
-  dangerously_skip_permissions: true
+  permissions: approve-all
+  env:
+    OPENCODE_DISABLE_AUTOUPDATE: "true"
+    OPENCODE_CONFIG_CONTENT: |-
+      {
+        "model": "local/your-model",
+        "share": "disabled",
+        "provider": {
+          "local": {
+            "npm": "@ai-sdk/openai-compatible",
+            "name": "Local model",
+            "options": { "baseURL": "http://localhost:8000/v1" },
+            "models": { "your-model": { "name": "Your model" } }
+          }
+        }
+      }
 ---
 
 You are a senior engineer working in this repository.
@@ -157,7 +176,7 @@ making changes. Do not repeat the same approach that failed.
 {{ end }}
 ```
 
-The tracker block is the Gitea block from the integration tutorial: kind `gitea`, the required endpoint, the token-verbatim `api_key`, an `owner/repo` project, and label-driven states. The `polling`, `workspace`, `hooks`, and prompt body keep the same shape as the Jira + OpenCode tutorial. The OpenCode-specific work is the highlighted `agent` and `opencode` blocks.
+The tracker block is the Gitea block from the integration tutorial: kind `gitea`, the required endpoint, the token-verbatim `api_key`, an `owner/repo` project, and label-driven states. The `polling`, `workspace`, `hooks`, and prompt body keep the same shape as the Jira + OpenCode tutorial. The OpenCode-specific work is the highlighted `agent` and `agent-client-protocol` blocks.
 
 One tracker detail is worth stating where you set the states. `handoff_state: review` moves each finished issue to the `review` label, and because `review` is not one of the `terminal_states`, the issue stays open, ready for a human to open a pull request from the pushed branch. Sortie will not let `handoff_state` name a terminal state, so a handoff never closes the issue on its own. For the rest of the Gitea tracker surface, the [Gitea integration tutorial](/getting-started/gitea-integration/) is the reference.
 
@@ -169,25 +188,29 @@ One detail follows from Gitea being both your tracker and your git host: `$SORTI
 
 ### Agent configuration
 
-#### Agent: OpenCode CLI
+#### Agent: OpenCode in ACP mode
 
-`agent.kind: opencode` selects the OpenCode adapter, registered under the `opencode` kind. `agent.command: opencode` names the binary, which the adapter resolves from `PATH` when the session starts. The `opencode:` block is small because OpenCode folds provider selection into the model string: `local/your-model` means "use the `local` provider, then that model." There is no separate provider field to set.
+`agent.kind: agent-client-protocol` tells Sortie to launch whatever `agent.command` names, keep that process alive for the whole session, and send each turn to it. `opencode acp` starts OpenCode in ACP mode, the protocol interface Sortie drives, and Sortie resolves `opencode` from `PATH` when the session starts. The command takes no switch for a model or for permissions, so those live in the `agent-client-protocol:` block.
 
-`dangerously_skip_permissions: true` is the unattended switch, the equivalent of Claude Code's bypass mode: it tells the CLI to approve each permissioned action itself. It is also the default. Setting it to `false` does not make the run interactive, because there is nobody to be interactive with: the runtime refuses every permissioned tool call instead of performing it, and Sortie warns about that before the run.
+`permissions: approve-all` is the unattended switch, the equivalent of Claude Code's bypass mode: Sortie approves each tool request OpenCode asks about. Leave it out and Sortie refuses the request instead, because nobody is there to answer it, and the turn fails.
 
-The adapter also exposes finer tool scoping through `allowed_tools` and `denied_tools`, which is reference territory. When you need it, the [OpenCode adapter reference](/reference/adapter-opencode/) covers the full surface.
+That setting turns off every prompt, so OpenCode runs any tool the model picks, its shell included, with your user account's permissions. Point this first run at a repository you can afford to lose, and put the agent in a hardened sandbox before you use this setup for real work.
+
+Which tools OpenCode may use at all is reference territory, set through the `permission` member of OpenCode's configuration document. The [OpenCode on the Agent Client Protocol](/reference/agent-client-protocol-opencode/) reference covers it, and the generic kind's settings are on the [Agent Client Protocol adapter reference](/reference/adapter-agent-client-protocol/).
 
 #### A locally served model backend
 
-Two credentials are in play, and they do different jobs. `SORTIE_GITEA_TOKEN` authenticates Sortie to Gitea. The model backend is separate: OpenCode resolves the model from a provider it reads from its own configuration, and the adapter runs no authentication preflight. It launches `opencode run` with the environment it inherits plus a few managed `OPENCODE_*` overrides, and lets OpenCode find the provider.
+Two credentials are in play, and they do different jobs. `SORTIE_GITEA_TOKEN` authenticates Sortie to Gitea. The model backend is separate, and Sortie manages no credential for it: OpenCode resolves the model from the provider it finds in its own configuration.
 
-For a fully self-hosted stack, point OpenCode at a model you serve yourself. OpenCode reaches a locally served, OpenAI-compatible backend through a custom provider defined in its `opencode.json`, where the provider carries a `baseURL` for your local endpoint. The [OpenCode configuration docs](https://opencode.ai/docs/config/) cover that provider schema. Once the `local` provider exists, `opencode.model: local/your-model` selects it, and no cloud model API key is involved. The model that writes your code runs on hardware you control.
+OpenCode takes that configuration as a JSON document, and `OPENCODE_CONFIG_CONTENT` in `agent-client-protocol.env` is how the workflow hands it over. For a fully self-hosted stack, the document declares a custom provider named `local` that carries the `baseURL` of your local endpoint, and a `model` member that selects `local/your-model`, meaning "the `local` provider, then that model". The [OpenCode provider docs](https://opencode.ai/docs/providers/) cover the provider schema. No cloud model API key is involved, and the model that writes your code runs on hardware you control.
 
-The adapter reinforces that posture. On every run it sets `OPENCODE_DISABLE_AUTOUPDATE=true`, so OpenCode does not reach out to update itself mid-session. For the full provider model and every managed variable, see the [OpenCode adapter reference](/reference/adapter-opencode/#managed-environment).
+`agent-client-protocol.model` repeats the same id. Sortie does not pass it to OpenCode; it names the model that a usage-limit hold applies to. Check that the id in both places matches the one your server lists, because OpenCode runs its default model when it cannot resolve an id, and prints nothing to say so.
+
+The other two entries keep the run self-contained. `OPENCODE_DISABLE_AUTOUPDATE` stops OpenCode from updating itself mid-session, and `"share": "disabled"` turns off OpenCode's session sharing. For every setting and how each maps from older configurations, see the [guide to running OpenCode in ACP mode](/guides/run-opencode-in-acp-mode/).
 
 #### Inner turn budget
 
-`agent.max_turns: 3` is Sortie's outer budget. It tells the orchestrator how many times it may invoke OpenCode for this issue before it gives up or retries later. OpenCode exposes no inner turn field to Sortie, so each Sortie turn launches one `opencode run` process and lets it work until it exits or `turn_timeout_ms`, one hour here, elapses.
+`agent.max_turns: 3` is Sortie's outer budget. It tells the orchestrator how many turns it may send OpenCode for this issue before it gives up or retries later. OpenCode exposes no inner turn field to Sortie, so each Sortie turn lets OpenCode work until it finishes the turn or `turn_timeout_ms`, one hour here, elapses. The same `opencode acp` process serves every turn of the session.
 
 For the health check task, one run is usually enough. The headroom lets the first session read the codebase, write the change, and run tests without racing a short timeout.
 
@@ -203,7 +226,7 @@ Check the file before running it:
 sortie validate ./WORKFLOW.md
 ```
 
-Validation runs offline. It reports the same cleartext-HTTP advisory you saw in the integration tutorial, because the local endpoint is plain `http`; that warning is expected for a local instance, and the configuration is otherwise valid.
+Validation runs offline. It reports the same cleartext-HTTP advisory you saw in the integration tutorial, because the local endpoint is plain `http`; that warning is expected for a local instance. It prints no warning about the agent, and the configuration is otherwise valid.
 
 ### Run Sortie
 
@@ -229,7 +252,7 @@ level=INFO msg="agent session started" issue_id=3 issue_identifier=3 session_id=
 level=INFO msg="turn started" issue_id=3 issue_identifier=3 turn_number=1 max_turns=3
 ```
 
-The agent is now working. An OpenCode session for a task like this takes a few minutes, and the wall-clock time depends on your local model's speed and your hardware more than on anything Sortie does. At `debug` level, you will see step, text, and tool events as OpenCode works through the repository.
+The agent is now working. An OpenCode session for a task like this takes a few minutes, and the wall-clock time depends on your local model's speed and your hardware more than on anything Sortie does. At `debug` level, you will see OpenCode's events as it works through the repository.
 
 When the agent finishes the turn, you will see:
 
@@ -246,7 +269,7 @@ Here is the full lifecycle, step by step:
 1. Sortie polled Gitea and found issue `#3` carrying the `backlog` label.
 2. `after_create` cloned the repository into `workspaces/3/`.
 3. `before_run` created the branch `sortie/3` from `origin/main`.
-4. Sortie launched OpenCode and passed it the rendered prompt for the issue.
+4. Sortie launched `opencode acp` in the workspace, opened a protocol session, and passed it the rendered prompt for the issue.
 5. OpenCode read the codebase, wrote the change, and completed the turn.
 6. `after_run` committed the changes and pushed the branch.
 7. Sortie transitioned the issue to `review`. Because `review` is not terminal, the issue stays open.
@@ -296,7 +319,7 @@ Open `http://127.0.0.1:7678/`. Sortie serves the dashboard there by default, wit
 
 ## What we built
 
-We ran the complete Sortie lifecycle with the OpenCode CLI on top of the Gitea flow you configured in the integration tutorial. The tracker behavior stayed the same. The new moving parts were the agent adapter, the git hooks, and the prompt.
+We ran the complete Sortie lifecycle with OpenCode, driven in ACP mode, on top of the Gitea flow you configured in the integration tutorial. The tracker behavior stayed the same. The new moving parts were the agent, the git hooks, and the prompt.
 
 - **Poll**: Sortie watched Gitea for open issues in the `backlog` state.
 - **Clone**: The `after_create` hook cloned the repository into a per-issue workspace.
@@ -305,7 +328,7 @@ We ran the complete Sortie lifecycle with the OpenCode CLI on top of the Gitea f
 - **Push**: The `after_run` hook committed and pushed the branch to Gitea.
 - **Handoff**: Sortie moved the issue to `review` and released it for a human.
 
-This is the same OpenCode loop that powers the [Jira + OpenCode tutorial](/getting-started/jira-opencode-end-to-end/). We swapped the tracker from Jira to Gitea with a config change and nothing else, which is the whole point of Sortie's adapter design. And because Gitea is self-hosted and the model backend runs locally, every part of the loop now runs on infrastructure you own.
+This is the same OpenCode loop that powers the [Jira + OpenCode tutorial](/getting-started/jira-opencode-end-to-end/). We swapped the tracker from Jira to Gitea with a config change and nothing else, which is the whole point of Sortie's adapter design. And because Gitea is self-hosted and the model backend runs locally, every part of the loop runs on infrastructure you own.
 
 ## Where to go next
 
@@ -314,5 +337,6 @@ This is the same OpenCode loop that powers the [Jira + OpenCode tutorial](/getti
 - [Monitor with logs](/guides/monitor-with-logs/): read the structured log output during long-running sessions
 - [Monitor with Prometheus](/guides/monitor-with-prometheus/): collect token usage, session counts, and retry rates as time-series metrics
 - [Gitea adapter reference](/reference/adapter-gitea/): the tracker field contract, label-driven state model, and error mapping
-- [OpenCode adapter reference](/reference/adapter-opencode/): provider configuration, managed environment variables, and runtime behavior
+- [OpenCode on the Agent Client Protocol](/reference/agent-client-protocol-opencode/): launch command, where each setting goes, credentials, and limitations
+- [How to run OpenCode in ACP mode](/guides/run-opencode-in-acp-mode/): every setting of the route and how to convert an older configuration
 - [Scale agents with SSH](/guides/scale-agents-with-ssh/): distribute sessions across remote machines for larger deployments

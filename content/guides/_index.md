@@ -28,6 +28,8 @@ Step-by-step instructions for configuring, operating, and extending Sortie.
   {{< card link="configure-dispatch-rules" title="Dispatch Rules" subtitle="Route issues to agents and templates by label, type, or priority." >}}
   {{< card link="check-issue-readiness" title="Check Issue Readiness" subtitle="Stop vague issues before an agent spends a full session on them." >}}
   {{< card link="run-kiro-cli-in-acp-mode" title="Kiro CLI ACP Mode" subtitle="Connect Kiro CLI to Sortie over ACP." >}}
+  {{< card link="run-copilot-cli-in-acp-mode" title="Copilot CLI ACP Mode" subtitle="Move a Copilot CLI workflow to ACP mode." >}}
+  {{< card link="run-opencode-in-acp-mode" title="OpenCode ACP Mode" subtitle="Move an OpenCode workflow to ACP mode." >}}
 {{< /cards >}}
 
 ## Operations

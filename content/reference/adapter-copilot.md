@@ -6,6 +6,10 @@ date: 2026-04-26
 weight: 110
 url: /reference/adapter-copilot/
 ---
+{{< callout type="warning" >}}
+The `copilot-cli` kind is deprecated. Copilot CLI runs through the Agent Client Protocol (ACP) mode as the `agent-client-protocol` kind, which keeps one Copilot CLI process open for the whole session. This kind runs the CLI once per turn and delivers `--autopilot` with its turn ceiling, an `allowed_tools` list that denies other calls while the turn goes on, and `no_custom_instructions`, none of which ACP mode carries. ACP mode measures a cancelled turn, which this kind can end with no figure. See [how to run Copilot CLI in ACP mode](/guides/run-copilot-cli-in-acp-mode/) to convert a workflow, and [Copilot CLI on the Agent Client Protocol](/reference/agent-client-protocol-copilot/) for the route.
+{{< /callout >}}
+
 The Copilot CLI adapter connects Sortie to the [GitHub Copilot CLI](https://docs.github.com/en/copilot/using-github-copilot/using-github-copilot-in-the-command-line) via subprocess management. It launches the `copilot` binary with `--output-format json`, reads newline-delimited JSON from stdout, and normalizes events into Sortie's own event vocabulary. Registered under kind `"copilot-cli"`.
 
 Each turn spawns an independent subprocess. Session start runs a version canary before a session is created, local-mode only; whether the credential actually works is settled separately, by the [credential-verification step](/reference/workflow-config/#credential-verification) every kind runs before its first working turn, unless Sortie proved the same setup recently.
@@ -487,6 +491,8 @@ For Claude Code configuration, see [Claude Code adapter reference](/reference/ad
 
 ## Related pages
 
+- [How to run Copilot CLI in ACP mode](/guides/run-copilot-cli-in-acp-mode/): convert a workflow off this kind
+- [Copilot CLI on the Agent Client Protocol](/reference/agent-client-protocol-copilot/): the protocol route
 - [WORKFLOW.md configuration reference](/reference/workflow-config/): full `agent` schema and `copilot-cli` extension block
 - [Environment variables reference](/reference/environment/): GitHub token variables
 - [Error reference](/reference/errors/#agent-errors): all agent error kinds with retry behavior

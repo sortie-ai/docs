@@ -80,12 +80,11 @@ A variable Sortie carries overrides the value or login the remote host holds und
 2. Stop Sortie sending the one that collides:
 
     ```yaml
-    extensions:
-      worker:
-        ssh_hosts:
-          - "build01.internal"
-        ssh_disallow_pass_env:
-          - GITHUB_TOKEN
+    worker:
+      ssh_hosts:
+        - "build01.internal"
+      ssh_disallow_pass_env:
+        - GITHUB_TOKEN
     ```
 
 3. Save the file. The worker block reloads without a restart, and the next dispatch runs under whatever identity the host itself holds.
