@@ -685,6 +685,7 @@ curl http://localhost:7678/api/v1/state
     "tracker": {
       "kind": "jira",
       "project": "PROJ",
+      "project_url": "https://acme.atlassian.net/browse/PROJ",
       "active_states": ["To Do", "In Progress"],
       "in_progress_state": "In Progress",
       "handoff_state": "In Review",
@@ -1191,7 +1192,7 @@ The `hold` of a `held[]` entry and of a `between_stages[]` entry has these membe
 | `daily_spend_ceiling`, `weekly_spend_ceiling`, `monthly_spend_ceiling` | A spend window holds dispatch. |
 | `stage_hop_unconfirmed` | The read that should confirm the issue's stage move failed or did not show the hop's stage label. |
 | `usage_limit` | The agent provider refused a session because the account's usage limit is reached, and Sortie starts no session of the issue's agent kind (on that model alone, for a hold with `model_only`) until it resets. A dispatch from a poll tick stays held for one poll interval past `resets_at`, so the hold can still be listed with a `resets_at` in the past. The refused issue's own retry fires at the reset. |
-| `park_comments_unread` | A person released the issue's park, and the read of the comments the next run receives failed. The next poll reads them again. |
+| `park_comments_unread` | A person released the issue's park, and the read of the comments the next run receives failed, or the read of the record of comments Sortie posted failed. The next poll reads them again. |
 
 A hold has one reason. While a spend window holds, an issue that a full capacity limit stops shows the spend reason, because a freed slot or host would not dispatch it. When a full global slot limit or no free SSH host stops the pass, the pass reads no blockers for the issues it has not reached, so an issue that also has an open blocker shows the capacity reason. A per-state slot limit that is full holds only the issues of that state, and the pass reads no blockers for them either.
 
@@ -1392,6 +1393,7 @@ Most members follow the last successful load of `WORKFLOW.md`; a reload that fai
 |---|---|
 | `tracker.kind` | The tracker adapter kind the process started with. |
 | `tracker.project` | The `tracker.project` the tracker adapter was built with, after environment resolution and unmasked: a Jira project key, a GitHub or Gitea `owner/repo`, a GitLab namespace path or numeric project ID, or a Linear team key. Omitted when unset. |
+| `tracker.project_url` | The address of the project's page in the tracker, served for the `github`, `gitea`, `gitlab`, `linear`, and `jira` trackers. Omitted when the tracker has no web page, as the `file` tracker has none, or when the address is not an absolute http(s) URL. Credentials, query, and fragment are never part of it. Like `tracker.project`, it keeps its startup value until the next restart. |
 | `tracker.active_states`, `tracker.terminal_states` | The [`tracker`](/reference/workflow-config/#tracker) lists as written. |
 | `tracker.in_progress_state`, `tracker.handoff_state`, `tracker.no_change_state` | The state Sortie writes at dispatch, after a successful run, and after a successful run whose agent declared that nothing needed changing. Each omitted when unset. |
 | `polling.interval_ms` | The poll interval in milliseconds. |
@@ -2029,7 +2031,7 @@ If the events of a finished run cannot be written, its run history record is sto
 
 ## GET /api/v1/stats: Run statistics
 
-Returns the report that [`sortie stats --format json`](/reference/cli/#stats) prints: run and issue counts, success rate, duration percentiles, token sums, and estimated cost over the runs completed in a range, with that cost per UTC day or month and breakdowns by outcome, coding agent, dispatch rule, prompt template, model, usage provenance, stage chain, retry trigger, and run origin, with the skill calls of the runs, and a funnel for each stage chain. The [stage funnels](/reference/cli/#stage-funnels) hold the passes running, queued for a retry, or held by a budget at the time of the request. The route and the command share one aggregation, so for one database and absolute bounds the two bodies differ only in `generated_at`, apart from the dispatch-rule difference [described below](#pricing-and-reload).
+Returns the report that [`sortie stats --format json`](/reference/cli/#stats) prints: run and issue counts, success rate, duration percentiles, token sums, and estimated cost over the runs completed in a range, with those tokens and that cost per UTC day or month and breakdowns by outcome, coding agent, dispatch rule, prompt template, model, usage provenance, stage chain, retry trigger, and run origin, with the skill calls of the runs, and a funnel for each stage chain. The [stage funnels](/reference/cli/#stage-funnels) hold the passes running, queued for a retry, or held by a budget at the time of the request. The route and the command share one aggregation, so for one database and absolute bounds the two bodies differ only in `generated_at`, apart from the dispatch-rule difference [described below](#pricing-and-reload).
 
 ```sh
 curl 'http://localhost:7678/api/v1/stats?since=24h'

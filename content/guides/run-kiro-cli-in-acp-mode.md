@@ -67,12 +67,11 @@ Skip this if every worker runs locally.
 ACP mode declares no credential variable, so Sortie carries nothing from its own environment to a remote host on its own account. If your remote workers authenticate with `KIRO_API_KEY`, name it explicitly:
 
 ```yaml
-extensions:
-  worker:
-    ssh_hosts:
-      - build01.internal
-    ssh_pass_env:
-      - KIRO_API_KEY
+worker:
+  ssh_hosts:
+    - build01.internal
+  ssh_pass_env:
+    - KIRO_API_KEY
 ```
 
 A stored device login cannot be carried this way: only environment variable names travel to a remote host, through `ssh_pass_env` or a kind's own declared credential set, so the login has to already exist on that host.

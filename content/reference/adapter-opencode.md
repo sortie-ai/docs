@@ -6,6 +6,10 @@ date: 2026-04-26
 weight: 130
 url: /reference/adapter-opencode/
 ---
+{{< callout type="warning" >}}
+**The `opencode` kind is deprecated.** OpenCode runs through the Agent Client Protocol (ACP) as well, with the `agent-client-protocol` kind launching `opencode acp`. This kind starts `opencode run` for each turn, and that stream records no outcome for a cancelled turn and no end for a question put to a person. The ACP route holds one session open and reports both, spend and tool delivery measure alike on the two, and the move ends the `opencode` series in run history. See [How to run OpenCode in ACP mode](/guides/run-opencode-in-acp-mode/) to convert a workflow and [OpenCode on the Agent Client Protocol](/reference/agent-client-protocol-opencode/) for the route.
+{{< /callout >}}
+
 The OpenCode adapter connects Sortie to the [OpenCode CLI](https://opencode.ai/docs/cli/) via subprocess management. It runs OpenCode 2.x, published on npm as `@opencode/cli`, and checks at the start of every session that `agent.command` reports a 2.x version; see [version check](#version-check). It launches `opencode run --format json`, reads newline-delimited stdout envelopes, reads the runtime's permission warnings from stderr, and normalizes the stream into Sortie's own event vocabulary. Registered under kind `"opencode"`.
 
 Each turn spawns a fresh subprocess. The adapter emits activity-visible events so the orchestrator stall watchdog can observe progress. Session start does run a version query (see [version check](#version-check)), but that query checks no credential and performs no authentication preflight. The CLI accepts no MCP configuration path, so on a local launch the adapter translates the generated configuration into OpenCode's own form and delivers it in the turn's environment; see [MCP](#mcp).
@@ -238,9 +242,9 @@ Refuses unusable settings, validates the workspace path, resolves the launch tar
 3. Resolves the configured command from `PATH`, defaulting to `opencode` when `agent.command` is empty. In SSH mode, resolves the local `ssh` binary instead and stores the remote command string for later use.
 4. Resolves the session's tool delivery from the generated MCP configuration, on a local launch and an SSH launch alike. On an SSH launch this starts Sortie's HTTP tool server and opens one short extra SSH connection to learn whether the worker host accepts the reverse forward. See [MCP](#mcp).
 5. Queries the resolved command's version, over SSH when the launch is remote, and refuses the session when it is unreadable or not a 2.x release; see [version check](#version-check).
-6. When continuation is requested, reads the saved session's export, over SSH when the launch is remote, to fix the session's earlier spend as history; see [resumed sessions](#resumed-sessions). A failed read does not fail session start.
+6. When continuation is requested, reads the saved session's export, over SSH when the launch is remote. An export that names the session confirms it, and the session continues it with its earlier spend fixed as history. Any other outcome starts a new session instead; see [resumed sessions](#resumed-sessions). A lost SSH connection during the read or an ended session start fails the start; nothing else about the read does.
 7. Builds the inline configuration document every turn of the session will carry, from the settings and the tool servers resolved in step 4.
-8. The session has no running process ID or subprocess yet, and takes the session ID saved from a previous run as its own when continuation is requested.
+8. The session has no running process ID or subprocess yet. It takes the session ID saved from a previous run as its own only when step 6 confirmed that session; otherwise it has no ID until the first turn's first JSON envelope names one.
 
 Session start performs no provider-auth probe.
 
@@ -263,7 +267,7 @@ Spawns one OpenCode subprocess, reads its stdout, and delivers normalized events
 
 1. Builds the managed environment and the per-turn argument list.
 2. Adds `run --format json --standalone` to every invocation and delivers the prompt on the subprocess's standard input. `--standalone` keeps the launch from joining a shared background service another client started.
-3. Adds `--session <id>` when the session already has an OpenCode session ID.
+3. Adds `--session <id>` when the session already has an OpenCode session ID. A saved ID the start did not confirm is never passed, so the runtime is never asked to continue a session it does not hold.
 4. Launches the subprocess locally or through SSH, with the full parent process environment plus the [managed environment](#managed-environment), which includes `OPENCODE_CONFIG_CONTENT` on every turn. On a local launch, `PWD` in that environment names the same verified workspace path the subprocess's own working directory is set to, so the subprocess lands in the workspace.
 5. Isolates the subprocess in its own process group before start, then arms a graceful process-group signal for cancellation, bounded by `stop_grace_ms`.
 6. Reads stdout and stderr concurrently while waiting for the subprocess to exit.
@@ -358,9 +362,17 @@ The turn is complete only when every subagent call completed, named its session,
 
 ### Resumed sessions
 
-When a session continues a saved OpenCode session, session start reads that session's export once, under the same `read_timeout_ms` bound. Every message it holds becomes history, matched by message ID whatever its creation time, so the session's earlier spend never lands in this run's total. A new session starts with no history and needs no read.
+When a session is asked to continue a saved OpenCode session, session start reads that session's export once, under the same `read_timeout_ms` bound, before any turn runs. OpenCode answers `opencode run --session <id>` for an ID it does not hold by silently creating an empty session under that ID and exiting `0`, with nothing in the output marking the replacement. The export is how the adapter tells the cases apart.
 
-When that read fails, the history is unknown rather than empty. A turn the final step report settles still counts its own requests, but no other turn can count from the export until a turn-end export is read; that read fixes the history after its turn settles, so those turns stand as lower bounds.
+An export that names the saved session confirms it. The session continues it, and every message the export holds becomes history, matched by message ID whatever its creation time, so the session's earlier spend never lands in this run's total.
+
+Any other outcome starts a new session. The session carries no saved ID, the first turn runs without `--session`, and the ID OpenCode reports in its first JSON envelope becomes the session's ID. The new session has no history to subtract. Sortie logs one warning at WARN level:
+
+```text
+session resume not continued, starting new session
+```
+
+The record carries `resume_id`, the saved ID that was not continued, and `resume_verdict`, which is `replaced` when the export exited non-zero, as it does for a deleted or never-created session, or named a different session, and `unknown` when the read timed out, exceeded the size limit, or did not decode. When the read failed rather than finished, the record also carries `error`. A new session does not receive the earlier session's conversation, so its first prompt carries the issue comments the earlier sessions were given as well; see [the comment feed](/reference/workflow-config/#comment_feed).
 
 ### Model tracking
 
@@ -380,7 +392,7 @@ The adapter does not emit per-request API timing and does not report how long an
 
 ## Usage limits
 
-When each turn ends, the adapter runs `opencode api experimental.usage.limits` and reports the limits of the signed-in OpenCode console subscription. The command answers from OpenCode's own sign-in, uses OpenCode's background service, and starts it when it is not running. It runs on the host that runs the agent, the worker host for an SSH worker, and Sortie's host contacts no other host for it. A turn that was cancelled or timed out runs nothing. A failed command reports nothing and leaves the limits already reported in place.
+When each turn ends, the adapter runs `opencode api --standalone experimental.usage.limits` and reports the limits of the signed-in OpenCode console subscription. The command answers from OpenCode's own sign-in. `--standalone` keeps the call off OpenCode's shared background service, which would otherwise start and outlive the call. It runs on the host that runs the agent, the worker host for an SSH worker, and Sortie's host contacts no other host for it. A turn that was cancelled or timed out runs nothing. A failed command reports nothing and leaves the limits already reported in place.
 
 | Console limit | Label |
 |---|---|
@@ -492,7 +504,8 @@ OpenCode continuation is flag-based. The adapter persists the OpenCode session I
 |---|---|---|
 | Fresh session before first JSON envelope | Empty | _(no `--session` flag)_ |
 | Subsequent turn in the same worker session | Known | `--session <sessionID>` |
-| Continuation after worker restart | The session ID saved from a previous run | `--session <sessionID>` |
+| Continuation after worker restart, saved session confirmed by the start | The session ID saved from a previous run | `--session <sessionID>` |
+| Continuation after worker restart, saved session not confirmed | Empty; the first envelope supplies a new ID | _(no `--session` flag)_ |
 
 
 If a resumed turn emits a different `sessionID` from the one already stored, the adapter aborts the turn with `response_error`, stops the subprocess gracefully, and emits `turn_failed`. `session_started` is emitted only once per session, on the first accepted JSON envelope.
@@ -583,7 +596,7 @@ Both come from shared validation, so a file that fails here fails a `codex` sess
 | Subprocess model | New process per turn | New process per turn | Persistent process across turns | New process per turn, plus a usage-recovery subprocess after each turn |
 | Protocol | CLI flags + JSONL stdout | CLI flags + JSONL stdout | JSON-RPC 2.0 over stdin/stdout | CLI flags + newline-delimited stdout envelopes |
 | Output format flag | `--output-format stream-json` | `--output-format json` | JSON-RPC notifications | `--format json` |
-| Session ID source | UUID generated by adapter | UUID generated by adapter | Thread ID from `thread/start` response | Discovered from the first JSON envelope, or resumed via `--session` |
+| Session ID source | UUID generated by adapter | UUID generated by adapter | Thread ID from `thread/start` response | Discovered from the first JSON envelope, or resumed via `--session` once the start's export confirms the saved session |
 | Resume mechanism | `--resume <UUID>` | `--session-id <uuid>` on the first turn, `--resume <uuid>` after; never `--continue` | `thread/resume` or automatic within session | `--session <sessionID>` only |
 | Input token reporting | Provisional per request from `assistant` events, settled per model by the `result` events' `model_usage_since_last_result` | Per model from `session.usage_checkpoint` stream lines, less the session's position before the turn | From `thread/tokenUsage/updated`, baseline-subtracted | From `step_finish` step reports, with `opencode session export --standalone --sanitize` settling a turn they do not cover |
 | Model reporting | From `assistant` events | From the `modelMetrics` keys of `session.usage_checkpoint` lines, or each journal record's own model | From the thread-open response, updated on reroute | Recovered from export `providerID/modelID` |
@@ -614,6 +627,8 @@ Both come from shared validation, so a file that fails here fails a `codex` sess
 - [Environment variables reference](/reference/environment/): runtime environment behavior and configuration overrides
 - [Error reference](/reference/errors/#agent-errors): all agent error kinds with retry behavior
 - [How to control agent costs](/guides/control-costs/): orchestrator-level cost caps that matter most for OpenCode
+- [How to run OpenCode in ACP mode](/guides/run-opencode-in-acp-mode/): convert a workflow that names this kind to the protocol route
+- [OpenCode on the Agent Client Protocol](/reference/agent-client-protocol-opencode/): the protocol route and what it delivers
 - [How to scale agents with SSH](/guides/scale-agents-with-ssh/): remote execution setup and host pool configuration
 - [How to write a prompt template](/guides/write-prompt-template/): template variables, conditionals, and built-in functions
 - [State machine reference](/reference/state-machine/): orchestration states, turn lifecycle, and stall detection

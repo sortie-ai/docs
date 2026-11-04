@@ -451,7 +451,7 @@ dispatch:
       template: ./prompts/test.md
 ```
 
-The rule a `next` names must carry `stage`, but the first rule of a chain does not have to. To start the chain from a label your team already uses, replace `stage: stage-specify` with `match: { labels: ["feature"] }`. A person then labels the issue `feature` once, and Sortie applies the stage labels from there.
+The rule a `next` names must carry `stage`, but the first rule of a chain does not have to. To start the chain from a label your team already uses, replace `stage: stage-specify` with `match: { labels: ["feature"] }`. A person then labels the issue `feature` once, and Sortie applies the stage labels from there. To use the first stage to stop issues too vague to act on before the main stage runs, see [Check that an issue is ready](/guides/check-issue-readiness/).
 
 Every stage runs its own session, so an issue needs at least four sessions to get through this chain. `agent.max_sessions`, `agent.max_tokens`, and `agent.max_cost_usd` count every stage of the issue. If you set `agent.max_sessions`, make it at least the number of stages in the longest chain; `sortie validate` warns with `dispatch.next.max_sessions` when it is smaller.
 
@@ -565,6 +565,7 @@ For the complete field-by-field table, including every match key's matching rule
 ## Related guides
 
 - [Stage chains](/concepts/stage-chains/): why a pipeline of agent steps runs as a chain of rules, and when one rule is enough
+- [Check issue readiness](/guides/check-issue-readiness/): a first stage that parks vague issues before the main stage runs
 - [Write a prompt template](/guides/write-prompt-template/): template syntax and variables for per-rule files
 - [Connect to Jira](/guides/connect-to-jira/): Jira adapter setup, which supplies priority and issue type
 - [Connect to GitHub](/guides/connect-to-github/): GitHub adapter setup, label-based state mapping

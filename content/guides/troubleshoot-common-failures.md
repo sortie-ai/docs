@@ -80,12 +80,11 @@ A variable Sortie carries overrides the value or login the remote host holds und
 2. Stop Sortie sending the one that collides:
 
     ```yaml
-    extensions:
-      worker:
-        ssh_hosts:
-          - "build01.internal"
-        ssh_disallow_pass_env:
-          - GITHUB_TOKEN
+    worker:
+      ssh_hosts:
+        - "build01.internal"
+      ssh_disallow_pass_env:
+        - GITHUB_TOKEN
     ```
 
 3. Save the file. The worker block reloads without a restart, and the next dispatch runs under whatever identity the host itself holds.
@@ -261,6 +260,42 @@ Sortie's default `tracker.handoff_evidence` policy withholds the handoff transit
 
 5. **Not every workspace can be measured.** A workspace that is not a Git work tree changes nothing under the default policy. Only `strict` withholds there, and it withholds every transition. See the [state machine reference](/reference/state-machine/#handoff-evidence).
 
+## A comment on the issue never reaches the agent
+
+```
+level=ERROR msg="comment author access lookup refused" tracker_kind=github hint="comment_feed.include_authors or comment_feed.authors: all delivers comments without the lookup" error="tracker: tracker_auth_error: HTTP 403: Forbidden"
+level=WARN msg="issue comments withheld after author lookup failed" count=1 error="..."
+level=WARN msg="issue comment feed read failed" turn_number=3 error="..."
+```
+
+A person wrote a comment on the issue and the agent acted as if it did not exist. Sortie hands the agent a comment at the start of a turn, so the comment waits for the next turn boundary, and a comment it deliberately skips leaves no log line. Start with the log of the run. Each delivery logs `issue comments delivered` at INFO with `turn_number`, `new_comments`, and `earlier_comments`. If the turn after you commented carries that line, the agent received the comment and the cause is in the prompt or the agent. If it does not, work through these causes. For how the feed works and what it delivers, see [steer agents with issue comments](/guides/steer-agents-with-issue-comments/) and the [`comment_feed` reference](/reference/workflow-config/#comment_feed).
+
+1. **The turn in progress has not ended.** A comment never enters a turn that is already running. It arrives at the start of the next turn of that run. When the agent finishes without another turn, the comment arrives on the first turn of the issue's next run. Wait for the next `issue comments delivered` line.
+
+2. **The feed is off.** `comment_feed.enabled: false` in `WORKFLOW.md` stops the reads and the deliveries, and no log line says so. Look for the setting in the file the process runs. A reload applies to runs that start after it, so a run already in progress keeps the setting it started with.
+
+3. **The author is not a member and is not listed.** With the default `authors: members`, Sortie delivers a comment only from a person with write access to the project, plus every author in `include_authors`. A comment from anyone else, from a bot or app account, or from an author the tracker reports no identity for, is skipped without a log line. On GitHub, GitLab, and Gitea the check asks the forge for the author's access. Either grant the author write access, or add the author's identity to `comment_feed.include_authors`, or set `comment_feed.authors: all` if every commenter is trusted. The identity is the login or username on a forge, the account ID on Jira, and the user ID on Linear. It is never a display name, and letter case counts. The [`comment_feed` reference](/reference/workflow-config/#comment_feed) lists the identity each tracker reports.
+
+    ```yaml
+    comment_feed:
+      include_authors:
+        - alice
+    ```
+
+4. **The author is excluded.** `comment_feed.exclude_authors` blocks an author under both values of `authors`, and an author listed there and in `include_authors` is still blocked. Check the list for the identity the tracker reports, including an account that Sortie's own agent comments from.
+
+5. **The token cannot check the author's access.** The `members` check uses the tracker token. When the forge refuses it with a 401 or 403, Sortie logs `comment author access lookup refused` at ERROR, once per process, with the tracker kind and the forge's error. After that line the run makes no further lookup, and every comment that would need one is skipped silently. The next run asks the forge again, but it logs no second error while the process lives, so a missing line does not mean the token works. GitHub needs push access to the repository, Gitea needs repository read, and GitLab needs the `api` scope. Fix the token and the next run picks it up without a restart; or add the author to `include_authors`, or set `authors: all`, which skip the lookup. For a wrong or expired token see [Tracker returns 401 or 403](#tracker-returns-401-or-403).
+
+6. **The access check failed for another reason.** A network error, a rate limit, or a server error during the check logs `issue comments withheld after author lookup failed` at WARN with the number of comments held back. Sortie keeps those comments pending and asks again at the next turn, so the comment is late rather than lost. A check that keeps failing points at the tracker connection.
+
+7. **The read of the comments failed.** `issue comment feed read failed` at WARN means the turn went out without comments. The next turn reads again, and the read point only moves after a delivery, so no comment is lost.
+
+8. **The template leaves the comments out on purpose.** A template that renders `comment_feed` places the comments itself, and a template that renders something else in their place, such as a line that points the agent at its tracker tool, sends that text and not the comments. Sortie counts the comments as given anyway, so they never arrive later. Check the template for `comment_feed` and for `.park.comments`; see [place issue comments in your prompt](/guides/write-prompt-template/#place-issue-comments-in-your-prompt).
+
+9. **The comment was edited or deleted.** An edit delivers the comment once more, marked as replacing the earlier version, but a change to line endings or surrounding white space is not an edit. On Jira, an edit to a comment older than every comment a read reaches goes unseen. Sortie ignores a deleted comment; a retraction reaches the agent as an edit or as a new comment.
+
+10. **Sortie posted the comment.** A comment that Sortie posts through a `tracker_comment` notifications entry never comes back through the feed. Comments the agent posts with its own tracker tools are delivered like a person's. When the agent posts from an account of its own, listing that account in `exclude_authors` keeps them out.
+
 ## Tracker returns 401 or 403
 
 ```
@@ -427,7 +462,7 @@ An issue listed there is eligible. Its entry says what holds it and what release
 
     The issue whose session the provider refused is not in that list; it waits in the retry queue. Nothing in `WORKFLOW.md` lifts the hold. Wait for `resets_at`, or route the issues to another agent kind with a [dispatch rule](/guides/configure-dispatch-rules/). How the wait works is in [wait for a provider usage limit](/guides/configure-retry-behavior/#wait-for-a-provider-usage-limit); the fields are in the [hold object](/reference/http-api/#hold-object).
 
-13. **Sortie could not read the comments since a park.** After a person releases a parked issue, the next run receives the comments posted since the park. When the read of those comments fails, **Not dispatched** reads "Waiting to read the comments since the park", `hold.reason` is `park_comments_unread`, and the log carries `park release comment read failed, holding issue`. The issue is no longer parked. The next poll reads the comments again and dispatches the issue once the read succeeds; a read that keeps failing points at the tracker connection; see [Tracker returns 401 or 403](#tracker-returns-401-or-403).
+13. **Sortie could not read the comments since a park.** After a person releases a parked issue, Sortie reads the issue's comments before it starts the next run, whether or not `comment_feed` is enabled. When that read fails, **Not dispatched** reads "Waiting to read the comments since the park", `hold.reason` is `park_comments_unread`, and the log carries `park release comment read failed, holding issue`. A failed read of the record of the comments Sortie itself posted holds the issue the same way and logs `park release posted-comment record read failed, holding issue`. The issue is no longer parked. The next poll reads again and dispatches the issue once the read succeeds. With the feed on, the run's first turn reuses that read instead of making its own, and the comments it receives are the ones the agent has not seen yet. A read that keeps failing points at the tracker connection; see [Tracker returns 401 or 403](#tracker-returns-401-or-403).
 
 ## Sortie won't start at all
 

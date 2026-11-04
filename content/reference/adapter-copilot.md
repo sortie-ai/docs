@@ -6,6 +6,10 @@ date: 2026-04-26
 weight: 110
 url: /reference/adapter-copilot/
 ---
+{{< callout type="warning" >}}
+The `copilot-cli` kind is deprecated. Copilot CLI runs through the Agent Client Protocol (ACP) mode as the `agent-client-protocol` kind, which keeps one Copilot CLI process open for the whole session. This kind runs the CLI once per turn and delivers `--autopilot` with its turn ceiling, an `allowed_tools` list that denies other calls while the turn goes on, and `no_custom_instructions`, none of which ACP mode carries. ACP mode measures a cancelled turn, which this kind can end with no figure. See [how to run Copilot CLI in ACP mode](/guides/run-copilot-cli-in-acp-mode/) to convert a workflow, and [Copilot CLI on the Agent Client Protocol](/reference/agent-client-protocol-copilot/) for the route.
+{{< /callout >}}
+
 The Copilot CLI adapter connects Sortie to the [GitHub Copilot CLI](https://docs.github.com/en/copilot/using-github-copilot/using-github-copilot-in-the-command-line) via subprocess management. It launches the `copilot` binary with `--output-format json`, reads newline-delimited JSON from stdout, and normalizes events into Sortie's own event vocabulary. Registered under kind `"copilot-cli"`.
 
 Each turn spawns an independent subprocess. Session start runs a version canary before a session is created, local-mode only; whether the credential actually works is settled separately, by the [credential-verification step](/reference/workflow-config/#credential-verification) every kind runs before its first working turn, unless Sortie proved the same setup recently.
@@ -138,9 +142,10 @@ Validates the workspace path, resolves the agent binary, runs a canary check, an
 1. Validates that the workspace path is a non-empty absolute path pointing to an existing directory.
 2. Resolves the `command` from `PATH`. In SSH mode, resolves the local `ssh` binary instead; the agent command resolves on the remote host.
 3. **Canary check (local mode only):** runs `copilot --version` with a 5-second timeout. Any non-zero exit or timeout fails the session with `agent_not_found`, except that a session whose own context ends before the canary process starts running ends as `turn_cancelled`; the adapter does not read the version it printed, so this check confirms only that a working binary is present, not that it is new enough for `--session-id` (see [session identity](#session-identity)) or that any credential works.
-4. Mints a fresh v4 UUID as the session identifier, unless a session ID saved from a previous run was supplied for a continuation session, in which case that value is used instead.
-5. For a continuation session, reads the session's usage records from the session-state journal, on the runtime's host, to fix the session's starting point. A failed read leaves it unknown and does not fail the session start; see [accumulation logic](#accumulation-logic).
-6. The session then records the workspace path, resolved binary, session ID, and SSH configuration for later turns to use.
+4. For a continuation session, looks for the session's journal (`events.jsonl`, see [session-state journal](#session-state-journal)) on the runtime's host. A journal that is present continues the saved session ID. A journal that is absent, or a lookup that fails, starts a new session instead; see [a session that cannot be continued](#a-session-that-cannot-be-continued). A lost SSH connection during the lookup fails the start.
+5. Mints a fresh v4 UUID as the session identifier, unless step 4 continued a saved session, in which case the saved value is used.
+6. For a continued session, reads the session's usage records from the session-state journal, on the runtime's host, to fix the session's starting point. A failed read leaves it unknown and does not fail the session start; see [accumulation logic](#accumulation-logic).
+7. The session then records the workspace path, resolved binary, session ID, and SSH configuration for later turns to use.
 
 No credential check runs here. Whether the environment or an authenticated `gh` actually lets Copilot CLI answer is settled before the working session's first turn, by the [credential-verification step](/reference/workflow-config/#credential-verification); see [authentication](#authentication).
 
@@ -371,13 +376,26 @@ This adapter assigns the identifier itself: session start mints a fresh v4 UUID 
 |---|---|
 | First turn of a session this run created | `--session-id <uuid>` |
 | Every later turn of that session | `--resume <uuid>` |
-| Any turn of a session the orchestrator handed back from an earlier attempt | `--resume <uuid>`, from the first turn |
+| Any turn of a session the orchestrator handed back from an earlier attempt and the runtime still holds | `--resume <uuid>`, from the first turn |
+| First turn of a session handed back from an earlier attempt that the runtime no longer holds | `--session-id <uuid>`, with a new UUID |
 
 `--continue` is never passed: that flag resumes whichever session the home directory saw most recently, possibly another issue's, or the [credential-verification step's](/reference/workflow-config/#credential-verification) own session. Minting the identifier up front avoids that risk entirely.
 
 `--session-id` requires Copilot CLI 1.0.51 or later; an older CLI rejects the flag, and Sortie does not check the installed version for this. The [credential-verification step](/reference/workflow-config/#credential-verification) opens its own session the same way, with `--session-id` on its own first request, so an outdated CLI fails there, before the working session ever starts.
 
 A CLI that rejects the switch on standard error and exits before writing to stdout is reported as the [early exit report](/reference/errors/#early-exit-report), `port_exit`, so its own complaint about `--session-id` appears in the error text.
+
+### A session that cannot be continued
+
+Copilot CLI never starts a new conversation in place of a session it cannot find: a resume of a deleted or expired session exits 1 with `No session, task, or name matched '<uuid>'` and no `result` line. Sortie therefore checks for the saved session's journal before the first turn, so a retry or a released park does not fail on every attempt.
+
+When the journal is absent, or the check cannot read it, the run starts a new session under a new UUID, with `--session-id` on its first turn, and logs one warning:
+
+```text
+level=WARN msg="session resume not continued, starting new session" component=copilot-adapter resume_id=<saved uuid> resume_verdict=replaced
+```
+
+`resume_verdict` is `replaced` when the journal is absent and `unknown` when the check could not read it; an `unknown` verdict also carries an `error` field. The new UUID replaces the saved one for later retries. The earlier conversation is gone, so the first prompt carries the issue comments the new session has not seen, including those an earlier session already received; see [the comment feed](/reference/workflow-config/#comment_feed).
 
 ---
 
@@ -448,7 +466,7 @@ Neither Sortie nor the credential-verification step inspects a token's type or s
 | Default command | `claude` | `copilot` |
 | Output format flag | `--output-format stream-json` | `--output-format json` |
 | Session ID at start | UUID generated by adapter | UUID generated by adapter |
-| Resume flag | `--resume <UUID>` | `--session-id <uuid>` on the first turn of a session this run created, `--resume <uuid>` on every later turn; `--continue` is never used |
+| Resume flag | `--resume <UUID>` | `--session-id <uuid>` on the first turn of a session this run created or replaced, `--resume <uuid>` on every later turn and on the first turn of a saved session the runtime still holds; `--continue` is never used |
 | Input token reporting | Provisional per request from `assistant` events, settled by the `result` events' `model_usage_since_last_result`; the [session journal](/reference/adapter-claude-code/#session-journal) settles a turn they do not cover | From the last `session.usage_checkpoint` of the turn, or the session-state journal's usage records when the checkpoint cannot settle it, once per turn, locally and over SSH |
 | Model reporting | From `assistant` events | From the served-model keys of the checkpoint, or each journal record's own model |
 | Permission mode | `--permission-mode` or `--dangerously-skip-permissions` | `--autopilot` + `--no-ask-user`, plus `--allow-all` unless `allowed_tools` is set |
@@ -473,6 +491,8 @@ For Claude Code configuration, see [Claude Code adapter reference](/reference/ad
 
 ## Related pages
 
+- [How to run Copilot CLI in ACP mode](/guides/run-copilot-cli-in-acp-mode/): convert a workflow off this kind
+- [Copilot CLI on the Agent Client Protocol](/reference/agent-client-protocol-copilot/): the protocol route
 - [WORKFLOW.md configuration reference](/reference/workflow-config/): full `agent` schema and `copilot-cli` extension block
 - [Environment variables reference](/reference/environment/): GitHub token variables
 - [Error reference](/reference/errors/#agent-errors): all agent error kinds with retry behavior

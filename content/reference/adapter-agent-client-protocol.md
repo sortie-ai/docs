@@ -10,7 +10,12 @@ The Agent Client Protocol adapter connects Sortie to any runtime that speaks the
 
 Unlike every other agent kind, this one names no default runtime. `claude-code` launches `claude` and `copilot-cli` launches `copilot` unless `agent.command` names another program; this kind launches whatever `agent.command` names, together with the flag or subcommand that puts that binary into protocol mode.
 
-One operator build of this adapter can therefore drive several different vendor runtimes, and this page describes only what the protocol and the adapter guarantee across all of them. What one specific runtime does with a capability the protocol leaves optional, and the launch switches that runtime needs, are covered on that runtime's own page: see [Gemini CLI on the Agent Client Protocol](/reference/agent-client-protocol-gemini/) and [Kiro CLI on the Agent Client Protocol](/reference/agent-client-protocol-kiro/).
+One operator build of this adapter can therefore drive several different vendor runtimes, and this page describes only what the protocol and the adapter guarantee across all of them. What one specific runtime does with a capability the protocol leaves optional, and the launch switches that runtime needs, are covered on that runtime's own page. These runtimes have one:
+
+- [Gemini CLI on the Agent Client Protocol](/reference/agent-client-protocol-gemini/)
+- [Kiro CLI on the Agent Client Protocol](/reference/agent-client-protocol-kiro/)
+- [Copilot CLI on the Agent Client Protocol](/reference/agent-client-protocol-copilot/)
+- [OpenCode on the Agent Client Protocol](/reference/agent-client-protocol-opencode/)
 
 Session start launches the subprocess once and keeps it alive for the whole session; each turn sends one `session/prompt` request on that same session rather than spawning a new process.
 
@@ -52,20 +57,97 @@ agent:
 
 ### `agent-client-protocol` extension section
 
-This kind reads exactly one pass-through field. Every other setting a specific runtime needs, such as a model flag or a trust switch, is part of `agent.command` rather than a field here, because those settings are the runtime's own and this kind has no runtime-specific schema.
+The block holds the settings Sortie reads itself. Every other setting a specific runtime needs, such as a model flag or a trust switch, is part of `agent.command` or of the runtime's own configuration, because those settings are the runtime's own and this kind has no runtime-specific schema.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `mcp_config` | string | _(none)_ | Path to an operator-supplied MCP server configuration file, resolved relative to the WORKFLOW.md directory when not absolute. Its servers are merged into the generated configuration; the adapter re-expresses the merged result on `session/new`. See [MCP](#mcp). |
+| `model` | string | _(none)_ | The model a usage-limit refusal is attributed to: where each usage window meters one model, only the windows of this model, and the windows that name no model, set the refusal's reset. It does not select the runtime's model, which `agent.command` or the runtime's own configuration does. A value that is not a string reads as absent. |
+| `env` | map of string to string | _(none)_ | Environment variables set for the runtime on every launch. See [`env`](#env). |
+| `permissions` | string | `deny-all` | How Sortie answers a permission request. See [`permissions`](#permissions). |
+| `effort` | string | _(none)_ | The runtime's own reasoning level name, set when each session opens. See [`effort`](#effort). |
+| `config_options` | map of string to string | _(none)_ | Values for the runtime's own session options, set when each session opens. See [`config_options`](#config_options). |
 
 ```yaml
+agent:
+  kind: agent-client-protocol
+  command: copilot --acp --allow-all-tools
+
 agent-client-protocol:
-  mcp_config: ./mcp-servers.json
+  effort: high
+  config_options:
+    agent: reviewer
 ```
 
-The block carries no reasoning level: the kind reads no `effort` key, and one set here has no effect and draws the `agent.effort.not_forwarded` warning. Write the runtime's own reasoning option in `agent.command` instead, with the value that runtime accepts; Sortie checks neither.
+Sortie reads `mcp_config`, `model`, `env`, `permissions`, `effort`, and `config_options` from the block. A `variant` key has no effect: it draws the `agent-client-protocol.variant.not_read` warning, and the reasoning level is written as `effort`. A dispatch rule's settings block replaces each of these keys whole; a map is replaced, never merged, so a rule that writes `env` or `config_options` restates every entry it keeps. See [rule settings blocks](/reference/workflow-config/#rule-settings-blocks).
 
-The block itself is never forwarded to the runtime; only `mcp_config` is checked, to reject the wrong YAML type before any session starts. What actually reaches a session is the resolved MCP configuration path, prepared by the worker the same way it is for every other kind.
+### `env`
+
+A mapping of environment variable names to string values. Sortie sets each variable in the runtime's environment on every launch: local, over SSH, and for the [credential-verification session](/reference/workflow-config/#credential-verification). An absent key, a YAML null, and an empty mapping set nothing.
+
+- A name must consist of ASCII letters, digits, and underscores and must not start with a digit. The name `_sortie_complete`, which the SSH carrier uses for itself, is refused.
+- A value must be a string; an empty string is allowed and is set as an empty value.
+- Values are taken as written. No `$VAR` reference resolves under `env`, so a JSON document holding `$schema` arrives intact. A secret therefore does not belong in the workflow file: the runtime inherits it from Sortie's environment on a local launch, and [`worker.ssh_pass_env`](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent) carries its name to an SSH worker.
+- Sortie never logs a value; a fault message names the key and never a value.
+
+On a local launch an entry replaces the inherited variable of the same name, whatever its letter case on Windows. The variables Sortie adds for the launch, such as the [measurement setting](#token-accounting) for OpenCode, apply after it. On an SSH worker the entries travel on the session's standard input, never on a command line, whatever `worker.ssh_pass_env` and `worker.ssh_disallow_pass_env` list, and an entry beats a variable `worker.ssh_pass_env` carries under the same name.
+
+### `permissions`
+
+How Sortie answers a `session/request_permission` request the runtime raises for a tool call.
+
+| Value | Behavior |
+|---|---|
+| `deny-all` | Refuses each request. This is the behavior when the key is absent or null. See [permission handling](#permission-handling). |
+| `approve-all` | Approves, once, a request that offers exactly one once-only allowing option, by that option and never by the runtime's remembered one. A request that offers no such option, or several, is refused as `deny-all` refuses it. |
+
+Neither value changes a tool the runtime's own configuration denies, which raises no request and stays denied. Neither answers `elicitation/create`, a request for a person's input, which still ends the attempt.
+
+### `effort`
+
+The runtime's own name for a reasoning level, delivered exactly as written: Sortie does not trim it, change its case, or check it against a list. An absent key, a YAML null, and an empty string set nothing.
+
+Sortie sets the level once when each session opens, new, continued, or credential-verification, before the first prompt, on the first select option the runtime lists under the protocol's reasoning-level category (`thought_level`). It sends the request only when that option offers the exact name.
+
+A level that does not take effect never fails the session. Sortie logs one warning, `reasoning level not applied by the agent`, with `reason` set to one of:
+
+| `reason` | Condition |
+|---|---|
+| `no_option` | The session lists no reasoning-level option. The warning also lists the option ids an entry of `config_options` can name. |
+| `not_offered` | The option does not offer the name. The warning lists the names it offers. |
+| `rejected` | The runtime answered the request with an error. |
+| `no_answer` | The runtime did not answer within [`read_timeout_ms`](#agent-section). |
+| `other_value` | The runtime answered but reports another level as current. |
+
+The session then runs at the level the runtime reports. A lost connection fails the start as it fails any start request. A continued session with no `effort` runs at the level its runtime holds, which an earlier session may have set; when the runtime lists a reasoning option with a current value, Sortie's log names it when the session opens.
+
+### `config_options`
+
+A mapping of the runtime's session option ids to value ids, for settings that only a session option carries. Each key is an option id as the runtime lists it, each value is one of that option's value ids, and Sortie matches both exactly and holds no table of runtimes. An absent key, a YAML null, and an empty mapping set nothing. Copilot CLI's `agent` option, which selects a named agent, is an example: `agent: <name>`.
+
+Sortie sets the entries when each session opens, new, continued, or credential-verification, after the session is created and before `effort` and the first prompt.
+
+- Entries are set in the order the runtime lists its options. Each answer's option list is the one the next entry is checked against, so an option that appears only after another is set can be named.
+- An entry never reaches an option the runtime lists under the `model` or `thought_level` category; the level goes in `effort`.
+- Only select options are set.
+- An option no entry names keeps the value its runtime holds, which on a continued session can be a value an earlier session set. Removing an entry does not reset its option; to return an option to its default, set the entry to the option's default value. When a continued session holds a value for an option of a runtime-specific category (a category name that begins with an underscore) that no entry names, Sortie's log names the option and its value when the session opens.
+- A credential-verification session sets the entries too, in the same order.
+
+An entry that does not take effect never fails the session. Sortie logs one warning per entry, `session option not applied by the agent`, with the `option`, `value`, and a `reason`:
+
+| `reason` | Condition |
+|---|---|
+| `no_option` | The session lists no select option under that id. The warning lists the ids an entry can name. |
+| `not_offered` | The option does not offer the value. The warning lists the values it offers. |
+| `rejected` | The runtime answered the request with an error. |
+| `no_answer` | The runtime did not answer within `read_timeout_ms`. |
+| `other_value` | The runtime answered but reports another value as current. |
+
+The session then runs at the value the runtime reports. A lost connection fails the start as it fails any start request.
+
+### Settings refused at session start
+
+A malformed value under `mcp_config`, `env`, `permissions`, `effort`, or `config_options` fails the session start with the [`agent_not_found`](/reference/errors/#agent-errors) error kind and the text `sortie validate` reports for it; see [validate-time checks](#validate-time-checks).
 
 ---
 
@@ -77,11 +159,23 @@ When `agent.kind` is `agent-client-protocol`, the [`sortie validate`](/reference
 
 | Check | Condition | Message |
 |---|---|---|
-| `agent-client-protocol.mcp_config.wrong_type` | `agent-client-protocol.mcp_config` is present with a YAML type other than a string | Names the key and the type found. |
+| `agent-client-protocol.mcp_config.wrong_type` | `mcp_config` is present with a YAML type other than a string | Names the key and the type found. |
+| `agent-client-protocol.effort.wrong_type` | `effort` is present with a YAML type other than a string | Names the key and the type found. |
+| `agent-client-protocol.env.wrong_type` | `env` is not a mapping, or an entry's value is not a string | Names the key (`env` or `env.<name>`), the type wanted, and the type found. |
+| `agent-client-protocol.env.invalid_name` | An `env` name is not a valid environment variable name, or is the name the SSH carrier reserves. The first offending name in ascending order is reported. | `env: "<name>" is not a usable environment variable name` |
+| `agent-client-protocol.permissions.wrong_type` | `permissions` is present with a YAML type other than a string | Names the key and the type found. |
+| `agent-client-protocol.permissions.invalid_value` | `permissions` is a string other than `deny-all` or `approve-all` | `permissions: accepted values are "deny-all" and "approve-all"` |
+| `agent-client-protocol.config_options.wrong_type` | `config_options` is not a mapping, or an entry's value is not a string | `agent-client-protocol.config_options must be a mapping of session option ids to values`, or `agent-client-protocol.config_options.<id> must be a string` |
+
+### Warnings
+
+| Check | Condition | Message |
+|---|---|---|
+| `agent-client-protocol.variant.not_read` | `variant` is present and not null | `agent-client-protocol.variant has no effect: this kind reads the reasoning level from agent-client-protocol.effort` |
 
 Building the adapter reports the same fault with the same message, so the two paths can never disagree.
 
-This kind declares no check that would leave the runtime waiting for a person: unlike `codex.approval_policy` or `claude-code.permission_mode`, there is no pass-through field here whose value could put the runtime into an interactive posture, because whatever posture the runtime takes is spelled inside `agent.command` itself. See [permission handling](#permission-handling) for what happens when a runtime asks anyway.
+This kind declares no check that would leave the runtime waiting for a person: unlike `codex.approval_policy` or `claude-code.permission_mode`, no value of a key here puts the runtime into an interactive posture, because whatever posture the runtime takes is spelled inside `agent.command` or the runtime's own configuration. `permissions` chooses how Sortie answers a request the runtime raises anyway; see [permission handling](#permission-handling).
 
 ---
 
@@ -93,12 +187,13 @@ Launches the subprocess, performs the `initialize` handshake, and creates or con
 
 1. Resolves the launch target: validates that the workspace path is a non-empty absolute path pointing to an existing directory, and resolves `command` from `PATH` with no default to fall back to. In SSH mode, resolves the local `ssh` binary instead.
 2. Resolves the session's tool delivery from the generated MCP configuration. A server whose `enabled` field is present and `false` is dropped here. On a remote launch the stdio servers are dropped too, because the protocol's stdio server declaration names an executable the remote host would have to resolve, and Sortie starts its HTTP tool server and opens one short extra SSH connection to learn whether the worker host accepts the reverse forward. See [MCP](#mcp).
-3. Starts the subprocess with the full parent process environment, places it in its own process group, and wires stdin, stdout, and stderr. A launch whose `agent.command` names OpenCode also carries the setting that turns off its session titles; see [token accounting](#token-accounting).
+3. Starts the subprocess with the full parent process environment, with the entries of [`env`](#env) laid over it, places it in its own process group, and wires stdin, stdout, and stderr. A launch whose `agent.command` names OpenCode also carries the setting that turns off its session titles; see [token accounting](#token-accounting).
 4. Sends `initialize` with the pinned protocol version and no filesystem or terminal client capability. A response reporting any other protocol version ends the session, because the protocol defines no renegotiation and leaves the decision to disconnect to the client. The response's `agentInfo.name` selects the session's usage declaration; see [runtime identification](#runtime-identification).
 5. Renders the MCP servers into the wire format `session/new` (or a continuation call) will carry. When the handshake's `mcpCapabilities.http` is `true`, Sortie's own server is an HTTP entry, served from the orchestrator host. Otherwise any HTTP server is omitted. A stdio server is never withheld by this step on a local launch; the protocol allows omitting a server type, not the whole channel.
 6. Resolves the session: `session/new` alone when no session ID from a previous run is supplied, or the handshake advertises no continuation method; otherwise the advertised route, confirmed and falling back to `session/new` within this same call when not confirmed. See [session resume mechanism](#session-resume-mechanism).
 7. Records the identifier to end through the protocol later, only when the handshake advertised a teardown method: a [credential-verification](/reference/workflow-config/#credential-verification) session records `session/delete` when the handshake advertises `sessionCapabilities.delete`, falling back to `session/close` when only that is advertised; every other session records `session/close` when advertised and nothing otherwise. See [session close](#session-close).
-8. The session records the identifier the runtime actually created as its session ID, and the subprocess PID as the agent's process ID.
+8. Sets the `config_options` entries and then `effort`, before the session's first prompt, in a new, a continued, and a credential-verification session alike; see [`config_options`](#config_options) and [`effort`](#effort). A value that does not take effect draws a warning and the session goes on.
+9. The session records the identifier the runtime actually created as its session ID, and the subprocess PID as the agent's process ID.
 
 **Errors:**
 
@@ -106,6 +201,7 @@ Launches the subprocess, performs the `initialize` handshake, and creates or con
 |---|---|
 | Empty or non-existent workspace path | `invalid_workspace_cwd` |
 | Workspace path is not a directory | `invalid_workspace_cwd` |
+| A malformed `mcp_config`, `env`, `permissions`, `effort`, or `config_options` value; see [validate-time checks](#validate-time-checks) | `agent_not_found` |
 | Agent command is empty | `agent_not_found` |
 | Local runtime binary not found in `PATH` | `agent_not_found` |
 | SSH binary not found (SSH mode) | `agent_not_found` |
@@ -115,6 +211,7 @@ Launches the subprocess, performs the `initialize` handshake, and creates or con
 | The connection ends, including the subprocess exiting or the standard-output wait described under [process shutdown](#process-shutdown) giving up, before `session/new`, `session/load`, or `session/resume` receives a response | `port_exit` |
 | The connection ends before `initialize` answers | `port_exit`, on a [credential-verification](/reference/workflow-config/#credential-verification) session and a working session alike |
 | Either connection loss above, when the runtime process has itself exited | `port_exit`, as the [early exit report](/reference/errors/#early-exit-report) carrying the runtime's exit status and the end of its stderr; a connection that ends while the runtime stays alive reports `agent connection ended before responding` instead |
+| The connection ends while a session option is being set | `port_exit`, as for any start request |
 | `initialize` timed out | `response_timeout` |
 | `initialize`, `session/new`, or `session/prompt` returned error code `-32000`, the protocol's own "authentication required" code | `credential_unverified`, on a [credential-verification](/reference/workflow-config/#credential-verification) session and a working turn alike |
 | `initialize` returned any other protocol-level error, or reported a version other than the one this adapter is generated against | `response_error` |
@@ -298,10 +395,10 @@ The protocol carries no usage-limit report, so a session reports the limits of t
 
 | Runtime | How the limits are read | Reference |
 |---|---|---|
-| Copilot CLI | Pulled when a turn ends, from GitHub with the first GitHub token the runtime's environment carries, or, without one or when GitHub refuses it, by asking the runtime's own command on its host. | [Copilot CLI usage limits](/reference/adapter-copilot/#usage-limits) |
+| Copilot CLI | Pulled when a turn ends, from GitHub with the first GitHub token the runtime's environment carries, or, without one or when GitHub refuses it, by asking the runtime's own command on its host. | [Copilot CLI usage limits](/reference/adapter-copilot/#usage-limits); the [Copilot CLI route page](/reference/agent-client-protocol-copilot/) |
 | Gemini CLI | Pulled when a turn ends, from the endpoint the runtime itself calls, with the runtime's Google sign-in. | [Gemini CLI usage limits](/reference/agent-client-protocol-gemini/#usage-limits) |
 | Kiro CLI | Pulled when a turn ends, over the session's own connection. | [Kiro CLI usage limits](/reference/agent-client-protocol-kiro/#usage-limits) |
-| OpenCode | Pulled when a turn ends, by running the runtime's own command on its host. | [OpenCode usage limits](/reference/adapter-opencode/#usage-limits) |
+| OpenCode | Pulled when a turn ends, by running the runtime's own command on its host. | [OpenCode usage limits](/reference/adapter-opencode/#usage-limits); the [OpenCode route page](/reference/agent-client-protocol-opencode/) |
 
 A pull runs after a turn ends and not after a turn that was cancelled or timed out. The credential-verification session pulls nothing. A pull that fails reports nothing and leaves the limits already reported in place. A pull that finds the runtime cannot answer in this session, such as a Gemini CLI on an API key, stops the pulls for the rest of the session.
 
@@ -309,11 +406,12 @@ A pull runs after a turn ends and not after a turn that was cancelled or timed o
 
 ## Permission handling
 
-An operator neither answers a permission request nor configures the answer. The adapter's refusal posture is the one every agent adapter shares, applied here to `session/request_permission`:
+[`permissions`](#permissions) sets how the adapter answers a `session/request_permission` request. With `deny-all`, the default, the adapter applies the refusal posture every agent adapter shares:
 
 | What the request asks for | What the adapter does |
 |---|---|
-| Consent to act, selecting from a runtime-offered set of options | Selects the first offered option whose own kind refuses (`reject_once`, or `reject_always` when no `reject_once` option is offered), emits a `notification`, and the turn continues. |
+| Consent to act, selecting from a runtime-offered set of options, under `permissions: approve-all` and an offer with exactly one `allow_once` option | Selects that option, by kind and never by identifier, name, or position, and the call proceeds. It never selects `allow_always`: the runtime keeps that grant in its own store, where it outlives the declared posture. No notification is emitted. |
+| Consent to act, selecting from a runtime-offered set of options, in every other case | Selects the first offered option whose own kind refuses (`reject_once`, or `reject_always` when no `reject_once` option is offered), emits a `notification`, and leaves the turn open. Whether the turn goes on is the runtime's choice: a runtime that then answers the prompt with the `cancelled` stop reason, as OpenCode does after a refused direct tool call, has the turn recorded as [`turn_failed`](/reference/errors/#agent-errors). |
 | Consent to act, with no refusing option offered at all | Answers with the cancelled outcome, emits a `notification`, and ends the attempt with [`turn_input_required`](/reference/errors/#agent-errors); the option set gave the adapter no way to decline without granting something. |
 | An answer only a person could give, `elicitation/create` | Answered `method not found` at the protocol level, emits a `notification`, and ends the attempt with `turn_input_required`. |
 | Any other method this client does not implement | Answered `method not found`; the turn continues and a `malformed` event is recorded. |
@@ -322,7 +420,7 @@ A request arriving between turns is answered the same way, and an ending it prod
 
 A session that delivered at least one declared tool server, and then meets a permission request answered by refusal, is told once per session that any tool gated the same way cannot be called: the adapter emits one `notification` and logs one `Warn` record.
 
-A posture that never asks in the first place leaves no such signal on this path; see the runtime-specific pages for what each runtime's own configuration needs to reach that posture, and [what a delivered tool server needs to be callable](#tool-call-tracking).
+`approve-all` leaves a tool the runtime's own configuration denies denied, and does not answer `elicitation/create`. A posture that never asks in the first place leaves no such signal on this path; see the runtime-specific pages for what each runtime's own configuration needs to reach that posture, and [what a delivered tool server needs to be callable](#tool-call-tracking).
 
 ---
 
@@ -425,7 +523,7 @@ The adapter uses the shared `sshutil` transport defaults, the same ones every ot
 
 ### What an SSH launch does not carry
 
-No configured environment reaches the remote runtime beyond what OpenSSH itself forwards and the OpenCode title setting described under [token accounting](#token-accounting), and the generated configuration's `env` block never leaves the orchestrator host; see [MCP](#mcp). A credential a specific runtime needs on the remote host has to already be present there, or forwarded by whatever mechanism that runtime's own page describes; this kind manages none of its own.
+The remote runtime receives the entries of [`env`](#env), the OpenCode title setting described under [token accounting](#token-accounting), and what OpenSSH itself forwards, and nothing else of Sortie's environment unless [`worker.ssh_pass_env`](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent) names it. The generated configuration's `env` block never leaves the orchestrator host; see [MCP](#mcp). A credential a specific runtime needs on the remote host has to already be present there, or forwarded by `env` or `worker.ssh_pass_env`; this kind manages none of its own.
 
 ### Exit codes
 
@@ -448,7 +546,7 @@ Sortie creates the temporary file or directory on the launching host and removes
 
 - The launch is remote, because the command line is not visible there and a file Sortie writes exists only on the launching host.
 - The command line names no runtime from the table, or names more than one.
-- The command line or Sortie's environment already sets one of the switches the runtime would get. Replacing your own setting could change the model, provider, or credential the runtime uses.
+- The command line or Sortie's environment already sets one of the switches the runtime would get. Replacing your own setting could change the model, provider, or credential the runtime uses. The exception is a configuration document held in a variable, which Sortie adds its setting to instead of replacing; see the runtime's own page.
 - The runtime is Kiro CLI and the command line has no `--model`. Selecting an agent replaces your default agent, which could carry the model, and the verification agent sets none.
 
 A runtime that exits before it responds on the first check is checked once more with none of these switches; see [credential verification](/reference/workflow-config/#credential-verification).
@@ -457,13 +555,13 @@ A runtime that exits before it responds on the first check is checked once more 
 
 ## Authentication
 
-Sortie manages no credential for this kind. A local subprocess inherits the full parent process environment, and whichever runtime `agent.command` names reads its own credential from it, exactly as every other agent adapter's subprocess does. There is no adapter-specific preflight, canary, or environment variable, because there is no fixed runtime to preflight.
+Sortie manages no credential for this kind. A local subprocess inherits the full parent process environment, with the entries of [`env`](#env) laid over it, and whichever runtime `agent.command` names reads its own credential from it, exactly as every other agent adapter's subprocess does. There is no adapter-specific preflight, canary, or environment variable, because there is no fixed runtime to preflight.
 
 Whether the credential actually works is still settled, like every kind, by the [credential-verification step](/reference/workflow-config/#credential-verification) unless Sortie proved the same setup recently: a runtime whose `initialize` or `session/new` answers `-32000` there fails the run with `credential_unverified` before any working turn, and one that exits before it answers fails it with the [early exit report](/reference/errors/#early-exit-report) under `port_exit`. See the [session start errors table](#session-start) for the exact mapping.
 
-A remote session inherits the build host's environment instead. This kind declares no credential variable, so a remote launch carries nothing on its own account: put what the named runtime reads on the host, or name it under [`worker.ssh_pass_env`](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent).
+A remote session inherits the build host's environment instead. This kind declares no credential variable, so a remote launch carries nothing on its own account beyond the entries of `env`: put what the named runtime reads on the host, or name it under [`worker.ssh_pass_env`](/reference/workflow-config/#environment-variables-carried-to-a-remote-agent).
 
-See [Gemini CLI on the Agent Client Protocol](/reference/agent-client-protocol-gemini/) and [Kiro CLI on the Agent Client Protocol](/reference/agent-client-protocol-kiro/) for what each of those two runtimes actually reads, and what a stored login versus an API-key credential changes about what the session can do.
+See the pages for [Gemini CLI](/reference/agent-client-protocol-gemini/), [Kiro CLI](/reference/agent-client-protocol-kiro/), [Copilot CLI](/reference/agent-client-protocol-copilot/), and [OpenCode](/reference/agent-client-protocol-opencode/) on this route for what each runtime actually reads, and what a stored login versus an API-key credential changes about what the session can do.
 
 ---
 
@@ -479,7 +577,7 @@ See [Gemini CLI on the Agent Client Protocol](/reference/agent-client-protocol-g
 | Resume mechanism | `--resume <UUID>` | `--session-id <uuid>` on the first turn, `--resume <uuid>` after; never `--continue` | `thread/resume` or automatic within session | `--session <sessionID>` | `session/load` or `session/resume`, whichever the handshake advertises, confirmed by a negative control and, for load, by observed replay |
 | Token accounting | The result event's `model_usage_since_last_result`, with the runtime's session journal settling what it leaves open | `session.usage_checkpoint` events on stdout, with the session-state journal's `session.usage_record` lines settling what they leave open | `thread/tokenUsage/updated` notification, with the thread's rollout file settling what it leaves open | `step_finish` reports, settled by a separate `export` subprocess | The `session/prompt` result's `usage` member and the runtime's own records, read on the runtime's host, under the usage declaration the handshake selects; locally and over SSH alike |
 | Model reporting | Per served model, from `model_usage_since_last_result` and the journal | Per served model, from the usage checkpoints and the journal's `session.usage_record` lines | From the thread-open response, updated on reroute | Recovered from export `providerID/modelID` | From the runtime's records, where they name the serving model; none otherwise |
-| Permission control | `--permission-mode` or `--dangerously-skip-permissions` | `--autopilot` + `--no-ask-user` + tool scoping | `approvalPolicy` and sandbox policy | `--dangerously-skip-permissions` plus a synthesized policy in the inline configuration document | `session/request_permission`, refused in a form that lets the turn continue, or ends the attempt when only a person could answer |
+| Permission control | `--permission-mode` or `--dangerously-skip-permissions` | `--autopilot` + `--no-ask-user` + tool scoping | `approvalPolicy` and sandbox policy | `--dangerously-skip-permissions` plus a synthesized policy in the inline configuration document | `session/request_permission`, refused with the turn left open (the runtime decides whether it goes on), approved once under `permissions: approve-all`, or the attempt ends when only a person could answer |
 | Sortie's tools | Derived config file on `--mcp-config`, an inline document over SSH | Derived config file on `--additional-mcp-config`, an inline document over SSH | Generated servers re-expressed as command-line overrides; over SSH they ride the session's standard input | Generated servers re-expressed as an inline configuration document; over SSH it names HTTP servers only | Generated servers re-expressed on `session/new`; over SSH a runtime that accepts HTTP MCP servers reaches them, and any tool is callable only when the runtime's own configuration authorizes the call without asking |
 | Authentication | `ANTHROPIC_API_KEY` (+ Bedrock, Vertex) | `COPILOT_GITHUB_TOKEN` / `GH_TOKEN` / `GITHUB_TOKEN` / `gh auth` | `CODEX_API_KEY` or cached Codex auth | OpenCode-managed provider auth | None managed by Sortie; the named runtime authenticates itself |
 
@@ -498,6 +596,8 @@ See [Gemini CLI on the Agent Client Protocol](/reference/agent-client-protocol-g
 
 - [Gemini CLI on the Agent Client Protocol](/reference/agent-client-protocol-gemini/): the first runtime published on this route
 - [Kiro CLI on the Agent Client Protocol](/reference/agent-client-protocol-kiro/): the second runtime published on this route
+- [Copilot CLI on the Agent Client Protocol](/reference/agent-client-protocol-copilot/): the Copilot CLI launch command, credential, and route comparison
+- [OpenCode on the Agent Client Protocol](/reference/agent-client-protocol-opencode/): the OpenCode launch command, configuration, and route comparison
 - [WORKFLOW.md configuration reference](/reference/workflow-config/): full `agent` schema and the `agent-client-protocol` extension block
 - [Environment variables reference](/reference/environment/): how a runtime's own credential reaches its subprocess
 - [Error reference](/reference/errors/#agent-errors): all agent error kinds with retry behavior

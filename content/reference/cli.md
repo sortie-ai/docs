@@ -411,6 +411,7 @@ The pipeline checks:
 - At least one of `tracker.active_states` or `tracker.terminal_states` is non-empty, and no entry of either list is empty or only white space (`config.tracker.active_states[<i>]`, `config.tracker.terminal_states[<i>]`). For `github`, `gitea`, and `gitlab`, `tracker.terminal_states` is non-empty too (`config.tracker.terminal_states`).
 - Adapter-specific config validation. When the registered tracker adapter declares its own config validation, the pipeline invokes it with the extracted tracker config fields. Adapter validation runs after the generic preflight checks and can produce both errors (block validity) and warnings (advisory). The Jira, GitHub, GitLab, Gitea, and Linear adapters each declare one; the `file` adapter does not. Each adapter reference page lists that adapter's checks, for example [GitHub adapter validation](/reference/adapter-github/#validate-time-checks).
 - `notifications` entries: the shape of the section, the `events` names, and the `tracker_comment` rules (one entry, a configured tracker, `events` written, no `agent.message`). For each entry that receives an event Sortie produces, `validate` also builds the backend, which reports an unknown `kind` and a required setting that resolved to the empty string (see [Errors](/reference/errors/) for the messages), as `config.notifications[<i>].kind` or `config.notifications[<i>]`. An entry that receives only `agent.message` is not built. The `reactions.<kind>.escalation` value is checked too.
+- Agent adapter config validation. The `agent-client-protocol` kind checks the types and values of `mcp_config`, `env`, `permissions`, `effort`, and `config_options` in its block, and warns about a `variant` key. It reports errors under `agent-client-protocol.<key>.wrong_type`, `agent-client-protocol.env.invalid_name`, and `agent-client-protocol.permissions.invalid_value`, and the warning under `agent-client-protocol.variant.not_read`; each message and condition is listed in [validate-time checks](/reference/adapter-agent-client-protocol/#validate-time-checks).
 - Settings block presence (`dispatch.agent.missing_block`), for every agent kind a `dispatch.default.agent` or a `dispatch.rules[i].agent` names, when that kind is registered and differs from the top-level `agent.kind`. The kind must carry its own top-level block in the front matter, or the workflow is refused, naming the selector that introduced the kind and the block it expects. An empty block (`codex: {}` or a bare `codex:` key) is enough. A kind whose every selector is a rule that carries the kind's own settings block needs no top-level block, so the check does not fire for it. Skipped for a kind Sortie does not recognize as a registered adapter, since that is already reported separately as `agent_adapter`.
 - Session-resume refusal (`agent.kind.session_resume`), for every agent kind the configuration can reach. An adapter declares which of its own pass-through keys stops it resuming a session across separate agent launches; when the configuration sets that key to the blocking value, the workflow is refused. Sortie hands an issue its earlier session back on a continuation, including one still queued when Sortie restarts, and on the retry after a stall while Sortie keeps running, so every resumed turn would fail. The check reads the adapter's declaration and that adapter's own pass-through block, and no core setting; it runs offline with no network access and no subprocess launch. `claude-code.session_persistence` set to `false` is the only key any built-in adapter declares.
 - Dispatch rule settings blocks: the structural checks on `dispatch.rules` that fail the load (a block for a kind the rule does not run, a block that is not a mapping or writes `command` or a timeout, a missing or reserved rule `name`) and the [`match.title`](/reference/workflow-config/#title-phrases) checks, reported as `config.dispatch.rules[<i>]...` fields.
@@ -473,8 +474,8 @@ Every check in this group runs for every agent kind the configuration can reach,
 - **Label-commands poll interval clamped** (`reactions.label_commands.poll_interval_ms.clamped`). [`reactions.label_commands.poll_interval_ms`](/reference/workflow-config/#reactionslabel_commands) is set below its floor of `30000`; the floor is used instead.
 - **Env file missing** (`env_file.missing`). The file named by [`--env-file`](#--env-file) or `SORTIE_ENV_FILE` does not exist; no values are read from it.
 - **Env override replaced a non-mapping section** (`env_override.section_replaced`). A [`SORTIE_*` override](/reference/environment/#configuration-overrides) targets a section that is not a YAML mapping; the section is replaced with one holding only the overridden settings.
-- **Deprecated agent kind** (`agent.kind.deprecated`). A reachable agent kind is registered as deprecated: it still runs unchanged, and the message names the kind that replaces it and says a later release removes it. One warning per deprecated kind, for every kind named by `agent.kind`, `dispatch.default.agent`, or a `dispatch.rules[i].agent`. Move the workflow to the replacement kind to end it.
-- **Effort on a kind that passes none** (`agent.effort.not_forwarded`). A reachable agent kind whose adapter passes no reasoning level to its agent, such as `agent-client-protocol` or `mock`, has a non-empty `effort`, or an `effort` of another type, in its settings block, so the setting has no effect. One warning per such kind, for every kind named by `agent.kind`, `dispatch.default.agent`, or a `dispatch.rules[i].agent`, and one more per dispatch rule of such a kind whose resolved block carries an `effort`, written in the rule or inherited, with the message opening `dispatch rule "<name>" (dispatch.rules[<i>].<kind>): `. For `agent-client-protocol`, write the runtime's own reasoning option in `agent.command`; see [reasoning effort](/reference/workflow-config/#adapter-pass-through-configuration).
+- **Deprecated agent kind** (`agent.kind.deprecated`). A reachable agent kind is registered as deprecated: it still runs unchanged. The `copilot-cli` and `opencode` kinds are deprecated in favor of `agent-client-protocol`. `sortie validate` prints `agent kind "<kind>" is deprecated and will be removed in a later release; use agent kind "<replacement>" instead`. The run log carries the message `agent kind is deprecated and will be removed in a later release` with the attributes `agent_kind` and `replacement_kind`. One warning per deprecated kind, for every kind named by `agent.kind`, `dispatch.default.agent`, or a `dispatch.rules[i].agent`. Move the workflow to the replacement kind to end it; [Run Copilot CLI in ACP mode](/guides/run-copilot-cli-in-acp-mode/) and [Run OpenCode in ACP mode](/guides/run-opencode-in-acp-mode/) convert a workflow.
+- **Effort on a kind that passes none** (`agent.effort.not_forwarded`). A reachable agent kind whose adapter passes no reasoning level to its agent, such as `mock`, has a non-empty `effort`, or an `effort` of another type, in its settings block, so the setting has no effect. One warning per such kind, for every kind named by `agent.kind`, `dispatch.default.agent`, or a `dispatch.rules[i].agent`, and one more per dispatch rule of such a kind whose resolved block carries an `effort`, written in the rule or inherited, with the message opening `dispatch rule "<name>" (dispatch.rules[<i>].<kind>): `.
 - **Rule changes the model and keeps an inherited effort** (`agent.effort.inherited`). A [dispatch rule](/reference/workflow-config/#rule-settings-blocks) writes `model` in its settings block, does not write `effort`, and inherits a non-empty `effort` from the top-level block of its kind. Level names depend on the model, so the inherited level may not exist for the rule's model. The message reads `dispatch rule "<name>" (dispatch.rules[<i>].<kind>) sets model and inherits effort "<level>" from the top-level <kind> block; level names depend on the model, so write effort in the rule to choose the level for its model, or effort: null to clear it`. One warning per such rule.
 - **Deprecated tracker comment flag** (`tracker.comments.on_dispatch.deprecated`, `tracker.comments.on_completion.deprecated`, `tracker.comments.on_failure.deprecated`). The flag resolves to `true`, from the workflow file or from its `SORTIE_TRACKER_COMMENTS_*` variable. The flag keeps posting, and the message names the events to list in a `tracker_comment` entry of [`notifications`](/reference/workflow-config/#notifications). One warning per flag.
 - **Deprecated comment escalation** (`reactions.<kind>.escalation.deprecated`). A reaction with a provider sets `escalation: comment`. The message names `escalation: none` and the `escalation.<kind>` event to list in a `tracker_comment` entry. One warning per reaction.
@@ -485,7 +486,7 @@ Every check in this group runs for every agent kind the configuration can reach,
 - **Incomplete entry for an unlisted model** (`token_rates.model_incomplete`). A [`token_rates`](/reference/workflow-config/#model-entries) entry is keyed by a model that the price table the configuration selects does not list, and it leaves one of its four rates unset. That table is your [`price_table.replace_file`](/reference/workflow-config/#price_table) when set, else the built-in table. The warning names the unset rates. The entry still prices the classes it sets, and a run that spends an unset class is recorded as partial.
 - **Session budget shorter than a stage chain** (`dispatch.next.max_sessions`). `agent.max_sessions` is above `0` and smaller than the number of runs the longest stage chain needs, one per rule on it, so an issue on that chain exhausts its session budget before the chain ends. The message reads `agent.max_sessions <n> is smaller than the <runs> runs the longest stage chain needs (<path>); an issue on it exhausts its session budget before the chain ends`, where `<path>` lists the chain's rule names, as in `specify -> implement`. One warning, for the longest chain.
 
-Each of these is recomputed fresh every time the configuration is built. `sortie validate` and `sortie` [`--dry-run`](#--dry-run) report every currently-applicable advisory on every invocation, with no memory of an earlier run. The long-running process is the exception: its run log records an advisory once and again only after the condition has cleared and returned, kept in memory for the life of the process, so a restart logs it again immediately if the condition still holds. None of them affect `valid` or the exit code.
+Each of these is recomputed fresh every time the configuration is built. `sortie validate` and `sortie` [`--dry-run`](#--dry-run) report every currently-applicable advisory on every invocation, with no memory of an earlier run. The long-running process is the exception: its run log records an advisory once, on the load that first produces it, and logs it again only when the set of advisories changes so that it is new again, after the condition cleared and returned or with different attributes. The record of what was logged lives in memory for the life of the process, so a restart logs it again immediately if the condition still holds. A deprecated kind therefore warns once per running process until the workflow stops reaching it. None of them affect `valid` or the exit code.
 
 #### Arguments
 
@@ -634,6 +635,7 @@ Warning diagnostics use a separate set of check values. They appear only in the 
 | `env_file.missing` | The file named by [`--env-file`](#--env-file) or `SORTIE_ENV_FILE` does not exist; no values are read from it. |
 | `env_override.section_replaced` | A `SORTIE_*` override targets a section that is not a YAML mapping; the section is replaced with one holding only the overridden settings. |
 | `agent.kind.deprecated` | A reachable agent kind is deprecated: it still runs, and the message names its replacement. |
+| `agent-client-protocol.variant.not_read` | `agent-client-protocol.variant` is present and not null. The key has no effect; the reasoning level is `agent-client-protocol.effort`. |
 | `agent.effort.not_forwarded` | A reachable agent kind that passes no reasoning level to its agent has `effort` set in its settings block, or a dispatch rule of that kind resolves one, so the setting has no effect. |
 | `agent.effort.inherited` | A dispatch rule writes `model`, does not write `effort`, and inherits a non-empty `effort` from the top-level block of its kind. |
 | `tracker.comments.on_dispatch.deprecated`, `tracker.comments.on_completion.deprecated`, `tracker.comments.on_failure.deprecated` | The flag resolves to `true`. It still posts, and the message names the replacement events. |
@@ -1000,14 +1002,14 @@ Every run in the range counts, whatever its status, including a `ci_failed` run,
 
 #### Spend by period
 
-The `spend` member of the JSON report sums the recorded cost of the runs in the range per UTC calendar period. The dashboard draws it as the spend chart in [Analytics](/reference/dashboard/#analytics). The text report has no such table. `spend` is `null` on the `base` tier and on a database that records no cost.
+The `spend` member of the JSON report sums the tokens and the recorded cost of the runs in the range per UTC calendar period. The dashboard draws it as the chart in [Analytics](/reference/dashboard/#analytics): the cost in its **Cost** view and the tokens in its **Tokens** view. The text report has no such table. `spend` is present on every report. On the `base` tier every bucket has `tokens` and `cost_usd` `null`, and on a database that records no cost every bucket has `cost_usd` `null`.
 
 | Field | Type | Description |
 |---|---|---|
 | `period` | string | `day` when the range has a `since` that lies no more than 2160 hours before the end of the range, which is `until` or else `generated_at`. `month` otherwise, so a range of 90 days or less gets days and an open `since` gets months. |
 | `buckets` | array of object | One element per period, ascending by `start`. Never `null`; `[]` when no run in the range has a parseable completion time. |
 
-The buckets list every period from the one that holds `since` (the one that holds the earliest run when `since` is open) through the later of the one that holds the end of the range and the one that holds the latest run. A period without runs appears with `runs` `0` and `cost_usd` `null`. A run counts in the bucket whose period holds its completion time, so the buckets partition the runs they count. A run whose completion time is not an RFC 3339 timestamp counts in the summary and the breakdowns and in no bucket. The first bucket of a range whose `since` lies inside a period holds only the runs at or after `since`.
+The buckets list every period from the one that holds `since` (the one that holds the earliest run when `since` is open) through the later of the one that holds the end of the range and the one that holds the latest run. A period without runs appears with `runs` `0` and `tokens` and `cost_usd` `null`. A run counts in the bucket whose period holds its completion time, so the buckets partition the runs they count. A run whose completion time is not an RFC 3339 timestamp counts in the summary and the breakdowns and in no bucket. The first bucket of a range whose `since` lies inside a period holds only the runs at or after `since`.
 
 Each element of `buckets`:
 
@@ -1015,10 +1017,13 @@ Each element of `buckets`:
 |---|---|---|
 | `start` | string | The first instant of the period, RFC 3339 in UTC. |
 | `runs` | integer | Runs that completed in the period. |
+| `tokens` | object or null | The token sums of the period's measured runs, with the same members as the `tokens` object of the summary. `null` when no run of the period is measured, and on the `base` tier. |
 | `cost_usd` | number or null | The sum of the recorded costs of the period's priced runs, rounded to nine decimals. `null` when none is priced. It is the whole spend only while `cost_lower_bound` is `false`. |
 | `tokens_unmeasured_runs` | integer | The period's runs counted as in `summary.tokens_unmeasured_runs`. |
 | `cost_unpriced_runs` | integer | The period's runs counted as in `summary.cost_unpriced_runs`. |
 | `cost_partial_runs` | integer | The period's runs counted as in `summary.cost_partial_runs`. |
+| `tokens_lower_bound_runs` | integer | The period's measured runs counted as in `summary.tokens_lower_bound_runs`. |
+| `tokens_lower_bound` | boolean | `true` when `tokens` is not `null` and either `tokens_unmeasured_runs` or `tokens_lower_bound_runs` is above `0`. |
 | `cost_lower_bound` | boolean | `true` when `cost_usd` is not `null` and any of `cost_unpriced_runs`, `cost_partial_runs`, and `tokens_unmeasured_runs` is above `0`. |
 | `agent_priced_usd` | number or null | The part of `cost_usd` priced from US dollar amounts the coding agent reported, as in `summary.agent_priced_usd`. `null` when no run of the period was priced that way. |
 
@@ -1150,7 +1155,7 @@ Envelope:
 | `schema_tier` | string | `"full"` or `"base"`. See [schema tiers](#schema-tiers). |
 | `warnings` | array of string | Advisory messages: a degraded schema, or one warning that names every breakdown and figure a `full` database leaves out. At most one entry. `token_rates` advisories are not listed; `sortie validate` reports them. Empty when there is nothing to report, never `null`. The `warning: ` prefix belongs to text rendering and is not part of these strings. |
 | `summary` | object | Report-wide figures. Always present. |
-| `spend` | object or null | The recorded cost per UTC day or month. `null` on the `base` tier and on a database that records no cost. See [spend by period](#spend-by-period). |
+| `spend` | object | The tokens and recorded cost per UTC day or month. Always present. See [spend by period](#spend-by-period). |
 | `by_status` | array of object | Breakdown by outcome. |
 | `by_adapter` | array of object | Breakdown by coding agent. |
 | `by_rule` | array of object | Breakdown by dispatch rule. Empty array on the `base` tier. |
@@ -1250,6 +1255,7 @@ Durations are seconds here. Text mode renders the same values as `2m 49s`.
 | `cache_read` | integer | Sum of recorded cache-read tokens over the measured runs. |
 | `cache_write` | integer | Sum of recorded cache-write tokens over the measured runs. |
 | `uncached` | integer | `total` less `cache_read`, derived by the report rather than stored, so `uncached` plus `cache_read` equals `total`. Cache-write tokens stay in it. |
+| `fresh_input` | integer | `input` less `cache_read` and `cache_write`, derived by the report rather than stored, and never below `0`. `input` counts both cache figures, so `fresh_input` plus `output` plus `cache_write` equals `uncached` while `cache_read` plus `cache_write` does not exceed `input`. |
 
 `self_review`:
 
@@ -1289,7 +1295,7 @@ A worked example, expanded for readability and trimmed to one element per breakd
     "success_rate": 0.7778,
     "duration_seconds": {"p50": 169, "p95": 432, "mean": 214.6, "samples": 7},
     "mean_turns_succeeded": 3.29,
-    "tokens": {"input": 502900, "output": 96000, "total": 598900, "cache_read": 126380, "cache_write": 18200, "uncached": 472520},
+    "tokens": {"input": 502900, "output": 96000, "total": 598900, "cache_read": 126380, "cache_write": 18200, "uncached": 472520, "fresh_input": 358320},
     "cost_usd": 6.49,
     "cost_per_succeeded_run_usd": 0.927142857,
     "zero_duration_runs": 0,
@@ -1307,7 +1313,7 @@ A worked example, expanded for readability and trimmed to one element per breakd
   "spend": {
     "period": "day",
     "buckets": [
-      {"start": "2026-07-01T00:00:00Z", "runs": 0, "cost_usd": null, "tokens_unmeasured_runs": 0, "cost_unpriced_runs": 0, "cost_partial_runs": 0, "cost_lower_bound": false, "agent_priced_usd": null}
+      {"start": "2026-07-01T00:00:00Z", "runs": 0, "tokens": null, "cost_usd": null, "tokens_unmeasured_runs": 0, "cost_unpriced_runs": 0, "cost_partial_runs": 0, "tokens_lower_bound_runs": 0, "tokens_lower_bound": false, "cost_lower_bound": false, "agent_priced_usd": null}
     ]
   },
   "by_status": [
@@ -1319,7 +1325,7 @@ A worked example, expanded for readability and trimmed to one element per breakd
       "share": 0.7778,
       "duration_seconds": {"p50": 169, "p95": 432, "mean": 214.6, "samples": 7},
       "mean_turns": 3.29,
-      "tokens": {"input": 341900, "output": 67000, "total": 408900, "cache_read": 90380, "cache_write": 12100, "uncached": 318520},
+      "tokens": {"input": 341900, "output": 67000, "total": 408900, "cache_read": 90380, "cache_write": 12100, "uncached": 318520, "fresh_input": 239420},
       "cost_usd": 4.59,
       "cost_per_succeeded_run_usd": 0.655714286,
       "tokens_unmeasured_runs": 0,
@@ -1342,7 +1348,7 @@ A worked example, expanded for readability and trimmed to one element per breakd
       "share": 0.6667,
       "duration_seconds": {"p50": 161, "p95": 580, "mean": 272, "samples": 6},
       "mean_turns": 3.33,
-      "tokens": {"input": 324500, "output": 63900, "total": 388400, "cache_read": 126380, "cache_write": 18200, "uncached": 262020},
+      "tokens": {"input": 324500, "output": 63900, "total": 388400, "cache_read": 126380, "cache_write": 18200, "uncached": 262020, "fresh_input": 179920},
       "cost_usd": 5.72,
       "cost_per_succeeded_run_usd": 1.144,
       "tokens_unmeasured_runs": 0,
@@ -1365,7 +1371,7 @@ A worked example, expanded for readability and trimmed to one element per breakd
       "share": 0.4444,
       "duration_seconds": {"p50": 150, "p95": 169, "mean": 155, "samples": 4},
       "mean_turns": 2.5,
-      "tokens": {"input": 145100, "output": 27700, "total": 172800, "cache_read": 56360, "cache_write": 8100, "uncached": 116440},
+      "tokens": {"input": 145100, "output": 27700, "total": 172800, "cache_read": 56360, "cache_write": 8100, "uncached": 116440, "fresh_input": 80640},
       "cost_usd": 2.54,
       "cost_per_succeeded_run_usd": 0.635,
       "tokens_unmeasured_runs": 0,
@@ -1388,7 +1394,7 @@ A worked example, expanded for readability and trimmed to one element per breakd
       "share": 0.4444,
       "duration_seconds": {"p50": 150, "p95": 169, "mean": 155, "samples": 4},
       "mean_turns": 2.5,
-      "tokens": {"input": 145100, "output": 27700, "total": 172800, "cache_read": 56360, "cache_write": 8100, "uncached": 116440},
+      "tokens": {"input": 145100, "output": 27700, "total": 172800, "cache_read": 56360, "cache_write": 8100, "uncached": 116440, "fresh_input": 80640},
       "cost_usd": 2.54,
       "cost_per_succeeded_run_usd": 0.635,
       "tokens_unmeasured_runs": 0,
@@ -1411,7 +1417,7 @@ A worked example, expanded for readability and trimmed to one element per breakd
       "share": 0.4444,
       "duration_seconds": {"p50": 150, "p95": 169, "mean": 155, "samples": 4},
       "mean_turns": 2.5,
-      "tokens": {"input": 145100, "output": 27700, "total": 172800, "cache_read": 56360, "cache_write": 8100, "uncached": 116440},
+      "tokens": {"input": 145100, "output": 27700, "total": 172800, "cache_read": 56360, "cache_write": 8100, "uncached": 116440, "fresh_input": 80640},
       "cost_usd": 2.54,
       "cost_per_succeeded_run_usd": 0.635,
       "tokens_unmeasured_runs": 0,
@@ -1438,7 +1444,7 @@ A worked example, expanded for readability and trimmed to one element per breakd
       "share": 1,
       "duration_seconds": {"p50": 200, "p95": 580, "mean": 271.3, "samples": 9},
       "mean_turns": 3.78,
-      "tokens": {"input": 502900, "output": 96000, "total": 598900, "cache_read": 126380, "cache_write": 18200, "uncached": 472520},
+      "tokens": {"input": 502900, "output": 96000, "total": 598900, "cache_read": 126380, "cache_write": 18200, "uncached": 472520, "fresh_input": 358320},
       "cost_usd": 6.49,
       "cost_per_succeeded_run_usd": 0.927142857,
       "tokens_unmeasured_runs": 0,

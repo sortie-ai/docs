@@ -10,18 +10,21 @@ In this tutorial, we will wire Sortie to GitHub Issues and the Copilot CLI, clon
 
 The GitHub integration tutorial proved that Sortie can talk to your issue tracker. This tutorial adds three new pieces: a real agent (Copilot CLI), workspace hooks for git operations, and a prompt template that guides the agent through the task.
 
+If you already have a Sortie configuration for Copilot CLI that you want to update, see [how to run Copilot CLI in ACP mode](/guides/run-copilot-cli-in-acp-mode/) instead.
+
 ## Prerequisites
 
 - [GitHub integration tutorial](/getting-started/github-integration/) completed: Sortie connects to your GitHub repository and `SORTIE_GITHUB_TOKEN` is set
-- Copilot CLI 1.0.51 or later installed on your machine. This adapter assigns its own session ID with `--session-id`, a flag an older CLI rejects; on an older CLI the run fails before it does any work, with the CLI's own complaint about its command line rather than a message naming the version.
+- Copilot CLI installed on your machine, with the `copilot` binary on your `PATH`:
 
     ```bash
+    npm install -g @github/copilot
     copilot --version
     ```
 
-    Confirm the version is 1.0.51 or later. If the command is not found, install the [Copilot CLI](https://docs.github.com/en/copilot/using-github-copilot/using-github-copilot-in-the-command-line) and follow its own prerequisites.
+    You should see a version string. If the command is not found, see the [Copilot CLI installation guide](https://docs.github.com/en/copilot/using-github-copilot/using-github-copilot-in-the-command-line).
 
-- GitHub authentication for Copilot CLI. The CLI resolves its own credential; which source it reads is the CLI's own to document. Sortie confirms that credential actually works before it starts work on an issue, rather than only checking that a variable is set; see [authentication: one token, two jobs](#authentication-one-token-two-jobs). The fastest path is to reuse the token you already have:
+- GitHub authentication for Copilot CLI. The CLI resolves its own credential: a login it stored on the machine, or a token in `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN`. Sortie confirms that credential actually works before it starts work on an issue, rather than only checking that a variable is set; see [authentication: one token, two jobs](#authentication-one-token-two-jobs). If you have signed in to Copilot CLI on this machine, you are set. Otherwise export a token. Copilot CLI accepts a fine-grained personal access token with the Copilot Requests permission, and rejects a classic token (`ghp_`), which is what the GitHub integration tutorial has you create. To reuse the tracker token for both jobs, it has to be a fine-grained one; with a classic tracker token, sign in to Copilot CLI instead or export a separate fine-grained token. The [environment reference](/reference/environment/#agent-runtime-variables) has the details. Reusing a fine-grained tracker token looks like this:
 
     ```bash
     export GITHUB_TOKEN="$SORTIE_GITHUB_TOKEN"
@@ -68,7 +71,7 @@ mkdir sortie-github-e2e && cd sortie-github-e2e
 
 Create `WORKFLOW.md` with the full configuration. Replace `yourorg/yourrepo` with your actual repository:
 
-```jinja {filename="WORKFLOW.md",hl_lines=[3,4,"33-34","39-41"]}
+```jinja {filename="WORKFLOW.md",hl_lines=[3,4,"33-34"]}
 ---
 tracker:
   kind: github
@@ -101,15 +104,11 @@ hooks:
   timeout_ms: 120000
 
 agent:
-  kind: copilot-cli
-  command: copilot
+  kind: agent-client-protocol
+  command: copilot --acp --allow-all --model gpt-4.1
   max_turns: 3
   turn_timeout_ms: 1800000
   max_concurrent_agents: 1
-
-copilot-cli:
-  model: gpt-4.1
-  max_autopilot_continues: 50
 ---
 
 You are a senior engineer working in this repository.
@@ -163,17 +162,26 @@ If you followed the [Claude Code end-to-end tutorial](/getting-started/jira-clau
 
 `tracker.kind: github` uses the GitHub adapter. The project field takes `owner/repo` format, and `api_key: $SORTIE_GITHUB_TOKEN` is a single Bearer token, with no `email:token` format like Jira. State is managed through labels: when Sortie transitions an issue, it removes the old state label, adds the new one, and closes the issue if the target state is terminal. No Jira workflow configuration required.
 
-### Agent: Copilot CLI instead of Claude Code
+### Agent: Copilot CLI in ACP mode
 
-`agent.kind: copilot-cli` uses the Copilot CLI adapter. Where the Claude Code tutorial sets `permission_mode: bypassPermissions`, Copilot CLI always runs with `--autopilot` and `--no-ask-user`, and adds `--allow-all` too as long as you leave `allowed_tools` unset. No extra permission field is needed.
+`agent.kind: agent-client-protocol` tells Sortie to launch whatever `agent.command` names, keep that process alive for the whole session, and send each turn to it. The kind has no default binary and no model or permission settings of its own, so the runtime and its options live in one string:
 
-The `copilot-cli` section is a pass-through to the Copilot CLI binary. `max_autopilot_continues: 50` is the inner turn budget, analogous to `claude-code.max_turns`. With three Sortie turns and 50 autopilot continues each, the agent gets up to 150 total steps to finish the task. `model: gpt-4.1` selects the LLM model. Replace it with your preferred model.
+| Part of `agent.command` | Effect |
+|---|---|
+| `copilot` | The Copilot CLI binary, found on your `PATH` at session start. |
+| `--acp` | Starts Copilot CLI in ACP mode, the protocol interface Sortie drives, instead of its interactive chat. |
+| `--allow-all` | Approves every tool request. Without an approval switch, Copilot CLI asks before each tool call, Sortie refuses because an unattended run has nobody to answer, and the turn ends. |
+| `--model gpt-4.1` | Selects the model. Replace it with your preferred model, or drop the switch to use your account's default. |
+
+Where the Claude Code tutorial sets `permission_mode: bypassPermissions`, this route carries the same decision in the command. With `--allow-all`, Copilot CLI runs any tool the model picks, its shell included, with your user account's permissions, and nobody reviews the call first. Point this first run at a repository you can afford to lose, and put the agent in a hardened sandbox before you use this setup for real work. The [Copilot CLI reference](/reference/agent-client-protocol-copilot/#the-permission-posture) covers narrower postures.
+
+`agent.max_turns: 3` caps the Sortie turns in a session, and `agent.turn_timeout_ms: 1800000` gives each turn 30 minutes.
 
 ### Authentication: one token, two jobs
 
-`SORTIE_GITHUB_TOKEN` authenticates Sortie to the GitHub API. `GITHUB_TOKEN` (or `GH_TOKEN`, or `COPILOT_GITHUB_TOKEN`) authenticates Copilot CLI to GitHub's AI backend. They can be the same token. If you ran the `export GITHUB_TOKEN="$SORTIE_GITHUB_TOKEN"` command from the prerequisites, both are already set.
+`SORTIE_GITHUB_TOKEN` authenticates Sortie to the GitHub API. `GITHUB_TOKEN` (or `GH_TOKEN`, or `COPILOT_GITHUB_TOKEN`) authenticates Copilot CLI to GitHub's AI backend. They can be the same token when it is a fine-grained one, as the prerequisites explain. If you ran the `export GITHUB_TOKEN="$SORTIE_GITHUB_TOKEN"` command from the prerequisites, both are already set.
 
-Before it starts work on an issue, Sortie opens a short-lived session of its own and sends one request through Copilot CLI to confirm the credential actually answers, rather than only checking that a variable is set. A missing or rejected credential stops the run immediately with Copilot CLI's own message about it, such as `No authentication information found`, instead of failing partway through the first turn. See [credential verification](/reference/workflow-config/#credential-verification) for the mechanism every agent kind shares.
+Before it starts work on an issue, Sortie opens a short-lived session of its own and sends one request through Copilot CLI to confirm the credential actually answers, rather than only checking that a variable is set. A missing or rejected credential stops the run immediately with Copilot CLI's own message about it, instead of failing partway through the first turn. See [credential verification](/reference/workflow-config/#credential-verification) for the mechanism every agent kind shares.
 
 ### Workspace and hooks
 
@@ -225,7 +233,7 @@ level=INFO msg="turn started" issue_id=5 issue_identifier=5 turn_number=1 max_tu
 
 The `agent credential verified` line is Sortie proving your GitHub token works, in a short-lived session of its own, before it starts the working session below it. The agent is now working. A Copilot CLI session typically takes 3–10 minutes depending on the task complexity and model. The agent reads files, writes code, and runs tests. Each action appears as events in the log at `debug` level.
 
-Notice that issue identifiers are bare numbers (`5`, not `#5` or `PROJ-55`). Both `Issue.ID` and `Issue.Identifier` are the issue number for the GitHub adapter.
+Notice that issue identifiers are bare numbers (`5`, not `#5` or `PROJ-55`). The GitHub adapter uses the issue number for both the issue ID and the issue identifier.
 
 When the agent finishes, you will see:
 
@@ -302,21 +310,21 @@ If the label did not change: review the Sortie logs for error messages and confi
 
 ### Check the dashboard
 
-Open `http://127.0.0.1:7678/` in a browser while Sortie is running. [Overview](/reference/dashboard/#overview) lists issue `5` under **Ended today** with the ending "Review", which matches the label you just checked. Its completed run, with turns, duration, and status, is on [History](/reference/dashboard/#history).
+Open `http://127.0.0.1:7678/` in a browser while Sortie is running. [Overview](/reference/dashboard/#overview) lists issue `5` under **Ended today** with the ending "review", which matches the label you just checked. Its completed run, with turns, duration, and status, is on [History](/reference/dashboard/#history).
 
 {{% /steps %}}
 
 ## What we built
 
-We ran the complete Sortie lifecycle with Copilot CLI on GitHub Issues, entirely GitHub-native. One token authenticates both the tracker and the agent. Sortie polled GitHub, cloned the repository, launched the Copilot CLI, let it write and test code, pushed the result to a branch, and moved the issue to review.
+We ran the complete Sortie lifecycle with Copilot CLI on GitHub Issues, entirely GitHub-native. One token authenticates both the tracker and the agent. Sortie polled GitHub, cloned the repository, launched Copilot CLI in ACP mode, let it write and test code, pushed the result to a branch, and moved the issue to review.
 
-The same orchestration loop powers the [Claude Code end-to-end tutorial](/getting-started/jira-claude-end-to-end/) and the [Codex end-to-end tutorial](/getting-started/jira-codex-end-to-end/) with different agents and trackers. Sortie's adapter-agnostic design means swapping `copilot-cli` for `claude-code` or `codex` is a config change. The prompt template, hooks, and overall flow carry over.
+The same orchestration loop powers the [Claude Code end-to-end tutorial](/getting-started/jira-claude-end-to-end/) and the [Codex end-to-end tutorial](/getting-started/jira-codex-end-to-end/) with different agents and trackers. Sortie's adapter-agnostic design means swapping the agent is a config change. The prompt template, hooks, and overall flow carry over.
 
 Where to go next:
 
 - [Write a prompt template](/guides/write-prompt-template/): conditionals, iteration, and template functions for production prompts
 - [WORKFLOW.md configuration reference](/reference/workflow-config/): every field, every default, every constraint
 - [Monitor with Prometheus](/guides/monitor-with-prometheus/): token usage, session counts, and retry rates as time-series metrics
-- [Copilot CLI adapter reference](/reference/adapter-copilot/): CLI flags, event stream, and pass-through configuration
+- [Copilot CLI on the Agent Client Protocol](/reference/agent-client-protocol-copilot/): launch switches, credentials, permission posture, and limitations
 - [GitHub adapter reference](/reference/adapter-github/): field mapping, state derivation, and rate limiting
 - [Scale agents with SSH](/guides/scale-agents-with-ssh/): remote execution for production workloads

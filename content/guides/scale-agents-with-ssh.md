@@ -41,16 +41,15 @@ If that fails, fix your SSH setup first. Sortie delegates to the system `ssh` bi
 
 ## Add the worker extension
 
-Open your `WORKFLOW.md` and add an [`extensions.worker`](/reference/workflow-config/) block to the YAML front matter. List your SSH hosts and set a per-host concurrency cap:
+Open your `WORKFLOW.md` and add a [`worker`](/reference/workflow-config/#worker) block to the YAML front matter. List your SSH hosts and set a per-host concurrency cap:
 
 ```yaml
 # WORKFLOW.md (front matter excerpt)
-extensions:
-  worker:
-    ssh_hosts:
-      - "build01.internal"
-      - "build02.internal"
-    max_concurrent_agents_per_host: 2
+worker:
+  ssh_hosts:
+    - "build01.internal"
+    - "build02.internal"
+  max_concurrent_agents_per_host: 2
 ```
 
 This tells Sortie to run agents on `build01` and `build02` instead of locally. Each host accepts up to 2 concurrent sessions, giving you 4 total agent slots across the pool. Sortie picks the least-loaded host for each new dispatch.
@@ -67,15 +66,14 @@ Anything else is opt-in. Name it under `ssh_pass_env`:
 
 ```yaml
 # WORKFLOW.md (front matter excerpt)
-extensions:
-  worker:
-    ssh_hosts:
-      - "build01.internal"
-      - "build02.internal"
-    max_concurrent_agents_per_host: 2
-    ssh_pass_env:
-      - SENTRY_AUTH_TOKEN
-      - NPM_TOKEN
+worker:
+  ssh_hosts:
+    - "build01.internal"
+    - "build02.internal"
+  max_concurrent_agents_per_host: 2
+  ssh_pass_env:
+    - SENTRY_AUTH_TOKEN
+    - NPM_TOKEN
 ```
 
 Two things to know before you write that list. It takes variable *names*, never values. Write `- $NPM_TOKEN` and the reference resolves while the workflow file is being read, so the entry reaches Sortie holding a token where a name should be; Sortie drops such an entry and warns with its position, never its contents. And a name whose value is unset, empty, or only whitespace is skipped, which Sortie says out loud at startup:
@@ -94,13 +92,12 @@ The case that catches people runs like this. You set `tracker.api_key: $GITHUB_T
 
 ```yaml
 # WORKFLOW.md (front matter excerpt)
-extensions:
-  worker:
-    ssh_hosts:
-      - "build01.internal"
-      - "build02.internal"
-    ssh_disallow_pass_env:
-      - GITHUB_TOKEN
+worker:
+  ssh_hosts:
+    - "build01.internal"
+    - "build02.internal"
+  ssh_disallow_pass_env:
+    - GITHUB_TOKEN
 ```
 
 Sortie now sends nothing of its own for that name and the host's login stands. `ssh_disallow_pass_env` outranks `ssh_pass_env`, so a name in both lists is not sent either.
@@ -270,13 +267,12 @@ Sortie uses `StrictHostKeyChecking=accept-new` by default: the first connection 
 Add `ssh_strict_host_key_checking` to the `worker` block:
 
 ```yaml
-extensions:
-  worker:
-    ssh_hosts:
-      - "build01.internal"
-      - "build02.internal"
-    max_concurrent_agents_per_host: 2
-    ssh_strict_host_key_checking: "yes"
+worker:
+  ssh_hosts:
+    - "build01.internal"
+    - "build02.internal"
+  max_concurrent_agents_per_host: 2
+  ssh_strict_host_key_checking: "yes"
 ```
 
 ### If you manage `known_hosts` externally
@@ -326,10 +322,10 @@ You now have a Sortie setup where the orchestrator runs on one machine and agent
 
 The key pieces:
 
-- **`extensions.worker.ssh_hosts`**: the pool of remote machines
-- **`extensions.worker.max_concurrent_agents_per_host`**: per-host concurrency cap
-- **`extensions.worker.ssh_strict_host_key_checking`**: SSH host key verification policy (`accept-new`, `yes`, or `no`)
-- **`extensions.worker.ssh_pass_env`** and **`extensions.worker.ssh_disallow_pass_env`**: which of Sortie's own environment variables reach the remote agent, on top of the credential names its agent kind carries by default
+- **`worker.ssh_hosts`**: the pool of remote machines
+- **`worker.max_concurrent_agents_per_host`**: per-host concurrency cap
+- **`worker.ssh_strict_host_key_checking`**: SSH host key verification policy (`accept-new`, `yes`, or `no`)
+- **`worker.ssh_pass_env`** and **`worker.ssh_disallow_pass_env`**: which of Sortie's own environment variables reach the remote agent, on top of the credential names its agent kind carries by default
 - **`SORTIE_SSH_HOST`** in hooks: the bridge between local orchestration and remote preparation
 - **Least-loaded dispatch**: Sortie balances work across hosts automatically
 - **Retry affinity**: failed sessions prefer the same host on retry, avoiding redundant workspace setup

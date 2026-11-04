@@ -13,12 +13,14 @@ This guide configures Sortie to poll issues from a GitHub repository, dispatch a
 
 - Sortie installed and on your `PATH` ([installation guide](/getting-started/installation/))
 - Quick start completed with the file adapter ([quick start](/getting-started/quick-start/))
-- A GitHub repository where you have permission to manage issues and labels
+- A GitHub repository where your account has the Write role or higher, so the token can also look up who may comment (see [Create a personal access token](#create-a-personal-access-token))
 - A personal access token, classic or fine-grained (creation steps below)
 
 ## Create a personal access token
 
 Sortie needs a token that can read and write issues and labels on the repository you configure. A classic token scoped to the repository works, and so does a fine-grained token granted issue read and write plus repository metadata read. GitHub documents how to create either and what each scope covers; see [managing personal access tokens](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens).
+
+The account that owns the token also needs the Write role or higher on the repository. By default, Sortie delivers an issue comment to the agent only when its author has write access (or is listed in `include_authors`), and GitHub answers that lookup only for an account with push access. A token from an account with the Triage role can manage issues and labels but cannot ask, so for the rest of the run Sortie delivers no comment from a person who is not listed in `include_authors`. The next run asks again. See [steer agents with issue comments](/guides/steer-agents-with-issue-comments/) for the feed and the [GitHub adapter reference](/reference/adapter-github/) for the permission detail.
 
 Nothing else is required for the tracker. Auto-merge and branch cleanup need a token that can also write to the repository.
 
@@ -230,6 +232,8 @@ level=ERROR msg="failed to fetch candidate issues" error="tracker: tracker_auth_
 ```
 
 A 403 that isn't rate limiting means the token lacks the required scope. For a classic PAT, enable `repo`. For a fine-grained PAT, grant Issues: Read and Write.
+
+If issue polling works but Sortie logs `comment author access lookup refused`, the token's account lacks push access to the repository. Give the account the Write role, or deliver comments without the lookup by listing authors in `include_authors` or setting `authors: all` in the `comment_feed` block.
 
 ### Rate limiting (primary)
 

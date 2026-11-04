@@ -114,7 +114,7 @@ When `claude-code.mcp_config` names an operator-supplied file, Sortie reads it, 
 
 ### Session persistence and resume
 
-The adapter passes `--session-id <uuid>` on the first turn of a session it opened itself. Every other turn carries `--resume <session_id>` instead: each later turn of that session, and each turn of a session the orchestrator handed back from an earlier attempt, its first turn included. `--resume` reads the session file Claude Code wrote to disk.
+The adapter passes `--session-id <uuid>` on the first turn of a session that starts new. Every other turn carries `--resume <session_id>` instead: each later turn of that session, and the first turn of a session that continues one the orchestrator handed back from an earlier attempt. `--resume` reads the session file Claude Code wrote to disk.
 
 `session_persistence: false` passes `--no-session-persistence`, and Claude Code then writes no session file for `--resume` to read. Sortie refuses that configuration before any run starts, as the `agent.kind.session_resume` error under [validate-time checks](#validate-time-checks).
 
@@ -122,9 +122,25 @@ The [credential-verification session](/reference/workflow-config/#credential-ver
 
 The same session also carries `--safe-mode`, which leaves out the instruction files, plugins, skills, hooks, and MCP servers, and `--system-prompt` with a short fixed prompt in place of Claude Code's own. It does not send `claude-code.system_prompt`. The login, the model, and the `env` block of Claude Code's own settings still apply, so the request reaches the endpoint the working session uses. A Claude Code build that rejects one of these flags and exits before it responds is checked once more without them, after a warning in the log.
 
-The refusal is unconditional. It does not depend on `agent.max_turns`, on the configured reactions, on the retry budgets, or on `tracker.handoff_state`. A single-turn budget does not avoid the conflict either: Sortie hands an issue its earlier session back on a continuation, including one still queued when Sortie restarts, and on the retry after a stall while Sortie keeps running, so the first turn of such a dispatch is already a resumed turn.
+The refusal is unconditional. It does not depend on `agent.max_turns`, on the configured reactions, on the retry budgets, or on `tracker.handoff_state`, and a single-turn budget does not lift it.
 
 Leaving `session_persistence` unset, or setting it to `true`, resumes normally. `agent.max_turns` defaults to `20`, so a session ordinarily runs more than one turn.
+
+### When the earlier session is gone
+
+Sortie hands an issue its earlier session back on a continuation, including one still queued when Sortie restarts, and on the retry after a stall while Sortie keeps running. Before it passes `--resume`, the adapter looks for that session's journal, `projects/<dir>/<session-id>.jsonl` under `$CLAUDE_CONFIG_DIR` or `~/.claude`, on the host that runs the session, over SSH for a remote session. [`agent.read_timeout_ms`](#agent-section) bounds the look.
+
+When the journal is missing, because the session was deleted or expired or never existed, or when the look gets no answer within that bound, the session starts new instead of failing. The session takes a fresh ID, its first turn carries `--session-id` and no `--resume`, and the log carries one `WARN` line:
+
+```text
+session resume not continued, starting new session
+```
+
+The line carries `component` `claude-adapter`, `resume_id` with the ID that could not be continued, and `resume_verdict` `replaced` when the journal is missing or `unknown` when the look got no answer. A look that failed also carries `error` with the cause. The issue keeps working: the retry or continuation that asked for the session runs on a new one instead of failing again on every attempt.
+
+The new session holds none of the earlier conversation. Its first prompt is the full prompt template, and the issue comments earlier sessions of the issue were given reach it again as the [comment feed](/reference/workflow-config/#comment_feed) describes. An SSH connection that fails during the look fails the session start with `port_exit` and no new session starts.
+
+A journal that exists but whose history was damaged by hand counts as present, and the resume proceeds. The adapter runs no integrity check on it.
 
 ### Permission mode
 
@@ -170,7 +186,7 @@ Validates the workspace path and resolves the agent binary. No subprocess is spa
 
 1. Validates that the workspace path is a non-empty absolute path pointing to an existing directory.
 2. Resolves the `command` from `PATH`. In SSH mode, resolves the local `ssh` binary instead; the agent command resolves on the remote host.
-3. Generates a v4 UUID session ID (or adopts the session ID saved from a previous run, for continuation sessions).
+3. When the orchestrator hands back a session ID from an earlier run, checks that the earlier session's journal exists under Claude Code's home on the host that runs the session. A journal that exists makes the session adopt that ID. Otherwise the session [starts new](#when-the-earlier-session-is-gone). A session with no earlier ID generates a v4 UUID.
 4. The session records the workspace path, resolved binary, session ID, and SSH configuration for later turns to use.
 
 **Errors:**
@@ -181,6 +197,7 @@ Validates the workspace path and resolves the agent binary. No subprocess is spa
 | Workspace path is not a directory | `invalid_workspace_cwd` |
 | Agent binary not found in `PATH` | `agent_not_found` |
 | SSH binary not found (SSH mode) | `agent_not_found` |
+| SSH connection fails while the earlier session's journal is checked (SSH mode) | `port_exit` |
 
 ### Turn
 
@@ -197,8 +214,8 @@ Spawns a Claude Code subprocess, reads JSONL events from stdout, and delivers th
 
 | Condition | CLI flag |
 |---|---|
-| First turn of a new session | `--session-id <UUID>` |
-| Subsequent turns and continuation sessions | `--resume <UUID>` |
+| First turn of a session that starts new, including one whose earlier session is gone | `--session-id <UUID>` |
+| Subsequent turns, and the first turn of a session that continues an earlier one | `--resume <UUID>` |
 
 Every invocation includes `--output-format stream-json` and `--verbose`.
 

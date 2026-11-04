@@ -146,6 +146,18 @@ Additional fixed headers on all requests:
 
 The HTTP client has a 30-second per-request timeout. Cancelling the operation in progress aborts the in-flight request immediately.
 
+### Token access for the comment feed
+
+The [issue comment feed](/reference/workflow-config/#comment_feed) matches `include_authors` and `exclude_authors` entries against the account login of the comment's author, exactly and with letter case counted. A display name never matches.
+
+With `comment_feed.authors: members`, Sortie asks GitHub what permission the author holds on the repository, using the token in `api_key`. GitHub answers that question only for a token whose account has push access to the repository, the Write role or above. A person counts as a member when their permission is `write` or `admin`; a maintainer is read as `write`, a triager as `read`. A collaborator with read access, an account that is not a collaborator, and a login GitHub does not know are not members, and none of them is an error.
+
+Sortie remembers a grant for as long as the process runs, so an author whose access is revoked still counts until the next restart. A refusal holds for that one comment, so the author's next comment is checked again.
+
+A token without push access gets a `403` for every login, and the adapter reports it as a `tracker_auth_error`. Sortie then makes no further lookups for the rest of that run and delivers no comment that needs one. The next run asks again, so a token fix takes effect without a restart. Sortie logs the error `comment author access lookup refused` once per process, not once per run. A rate-limited `403` is not taken for this case; see [403 disambiguation](#403-disambiguation). The log entry names the options that deliver without the lookup: list the author in `include_authors`, or set `authors: all`. See the [feed reference](/reference/workflow-config/#comment_feed) for the rules.
+
+Comments from bot and app accounts are never looked up. They count only when listed in `include_authors`; see [comment normalization](#comment-normalization).
+
 ---
 
 ## State derivation
@@ -201,6 +213,10 @@ Paging is bounded. The adapter reads 50 records per page and stops at 200 pages,
 
 Comments are not fetched during candidate polling. They are `nil` on those issues and are read on demand.
 
+### Comment reads for the feed
+
+With the [comment feed](/reference/workflow-config/#comment_feed) on, a turn that has no comment read to reuse makes one read of the issue's comments, 100 per page. After the first read of a run, each page request carries the `ETag` GitHub gave for that page, so a page that has not changed answers `304 Not Modified` and contributes no comments. A page that changed, or a page that is new, is read in full. Sortie keeps the page `ETag` values between turns and sends the page after a full page every time, because an `ETag` follows the page body alone and a new comment can open the next page. A read stops at the first page shorter than 100 comments, or at 200 pages with a warning.
+
 ### Single-issue reads
 
 Fetching one issue by ID issues several requests, because state, labels, and blocker relationships live on different surfaces. Naming a pull request number directly is an error rather than a silent miss.
@@ -216,6 +232,8 @@ At startup the adapter resolves terminal states through the search surface, one 
 A transition sets the state label and removes the ones it replaces. A comment is appended rather than edited. Both require a token that can write to issues; see [authentication](#authentication).
 
 A comment body is Markdown and is posted to GitHub as given, with no conversion; the [stop statement](/reference/agent-extensions/#stop-statement) travels in it as ordinary text.
+
+Sortie reads the new comment's `id` from GitHub's response and records it, which is how the feed knows a comment is Sortie's own and does not deliver it back to the agent. A response without an `id` fails the write with `tracker_payload_error`.
 
 ### Label writes
 
@@ -260,6 +278,17 @@ Both `.issue.id` and `.issue.identifier` map to the GitHub issue number. The glo
 | `.author` | `user.login` | String, as-is. |
 | `.body` | `body` | Markdown pass-through. |
 | `.created_at` | `created_at` | ISO-8601 string, as-is. |
+
+The feed reads two more things from each comment. The first is the author's kind, which decides whether `authors: members` can count the comment:
+
+| GitHub account | Kind | Counts as a member |
+|---|---|---|
+| `user.type` is `User`, comment not created through a GitHub App | Person | When the login has write or admin permission, or is in `include_authors` |
+| `user.type` is `User`, comment created through a GitHub App (`performed_via_github_app` is set) | App | Only when the login is in `include_authors` |
+| `user.type` is `Bot`, such as `dependabot[bot]` or an app's own `[bot]` account | Bot | Only when the login is in `include_authors` |
+| Any other `user.type`, or none | Unknown | Not delivered under `members` |
+
+`user.type` decides before the app does, so an app's own `[bot]` account is a bot. The second is `updated_at`, which the feed uses to see that a comment was edited. `authors: all` delivers every kind.
 
 ### Blocker extraction
 
@@ -341,6 +370,12 @@ The adapter follows `rel="next"` links directly and does not construct URLs manu
 GitHub meters the REST API and its search endpoint on separate budgets, and search is the tighter of the two. The current quotas are GitHub's to publish; see [external references](#external-references).
 
 What decides how much of either budget Sortie spends is the poll interval and whether `query_filter` is set. Without a filter, candidate polling uses the issues endpoint. With one, it uses search, which is metered far more tightly, so a short `polling.interval_ms` combined with a filter is the configuration most likely to exhaust a budget. Terminal-state reconciliation at startup also uses search.
+
+With the comment feed on, a turn adds requests to the REST budget, not the search budget:
+
+- One comment read, which costs one request per page of 100 comments. On a turn after the first it is usually one `304` per page, which GitHub does not count against the rate limit. A first turn that reuses the dispatch's read, such as a retry or the release of a parked issue, makes none.
+- With `authors: members`, one collaborator-permission request per author until that author is granted, and one more for each new comment from an author who was refused. `authors: all`, `include_authors` matches, and bot and app comments make none.
+- A run that uses self-review makes one more comment read for each review and fix turn.
 
 Sortie does not throttle client-side. When a budget is exhausted the request fails as `tracker_api_error` and Sortie waits for the next poll. Raise `polling.interval_ms` or drop the filter.
 

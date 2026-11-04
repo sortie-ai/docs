@@ -101,6 +101,8 @@ Classic GitLab access tokens carry coarse scopes, and there is no finer-grained 
 
 **Required scope: `api`** for the full adapter. `read_api` is enough only for a read-only deployment that never transitions an issue, posts a comment, or attaches or removes a label.
 
+With the [issue comment feed](/reference/workflow-config/#comment_feed) on and `authors: members`, the token also reads user accounts and project memberships to decide whether a comment's author counts as a member. Project membership gives a token that access, so `api` needs nothing added. A `401` or `403` on one of those reads is handled as described under [issue comment feed](#issue-comment-feed).
+
 ### Token types
 
 | Token type | Identity | Access scope | Notes |
@@ -290,6 +292,24 @@ GitLab's notes route mixes system notes into the human comment stream. Notes car
 
 The notes route returns newest-first by default. The adapter requests `sort=asc`, so comments arrive oldest-first and need no client-side re-sort. An issue with no comments yields a non-nil empty list.
 
+A note's `author.username` is also the identity the comment feed matches against `include_authors` and `exclude_authors`, exactly and with letter case counted. The feed's changed-comment read orders notes differently; see [issue comment feed](#issue-comment-feed).
+
+### Issue comment feed
+
+The [comment feed](/reference/workflow-config/#comment_feed) hands the agent the issue comments its conversation has not been given. This section covers only what is specific to GitLab.
+
+**Identity.** List an author by GitLab username, for example `jane.doe`, not by display name. A group or project access token comments under its generated bot username, such as `project_<id>_bot_<hex>`.
+
+**Who counts as a member.** With `authors: members`, a comment is delivered when its author has the Developer role or higher on the project. Maintainer and Owner rank above Developer. Reporter and Guest do not count. The check reads the project's membership including roles inherited from parent groups and roles granted through invited groups, so a group owner who is not a direct member of the project counts. An account that is not a member of the project, or a username GitLab does not return, is not a member.
+
+**Bot accounts.** An account GitLab marks as a bot never counts as a member, whatever its role. This covers the generated users behind project and group access tokens. To deliver a bot's comments, list its username in `include_authors`. The bot marker is read from the user account, once per account for the life of the process.
+
+**When membership cannot be read.** A `401` or `403` from the user or membership route stops further lookups for the rest of that run and logs an error that names the tracker kind; the error is logged once per process. Comments that need a lookup are not delivered during that run. The next run asks again, so a fixed token takes effect without a restart. Until then, listing the author in `include_authors` or setting `authors: all` delivers without the lookup. Any other failure, such as a network error or a `5xx`, withholds the affected comments from that turn, logs `issue comments withheld after author lookup failed`, and tries again on the next turn.
+
+**Changed-comment read.** After the first read of a run, the adapter asks the notes route for notes ordered by `updated_at`, newest first, with `per_page=100` and `activity_filter=only_comments`. It stops after the first page whose oldest note was updated before the previous read point, and returns the notes updated at or after that point. A note edited since the previous read is returned again, and system notes are dropped. The adapter sends no conditional request, because GitLab counts a `304 Not Modified` answer against the rate limit.
+
+**Author lookups.** Each note's author is resolved to a person or a bot with one `GET /users/{id}` call per distinct author, remembered for the life of the process. This lookup is part of the changed-comment read, so it runs under `authors: all` and `include_authors` too. A failure of that lookup fails the read for that turn. The turn goes out without comments and the next turn reads again.
+
 ---
 
 ## Query filter
@@ -383,6 +403,16 @@ Unlike Gitea's comments route, the GitLab notes route **is** paginated, and the 
 GitLab meters requests per user, and the hosted service and a self-managed instance are metered differently, with the hosted service the stricter of the two on comment creation. The current quotas are GitLab's to publish, and a self-managed administrator can change them; see the [GitLab REST API documentation](https://docs.gitlab.com/api/rest/).
 
 The adapter parses no rate-limit header and does not throttle preemptively. Poll cadence is the only control, so a deployment tuned against a permissive self-managed instance can exhaust a hosted budget on comment writes alone. A throttled response maps to `tracker_api_error` and is retried with backoff; its body is not guaranteed to be JSON, so the adapter falls back to a bounded snippet for the message.
+
+With the [comment feed](/reference/workflow-config/#comment_feed) on, each turn adds these requests:
+
+| Request | When | Count |
+|---|---|---|
+| `GET .../issues/{iid}/notes` | Every turn that reads comments, except a first turn whose dispatch already read them | One per page of 100 notes. The first read of a run walks every page; later reads stop at the first page that reaches a note older than the previous read. |
+| `GET /users/{id}` | A changed note from an author not yet resolved | One per distinct author, once per process. |
+| `GET /users?username=...` then `GET .../members/all/{id}` | `authors: members`, for an author who is not yet granted | Two per lookup. A granted author is remembered for the process; a refused author is checked again on their next comment. |
+
+Under `authors: members`, a first turn that reuses the dispatch read resolves an author's bot marker with a user search followed by `GET /users/{id}`, so two requests for an author not yet resolved. A run that uses self-review adds one comment read for each review and fix turn. With `enabled: false` none of these requests are sent.
 
 ## Error model
 
