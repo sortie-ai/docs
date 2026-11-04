@@ -115,7 +115,7 @@ One rule is better for small, uniform work. A typo fix or a dependency bump gain
 
 The design also accepts trade-offs you should plan around:
 
-- Sortie does not check that a stage produced its file. A stage that cannot produce its output should report `blocked`, which parks the issue; a template that reads a previous stage's file should handle the file being absent.
+- Sortie does not check that a stage produced its file. A stage that cannot produce its output should report `blocked`, which parks the issue ([how to check that an issue is ready](/guides/check-issue-readiness/) builds a first stage on this); a template that reads a previous stage's file should handle the file being absent.
 - A stage has exactly one successor, and only success advances. There is no branch chosen by outcome and no edge back from a review stage to an implementation stage.
 - Pull request reactions, such as CI feedback and review comments, attach to the last stage. A hop drops the reactions pending on the stage it leaves.
 - An issue that carries several stage labels runs on the one furthest along its chain. It is a rule to learn, and Sortie logs a warning when it applies it.
@@ -125,6 +125,7 @@ For most teams already running a pipeline by hand, those costs are smaller than 
 ## Further reading
 
 - [How to configure dispatch rules](/guides/configure-dispatch-rules/) for setting up a chain, placing an issue on a stage, and sending it back
+- [How to check that an issue is ready before an agent works on it](/guides/check-issue-readiness/) for a first stage that parks vague issues before the main stage runs
 - [Workflow configuration reference](/reference/workflow-config/#dispatch) for the exact contract of `stage`, `next`, `dispatch.max_consecutive_hops`, and the stage data in prompt templates
 - [Orchestration](/concepts/orchestration/) for the poll-dispatch-reconcile loop and the claim freeze a hop builds on
 - [State machine reference](/reference/state-machine/) for where a hop sits among the worker exit paths
