@@ -1002,14 +1002,14 @@ Every run in the range counts, whatever its status, including a `ci_failed` run,
 
 #### Spend by period
 
-The `spend` member of the JSON report sums the recorded cost of the runs in the range per UTC calendar period. The dashboard draws it as the spend chart in [Analytics](/reference/dashboard/#analytics). The text report has no such table. `spend` is `null` on the `base` tier and on a database that records no cost.
+The `spend` member of the JSON report sums the tokens and the recorded cost of the runs in the range per UTC calendar period. The dashboard draws it as the spend chart in [Analytics](/reference/dashboard/#analytics). The text report has no such table. `spend` is present on every report. On the `base` tier every bucket has `tokens` and `cost_usd` `null`, and on a database that records no cost every bucket has `cost_usd` `null`.
 
 | Field | Type | Description |
 |---|---|---|
 | `period` | string | `day` when the range has a `since` that lies no more than 2160 hours before the end of the range, which is `until` or else `generated_at`. `month` otherwise, so a range of 90 days or less gets days and an open `since` gets months. |
 | `buckets` | array of object | One element per period, ascending by `start`. Never `null`; `[]` when no run in the range has a parseable completion time. |
 
-The buckets list every period from the one that holds `since` (the one that holds the earliest run when `since` is open) through the later of the one that holds the end of the range and the one that holds the latest run. A period without runs appears with `runs` `0` and `cost_usd` `null`. A run counts in the bucket whose period holds its completion time, so the buckets partition the runs they count. A run whose completion time is not an RFC 3339 timestamp counts in the summary and the breakdowns and in no bucket. The first bucket of a range whose `since` lies inside a period holds only the runs at or after `since`.
+The buckets list every period from the one that holds `since` (the one that holds the earliest run when `since` is open) through the later of the one that holds the end of the range and the one that holds the latest run. A period without runs appears with `runs` `0` and `tokens` and `cost_usd` `null`. A run counts in the bucket whose period holds its completion time, so the buckets partition the runs they count. A run whose completion time is not an RFC 3339 timestamp counts in the summary and the breakdowns and in no bucket. The first bucket of a range whose `since` lies inside a period holds only the runs at or after `since`.
 
 Each element of `buckets`:
 
@@ -1017,10 +1017,13 @@ Each element of `buckets`:
 |---|---|---|
 | `start` | string | The first instant of the period, RFC 3339 in UTC. |
 | `runs` | integer | Runs that completed in the period. |
+| `tokens` | object or null | The token sums of the period's measured runs, with the same members as the `tokens` object of the summary. `null` when no run of the period is measured, and on the `base` tier. |
 | `cost_usd` | number or null | The sum of the recorded costs of the period's priced runs, rounded to nine decimals. `null` when none is priced. It is the whole spend only while `cost_lower_bound` is `false`. |
 | `tokens_unmeasured_runs` | integer | The period's runs counted as in `summary.tokens_unmeasured_runs`. |
 | `cost_unpriced_runs` | integer | The period's runs counted as in `summary.cost_unpriced_runs`. |
 | `cost_partial_runs` | integer | The period's runs counted as in `summary.cost_partial_runs`. |
+| `tokens_lower_bound_runs` | integer | The period's measured runs counted as in `summary.tokens_lower_bound_runs`. |
+| `tokens_lower_bound` | boolean | `true` when `tokens` is not `null` and either `tokens_unmeasured_runs` or `tokens_lower_bound_runs` is above `0`. |
 | `cost_lower_bound` | boolean | `true` when `cost_usd` is not `null` and any of `cost_unpriced_runs`, `cost_partial_runs`, and `tokens_unmeasured_runs` is above `0`. |
 | `agent_priced_usd` | number or null | The part of `cost_usd` priced from US dollar amounts the coding agent reported, as in `summary.agent_priced_usd`. `null` when no run of the period was priced that way. |
 
@@ -1152,7 +1155,7 @@ Envelope:
 | `schema_tier` | string | `"full"` or `"base"`. See [schema tiers](#schema-tiers). |
 | `warnings` | array of string | Advisory messages: a degraded schema, or one warning that names every breakdown and figure a `full` database leaves out. At most one entry. `token_rates` advisories are not listed; `sortie validate` reports them. Empty when there is nothing to report, never `null`. The `warning: ` prefix belongs to text rendering and is not part of these strings. |
 | `summary` | object | Report-wide figures. Always present. |
-| `spend` | object or null | The recorded cost per UTC day or month. `null` on the `base` tier and on a database that records no cost. See [spend by period](#spend-by-period). |
+| `spend` | object | The tokens and recorded cost per UTC day or month. Always present. See [spend by period](#spend-by-period). |
 | `by_status` | array of object | Breakdown by outcome. |
 | `by_adapter` | array of object | Breakdown by coding agent. |
 | `by_rule` | array of object | Breakdown by dispatch rule. Empty array on the `base` tier. |
@@ -1252,6 +1255,7 @@ Durations are seconds here. Text mode renders the same values as `2m 49s`.
 | `cache_read` | integer | Sum of recorded cache-read tokens over the measured runs. |
 | `cache_write` | integer | Sum of recorded cache-write tokens over the measured runs. |
 | `uncached` | integer | `total` less `cache_read`, derived by the report rather than stored, so `uncached` plus `cache_read` equals `total`. Cache-write tokens stay in it. |
+| `fresh_input` | integer | `input` less `cache_read` and `cache_write`, derived by the report rather than stored, and never below `0`. `input` counts both cache figures, so `fresh_input` plus `output` plus `cache_write` equals `uncached` while `cache_read` plus `cache_write` does not exceed `input`. |
 
 `self_review`:
 
@@ -1291,7 +1295,7 @@ A worked example, expanded for readability and trimmed to one element per breakd
     "success_rate": 0.7778,
     "duration_seconds": {"p50": 169, "p95": 432, "mean": 214.6, "samples": 7},
     "mean_turns_succeeded": 3.29,
-    "tokens": {"input": 502900, "output": 96000, "total": 598900, "cache_read": 126380, "cache_write": 18200, "uncached": 472520},
+    "tokens": {"input": 502900, "output": 96000, "total": 598900, "cache_read": 126380, "cache_write": 18200, "uncached": 472520, "fresh_input": 358320},
     "cost_usd": 6.49,
     "cost_per_succeeded_run_usd": 0.927142857,
     "zero_duration_runs": 0,
@@ -1309,7 +1313,7 @@ A worked example, expanded for readability and trimmed to one element per breakd
   "spend": {
     "period": "day",
     "buckets": [
-      {"start": "2026-07-01T00:00:00Z", "runs": 0, "cost_usd": null, "tokens_unmeasured_runs": 0, "cost_unpriced_runs": 0, "cost_partial_runs": 0, "cost_lower_bound": false, "agent_priced_usd": null}
+      {"start": "2026-07-01T00:00:00Z", "runs": 0, "tokens": null, "cost_usd": null, "tokens_unmeasured_runs": 0, "cost_unpriced_runs": 0, "cost_partial_runs": 0, "tokens_lower_bound_runs": 0, "tokens_lower_bound": false, "cost_lower_bound": false, "agent_priced_usd": null}
     ]
   },
   "by_status": [
@@ -1321,7 +1325,7 @@ A worked example, expanded for readability and trimmed to one element per breakd
       "share": 0.7778,
       "duration_seconds": {"p50": 169, "p95": 432, "mean": 214.6, "samples": 7},
       "mean_turns": 3.29,
-      "tokens": {"input": 341900, "output": 67000, "total": 408900, "cache_read": 90380, "cache_write": 12100, "uncached": 318520},
+      "tokens": {"input": 341900, "output": 67000, "total": 408900, "cache_read": 90380, "cache_write": 12100, "uncached": 318520, "fresh_input": 239420},
       "cost_usd": 4.59,
       "cost_per_succeeded_run_usd": 0.655714286,
       "tokens_unmeasured_runs": 0,
@@ -1344,7 +1348,7 @@ A worked example, expanded for readability and trimmed to one element per breakd
       "share": 0.6667,
       "duration_seconds": {"p50": 161, "p95": 580, "mean": 272, "samples": 6},
       "mean_turns": 3.33,
-      "tokens": {"input": 324500, "output": 63900, "total": 388400, "cache_read": 126380, "cache_write": 18200, "uncached": 262020},
+      "tokens": {"input": 324500, "output": 63900, "total": 388400, "cache_read": 126380, "cache_write": 18200, "uncached": 262020, "fresh_input": 179920},
       "cost_usd": 5.72,
       "cost_per_succeeded_run_usd": 1.144,
       "tokens_unmeasured_runs": 0,
@@ -1367,7 +1371,7 @@ A worked example, expanded for readability and trimmed to one element per breakd
       "share": 0.4444,
       "duration_seconds": {"p50": 150, "p95": 169, "mean": 155, "samples": 4},
       "mean_turns": 2.5,
-      "tokens": {"input": 145100, "output": 27700, "total": 172800, "cache_read": 56360, "cache_write": 8100, "uncached": 116440},
+      "tokens": {"input": 145100, "output": 27700, "total": 172800, "cache_read": 56360, "cache_write": 8100, "uncached": 116440, "fresh_input": 80640},
       "cost_usd": 2.54,
       "cost_per_succeeded_run_usd": 0.635,
       "tokens_unmeasured_runs": 0,
@@ -1390,7 +1394,7 @@ A worked example, expanded for readability and trimmed to one element per breakd
       "share": 0.4444,
       "duration_seconds": {"p50": 150, "p95": 169, "mean": 155, "samples": 4},
       "mean_turns": 2.5,
-      "tokens": {"input": 145100, "output": 27700, "total": 172800, "cache_read": 56360, "cache_write": 8100, "uncached": 116440},
+      "tokens": {"input": 145100, "output": 27700, "total": 172800, "cache_read": 56360, "cache_write": 8100, "uncached": 116440, "fresh_input": 80640},
       "cost_usd": 2.54,
       "cost_per_succeeded_run_usd": 0.635,
       "tokens_unmeasured_runs": 0,
@@ -1413,7 +1417,7 @@ A worked example, expanded for readability and trimmed to one element per breakd
       "share": 0.4444,
       "duration_seconds": {"p50": 150, "p95": 169, "mean": 155, "samples": 4},
       "mean_turns": 2.5,
-      "tokens": {"input": 145100, "output": 27700, "total": 172800, "cache_read": 56360, "cache_write": 8100, "uncached": 116440},
+      "tokens": {"input": 145100, "output": 27700, "total": 172800, "cache_read": 56360, "cache_write": 8100, "uncached": 116440, "fresh_input": 80640},
       "cost_usd": 2.54,
       "cost_per_succeeded_run_usd": 0.635,
       "tokens_unmeasured_runs": 0,
@@ -1440,7 +1444,7 @@ A worked example, expanded for readability and trimmed to one element per breakd
       "share": 1,
       "duration_seconds": {"p50": 200, "p95": 580, "mean": 271.3, "samples": 9},
       "mean_turns": 3.78,
-      "tokens": {"input": 502900, "output": 96000, "total": 598900, "cache_read": 126380, "cache_write": 18200, "uncached": 472520},
+      "tokens": {"input": 502900, "output": 96000, "total": 598900, "cache_read": 126380, "cache_write": 18200, "uncached": 472520, "fresh_input": 358320},
       "cost_usd": 6.49,
       "cost_per_succeeded_run_usd": 0.927142857,
       "tokens_unmeasured_runs": 0,
