@@ -1002,7 +1002,7 @@ Every run in the range counts, whatever its status, including a `ci_failed` run,
 
 #### Spend by period
 
-The `spend` member of the JSON report sums the tokens and the recorded cost of the runs in the range per UTC calendar period. The dashboard draws it as the spend chart in [Analytics](/reference/dashboard/#analytics). The text report has no such table. `spend` is present on every report. On the `base` tier every bucket has `tokens` and `cost_usd` `null`, and on a database that records no cost every bucket has `cost_usd` `null`.
+The `spend` member of the JSON report sums the tokens and the recorded cost of the runs in the range per UTC calendar period. The dashboard draws it as the chart in [Analytics](/reference/dashboard/#analytics): the cost in its **Cost** view and the tokens in its **Tokens** view. The text report has no such table. `spend` is present on every report. On the `base` tier every bucket has `tokens` and `cost_usd` `null`, and on a database that records no cost every bucket has `cost_usd` `null`.
 
 | Field | Type | Description |
 |---|---|---|
