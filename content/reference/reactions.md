@@ -483,7 +483,7 @@ The wait ends at the first check that finds any of these:
 
 The tracker issue reaching a terminal state also ends the entry, as it does for every kind.
 
-An operator sees the wait on the dashboard as the "waiting on approval" reading of the Review station (see [status word and mark](/reference/dashboard/#status-word-and-mark)), and in the [HTTP API](/reference/http-api/#field-notes) as `last_check.awaiting_approval` on the `review` row of `pending_reactions`, with `watch_ends_at` `null` and a `status_text` of `Waiting on approval of #<number>`.
+An operator sees the wait on the dashboard as the "waiting on approval" reading of the Human review station (see [status word and mark](/reference/dashboard/#status-word-and-mark)), and in the [HTTP API](/reference/http-api/#field-notes) as `last_check.awaiting_approval` on the `review` row of `pending_reactions`, with `watch_ends_at` `null` and a `status_text` of `Waiting on approval of #<number>`.
 
 ### `reactions.bot_review`
 

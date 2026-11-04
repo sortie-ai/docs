@@ -685,6 +685,7 @@ curl http://localhost:7678/api/v1/state
     "tracker": {
       "kind": "jira",
       "project": "PROJ",
+      "project_url": "https://acme.atlassian.net/browse/PROJ",
       "active_states": ["To Do", "In Progress"],
       "in_progress_state": "In Progress",
       "handoff_state": "In Review",
@@ -1392,6 +1393,7 @@ Most members follow the last successful load of `WORKFLOW.md`; a reload that fai
 |---|---|
 | `tracker.kind` | The tracker adapter kind the process started with. |
 | `tracker.project` | The `tracker.project` the tracker adapter was built with, after environment resolution and unmasked: a Jira project key, a GitHub or Gitea `owner/repo`, a GitLab namespace path or numeric project ID, or a Linear team key. Omitted when unset. |
+| `tracker.project_url` | The address of the project's page in the tracker, served for the `github`, `gitea`, `gitlab`, `linear`, and `jira` trackers. Omitted when the tracker has no web page, as the `file` tracker has none, or when the address is not an absolute http(s) URL. Credentials, query, and fragment are never part of it. Like `tracker.project`, it keeps its startup value until the next restart. |
 | `tracker.active_states`, `tracker.terminal_states` | The [`tracker`](/reference/workflow-config/#tracker) lists as written. |
 | `tracker.in_progress_state`, `tracker.handoff_state`, `tracker.no_change_state` | The state Sortie writes at dispatch, after a successful run, and after a successful run whose agent declared that nothing needed changing. Each omitted when unset. |
 | `polling.interval_ms` | The poll interval in milliseconds. |
