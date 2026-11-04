@@ -135,7 +135,7 @@ The figure differs from the token count in two ways:
 - **Cache reads are priced.** `max_tokens` leaves them out, but the estimated cost includes them at the cache-read rate, so a long conversation raises the cost even when it raises no token count.
 - **It is an estimate.** It is Sortie's figure from its price rates, not your provider's bill, and can differ from a cost your runtime reports.
 
-To pick a value, read the figure the ceiling compares: the **Cost** meter in the dashboard's [Budget panel](/reference/dashboard/#issue-page), `issue_estimated_cost_usd` on a running entry of the JSON API, or `used_usd` from the `cost_budget` tool. The meter appears once the ceiling is set and a rate source is available. Built-in prices cover common models with no configuration; [`token_rates`](/reference/workflow-config/#token_rates) and [`price_table`](/reference/workflow-config/#price_table) describe where prices come from and how to change them.
+To pick a value, read the figure the ceiling compares: the **Cost** meter in the **Budget and cost** panel of the dashboard's [issue page](/reference/dashboard/#issue-page), `issue_estimated_cost_usd` on a running entry of the JSON API, or `used_usd` from the `cost_budget` tool. The meter appears once the ceiling is set and a rate source is available. Built-in prices cover common models with no configuration; [`token_rates`](/reference/workflow-config/#token_rates) and [`price_table`](/reference/workflow-config/#price_table) describe where prices come from and how to change them.
 
 ### What you see when the ceiling bites
 

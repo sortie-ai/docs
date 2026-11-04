@@ -102,7 +102,7 @@ The adapter maps issues by configured state **name**, not by `type`. `.issue.sta
 
 ### Canonical-casing preflight
 
-Linear's `state.name.in` filter is case-sensitive. When the adapter is built, it fetches the team's states once, matches each configured name case-insensitively, and caches the team's exact casing. Fetch queries send the canonical names. A configured name that no state on the team matches is rejected when the adapter is built, with `tracker_payload_error` (`state "<name>" not found in team "<key>"`); an unknown team key is rejected the same way (`unknown team key "<key>"`).
+Linear's `state.name.in` filter is case-sensitive. When the adapter is built, it fetches the team's states once, matches each configured name case-insensitively, and caches the team's exact casing. Fetch queries send the canonical names. A configured name that no state on the team matches is rejected when the adapter is built, with `tracker_payload_error` (`state "<name>" not found in team "<key>"`); an unknown team key is rejected the same way (`unknown team key "<key>"`). The same query reads the workspace's URL key, and the adapter builds the team's page address from it, `https://linear.app/<workspace URL key>/team/<team key>`. [`GET /api/v1/state`](/reference/http-api/#get-apiv1state-system-state) serves that address as `config.tracker.project_url`, and serves none when the response carries no workspace URL key.
 
 ### State lists
 
