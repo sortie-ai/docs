@@ -2031,7 +2031,7 @@ If the events of a finished run cannot be written, its run history record is sto
 
 ## GET /api/v1/stats: Run statistics
 
-Returns the report that [`sortie stats --format json`](/reference/cli/#stats) prints: run and issue counts, success rate, duration percentiles, token sums, and estimated cost over the runs completed in a range, with those tokens and that cost per UTC day or month and breakdowns by outcome, coding agent, dispatch rule, prompt template, model, usage provenance, stage chain, retry trigger, and run origin, with the skill calls of the runs, and a funnel for each stage chain. The [stage funnels](/reference/cli/#stage-funnels) hold the passes running, queued for a retry, or held by a budget at the time of the request. The route and the command share one aggregation, so for one database and absolute bounds the two bodies differ only in `generated_at`, apart from the dispatch-rule difference [described below](#pricing-and-reload).
+Returns the report that [`sortie stats --format json`](/reference/cli/#stats) prints: run and issue counts, success rate, duration percentiles, token sums, and estimated cost over the runs completed in a range, with those tokens and that cost per UTC period, each turn counted in the period it ended in, and breakdowns by outcome, coding agent, dispatch rule, prompt template, model, usage provenance, stage chain, retry trigger, and run origin, with the skill calls of the runs, and a funnel for each stage chain. The [stage funnels](/reference/cli/#stage-funnels) hold the passes running, queued for a retry, or held by a budget at the time of the request. The route and the command share one aggregation, so for one database and absolute bounds the two bodies differ only in `generated_at`, apart from the dispatch-rule difference [described below](#pricing-and-reload).
 
 ```sh
 curl 'http://localhost:7678/api/v1/stats?since=24h'
@@ -2045,6 +2045,7 @@ Every parameter is optional. An empty value is the same as an absent one, and an
 |---|---|---|
 | `since` | A range bound | Runs completed at or after it. |
 | `until` | A range bound | Runs completed before it. When both bounds are given, `since` must be before `until`. |
+| `period` | `five_minutes`, `quarter_hour`, `hour`, `day`, or `month` | The size of the `spend` buckets, in place of the size the server picks for the range. It needs `since`, and the range must not make `spend` list more than 336 buckets. |
 
 A range bound is one of:
 
@@ -2060,7 +2061,7 @@ Sortie checks every parameter before it reads anything, so a malformed request n
 
 ### Response
 
-The body is compact JSON with the shape of the command's `--format json` output. [Output formats](/reference/cli/#output-formats) in the CLI reference defines every field, including `summary.issues`, `spend`, `by_model`, `by_trigger`, `by_origin`, and `by_provenance`. The example is for a workflow that defines no stage chain, so `by_chain` and `chain_funnels` are `[]`, and it lists one group in each breakdown that is not split by outcome, trigger, or usage provenance. `summary` also holds `failed`, `stopped`, and `cancelled`, the runs by outcome, which add up to `runs` with `succeeded`. Every `tokens` object carries `uncached`, `total` less `cache_read`, so `uncached` plus `cache_read` equals `total`.
+The body is compact JSON with the shape of the command's `--format json` output. [Output formats](/reference/cli/#output-formats) in the CLI reference defines every field, including `summary.issues`, `spend` (see [spend by period](/reference/cli/#spend-by-period) for how the server picks `spend.period` and which turns a bucket counts), `by_model`, `by_trigger`, `by_origin`, and `by_provenance`. The example is for a workflow that defines no stage chain, so `by_chain` and `chain_funnels` are `[]`, and it lists one group in each breakdown that is not split by outcome, trigger, or usage provenance. `summary` also holds `failed`, `stopped`, and `cancelled`, the runs by outcome, which add up to `runs` with `succeeded`. Every `tokens` object carries `uncached`, `total` less `cache_read`, so `uncached` plus `cache_read` equals `total`. The example trims each `spend` bucket to the members that differ from bucket to bucket, leaving out `tokens` and the lower-bound run counts.
 
 ```json
 {
@@ -2099,8 +2100,8 @@ The body is compact JSON with the shape of the command's `--format json` output.
   "spend": {
     "period": "day",
     "buckets": [
-      {"start": "2026-02-23T00:00:00Z", "runs": 2, "cost_usd": 7.27, "tokens_unmeasured_runs": 1, "cost_unpriced_runs": 0, "cost_partial_runs": 0, "cost_lower_bound": true, "agent_priced_usd": null},
-      {"start": "2026-02-24T00:00:00Z", "runs": 4, "cost_usd": 12.25, "tokens_unmeasured_runs": 0, "cost_unpriced_runs": 1, "cost_partial_runs": 1, "cost_lower_bound": true, "agent_priced_usd": null}
+      {"start": "2026-01-23T00:00:00Z", "runs": 2, "turns": 9, "tool_calls": 31, "errors": 2, "turns_unrecorded_runs": 0, "cost_usd": 7.27, "cost_by_kind": {"fresh_input_usd": 3.9, "output_usd": 2.7, "cache_write_usd": 0.4, "cache_read_usd": 0.27}, "tokens_unmeasured_runs": 1, "cost_unpriced_runs": 0, "cost_partial_runs": 0, "cost_lower_bound": true, "agent_priced_usd": null, "in_progress": false},
+      {"start": "2026-01-24T00:00:00Z", "runs": 4, "turns": 21, "tool_calls": 77, "errors": 5, "turns_unrecorded_runs": 1, "cost_usd": 12.25, "cost_by_kind": null, "tokens_unmeasured_runs": 0, "cost_unpriced_runs": 1, "cost_partial_runs": 1, "cost_lower_bound": true, "agent_priced_usd": null, "in_progress": false}
     ]
   },
   "by_status": [
@@ -2409,7 +2410,7 @@ The body is compact JSON with the shape of the command's `--format json` output.
 
 ### Pricing and reload
 
-The route prices nothing. It reads the cost recorded with each run, as `sortie stats` does, so the two report the same cost for the same range whatever the [rates](/reference/workflow-config/#token_rates) are now. `warnings` carries no `token_rates` advisory; `sortie validate` and the service log report those.
+The route prices finished runs with nothing but the cost recorded with them, as `sortie stats` does, so the two report the same cost for the same range whatever the [rates](/reference/workflow-config/#token_rates) are now. The one difference is `spend` while a session runs. The route adds the turns that session has ended, priced under the rates in force as if the run ended now, and the command cannot read them. The `summary` and the breakdowns count finished runs only. `warnings` carries no `token_rates` advisory; `sortie validate` and the service log report those.
 
 The route builds the funnels from the `dispatch` rules in force at the time of the request, so it follows a reload of the workflow. `sortie stats` reads the workflow file each time it runs, so after an edit of the `dispatch` section the command shows the new chains before the process has reloaded it.
 
@@ -2424,7 +2425,7 @@ The route applies no masking. The body holds no issue titles, error text, or age
 | Code | Error code | Meaning |
 |---|---|---|
 | `200 OK` | | Report returned, including a report over a range that holds no runs. |
-| `400 Bad Request` | `invalid_parameter` | A parameter other than `since` and `until`, a parameter given more than once, a value that is not a range bound, or `since` not before `until`. No run is read. |
+| `400 Bad Request` | `invalid_parameter` | A parameter other than `since`, `until`, and `period`, a parameter given more than once, a value that is not a range bound, `since` not before `until`, a `period` that is not a period name, a `period` without `since`, or a `period` that lists more than 336 buckets for the range. No run is read. |
 | `405 Method Not Allowed` | `method_not_allowed` | Any method other than `GET`. |
 | `503 Service Unavailable` | `history_unavailable` | The database could not be opened or read. |
 
@@ -2434,7 +2435,126 @@ The message of a `400` names the parameter and the rule:
 {"error": {"code": "invalid_parameter", "message": "parameter \"since\" must be an RFC 3339 timestamp, a date such as 2026-07-01, or a positive duration such as 24h"}}
 ```
 
-A parameter that is not a range bound reads `parameter "<name>" is not a parameter of this route`, a repeated one `parameter "<name>" is given more than once`, and a misordered pair `parameter "since" must be before until`. The text differs from the error `sortie stats` prints for the same value. A client that disconnects during the read gets no response, and the read stops.
+A parameter that is not a range bound reads `parameter "<name>" is not a parameter of this route`, a repeated one `parameter "<name>" is given more than once`, and a misordered pair `parameter "since" must be before until`. A `period` that lists too many buckets reads `parameter "period" lists <n> buckets for this range, over the limit of 336`, followed by the finest period that fits when there is one. The text differs from the error `sortie stats` prints for the same value. A client that disconnects during the read gets no response, and the read stops.
+
+---
+
+## GET /api/v1/stats/span: Sessions behind a stretch of spend
+
+Returns the totals of a window of time and the sessions that spent in it, each with its share of the window's cost and tokens. It lists what is behind any stretch of the [`spend`](/reference/cli/#spend-by-period) series of [`GET /api/v1/stats`](#get-apiv1stats-run-statistics). It counts turns, the turns of running sessions, and runs recorded without turn records by the same rules as that series. `sortie stats` has no counterpart.
+
+```sh
+curl 'http://localhost:7678/api/v1/stats/span?since=2026-01-31T00:00:00Z&until=2026-02-01T00:00:00Z'
+```
+
+### Query parameters
+
+| Parameter | Value | Selects |
+|---|---|---|
+| `since` | A range bound | Required. The turns that ended at or after it. |
+| `until` | A range bound | Optional, open when absent. The turns that ended before it, and no later than the instant of the request. When both bounds are given, `since` must be before `until`. |
+
+A range bound takes the forms listed for [`GET /api/v1/stats`](#get-apiv1stats-run-statistics). The window is exactly what you pass. The route never moves a bound to a bucket boundary, a duration included, so to list a stretch of the chart, pass the start of its first bucket as `since` and the end of its last as `until`. An empty value is the same as an absent one. Sortie checks every parameter before it reads anything.
+
+### Response
+
+```json
+{
+  "generated_at": "2026-02-01T09:00:00Z",
+  "since": "2026-01-31T00:00:00Z",
+  "until": "2026-02-01T00:00:00Z",
+  "period": "quarter_hour",
+  "totals": {
+    "start": "2026-01-31T00:00:00Z",
+    "runs": 2,
+    "turns": 6,
+    "tool_calls": 20,
+    "errors": 1,
+    "turns_unrecorded_runs": 1,
+    "tokens": {"input": 120000, "output": 24000, "total": 144000, "cache_read": 30000, "cache_write": 4000, "uncached": 114000, "fresh_input": 86000},
+    "cost_usd": 1.8,
+    "cost_by_kind": null,
+    "tokens_unmeasured_runs": 0,
+    "cost_unpriced_runs": 0,
+    "cost_partial_runs": 0,
+    "tokens_lower_bound_runs": 0,
+    "tokens_lower_bound": false,
+    "cost_lower_bound": false,
+    "agent_priced_usd": null,
+    "in_progress": false
+  },
+  "sessions": [
+    {
+      "identifier": "MT-649",
+      "issue_title": "Fix the flaky login test",
+      "dispatch_id": "RLQFSIOFERWGDW2HZY45W55VXK",
+      "rule_name": "default",
+      "agent_kind": "claude-code",
+      "status": "succeeded",
+      "turns": 6,
+      "tokens": {"input": 80000, "output": 16000, "total": 96000, "cache_read": 20000, "cache_write": 3000, "uncached": 76000, "fresh_input": 57000},
+      "cost_usd": 1.2,
+      "cost_unpriced": false,
+      "cost_share": 0.6666666666666666,
+      "tokens_share": 0.6666666666666666
+    },
+    {
+      "identifier": "MT-652",
+      "issue_title": "Add the export button",
+      "dispatch_id": null,
+      "rule_name": "default",
+      "agent_kind": "claude-code",
+      "status": "succeeded",
+      "turns": null,
+      "tokens": {"input": 40000, "output": 8000, "total": 48000, "cache_read": 10000, "cache_write": 1000, "uncached": 38000, "fresh_input": 29000},
+      "cost_usd": 0.6,
+      "cost_unpriced": false,
+      "cost_share": 0.3333333333333333,
+      "tokens_share": 0.3333333333333333
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `generated_at` | string | The instant of the request, RFC 3339 in UTC. |
+| `since`, `until` | string, string or null | The resolved bounds in UTC. `until` is `null` when absent. |
+| `period` | string | The bucket size `spend` takes for the same window, picked by the rule in [spend by period](/reference/cli/#spend-by-period). |
+| `totals` | object | The members of a `spend` bucket, defined in [spend by period](/reference/cli/#spend-by-period), over the whole window, with `start` equal to `since`. Its run counts count each run once over the whole window, so they can be lower than the sum over the buckets that make up the window. `in_progress` is `true` while `until` is absent or later than the instant of the request. |
+| `sessions` | array of object | Every run with a turn that ended in the window, or recorded without turn records and completed in it, listed once. `[]` when none. |
+
+Each element of `sessions`:
+
+| Field | Type | Description |
+|---|---|---|
+| `identifier`, `issue_title`, `rule_name`, `agent_kind` | string | As recorded with the run. |
+| `display_identifier` | string | The qualified form of the identifier. Absent when the identifier suffices. |
+| `dispatch_id` | string or null | The run's dispatch ID. `null` when none was recorded. |
+| `status` | string | The run's recorded status, or `running` for a session that is running. |
+| `turns` | integer or null | The session's turns that ended in the window. `null` for a run recorded without turn records. |
+| `tokens` | object or null | The token sums of the session's measured turns in the window, as in a `spend` bucket. |
+| `cost_usd` | number or null | The recorded cost of the session's priced turns in the window, as in a `spend` bucket. |
+| `cost_unpriced` | boolean | `true` when a measured part of the session spent tokens and has no cost. |
+| `cost_share` | number or null | The session's part of the sessions' `cost_usd` summed, from 0 to 1 and not rounded. `null` when the session has no cost or that sum is `0`. |
+| `tokens_share` | number or null | The same share of `tokens.uncached`. |
+
+A `tokens` of `null` means the session was not measured. A `cost_usd` of `null` with `cost_unpriced` `true` means it was not priced, and with `cost_unpriced` `false` and `tokens` set it means the session spent nothing priced. Sessions come ordered by descending `cost_share`, then `tokens_share`, then `turns`, with `null` after every value at each key, then by ascending `dispatch_id`.
+
+### Exposure
+
+The body holds no host paths and no error text. `issue_title` passes through the same masking as the logs: a value Sortie knows to be a secret reads `[redacted]`. It holds issue identifiers and the rule and agent kind names your workflow defines.
+
+### Status codes
+
+| Code | Error code | Meaning |
+|---|---|---|
+| `200 OK` | | Report returned, including one over a window that holds no activity. |
+| `400 Bad Request` | `invalid_parameter` | A missing `since`, a parameter other than `since` and `until`, a parameter given more than once, a value that is not a range bound, or `since` not before `until`. No run is read. |
+| `405 Method Not Allowed` | `method_not_allowed` | Any method other than `GET`. |
+| `503 Service Unavailable` | `history_unavailable` | The database could not be opened or read. |
+
+A missing `since` reads `parameter "since" is required`. The other messages read as those of [`GET /api/v1/stats`](#get-apiv1stats-run-statistics). A client that disconnects during the read gets no response, and the read stops.
 
 ---
 
@@ -4579,9 +4699,9 @@ All JSON API errors use a consistent structure:
 | `reaction_not_found` | 404 | `POST /api/v1/reactions/{identifier}/{kind}/check` found no pending reaction of that kind for the identifier. |
 | `retry_now_unavailable` | 503 | `POST /api/v1/retries/{identifier}/run` was not taken; nothing changed. |
 | `check_now_unavailable` | 503 | `POST /api/v1/reactions/{identifier}/{kind}/check` was not taken; nothing changed. |
-| `invalid_parameter` | 400 | `GET /api/v1/runs`, `GET /api/v1/runs/issues`, `GET /api/v1/stats`, or `GET /api/v1/events` rejected a query parameter, or a misordered pair of bounds. The message names the parameter and the rule. |
+| `invalid_parameter` | 400 | `GET /api/v1/runs`, `GET /api/v1/runs/issues`, `GET /api/v1/stats`, `GET /api/v1/stats/span`, or `GET /api/v1/events` rejected a query parameter, or a misordered pair of bounds. The message names the parameter and the rule. |
 | `snapshot_unavailable` | 503 | The orchestrator could not produce a state snapshot. |
-| `history_unavailable` | 503 | Run history or the issue outcomes could not be read, the database behind `GET /api/v1/stats` could not be opened or read, or `GET /api/v1/prices` could not read the models run history records. |
+| `history_unavailable` | 503 | Run history or the issue outcomes could not be read, the database behind `GET /api/v1/stats` or `GET /api/v1/stats/span` could not be opened or read, or `GET /api/v1/prices` could not read the models run history records. |
 | `attention_item_not_found` | 404 | `POST /api/v1/attention/{id}/acknowledge` found no current attention item with the `id`. |
 | `run_events_not_retained` | 404 | `GET /api/v1/runs/{dispatch_id}/events` has no events for the dispatch ID. |
 | `acknowledgement_not_saved` | 500 | `POST /api/v1/attention/{id}/acknowledge` could not save the acknowledgement; nothing changed. |
@@ -4625,6 +4745,7 @@ A state-changing request that is refused as [cross-origin](#cross-origin-request
 | GET | `/api/v1/runs/issues` | Run history grouped by issue, newest first, filtered and paged | `application/json` |
 | GET | `/api/v1/runs/{dispatch_id}/events` | The agent events Sortie kept for one run | `application/json` |
 | GET | `/api/v1/stats` | Run statistics over a completion-time range | `application/json` |
+| GET | `/api/v1/stats/span` | The sessions behind a stretch of the spend series | `application/json` |
 | GET | `/api/v1/prices` | Rates in force per agent kind and model, and the state of every price source | `application/json` |
 | GET | `/api/v1/{identifier}` | Per-issue detail and run history | `application/json` |
 | GET | `/api/v1/events` | Stream of change signals, heartbeats, and the agent events of the runs named with `run` | `text/event-stream` |
