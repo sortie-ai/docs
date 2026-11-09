@@ -841,7 +841,7 @@ curl http://localhost:7678/api/v1/state
 | `dispatch_id` | The ID Sortie gave this run when it dispatched it. Each run gets its own, never reused, across restarts too. Pass it to [`GET /api/v1/runs/{dispatch_id}/events`](#get-apiv1runsdispatch_idevents-run-events) to read the run's agent events, or in the `run` parameter of [`GET /api/v1/events`](#get-apiv1events-change-signals-and-agent-events) to receive them as the agent works. Always present, never empty. |
 | `last_event` | The type of the session's latest agent event. |
 | `last_message` | The message of the latest agent event that carried one, masked, `""` before any did. Events with no message leave it unchanged, so it holds the last thing the agent said, never a protocol marker. |
-| `last_event_at` | When the session's latest agent event arrived, in UTC. Every event counts, those the run does not keep included. `null` before the first event. |
+| `last_event_at` | When the session's latest agent event arrived, in UTC. Every event counts, those the run does not keep included, and an event Sortie has not yet applied to the run. `null` before the first event. |
 | `quiet_at` | Half of [`agent.stall_timeout_ms`](/reference/workflow-config/#agent) after `last_event_at`, or after `started_at` before the first event, in UTC. `null` when stall detection is off. |
 | `stall_at` | All of `agent.stall_timeout_ms` after the same instant, in UTC. The first poll tick after it stops the session as stalled. `null` when stall detection is off. |
 | `stall_text`, `stall_text_full` | A short and a long sentence that state how long the agent has been silent and when Sortie stops it, for example `No events for 2m; Sortie stops it after 5m`. The silence is rounded down, so the sentence stays true until the next event. `null` until `generated_at` reaches `quiet_at`, and while stall detection is off. A client that shows the sentence refetches at `quiet_at` to get it. |
@@ -1461,12 +1461,18 @@ A reload that fails to load changes nothing else: the previous configuration sta
 
 A running, retry, or budget-exhausted row records its `rule_name` and its `stage_lineage.previous`, and a running or retry row its `reaction_config_key`, when the run was dispatched or the row was stored, while `config` follows the rules above. A row can therefore name a rule or reaction that `config` no longer holds: after a reload that renames or removes a rule, after a restart on an edited file for a restored retry, or, for a row whose `rule_name` is `default`, once `dispatch.default` reads `null`. Read such a row from its own fields.
 
+### Freshness
+
+`GET /api/v1/state`, `GET /api/v1/runs/issues`, and `GET /api/v1/{identifier}` answer at once from the state as of the latest change Sortie applied, and none of them waits on a poll tick. While a tick waits on a call to the tracker, the source-control host, or the database, the answer holds the state as of the change before the tick, with these fields read at the moment of the request instead:
+
+- `generated_at`, `agent_totals.seconds_running`, and the windows in `rate_limits`, which follow the clock.
+- `last_event_at`, `quiet_at`, `stall_at`, and the stall sentences of each running row, which follow the newest agent event the session's worker sent, even when Sortie has not applied it yet.
+
 ### Status codes
 
 | Code | Meaning |
 |---|---|
 | `200 OK` | Snapshot returned. |
-| `503 Service Unavailable` | Orchestrator state snapshot could not be produced. |
 
 ---
 
@@ -1910,7 +1916,6 @@ The filters narrow `runs` to the matching runs, but `issue_identifier`, the titl
 | `200 OK` | | Page returned. |
 | `400 Bad Request` | `invalid_parameter` | Unknown or repeated parameter, or a malformed or out-of-range value. The message names the parameter and the rule, for example `parameter "limit" must be an integer from 1 to 50`. |
 | `405 Method Not Allowed` | `method_not_allowed` | Any method other than `GET`. |
-| `503 Service Unavailable` | `snapshot_unavailable` | The orchestrator state snapshot could not be produced. |
 | `503 Service Unavailable` | `history_unavailable` | Run history or the issue outcomes could not be read. |
 
 ---
@@ -4108,7 +4113,7 @@ Every `200` response carries `history`. It is `null` when the issue has no recor
 |---|---|
 | `200 OK` | Issue found and returned. |
 | `404 Not Found` | Neither the current state nor run history holds the identifier: it is not running, retrying, budget-exhausted, parked, waiting on a pending reaction, or between stages, and no run was recorded under it. |
-| `503 Service Unavailable` | The orchestrator state snapshot could not be produced (`snapshot_unavailable`), or run history or the issue outcome could not be read (`history_unavailable`). A failed history read answers `503` for a live identifier too. |
+| `503 Service Unavailable` | Run history or the issue outcome could not be read (`history_unavailable`). A failed history read answers `503` for a live identifier too. |
 
 ---
 
@@ -4700,7 +4705,6 @@ All JSON API errors use a consistent structure:
 | `retry_now_unavailable` | 503 | `POST /api/v1/retries/{identifier}/run` was not taken; nothing changed. |
 | `check_now_unavailable` | 503 | `POST /api/v1/reactions/{identifier}/{kind}/check` was not taken; nothing changed. |
 | `invalid_parameter` | 400 | `GET /api/v1/runs`, `GET /api/v1/runs/issues`, `GET /api/v1/stats`, `GET /api/v1/stats/span`, or `GET /api/v1/events` rejected a query parameter, or a misordered pair of bounds. The message names the parameter and the rule. |
-| `snapshot_unavailable` | 503 | The orchestrator could not produce a state snapshot. |
 | `history_unavailable` | 503 | Run history or the issue outcomes could not be read, the database behind `GET /api/v1/stats` or `GET /api/v1/stats/span` could not be opened or read, or `GET /api/v1/prices` could not read the models run history records. |
 | `attention_item_not_found` | 404 | `POST /api/v1/attention/{id}/acknowledge` found no current attention item with the `id`. |
 | `run_events_not_retained` | 404 | `GET /api/v1/runs/{dispatch_id}/events` has no events for the dispatch ID. |

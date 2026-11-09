@@ -375,7 +375,7 @@ Reconciliation runs at the start of every poll tick, before dispatch, as one fix
 
 **Part A: Overdue retry re-arm.** A retry timer event can be dropped if too many arrive at once. An entry whose `due_at` lags the current tick by more than 60 seconds is re-armed with a zero delay, so an undeliverable entry cannot hold the retry slot for the life of the process.
 
-**Part B: Stall detection.** For each running issue, compute elapsed time since the last agent event (or `started_at` if no event has arrived). If elapsed exceeds [`agent.stall_timeout_ms`](/reference/workflow-config/), the worker is killed and an exponential backoff retry is scheduled. Disabled when `stall_timeout_ms` is zero or negative.
+**Part B: Stall detection.** For each running issue, compute elapsed time since the session's latest agent event (or `started_at` if no event has arrived). An event the worker has sent that Sortie has not yet applied counts as the latest, so a session that keeps emitting events is not stopped as stalled while the poll tick is blocked, for example on a long workspace hook. If elapsed exceeds [`agent.stall_timeout_ms`](/reference/workflow-config/), the worker is killed and an exponential backoff retry is scheduled. Disabled when `stall_timeout_ms` is zero or negative.
 
 **Part C: Tracker state refresh.** Fetch current tracker states and labels for all running issue IDs, for every issue carrying a pending reaction, and for every issue holding a [stage hop](#stage-hop) record, running or not.
 
