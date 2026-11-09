@@ -287,7 +287,6 @@ The JSON API returns errors in a standard envelope:
 | `attention_item_not_found` | `404` | `POST /api/v1/attention/{id}/acknowledge` found no current attention item with the `id`. |
 | `run_events_not_retained` | `404` | `GET /api/v1/runs/{dispatch_id}/events` has no events for the run: no run carries the dispatch ID, or its events were never kept, pruned, or lost. |
 | `invalid_parameter` | `400` | `GET /api/v1/runs`, `GET /api/v1/runs/issues`, `GET /api/v1/stats`, `GET /api/v1/stats/span`, or `GET /api/v1/events` rejected a query parameter: unknown, repeated, malformed, out of range, or a misordered pair of bounds. The message names the parameter and the rule. |
-| `snapshot_unavailable` | `503` | Orchestrator state snapshot temporarily unavailable. Retry after a short delay. |
 | `history_unavailable` | `503` | Run history or the issue outcomes could not be read. Retry after a short delay. |
 | `cross_origin_request_rejected` | `403` | A browser sent a state-changing request from a page on another origin, or one Sortie could not confirm came from its own origin. Nothing changed. Which requests are refused, and what a reverse proxy must pass on, is in [cross-origin requests](/reference/http-api/#cross-origin-requests). |
 | `method_not_allowed` | `405` | Wrong HTTP method for the endpoint (e.g., `POST` to a `GET`-only route). The `Allow` header indicates the correct method. |
