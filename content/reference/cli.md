@@ -273,6 +273,7 @@ Sets the listening port for the embedded HTTP server. The server starts by defau
 - `/api/v1/runs/issues`: run history grouped by issue
 - `/api/v1/runs/<dispatch_id>/events`: agent events of one run
 - `/api/v1/stats`: run statistics
+- `/api/v1/stats/span`: the sessions behind a stretch of the spend series
 - `/api/v1/prices`: rates in force and the state of every price source
 - `/api/v1/events`: change signals and agent events
 - `/api/v1/<identifier>`: per-issue detail and run history
@@ -666,7 +667,7 @@ For details on each check, see [GitHub adapter validate-time checks](/reference/
 
 ### `stats`
 
-Reports how past runs went and what they cost. Sortie appends one row to `run_history` each time an agent session finishes; `stats` reads that history back over a time range and aggregates it into run counts, the number of issues those runs belong to, success rate, duration percentiles, turns, token sums, and the estimated cost recorded with each run, that cost per UTC day or month in JSON, broken down by outcome, by coding agent, by dispatch rule, by prompt template, by model, by usage provenance, by stage chain, by retry trigger, and by run origin, plus a funnel for each stage chain. The database is opened read-only, so the command is safe to run while the orchestrator is working, and it makes no network call. A running Sortie serves the same report over HTTP at [`GET /api/v1/stats`](/reference/http-api/#get-apiv1stats-run-statistics).
+Reports how past runs went and what they cost. Sortie appends one row to `run_history` each time an agent session finishes; `stats` reads that history back over a time range and aggregates it into run counts, the number of issues those runs belong to, success rate, duration percentiles, turns, token sums, and the estimated cost recorded with each run, that spend per time period in JSON, broken down by outcome, by coding agent, by dispatch rule, by prompt template, by model, by usage provenance, by stage chain, by retry trigger, and by run origin, plus a funnel for each stage chain. The database is opened read-only, so the command is safe to run while the orchestrator is working, and it makes no network call. A running Sortie serves the same report over HTTP at [`GET /api/v1/stats`](/reference/http-api/#get-apiv1stats-run-statistics).
 
 ```
 sortie stats [--format text|json] [--since value] [--until value] [workflow-path]
@@ -1002,32 +1003,42 @@ Every run in the range counts, whatever its status, including a `ci_failed` run,
 
 #### Spend by period
 
-The `spend` member of the JSON report sums the tokens and the recorded cost of the runs in the range per UTC calendar period. The dashboard draws it as the chart in [Analytics](/reference/dashboard/#analytics): the cost in its **Cost** view and the tokens in its **Tokens** view. The text report has no such table. `spend` is present on every report. On the `base` tier every bucket has `tokens` and `cost_usd` `null`, and on a database that records no cost every bucket has `cost_usd` `null`.
+The `spend` member of the JSON report sums the tokens and the recorded cost per UTC period. It counts each agent turn in the period the turn ended in, so a run that works across several hours spreads over them. The dashboard draws it as the chart in [Analytics](/reference/dashboard/#analytics): the cost in its **Cost** view and the tokens in its **Tokens** view. The text report has no such table. `spend` is present on every report. On the `base` tier every bucket has `tokens` and `cost_usd` `null`, and on a database that records no cost every bucket has `cost_usd` `null`.
 
 | Field | Type | Description |
 |---|---|---|
-| `period` | string | `day` when the range has a `since` that lies no more than 2160 hours before the end of the range, which is `until` or else `generated_at`. `month` otherwise, so a range of 90 days or less gets days and an open `since` gets months. |
-| `buckets` | array of object | One element per period, ascending by `start`. Never `null`; `[]` when no run in the range has a parseable completion time. |
+| `period` | string | The size of every bucket: `five_minutes`, `quarter_hour`, `hour`, `day`, or `month`. The command picks the finest of `five_minutes`, `quarter_hour`, `hour`, and `day` that keeps the range to at most 168 buckets, counting the range from `since` to `until`, or else to `generated_at`: up to 14 hours gets `five_minutes`, up to 42 hours `quarter_hour`, up to 168 hours `hour`, and up to 4032 hours `day`. A longer range and an open `since` get `month`. |
+| `buckets` | array of object | One element per period, ascending by `start`. Never `null`. |
 
-The buckets list every period from the one that holds `since` (the one that holds the earliest run when `since` is open) through the later of the one that holds the end of the range and the one that holds the latest run. A period without runs appears with `runs` `0` and `tokens` and `cost_usd` `null`. A run counts in the bucket whose period holds its completion time, so the buckets partition the runs they count. A run whose completion time is not an RFC 3339 timestamp counts in the summary and the breakdowns and in no bucket. The first bucket of a range whose `since` lies inside a period holds only the runs at or after `since`.
+A period under a day starts at a multiple of its length counted from 00:00 UTC. A day is a UTC day and a month a UTC calendar month. The [HTTP API](/reference/http-api/#get-apiv1stats-run-statistics) also takes a `period` parameter that sets the size; the command has no such flag.
+
+A bounded range lists every period from the one that holds the start of the range through the one that holds its end, which is never later than `generated_at`. A period without activity appears with `runs`, `turns`, and every other count at `0`, `tokens` with every member at `0`, and `cost_usd` at `0` when the database records cost. An open range starts at the period of the earliest activity and gives `[]` when there is none. A `--since` given as a duration, such as `24h`, starts the series at the first period boundary at or after that instant, so `24h` always lists 96 buckets of 15 minutes. A `--since` given as a timestamp or a date keeps the bucket that holds it, and that bucket counts only the activity at or after `--since`.
+
+A turn counts in the bucket that holds the instant it ended, and only when that instant lies inside the range. The `summary` and the breakdowns count the runs that completed in the range, so the sums of the buckets need not equal the `summary` figures. A run recorded before Sortie kept turn records has no turn to place, and counts whole at the time it completed. A `ci_failed` run and a run that ended before its first turn count in no bucket. `sortie stats` reads only the database, so a session that is still running counts once it finishes; the [HTTP API](/reference/http-api/#get-apiv1stats-run-statistics) also counts the turns a running session has ended.
 
 Each element of `buckets`:
 
 | Field | Type | Description |
 |---|---|---|
 | `start` | string | The first instant of the period, RFC 3339 in UTC. |
-| `runs` | integer | Runs that completed in the period. |
-| `tokens` | object or null | The token sums of the period's measured runs, with the same members as the `tokens` object of the summary. `null` when no run of the period is measured, and on the `base` tier. |
-| `cost_usd` | number or null | The sum of the recorded costs of the period's priced runs, rounded to nine decimals. `null` when none is priced. It is the whole spend only while `cost_lower_bound` is `false`. |
-| `tokens_unmeasured_runs` | integer | The period's runs counted as in `summary.tokens_unmeasured_runs`. |
-| `cost_unpriced_runs` | integer | The period's runs counted as in `summary.cost_unpriced_runs`. |
-| `cost_partial_runs` | integer | The period's runs counted as in `summary.cost_partial_runs`. |
-| `tokens_lower_bound_runs` | integer | The period's measured runs counted as in `summary.tokens_lower_bound_runs`. |
+| `runs` | integer | The distinct runs with a turn that ended in the period, plus the runs recorded without turn records that completed in it. A run that worked across several periods counts in each. |
+| `turns` | integer | The turns that ended in the period. A run recorded without turn records adds none. |
+| `tool_calls` | integer | The tool calls those turns recorded. |
+| `errors` | integer | The errors those turns recorded. |
+| `turns_unrecorded_runs` | integer | The runs recorded without turn records that completed in the period. |
+| `tokens` | object or null | The token sums of the period's measured turns and runs, with the same members as the `tokens` object of the summary. A turn's `total` is its `input` plus its `output`. `null` when the period has activity and none of it is measured, and on the `base` tier. |
+| `cost_usd` | number or null | The sum of the recorded costs of the period's priced turns and runs, rounded to nine decimals. `null` when the period has activity and none of it is priced, and when the database records no cost. It is the whole spend only while `cost_lower_bound` is `false`. |
+| `cost_by_kind` | object or null | `cost_usd` split into `fresh_input_usd`, `output_usd`, `cache_write_usd`, and `cache_read_usd`, rounded to nine decimals. `null` whenever `cost_usd` is `null`, and when a priced run recorded without turn records counts in the period, because no split was stored for it. |
+| `tokens_unmeasured_runs` | integer | The period's runs counted as in `summary.tokens_unmeasured_runs`, once per run. |
+| `cost_unpriced_runs` | integer | The period's runs counted as in `summary.cost_unpriced_runs`, once per run. |
+| `cost_partial_runs` | integer | The period's runs counted as in `summary.cost_partial_runs`, once per run. |
+| `tokens_lower_bound_runs` | integer | The period's measured runs counted as in `summary.tokens_lower_bound_runs`, once per run. |
 | `tokens_lower_bound` | boolean | `true` when `tokens` is not `null` and either `tokens_unmeasured_runs` or `tokens_lower_bound_runs` is above `0`. |
 | `cost_lower_bound` | boolean | `true` when `cost_usd` is not `null` and any of `cost_unpriced_runs`, `cost_partial_runs`, and `tokens_unmeasured_runs` is above `0`. |
-| `agent_priced_usd` | number or null | The part of `cost_usd` priced from US dollar amounts the coding agent reported, as in `summary.agent_priced_usd`. `null` when no run of the period was priced that way. |
+| `agent_priced_usd` | number or null | The part of `cost_usd` priced from US dollar amounts the coding agent reported, as in `summary.agent_priced_usd`. A turn's share is its cost times the part of its run's cost that was priced that way. `null` when no turn or run of the period was priced that way. |
+| `in_progress` | boolean | `true` for the period that has not ended at `generated_at`. |
 
-The days and months are the periods that `agent.max_daily_cost_usd` and `agent.max_monthly_cost_usd` count, so a bucket compares directly with those two ceilings. `stats` has no weekly bucket, so `agent.max_weekly_cost_usd` has no matching bucket to compare against.
+A bucket does not compare directly with `agent.max_daily_cost_usd` or `agent.max_monthly_cost_usd`. A ceiling counts a finished run whole in the window it ended in, so a run that crosses midnight counts toward the new day, while a day bucket splits that run between two days. `stats` has no weekly bucket either.
 
 #### Output formats
 
@@ -1155,7 +1166,7 @@ Envelope:
 | `schema_tier` | string | `"full"` or `"base"`. See [schema tiers](#schema-tiers). |
 | `warnings` | array of string | Advisory messages: a degraded schema, or one warning that names every breakdown and figure a `full` database leaves out. At most one entry. `token_rates` advisories are not listed; `sortie validate` reports them. Empty when there is nothing to report, never `null`. The `warning: ` prefix belongs to text rendering and is not part of these strings. |
 | `summary` | object | Report-wide figures. Always present. |
-| `spend` | object | The tokens and recorded cost per UTC day or month. Always present. See [spend by period](#spend-by-period). |
+| `spend` | object | The tokens and recorded cost per UTC period, each turn counted in the period it ended in. Always present. See [spend by period](#spend-by-period). |
 | `by_status` | array of object | Breakdown by outcome. |
 | `by_adapter` | array of object | Breakdown by coding agent. |
 | `by_rule` | array of object | Breakdown by dispatch rule. Empty array on the `base` tier. |
@@ -1313,7 +1324,7 @@ A worked example, expanded for readability and trimmed to one element per breakd
   "spend": {
     "period": "day",
     "buckets": [
-      {"start": "2026-07-01T00:00:00Z", "runs": 0, "tokens": null, "cost_usd": null, "tokens_unmeasured_runs": 0, "cost_unpriced_runs": 0, "cost_partial_runs": 0, "tokens_lower_bound_runs": 0, "tokens_lower_bound": false, "cost_lower_bound": false, "agent_priced_usd": null}
+      {"start": "2026-07-01T00:00:00Z", "runs": 2, "turns": 9, "tool_calls": 31, "errors": 2, "turns_unrecorded_runs": 0, "tokens": {"input": 120000, "output": 24000, "total": 144000, "cache_read": 30000, "cache_write": 4000, "uncached": 114000, "fresh_input": 86000}, "cost_usd": 1.62, "cost_by_kind": {"fresh_input_usd": 0.86, "output_usd": 0.6, "cache_write_usd": 0.1, "cache_read_usd": 0.06}, "tokens_unmeasured_runs": 0, "cost_unpriced_runs": 0, "cost_partial_runs": 0, "tokens_lower_bound_runs": 0, "tokens_lower_bound": false, "cost_lower_bound": false, "agent_priced_usd": null, "in_progress": false}
     ]
   },
   "by_status": [
