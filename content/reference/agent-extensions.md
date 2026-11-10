@@ -108,9 +108,11 @@ The statement is the agent's own text, written for people who read the issue. So
 
 ### Auto-injection
 
-Sortie appends protocol instructions to the first-turn prompt automatically. The agent receives this text without any workflow author configuration:
+Sortie appends protocol instructions to the first-turn prompt automatically, after the rendered template and after the tool advertisement when one is written. The agent receives this text without any workflow author configuration. It opens with its own level-2 heading, so it is a separate section of the prompt:
 
 ```
+## Report your status
+
 If you determine that you cannot make further progress on this task without human
 intervention, or if your work is complete and requires human review, or if you
 determine that the requested outcome already held and you changed nothing, signal
